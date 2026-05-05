@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: write
-  id-token: write  # required for Infisical OIDC auth
+  packages: write
 
 jobs:
   build:
@@ -14,30 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pull secrets from Infisical
-        uses: infisical/secrets-action@v1.0.16
-        with:
-          method: "oidc"
-          env-slug: "prod"
-          project-slug: "aria-merlinlabs"
-          identity-id: ${{ vars.INFISICAL_MACHINE_IDENTITY_ID }}
-          secret-path: "/ghcr"
-
-      - name: Pull missioncontrol secrets from Infisical
-        uses: infisical/secrets-action@v1.0.16
-        with:
-          method: "oidc"
-          env-slug: "prod"
-          project-slug: "aria-merlinlabs"
-          identity-id: ${{ vars.INFISICAL_MACHINE_IDENTITY_ID }}
-          secret-path: "/missioncontrol"
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ env.GHCR_USERNAME }}
-          password: ${{ env.GHCR_PAT }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -52,20 +34,15 @@ jobs:
           tags: |
             ghcr.io/ryanmerlin/missioncontrol:${{ github.sha }}
             ghcr.io/ryanmerlin/missioncontrol:latest
-            ghcr.io/missioncontrol-ai/missioncontrol:${{ github.sha }}
-            ghcr.io/missioncontrol-ai/missioncontrol:latest
           cache-from: type=gha,scope=missioncontrol
           cache-to: type=gha,mode=max,scope=missioncontrol
 
       - name: Update gitops image tags
         run: |
           SHORT_SHA=$(git rev-parse --short HEAD)
-          git clone https://x-access-token:${MC_GIT_PUBLISH_TOKEN}@github.com/RyanMerlin/gitops-merlinlabs.git /tmp/gitops
+          git clone https://x-access-token:${{ secrets.MC_GIT_PUBLISH_TOKEN }}@github.com/RyanMerlin/gitops-merlinlabs.git /tmp/gitops
           cd /tmp/gitops
           sed -i "s|ghcr.io/ryanmerlin/missioncontrol:[a-f0-9]*|ghcr.io/ryanmerlin/missioncontrol:${SHORT_SHA}|g" \
-            merlinlabs/applications/missioncontrol/missioncontrol-deployment.yaml \
-            merlinlabs/applications/missioncontrol/mc-server-deployment.yaml
-          sed -i "s|ghcr.io/missioncontrol-ai/missioncontrol:[a-f0-9]*|ghcr.io/missioncontrol-ai/missioncontrol:${SHORT_SHA}|g" \
             merlinlabs/applications/missioncontrol/missioncontrol-deployment.yaml \
             merlinlabs/applications/missioncontrol/mc-server-deployment.yaml
           git config user.email "ci@ryanmerlin.dev"
