@@ -14,6 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -32,14 +36,14 @@ jobs:
           target: prod
           push: true
           tags: |
-            ghcr.io/ryanmerlin/missioncontrol:${{ github.sha }}
+            ghcr.io/ryanmerlin/missioncontrol:${{ steps.sha.outputs.short }}
             ghcr.io/ryanmerlin/missioncontrol:latest
           cache-from: type=gha,scope=missioncontrol
           cache-to: type=gha,mode=max,scope=missioncontrol
 
       - name: Update gitops image tags
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
+          SHORT_SHA=${{ steps.sha.outputs.short }}
           git clone https://x-access-token:${{ secrets.MC_GIT_PUBLISH_TOKEN }}@github.com/RyanMerlin/gitops-merlinlabs.git /tmp/gitops
           cd /tmp/gitops
           sed -i "s|ghcr.io/ryanmerlin/missioncontrol:[a-f0-9]*|ghcr.io/ryanmerlin/missioncontrol:${SHORT_SHA}|g" \
