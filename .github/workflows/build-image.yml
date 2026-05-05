@@ -43,11 +43,9 @@ jobs:
           git clone https://x-access-token:${{ secrets.MC_GIT_PUBLISH_TOKEN }}@github.com/RyanMerlin/gitops-merlinlabs.git /tmp/gitops
           cd /tmp/gitops
           sed -i "s|ghcr.io/ryanmerlin/missioncontrol:[a-f0-9]*|ghcr.io/ryanmerlin/missioncontrol:${SHORT_SHA}|g" \
-            merlinlabs/applications/missioncontrol/missioncontrol-deployment.yaml \
             merlinlabs/applications/missioncontrol/mc-server-deployment.yaml
           git config user.email "ci@ryanmerlin.dev"
           git config user.name "MC CI"
-          git add merlinlabs/applications/missioncontrol/missioncontrol-deployment.yaml \
-                  merlinlabs/applications/missioncontrol/mc-server-deployment.yaml
+          git add merlinlabs/applications/missioncontrol/mc-server-deployment.yaml
           git diff --staged --quiet || git commit -m "chore(deploy): bump missioncontrol to ${SHORT_SHA}"
           git push
