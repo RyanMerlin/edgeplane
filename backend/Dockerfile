@@ -12,51 +12,34 @@ COPY integrations/mc-server ./integrations/mc-server
 RUN touch integrations/mc-server/src/main.rs integrations/mc-server/src/lib.rs && \
     cargo build --release --manifest-path integrations/mc-server/Cargo.toml
 
-# ── base: shared deps layer ─────────────────────────────────────────────────
-FROM python:3.11-slim AS base
-
+# ── migrate: minimal Python image for Alembic ────────────────────────────────
+FROM python:3.11-slim AS migrate
 WORKDIR /app
-
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    MC_OBJECT_STORAGE_ENDPOINT= \
-    MC_OBJECT_STORAGE_REGION=us-east-1 \
-    MC_OBJECT_STORAGE_BUCKET=missioncontrol \
-    MC_OBJECT_STORAGE_SECURE=true \
-    MC_OBJECT_STORAGE_ACCESS_KEY= \
-    MC_OBJECT_STORAGE_ACCESS_SECRET=
+    PIP_NO_CACHE_DIR=1
+COPY backend/requirements-migrate.txt /app/
+RUN pip install --no-cache-dir -r requirements-migrate.txt
+COPY backend/alembic /app/alembic
+COPY backend/alembic.ini /app/alembic.ini
+COPY backend/app/models.py \
+     backend/app/db.py \
+     backend/app/config_paths.py \
+     /app/app/
+COPY backend/app/services/secrets.py /app/app/services/
+RUN touch /app/app/__init__.py /app/app/services/__init__.py
+CMD ["python", "-m", "alembic", "upgrade", "head"]
 
+# ── prod: pure Rust binary ────────────────────────────────────────────────────
+FROM debian:trixie-slim AS prod
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates curl \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 3000 missioncontrol \
-    && useradd --uid 3000 --gid 3000 --create-home --shell /usr/sbin/nologin missioncontrol \
-    && rm -rf /var/lib/apt/lists/*
-
-ARG INSTALL_CHROMA=false
-COPY backend/requirements.txt backend/requirements-chroma.txt /app/
-RUN if [ "$INSTALL_CHROMA" = "true" ]; then \
-      pip install --no-cache-dir -r /app/requirements-chroma.txt; \
-    else \
-      pip install --no-cache-dir -r /app/requirements.txt; \
-    fi
-
-# ── dev: source is bind-mounted at runtime; runs as root for clean permissions
-FROM base AS dev
-EXPOSE 8008
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8008", "--reload"]
-
-# ── prod: source baked in, non-root user ────────────────────────────────────
-FROM base AS prod
-
-COPY backend /app
-COPY web /app/web
-COPY --from=mc-server-builder /build/integrations/mc-server/target/release/mc-server /usr/local/bin/mc-server
-RUN mkdir -p /app/chroma /data \
-    && chown -R missioncontrol:missioncontrol /app /data
-
+    && useradd --uid 3000 --gid 3000 --no-create-home --shell /usr/sbin/nologin missioncontrol
+COPY --from=mc-server-builder \
+    /build/integrations/mc-server/target/release/mc-server \
+    /usr/local/bin/mc-server
 USER missioncontrol
-
 EXPOSE 8008
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8008"]
+CMD ["mc-server", "--bind", "0.0.0.0:8008"]
