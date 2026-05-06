@@ -1,7 +1,6 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Widget},
 };
@@ -11,15 +10,17 @@ use crate::theme;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApprovalRequest {
-    pub id: String,
-    pub task_id: Option<String>,
-    pub mission_name: Option<String>,
-    pub agent_id: Option<String>,
-    pub tool: String,
-    pub risk_level: String,
-    pub wait_secs: Option<u64>,
-    pub reasoning: Option<String>,
-    pub input_json: Option<String>,
+    pub id: i64,
+    #[serde(default)]
+    pub mission_id: Option<String>,
+    pub action: String,
+    #[serde(default)]
+    pub channel: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub requested_by: Option<String>,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -32,18 +33,12 @@ pub enum Focus {
 pub struct ApprovalQueueState {
     pub focus: Focus,
     pub pending: Vec<ApprovalRequest>,
-    pub history: Vec<(ApprovalRequest, String)>, // (request, decision)
+    pub history: Vec<(String, String)>, // (action, decision)
     pub selection: usize,
     pub loading: bool,
     pub last_error: Option<String>,
-    /// Set when a key action was taken; cleared after dispatch.
-    pub pending_action: Option<ApprovalAction>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ApprovalAction {
-    pub approval_id: String,
-    pub decision: String, // "approve" or "reject"
+    /// Set when y/n was pressed; cleared after dispatch.
+    pub pending_response: Option<(i64, bool)>,
 }
 
 impl Default for Focus {
@@ -69,38 +64,29 @@ impl ApprovalQueueState {
                 if self.selection + 1 < self.pending.len() { self.selection += 1; }
                 true
             }
-            Char('y') | Char('Y') => {
+            Char('y') => {
                 if let Some(req) = self.pending.get(self.selection) {
-                    self.pending_action = Some(ApprovalAction {
-                        approval_id: req.id.clone(),
-                        decision: "approve".to_string(),
-                    });
+                    self.pending_response = Some((req.id, true));
                 }
                 true
             }
-            Char('n') | Char('N') => {
+            Char('n') => {
                 if let Some(req) = self.pending.get(self.selection) {
-                    self.pending_action = Some(ApprovalAction {
-                        approval_id: req.id.clone(),
-                        decision: "reject".to_string(),
-                    });
+                    self.pending_response = Some((req.id, false));
                 }
                 true
             }
-            Char('s') | Char('S') => {
-                // Skip: advance selection without acting
-                if self.selection + 1 < self.pending.len() {
-                    self.selection += 1;
-                }
+            Char('s') => {
+                if self.selection + 1 < self.pending.len() { self.selection += 1; }
                 true
             }
             _ => false,
         }
     }
 
-    /// Take and clear the pending action (called by app.rs after dispatching).
-    pub fn take_action(&mut self) -> Option<ApprovalAction> {
-        self.pending_action.take()
+    /// Take and clear the pending response (called by app.rs after dispatching).
+    pub fn take_pending_response(&mut self) -> Option<(i64, bool)> {
+        self.pending_response.take()
     }
 
     pub fn selected(&self) -> Option<&ApprovalRequest> {
@@ -163,10 +149,9 @@ fn render_queue(buf: &mut Buffer, area: Rect, state: &ApprovalQueueState) {
             let selected = i == state.selection && focused;
             let style = if selected { theme::selected() } else { theme::normal() };
             ListItem::new(Line::from(vec![
-                Span::styled(risk_dot(&req.risk_level), risk_style(&req.risk_level)),
-                Span::styled(format!(" {:<20} ", truncate(&req.tool, 18)), style),
+                Span::styled(format!("{:<20} ", truncate(&req.action, 18)), style),
                 Span::styled(
-                    req.mission_name.as_deref().unwrap_or("—"),
+                    req.mission_id.as_deref().unwrap_or("—"),
                     theme::dim(),
                 ),
             ]))
@@ -190,7 +175,7 @@ fn render_queue(buf: &mut Buffer, area: Rect, state: &ApprovalQueueState) {
     let hinner = hblock.inner(outer[1]);
     hblock.render(outer[1], buf);
 
-    let hist_items: Vec<Line> = state.history.iter().rev().take(5).map(|(req, decision)| {
+    let hist_items: Vec<Line> = state.history.iter().rev().take(5).map(|(action, decision)| {
         let (dot, sty) = match decision.as_str() {
             "approved" => ("✓", theme::ok()),
             "denied" => ("✗", theme::err()),
@@ -198,7 +183,7 @@ fn render_queue(buf: &mut Buffer, area: Rect, state: &ApprovalQueueState) {
         };
         Line::from(vec![
             Span::styled(dot, sty),
-            Span::styled(format!(" {}", truncate(&req.tool, 16)), theme::dim()),
+            Span::styled(format!(" {}", truncate(action, 16)), theme::dim()),
             Span::styled(format!("  {}", decision), sty),
         ])
     }).collect();
@@ -225,40 +210,28 @@ fn render_detail(buf: &mut Buffer, area: Rect, state: &ApprovalQueueState) {
 
     let mut lines: Vec<Line> = vec![
         Line::from(vec![
-            Span::styled("Tool   ", theme::muted()),
-            Span::styled(req.tool.clone(), theme::accent()),
+            Span::styled("Action  ", theme::muted()),
+            Span::styled(req.action.clone(), theme::accent()),
         ]),
         Line::from(vec![
-            Span::styled("Risk   ", theme::muted()),
-            Span::styled(risk_dot(&req.risk_level), risk_style(&req.risk_level)),
-            Span::styled(format!(" {}", req.risk_level), risk_style(&req.risk_level)),
+            Span::styled("Channel ", theme::muted()),
+            Span::styled(req.channel.as_deref().unwrap_or("—"), theme::dim()),
         ]),
         Line::from(vec![
-            Span::styled("Agent  ", theme::muted()),
-            Span::styled(req.agent_id.as_deref().unwrap_or("—"), theme::dim()),
+            Span::styled("By      ", theme::muted()),
+            Span::styled(req.requested_by.as_deref().unwrap_or("—"), theme::dim()),
         ]),
         Line::from(vec![
-            Span::styled("Mission", theme::muted()),
-            Span::styled(req.mission_name.as_deref().unwrap_or("—"), theme::dim()),
+            Span::styled("Mission ", theme::muted()),
+            Span::styled(req.mission_id.as_deref().unwrap_or("—"), theme::dim()),
         ]),
         Line::from(""),
     ];
 
-    if let Some(reasoning) = &req.reasoning {
-        lines.push(Line::from(Span::styled("Reasoning", theme::muted())));
-        for part in reasoning.lines().take(5) {
+    if let Some(reason) = &req.reason {
+        lines.push(Line::from(Span::styled("Reason", theme::muted())));
+        for part in reason.lines().take(5) {
             lines.push(Line::from(Span::styled(part.to_string(), theme::dim())));
-        }
-        lines.push(Line::from(""));
-    }
-
-    if let Some(input) = &req.input_json {
-        lines.push(Line::from(Span::styled("Input", theme::muted())));
-        for part in input.lines().take(8) {
-            lines.push(Line::from(Span::styled(
-                part.to_string(),
-                Style::default().fg(theme::PURPLE),
-            )));
         }
         lines.push(Line::from(""));
     }
@@ -277,22 +250,6 @@ fn render_detail(buf: &mut Buffer, area: Rect, state: &ApprovalQueueState) {
         .wrap(ratatui::widgets::Wrap { trim: true })
         .style(theme::normal())
         .render(inner, buf);
-}
-
-fn risk_dot(risk: &str) -> &'static str {
-    match risk.to_lowercase().as_str() {
-        "high" | "critical" => "●",
-        "medium" => "●",
-        _ => "●",
-    }
-}
-
-fn risk_style(risk: &str) -> ratatui::style::Style {
-    match risk.to_lowercase().as_str() {
-        "high" | "critical" => theme::err(),
-        "medium" => theme::warn(),
-        _ => theme::ok(),
-    }
 }
 
 fn truncate(s: &str, max: usize) -> String {

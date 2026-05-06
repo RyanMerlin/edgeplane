@@ -2,10 +2,11 @@ use axum::{
     extract::{Path, Query, State},
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     http::StatusCode,
-    response::IntoResponse,
+    response::{sse::Event, sse::Sse, IntoResponse},
     routing::{get, patch, post},
     Json, Router,
 };
+use tokio_stream::wrappers::ReceiverStream;
 use chrono::Utc;
 use sqlx::Row;
 use std::{collections::HashMap, sync::Arc};
@@ -45,6 +46,8 @@ pub fn router() -> Router<Arc<AppState>> {
         // Kluster messages + stream
         .route("/work/klusters/{kluster_id}/messages", get(list_kluster_messages).post(send_kluster_message))
         .route("/work/klusters/{kluster_id}/stream", get(kluster_stream))
+        // Global SSE feed — TUI agent feed; polls meshprogressevent for all agents
+        .route("/sse", get(global_sse))
 }
 
 // ── Error helpers ──────────────────────────────────────────────────────────────
@@ -2040,4 +2043,70 @@ async fn poll_ledger_stream(
 
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
+}
+
+// ── Global SSE feed: GET /sse ──────────────────────────────────────────────────
+// Streams meshprogressevent rows for all tasks/agents. Heartbeat every 30s.
+// Polls every 2 seconds for rows with id > last_seen.
+
+async fn global_sse(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, std::convert::Infallible>>(64);
+    let db = state.db.clone();
+
+    tokio::spawn(async move {
+        let mut last_id: i64 = 0;
+        let mut ticks_since_heartbeat: u32 = 0;
+
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+            let rows = sqlx::query(
+                "SELECT id, task_id, agent_id, seq, event_type, phase, step, summary, occurred_at \
+                 FROM meshprogressevent WHERE id > $1 ORDER BY id ASC LIMIT 100"
+            )
+            .bind(last_id)
+            .fetch_all(&db)
+            .await
+            .unwrap_or_default();
+
+            for row in &rows {
+                let id: i64 = row.get("id");
+                if id > last_id { last_id = id; }
+                let data = serde_json::json!({
+                    "id": id,
+                    "task_id": row.get::<String, _>("task_id"),
+                    "agent_id": row.get::<String, _>("agent_id"),
+                    "seq": row.get::<i32, _>("seq"),
+                    "event_type": row.get::<String, _>("event_type"),
+                    "phase": row.get::<Option<String>, _>("phase"),
+                    "step": row.get::<Option<String>, _>("step"),
+                    "summary": row.get::<String, _>("summary"),
+                    "occurred_at": row.get::<chrono::NaiveDateTime, _>("occurred_at"),
+                });
+                let evt = Event::default()
+                    .id(id.to_string())
+                    .event("progress")
+                    .data(data.to_string());
+                if tx.send(Ok(evt)).await.is_err() {
+                    return;
+                }
+                ticks_since_heartbeat = 0;
+            }
+
+            ticks_since_heartbeat += 1;
+            if ticks_since_heartbeat >= 15 {
+                // 15 ticks × 2s = 30s heartbeat
+                ticks_since_heartbeat = 0;
+                let ping = Event::default().event("ping").data(r#"{"type":"ping"}"#);
+                if tx.send(Ok(ping)).await.is_err() {
+                    return;
+                }
+            }
+        }
+    });
+
+    let stream = ReceiverStream::new(rx);
+    Sse::new(stream).into_response()
 }

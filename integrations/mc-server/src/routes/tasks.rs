@@ -27,6 +27,8 @@ pub fn router() -> Router<Arc<AppState>> {
             "/missions/{mission_id}/k/{kluster_id}/t/{task_id}/overlaps",
             get(list_overlaps),
         )
+        // Shortcut: list tasks by kluster_id without requiring mission_id (used by TUI)
+        .route("/klusters/{kluster_id}/t", get(list_tasks_by_kluster))
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
@@ -233,6 +235,29 @@ async fn delete_task(
 
     let deleted_id = if task.public_id.is_empty() { task.id.to_string() } else { task.public_id.clone() };
     Json(serde_json::json!({"ok": true, "deleted_id": deleted_id})).into_response()
+}
+
+// ── Shortcut: GET /klusters/{kluster_id}/t ────────────────────────────────────
+// Used by the TUI which only knows kluster_id, not the parent mission_id.
+// No auth check — mirrors the unauthenticated pattern; add Principal if auth is needed.
+
+async fn list_tasks_by_kluster(
+    State(state): State<Arc<AppState>>,
+    Path(kluster_id): Path<String>,
+) -> impl IntoResponse {
+    match sqlx::query_as::<_, Task>(
+        "SELECT * FROM task WHERE kluster_id=$1 ORDER BY created_at ASC LIMIT 200"
+    )
+    .bind(&kluster_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(tasks) => Json(tasks).into_response(),
+        Err(e) => {
+            tracing::error!("list_tasks_by_kluster: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 async fn list_overlaps(

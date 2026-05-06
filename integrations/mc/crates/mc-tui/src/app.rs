@@ -2,8 +2,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     backend::Backend,
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Modifier, Style},
+    layout::{Constraint, Direction, Layout},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame, Terminal,
@@ -156,17 +155,13 @@ impl App {
                         self.approval_queue.pending = approvals
                             .into_iter()
                             .map(|a| crate::screens::approval_queue::ApprovalRequest {
-                                id: a.id.as_i64().map(|n| n.to_string())
-                                    .or_else(|| a.id.as_str().map(str::to_string))
-                                    .unwrap_or_default(),
-                                task_id: None,
-                                mission_name: Some(a.mission_id),
-                                agent_id: Some(a.requested_by),
-                                tool: a.action,
-                                risk_level: "medium".to_string(),
-                                wait_secs: None,
-                                reasoning: if a.reason.is_empty() { None } else { Some(a.reason) },
-                                input_json: None,
+                                id: a.id,
+                                mission_id: a.mission_id,
+                                action: a.action,
+                                channel: a.channel,
+                                reason: a.reason,
+                                requested_by: a.requested_by,
+                                status: a.status,
                             })
                             .collect();
                         self.approval_queue.selection = 0;
@@ -174,43 +169,49 @@ impl App {
                 }
                 WorkResult::ApprovalResponded { approval_id, ok, error, .. } => {
                     if ok {
-                        // Move from pending to history
-                        if let Some(pos) = self.approval_queue.pending.iter().position(|r| r.id == approval_id) {
-                            let req = self.approval_queue.pending.remove(pos);
-                            self.approval_queue.history.push((req, "approved".to_string()));
-                            if self.approval_queue.selection >= self.approval_queue.pending.len()
-                                && self.approval_queue.selection > 0
-                            {
-                                self.approval_queue.selection -= 1;
-                            }
+                        self.approval_queue.pending.retain(|r| r.id.to_string() != approval_id);
+                        if self.approval_queue.selection >= self.approval_queue.pending.len()
+                            && self.approval_queue.selection > 0
+                        {
+                            self.approval_queue.selection -= 1;
                         }
-                        // Re-fetch to stay in sync
-                        self.pool.dispatch(
-                            self.client.clone(),
-                            crate::work::WorkRequest::FetchApprovals {
-                                job_id: crate::work::next_job_id(),
-                                mission_id: None,
-                            },
-                        );
+                        self.pool.dispatch(self.client.clone(), crate::work::WorkRequest::FetchApprovals {
+                            job_id: crate::work::next_job_id(), mission_id: None,
+                        });
                     } else {
                         self.approval_queue.last_error = error;
+                    }
+                }
+                WorkResult::RunsListed { runs, error, .. } => {
+                    self.receipts.loading = false;
+                    if error.is_none() {
+                        use crate::screens::receipts::ReceiptEntry;
+                        self.receipts.entries = runs.into_iter().map(|r| ReceiptEntry {
+                            id: r.id,
+                            created_at: r.created_at,
+                            mission_name: None,
+                            task_title: r.mesh_agent_id,
+                            agent_id: r.owner_subject,
+                            capability: r.runtime_kind,
+                            outcome: r.status,
+                            duration_ms: None,
+                            artifact_count: 0,
+                            output_summary: None,
+                        }).collect();
                     }
                 }
             }
         }
 
-        // After draining results, check if the approval screen has a pending action
+        // After draining results, check if the approval screen has a pending response
         if self.screen == Screen::ApprovalQueue {
-            if let Some(action) = self.approval_queue.take_action() {
-                self.pool.dispatch(
-                    self.client.clone(),
-                    crate::work::WorkRequest::RespondApproval {
-                        job_id: crate::work::next_job_id(),
-                        approval_id: action.approval_id,
-                        decision: action.decision,
-                        note: None,
-                    },
-                );
+            if let Some((id, approved)) = self.approval_queue.take_pending_response() {
+                self.pool.dispatch(self.client.clone(), crate::work::WorkRequest::RespondApproval {
+                    job_id: crate::work::next_job_id(),
+                    approval_id: id.to_string(),
+                    decision: if approved { "approve".to_string() } else { "reject".to_string() },
+                    note: None,
+                });
             }
         }
     }
@@ -261,7 +262,15 @@ impl App {
                 );
             }
             KeyCode::Char('f') => self.switch_to_feed(),
-            KeyCode::Char('q') => self.screen = Screen::Receipts,
+            KeyCode::Char('q') => {
+                self.screen = Screen::Receipts;
+                if self.receipts.entries.is_empty() && !self.receipts.loading {
+                    self.receipts.loading = true;
+                    self.pool.dispatch(self.client.clone(), crate::work::WorkRequest::ListRuns {
+                        job_id: crate::work::next_job_id(),
+                    });
+                }
+            }
             KeyCode::Char('s') => self.switch_to_secrets(),
             KeyCode::Char('?') => self.screen = Screen::Help,
             KeyCode::Esc => self.screen = Screen::Landing,
@@ -439,30 +448,6 @@ impl App {
             status = status.with_extra(extra.clone());
         }
         f.render_widget(status, chunks[2]);
-    }
-
-    fn render_stub(&self, f: &mut Frame<'_>, area: ratatui::layout::Rect, title: &str) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(theme::border_focused())
-            .title(Span::styled(
-                format!(" {} ", title),
-                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
-            ))
-            .style(theme::normal());
-
-        let inner = block.inner(area);
-        f.render_widget(block, area);
-
-        let sub = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Fill(1), Constraint::Length(1), Constraint::Fill(1)])
-            .split(inner);
-
-        let msg = Paragraph::new(Line::from(Span::styled("coming soon", theme::dim())))
-            .alignment(Alignment::Center);
-        f.render_widget(msg, sub[1]);
     }
 
     fn render_help(&self, f: &mut Frame<'_>, area: ratatui::layout::Rect) {

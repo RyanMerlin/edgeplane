@@ -58,15 +58,34 @@ impl Default for RaftStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApprovalSummary {
-    pub id: serde_json::Value, // int from backend, kept as Value to avoid parse issues
-    pub mission_id: String,
-    pub action: String,
-    pub channel: String,
-    pub reason: String,
-    pub status: String,
-    pub requested_by: String,
+    pub id: i64,
     #[serde(default)]
-    pub decision_note: String,
+    pub mission_id: Option<String>,
+    pub action: String,
+    #[serde(default)]
+    pub channel: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub requested_by: Option<String>,
+    pub status: String,
+}
+
+// ─── runs ─────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunSummary {
+    pub id: String,
+    pub status: String,
+    pub created_at: String,
+    #[serde(default)]
+    pub owner_subject: Option<String>,
+    #[serde(default)]
+    pub mesh_agent_id: Option<String>,
+    #[serde(default)]
+    pub runtime_kind: Option<String>,
+    #[serde(default)]
+    pub ended_at: Option<String>,
 }
 
 // ─── trait ───────────────────────────────────────────────────────────────────
@@ -80,6 +99,7 @@ pub trait DataClient: Send + Sync {
     async fn list_tasks(&self, kluster_id: &str) -> Result<Vec<TaskSummary>>;
     async fn list_approvals(&self, mission_id: Option<&str>) -> Result<Vec<ApprovalSummary>>;
     async fn respond_approval(&self, approval_id: &str, decision: &str, note: Option<&str>) -> Result<()>;
+    async fn list_runs(&self) -> Result<Vec<RunSummary>>;
 }
 
 // ─── fixture client (test / offline use) ─────────────────────────────────────
@@ -115,6 +135,10 @@ impl DataClient for FixtureDataClient {
 
     async fn respond_approval(&self, _approval_id: &str, _decision: &str, _note: Option<&str>) -> Result<()> {
         Ok(())
+    }
+
+    async fn list_runs(&self) -> Result<Vec<RunSummary>> {
+        Ok(vec![])
     }
 }
 
@@ -197,5 +221,9 @@ impl DataClient for RemoteDataClient {
             anyhow::bail!("respond_approval returned {status}: {text}");
         }
         Ok(())
+    }
+
+    async fn list_runs(&self) -> Result<Vec<RunSummary>> {
+        self.get("/runs").await
     }
 }
