@@ -1,4 +1,0 @@
-alembic
-sqlalchemy
-sqlmodel
-psycopg[binary]
