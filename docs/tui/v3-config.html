@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mc tui — v3 Config</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117; color: #e6edf3;
+    font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+    font-size: 13px; line-height: 1.45; min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  .ok     { color: #3fb950; }
+  .warn   { color: #d29922; }
+  .err    { color: #f85149; }
+  .accent { color: #58a6ff; }
+  .dim    { color: #484f58; }
+  .muted  { color: #8b949e; }
+
+  #topbar { display: flex; align-items: center; background: #161b22; border-bottom: 1px solid #21262d; padding: 0 1ch; height: 2.2em; flex-shrink: 0; }
+  #logo { color: #58a6ff; font-weight: 700; font-size: 14px; padding: 0 2ch 0 1ch; border-right: 1px solid #30363d; margin-right: 1ch; }
+  .tab { padding: 0 2ch; height: 100%; display: flex; align-items: center; color: #8b949e; white-space: nowrap; }
+  .tab.active { color: #e6edf3; background: #0d1117; border-left: 1px solid #30363d; border-right: 1px solid #30363d; border-bottom: 1px solid #0d1117; margin-bottom: -1px; }
+  #topbar-right { margin-left: auto; display: flex; align-items: center; gap: 2ch; color: #8b949e; font-size: 12px; padding-right: 1ch; }
+
+  #main { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+  /* Left nav */
+  #config-nav { width: 22ch; border-right: 1px solid #21262d; background: #161b22; padding: 0.5em 0; flex-shrink: 0; }
+  .nav-section { padding: 0.5em 1.5ch 0.2em; color: #484f58; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; }
+  .nav-item {
+    padding: 0.35em 1.5ch; cursor: pointer;
+    display: flex; align-items: center; gap: 1ch;
+    font-size: 12px; color: #8b949e;
+  }
+  .nav-item:hover { color: #e6edf3; background: #1c2938; }
+  .nav-item.active { color: #e6edf3; background: #1c2938; border-left: 2px solid #58a6ff; }
+  .nav-icon { width: 2ch; text-align: center; }
+  .nav-badge { margin-left: auto; font-size: 11px; }
+  .nav-badge.ok   { color: #3fb950; }
+  .nav-badge.warn { color: #d29922; }
+
+  /* Right content */
+  #config-content { flex: 1; overflow-y: auto; padding: 1.5em 3ch; }
+
+  .config-page-title { font-size: 16px; font-weight: 700; margin-bottom: 0.2em; display: flex; align-items: center; gap: 1ch; }
+  .config-page-sub { color: #8b949e; font-size: 12px; margin-bottom: 1.5em; }
+
+  .config-section { margin-bottom: 2em; }
+  .config-section-title { color: #484f58; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; padding-bottom: 0.4em; border-bottom: 1px solid #21262d; margin-bottom: 1em; }
+
+  .config-row { display: flex; align-items: flex-start; margin-bottom: 1.2em; gap: 2ch; }
+  .config-label-col { width: 22ch; flex-shrink: 0; }
+  .config-label { font-size: 13px; margin-bottom: 0.2em; }
+  .config-desc  { font-size: 11px; color: #484f58; line-height: 1.5; }
+
+  .config-input {
+    flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 4px;
+    padding: 0.4em 1ch; color: #e6edf3; font-family: inherit; font-size: 12px; outline: none; max-width: 40ch;
+  }
+  .config-input:focus { border-color: #58a6ff; }
+  .config-input.ok-border { border-color: #238636; }
+
+  .config-toggle { display: flex; align-items: center; gap: 1ch; font-size: 12px; cursor: pointer; }
+  .toggle-track { width: 36px; height: 18px; background: #30363d; border-radius: 9px; position: relative; cursor: pointer; }
+  .toggle-track.on { background: #238636; }
+  .toggle-thumb { width: 14px; height: 14px; background: #e6edf3; border-radius: 50%; position: absolute; top: 2px; left: 2px; }
+  .toggle-track.on .toggle-thumb { left: 20px; }
+  .toggle-label { color: #8b949e; font-size: 12px; }
+  .toggle-track.on + .toggle-label { color: #3fb950; }
+
+  .status-row {
+    display: flex; align-items: center; gap: 1ch;
+    padding: 0.5em 1ch; background: #161b22; border: 1px solid #21262d; border-radius: 4px;
+    font-size: 12px; margin-bottom: 0.8em; max-width: 50ch;
+  }
+  .status-row.connected { border-color: #238636; }
+
+  .config-btn {
+    display: inline-flex; align-items: center; gap: 0.7ch;
+    padding: 0.4em 1.5ch; border-radius: 4px; border: 1px solid #30363d;
+    font-family: inherit; font-size: 12px; cursor: pointer;
+    color: #8b949e; background: #161b22;
+  }
+  .config-btn.primary { border-color: #238636; color: #3fb950; background: #0d2b1a; }
+  .config-btn.danger  { border-color: #da3633; color: #f85149; background: #1a0f0f; }
+  .btn-row { display: flex; gap: 1ch; }
+
+  /* Node table within config */
+  .node-table { width: 100%; max-width: 72ch; border-collapse: collapse; font-size: 12px; }
+  .node-table th { text-align: left; color: #484f58; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.3em 1ch; border-bottom: 1px solid #21262d; font-weight: normal; }
+  .node-table td { padding: 0.4em 1ch; border-bottom: 1px solid #161b22; }
+  .node-table tr:hover td { background: #161b22; }
+
+  #statusbar { background: #161b22; border-top: 1px solid #21262d; padding: 0.2em 2ch; display: flex; align-items: center; gap: 3ch; font-size: 11px; color: #484f58; flex-shrink: 0; }
+  #statusbar-right { margin-left: auto; display: flex; gap: 3ch; }
+  .hint b { color: #484f58; font-weight: normal; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div id="logo">mc</div>
+  <div class="tab">Agents</div>
+  <div class="tab">Missions</div>
+  <div class="tab">Feed</div>
+  <div class="tab active">Config</div>
+  <div id="topbar-right">
+    <span class="ok">● connected</span>
+    <span class="dim">|</span>
+    <span>03:47:22</span>
+  </div>
+</div>
+
+<div id="main">
+
+  <!-- Left nav -->
+  <div id="config-nav">
+    <div class="nav-section">Connection</div>
+    <div class="nav-item active">
+      <span class="nav-icon">⚡</span>
+      <span>Server</span>
+      <span class="nav-badge ok">✓</span>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">🔑</span>
+      <span>Auth</span>
+    </div>
+
+    <div class="nav-section">Fleet</div>
+    <div class="nav-item">
+      <span class="nav-icon">◉</span>
+      <span>Nodes</span>
+      <span class="nav-badge warn">!</span>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">◈</span>
+      <span>Agent Defaults</span>
+    </div>
+
+    <div class="nav-section">Identity</div>
+    <div class="nav-item">
+      <span class="nav-icon">⬡</span>
+      <span>Profile</span>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">⬢</span>
+      <span>Infisical</span>
+    </div>
+
+    <div class="nav-section">Display</div>
+    <div class="nav-item">
+      <span class="nav-icon">◉</span>
+      <span>Layout</span>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">⏱</span>
+      <span>Refresh</span>
+    </div>
+
+    <div class="nav-section">About</div>
+    <div class="nav-item">
+      <span class="nav-icon">ℹ</span>
+      <span>Version</span>
+    </div>
+  </div>
+
+  <!-- Config content -->
+  <div id="config-content">
+
+    <div class="config-page-title">⚡ Server Connection</div>
+    <div class="config-page-sub">mc-server endpoint and connection settings.</div>
+
+    <div class="status-row connected">
+      <span class="ok">●</span>
+      <span>Connected to <span class="accent">http://localhost:8008</span></span>
+      <span class="dim" style="margin-left:auto">mc-server v0.4.2</span>
+    </div>
+
+    <div class="config-section">
+      <div class="config-section-title">Server</div>
+
+      <div class="config-row">
+        <div class="config-label-col">
+          <div class="config-label">Base URL</div>
+          <div class="config-desc">mc-server REST endpoint. Overridden by MC_BASE_URL env.</div>
+        </div>
+        <input class="config-input ok-border" value="http://localhost:8008" />
+      </div>
+
+      <div class="config-row">
+        <div class="config-label-col">
+          <div class="config-label">TLS Verify</div>
+          <div class="config-desc">Validate server certificate. Disable for self-signed.</div>
+        </div>
+        <div class="config-toggle">
+          <div class="toggle-track on"><div class="toggle-thumb"></div></div>
+          <span class="toggle-label">enabled</span>
+        </div>
+      </div>
+
+      <div class="config-row">
+        <div class="config-label-col">
+          <div class="config-label">Timeout</div>
+          <div class="config-desc">Request timeout in seconds.</div>
+        </div>
+        <input class="config-input" value="30" style="max-width:8ch" />
+      </div>
+    </div>
+
+    <div class="config-section">
+      <div class="config-section-title">Fleet Nodes</div>
+      <div style="color:#484f58; font-size:11px; margin-bottom:0.8em">Nodes running mc-mesh, registered against this server.</div>
+
+      <table class="node-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Node</th>
+            <th>Location</th>
+            <th>Agents</th>
+            <th>mc-mesh</th>
+            <th>Last Seen</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="ok">●</td>
+            <td>node-dallas</td>
+            <td class="muted">Dallas, TX</td>
+            <td>3</td>
+            <td class="dim">v0.4.2</td>
+            <td class="dim">just now</td>
+          </tr>
+          <tr>
+            <td class="ok">●</td>
+            <td>node-denver</td>
+            <td class="muted">Denver, CO</td>
+            <td>2</td>
+            <td class="dim">v0.4.2</td>
+            <td class="dim">just now</td>
+          </tr>
+          <tr>
+            <td class="err">○</td>
+            <td>node-chicago</td>
+            <td class="muted">Chicago, IL</td>
+            <td class="dim">—</td>
+            <td class="dim">v0.4.1</td>
+            <td class="err">01:12:04</td>
+          </tr>
+          <tr>
+            <td class="ok">●</td>
+            <td>node-seattle</td>
+            <td class="muted">Seattle, WA</td>
+            <td>1</td>
+            <td class="dim">v0.4.2</td>
+            <td class="dim">just now</td>
+          </tr>
+          <tr>
+            <td class="ok">●</td>
+            <td>node-miami</td>
+            <td class="muted">Miami, FL</td>
+            <td>4</td>
+            <td class="dim">v0.4.2</td>
+            <td class="dim">just now</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="config-section">
+      <div class="config-section-title">Actions</div>
+      <div class="btn-row">
+        <button class="config-btn primary">Test Connection</button>
+        <button class="config-btn">Reload Config</button>
+        <button class="config-btn danger">Disconnect</button>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<div id="statusbar">
+  <span class="ok">● connected</span>
+  <span class="dim">|</span>
+  <span class="muted">http://localhost:8008</span>
+  <span class="dim">|</span>
+  <span class="muted">mc-server v0.4.2</span>
+  <div id="statusbar-right">
+    <span class="hint"><b>↑↓</b> nav</span>
+    <span class="hint"><b>Enter</b> edit</span>
+    <span class="hint"><b>Esc</b> cancel</span>
+    <span class="hint"><b>s</b> save</span>
+  </div>
+</div>
+
+</body>
+</html>

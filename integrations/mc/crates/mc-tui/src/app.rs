@@ -3,31 +3,30 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
     Frame, Terminal,
 };
 
 use crate::data::DataClient;
 use crate::screens::agent_feed::{AgentFeed, AgentFeedState};
+use crate::screens::agents::{AgentScreen, AgentScreenState};
 use crate::screens::approval_queue::{ApprovalQueue, ApprovalQueueState};
+use crate::screens::config::{ConfigScreen, ConfigScreenState};
 use crate::screens::landing::LandingScreen;
 use crate::screens::mission_matrix::{MissionMatrix, MissionMatrixState};
 use crate::screens::receipts::{ReceiptsScreen, ReceiptsState};
-use crate::screens::secrets::{SecretsScreen, SecretsState, render_tree_overlay};
+use crate::screens::secrets::{SecretsScreen, SecretsState};
 use crate::theme;
 use crate::work::{WorkPool, WorkRequest, WorkResult, next_job_id};
-use mc_tui_widgets::status_bar::StatusBar;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
-    Landing,
-    MissionMatrix,
-    AgentFeed,
-    ApprovalQueue,
-    Receipts,
-    Secrets,
-    Help,
+    Agents,
+    Missions,
+    Feed,
+    Config,
 }
 
 pub struct App {
@@ -36,12 +35,14 @@ pub struct App {
     pub token: Option<String>,
     pub version: String,
     pub should_quit: bool,
-    pub status_extra: Option<String>,
-    pub raft: Option<crate::data::RaftStatus>,
 
     // Per-screen state
+    pub agents: AgentScreenState,
     pub matrix: MissionMatrixState,
     pub agent_feed: AgentFeedState,
+    pub config: ConfigScreenState,
+
+    // Legacy screen states (kept so existing code doesn't break)
     pub approval_queue: ApprovalQueueState,
     pub receipts: ReceiptsState,
     pub secrets: SecretsState,
@@ -59,28 +60,35 @@ impl App {
         client: std::sync::Arc<dyn DataClient>,
     ) -> Self {
         let mut matrix = MissionMatrixState::default();
-        let screen = if initial_mission.is_some() {
-            matrix.selected_mission_id = initial_mission;
-            Screen::MissionMatrix
-        } else {
-            Screen::Landing
-        };
+        if let Some(mid) = initial_mission {
+            matrix.selected_mission_id = Some(mid);
+            // Don't switch to missions screen on startup — start on agents
+        }
 
         let pool = WorkPool::new();
-        // Ping + raft status on startup to populate the status bar.
+
+        // Ping on startup to populate connection status
         pool.dispatch(client.clone(), WorkRequest::Ping { job_id: next_job_id() });
-        pool.dispatch(client.clone(), WorkRequest::FetchRaftStatus { job_id: next_job_id() });
+        // Load agents immediately on startup
+        pool.dispatch(client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
+
+        let config = ConfigScreenState {
+            base_url: base_url.clone(),
+            connected: false,
+            latency_ms: None,
+            nav_selection: 0,
+        };
 
         Self {
-            screen,
+            screen: Screen::Agents,
             base_url,
             token,
             version,
             should_quit: false,
-            status_extra: None,
-            raft: None,
+            agents: AgentScreenState::default(),
             matrix,
             agent_feed: AgentFeedState::new(),
+            config,
             approval_queue: ApprovalQueueState::default(),
             receipts: ReceiptsState::default(),
             secrets: SecretsState::default(),
@@ -94,24 +102,28 @@ impl App {
         while let Ok(result) = self.pool.result_rx.try_recv() {
             match result {
                 WorkResult::Pinged { ok, latency_ms, .. } => {
-                    self.update_status_bar(ok, latency_ms);
+                    self.config.connected = ok;
+                    self.config.latency_ms = Some(latency_ms);
                 }
-                WorkResult::RaftStatusFetched { status, .. } => {
-                    self.raft = Some(status);
-                    // Recomposite: if ping already ran, weave in raft node info.
-                    if let Some(extra) = &self.status_extra {
-                        let conn = extra.clone();
-                        if let Some(r) = &self.raft {
-                            self.status_extra = Some(format!("node {} · {} · {}", r.node_id, r.role, conn));
-                        }
+                WorkResult::RaftStatusFetched { .. } => {
+                    // Raft removed from v3; ignore the result
+                }
+                WorkResult::AgentsListed { agents, error, .. } => {
+                    self.agents.loading = false;
+                    if let Some(e) = error {
+                        self.agents.error = Some(e);
+                    } else {
+                        self.agents.agents = agents;
+                        self.agents.agent_selection = 0;
                     }
                 }
                 WorkResult::MissionsListed { missions, error, .. } => {
                     if let Some(e) = error {
-                        self.status_extra = Some(format!("error: {e}"));
+                        self.agents.error = Some(format!("missions error: {e}"));
                     } else {
                         self.matrix.loading_missions = false;
                         self.matrix.missions = missions;
+                        self.matrix.mission_selection = 0;
                         self.matrix.tree_selection = 0;
                     }
                 }
@@ -119,6 +131,7 @@ impl App {
                     if Some(&mission_id) == self.matrix.selected_mission_id.as_ref() {
                         self.matrix.loading_klusters = false;
                         self.matrix.klusters = klusters;
+                        self.matrix.kluster_selection = 0;
                     }
                 }
                 WorkResult::TasksListed { kluster_id, tasks, .. } => {
@@ -202,18 +215,6 @@ impl App {
                 }
             }
         }
-
-        // After draining results, check if the approval screen has a pending response
-        if self.screen == Screen::ApprovalQueue {
-            if let Some((id, approved)) = self.approval_queue.take_pending_response() {
-                self.pool.dispatch(self.client.clone(), crate::work::WorkRequest::RespondApproval {
-                    job_id: crate::work::next_job_id(),
-                    approval_id: id.to_string(),
-                    decision: if approved { "approve".to_string() } else { "reject".to_string() },
-                    note: None,
-                });
-            }
-        }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -225,22 +226,14 @@ impl App {
 
         // Screen-level key routing — each screen gets first crack at nav keys
         let consumed = match &self.screen {
-            Screen::MissionMatrix => {
+            Screen::Agents => self.agents.handle_key(key.code),
+            Screen::Missions => {
                 let c = self.matrix.handle_key(key.code);
-                if key.code == KeyCode::Enter { self.matrix_enter(); }
+                if key.code == KeyCode::Enter { self.missions_enter(); }
                 c
             }
-            Screen::AgentFeed => self.agent_feed.handle_key(key.code),
-            Screen::ApprovalQueue => self.approval_queue.handle_key(key.code),
-            Screen::Receipts => self.receipts.handle_key(key.code),
-            Screen::Secrets => {
-                let reqs = self.secrets.handle_key(key.code);
-                for req in reqs {
-                    self.pool.dispatch(self.client.clone(), req);
-                }
-                true
-            }
-            _ => false,
+            Screen::Feed => self.agent_feed.handle_key(key.code),
+            Screen::Config => self.config.handle_key(key.code),
         };
         if !consumed {
             self.handle_global_nav(key);
@@ -249,39 +242,33 @@ impl App {
 
     fn handle_global_nav(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Char('m') => self.switch_to_matrix(),
-            KeyCode::Char('a') => {
-                self.screen = Screen::ApprovalQueue;
-                self.approval_queue.loading = true;
-                self.pool.dispatch(
-                    self.client.clone(),
-                    crate::work::WorkRequest::FetchApprovals {
-                        job_id: crate::work::next_job_id(),
-                        mission_id: None,
-                    },
-                );
-            }
+            KeyCode::Char('a') => self.switch_to_agents(),
+            KeyCode::Char('m') => self.switch_to_missions(),
             KeyCode::Char('f') => self.switch_to_feed(),
-            KeyCode::Char('q') => {
-                self.screen = Screen::Receipts;
-                if self.receipts.entries.is_empty() && !self.receipts.loading {
-                    self.receipts.loading = true;
-                    self.pool.dispatch(self.client.clone(), crate::work::WorkRequest::ListRuns {
-                        job_id: crate::work::next_job_id(),
-                    });
-                }
-            }
-            KeyCode::Char('s') => self.switch_to_secrets(),
-            KeyCode::Char('?') => self.screen = Screen::Help,
-            KeyCode::Esc => self.screen = Screen::Landing,
+            KeyCode::Char('c') => self.screen = Screen::Config,
             _ => {}
         }
     }
 
+    fn switch_to_agents(&mut self) {
+        self.screen = Screen::Agents;
+        if self.agents.agents.is_empty() && !self.agents.loading {
+            self.agents.loading = true;
+            self.pool.dispatch(self.client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
+        }
+    }
+
+    fn switch_to_missions(&mut self) {
+        self.screen = Screen::Missions;
+        if self.matrix.missions.is_empty() && !self.matrix.loading_missions {
+            self.matrix.loading_missions = true;
+            self.pool.dispatch(self.client.clone(), WorkRequest::ListMissions { job_id: next_job_id() });
+        }
+    }
+
     fn switch_to_feed(&mut self) {
-        self.screen = Screen::AgentFeed;
+        self.screen = Screen::Feed;
         if !self.agent_feed.live && !self.agent_feed.paused {
-            // Spawn the SSE subscription thread
             self.pool.dispatch(
                 self.client.clone(),
                 crate::work::WorkRequest::SubscribeFeed {
@@ -292,113 +279,20 @@ impl App {
         }
     }
 
-    fn switch_to_matrix(&mut self) {
-        self.screen = Screen::MissionMatrix;
-        if self.matrix.missions.is_empty() && !self.matrix.loading_missions {
-            self.matrix.loading_missions = true;
-            self.pool.dispatch(self.client.clone(), WorkRequest::ListMissions { job_id: next_job_id() });
-        }
-    }
-
-    fn update_status_bar(&mut self, ok: bool, latency_ms: u64) {
-        let conn = if ok {
-            format!("connected {latency_ms}ms")
-        } else {
-            "backend unreachable".to_string()
-        };
-        self.status_extra = Some(match &self.raft {
-            Some(r) => format!("node {} · {} · {}", r.node_id, r.role, conn),
-            None => conn,
-        });
-    }
-
-    fn switch_to_secrets(&mut self) {
-        self.screen = Screen::Secrets;
-        if self.secrets.tree.is_some() { return; }
-
-        // Load the active Infisical profile from disk
-        let path = {
-            let home = dirs::home_dir().unwrap_or_default();
-            home.join(".mc").join("infisical_profiles.json")
-        };
-        let map = if path.exists() {
-            std::fs::read_to_string(&path)
-                .ok()
-                .and_then(|raw| serde_json::from_str::<mc_mesh_secrets::InfisicalProfileMap>(&raw).ok())
-                .unwrap_or_default()
-        } else {
-            mc_mesh_secrets::InfisicalProfileMap::default()
-        };
-
-        match map.active_profile() {
-            None => {
-                self.secrets.no_profile_error = Some(
-                    "No active Infisical profile. Run: mc secrets infisical add <name> --activate".to_string()
-                );
-            }
-            Some(cfg) => {
-                self.secrets.no_profile_error = None;
-                let cfg = cfg.clone();
-                let project_id = cfg.default_project_id.clone().unwrap_or_default();
-                let environment = cfg.default_environment.clone();
-                self.secrets.cfg = Some(cfg.clone());
-
-                if let Some((fid, nid)) = self.secrets.init_tree(project_id.clone(), environment.clone()) {
-                    self.pool.dispatch(
-                        self.client.clone(),
-                        WorkRequest::LoadSecretFolders {
-                            job_id: fid,
-                            project_id: project_id.clone(),
-                            environment: environment.clone(),
-                            path: "/".to_string(),
-                            cfg: cfg.clone(),
-                        },
-                    );
-                    self.pool.dispatch(
-                        self.client.clone(),
-                        WorkRequest::LoadSecretNames {
-                            job_id: nid,
-                            project_id,
-                            environment,
-                            path: "/".to_string(),
-                            cfg,
-                        },
-                    );
-                }
-            }
-        }
-    }
-
-    fn matrix_enter(&mut self) {
-        use crate::screens::mission_matrix::TreeNode;
-        let nodes = self.matrix.tree_nodes();
-        let Some(node) = nodes.get(self.matrix.tree_selection) else { return };
-        match node.clone() {
-            TreeNode::Mission { idx } => {
-                let mission = &self.matrix.missions[idx];
-                let mid = mission.id.clone();
-                self.matrix.selected_mission_id = Some(mid.clone());
-                self.matrix.selected_kluster_id = None;
-                self.matrix.klusters.clear();
-                self.matrix.tasks.clear();
-                self.matrix.loading_klusters = true;
-                self.pool.dispatch(
-                    self.client.clone(),
-                    WorkRequest::ListKlusters { mission_id: mid, job_id: next_job_id() },
-                );
-            }
-            TreeNode::Kluster { kluster_idx, .. } => {
-                let kluster = &self.matrix.klusters[kluster_idx];
-                let kid = kluster.id.clone();
-                self.matrix.selected_kluster_id = Some(kid.clone());
-                self.matrix.tasks.clear();
-                self.matrix.loading_tasks = true;
-                self.pool.dispatch(
-                    self.client.clone(),
-                    WorkRequest::ListTasks { kluster_id: kid, job_id: next_job_id() },
-                );
-            }
-        }
+    fn missions_enter(&mut self) {
+        let visible = self.matrix.visible_missions();
+        let Some(mission) = visible.get(self.matrix.mission_selection) else { return };
+        let mid = mission.id.clone();
+        self.matrix.selected_mission_id = Some(mid.clone());
+        self.matrix.selected_kluster_id = None;
+        self.matrix.klusters.clear();
+        self.matrix.tasks.clear();
+        self.matrix.loading_klusters = true;
+        self.matrix.kluster_selection = 0;
+        self.pool.dispatch(
+            self.client.clone(),
+            WorkRequest::ListKlusters { mission_id: mid, job_id: next_job_id() },
+        );
     }
 
     pub fn draw<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
@@ -410,81 +304,145 @@ impl App {
     fn render(&self, f: &mut Frame<'_>) {
         let area = f.area();
 
-        // Layout: (thin top spacer) | content | status bar
+        // New v3 layout: tab bar (1) | content | hints bar (1)
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(0),
-                Constraint::Fill(1),
-                Constraint::Length(1),
+                Constraint::Length(1), // tab bar
+                Constraint::Fill(1),   // content
+                Constraint::Length(1), // hints bar
             ])
             .split(area);
 
-        // Content area
+        self.render_tab_bar(f, chunks[0]);
+
         match &self.screen {
-            Screen::Landing => f.render_widget(LandingScreen, chunks[1]),
-            Screen::MissionMatrix => {
-                f.render_widget(MissionMatrix { state: &self.matrix }, chunks[1]);
-            }
-            Screen::AgentFeed => {
-                f.render_widget(AgentFeed { state: &self.agent_feed }, chunks[1]);
-            }
-            Screen::ApprovalQueue => {
-                f.render_widget(ApprovalQueue { state: &self.approval_queue }, chunks[1]);
-            }
-            Screen::Receipts => {
-                f.render_widget(ReceiptsScreen { state: &self.receipts }, chunks[1]);
-            }
-            Screen::Secrets => {
-                f.render_widget(SecretsScreen { state: &self.secrets }, chunks[1]);
-                render_tree_overlay(&self.secrets, f, chunks[1]);
-            }
-            Screen::Help => self.render_help(f, chunks[1]),
+            Screen::Agents => f.render_widget(AgentScreen { state: &self.agents }, chunks[1]),
+            Screen::Missions => f.render_widget(MissionMatrix { state: &self.matrix }, chunks[1]),
+            Screen::Feed => f.render_widget(AgentFeed { state: &self.agent_feed }, chunks[1]),
+            Screen::Config => f.render_widget(ConfigScreen { state: &self.config, base_url: &self.base_url }, chunks[1]),
         }
 
-        // Status bar
-        let mut status = StatusBar::new(format!("v{}", self.version), self.base_url.clone());
-        if let Some(extra) = &self.status_extra {
-            status = status.with_extra(extra.clone());
-        }
-        f.render_widget(status, chunks[2]);
+        self.render_hints(f, chunks[2]);
     }
 
-    fn render_help(&self, f: &mut Frame<'_>, area: ratatui::layout::Rect) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(theme::border_focused())
-            .title(Span::styled(" Help ", theme::panel_title()))
-            .style(theme::normal());
+    fn render_tab_bar(&self, f: &mut Frame<'_>, area: ratatui::layout::Rect) {
+        let panel_bg = Color::Rgb(22, 27, 34);
+        let panel_style = Style::default().bg(panel_bg);
 
-        let inner = block.inner(area);
-        f.render_widget(block, area);
-
-        let lines: Vec<Line> = vec![
-            Line::from(""),
-            Line::from(Span::styled("  Navigation", theme::muted())),
-            Line::from(""),
-            key_line("m", "Mission matrix"),
-            key_line("f", "Agent feed"),
-            key_line("a", "Approval queue"),
-            key_line("q", "Receipts"),
-            key_line("s", "Secrets browser"),
-            key_line("?", "This help screen"),
-            key_line("Esc", "Return to landing"),
-            Line::from(""),
-            Line::from(Span::styled("  Global", theme::muted())),
-            Line::from(""),
-            key_line("Ctrl+Q", "Quit"),
-            key_line("Ctrl+C", "Quit"),
+        let tabs: &[(Screen, &str)] = &[
+            (Screen::Agents, "Agents"),
+            (Screen::Missions, "Missions"),
+            (Screen::Feed, "Feed"),
+            (Screen::Config, "Config"),
         ];
-        f.render_widget(Paragraph::new(lines).style(theme::normal()), inner);
+
+        let mut spans: Vec<Span> = vec![
+            Span::styled(
+                " mc ",
+                Style::default().fg(theme::ACCENT).bg(panel_bg).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" │ ", Style::default().fg(theme::PANEL_BORDER).bg(panel_bg)),
+        ];
+
+        for (screen, label) in tabs {
+            let active = std::mem::discriminant(&self.screen) == std::mem::discriminant(screen);
+            let style = if active {
+                Style::default().fg(theme::TEXT).bg(theme::BG).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme::TEXT_MUTED).bg(panel_bg)
+            };
+            spans.push(Span::styled(format!(" {label} "), style));
+            spans.push(Span::styled(" │ ", Style::default().fg(theme::PANEL_BORDER).bg(panel_bg)));
+        }
+
+        // Status and time on the right
+        let (conn_style, conn_str) = if self.config.connected {
+            (Style::default().fg(theme::OK).bg(panel_bg), "● connected")
+        } else {
+            (Style::default().fg(theme::ERR).bg(panel_bg), "○ offline")
+        };
+
+        let time_str = chrono::Local::now().format("%H:%M:%S").to_string();
+
+        // Calculate padding to push right-side to edge
+        let left_width: usize = spans.iter().map(|s| s.content.len()).sum();
+        let right_part = format!("  {conn_str}  {time_str}  ");
+        let pad = (area.width as usize).saturating_sub(left_width + right_part.len());
+
+        spans.push(Span::styled(" ".repeat(pad), panel_style));
+        spans.push(Span::styled(format!("  {conn_str}  "), conn_style));
+        spans.push(Span::styled(
+            format!("{time_str}  "),
+            Style::default().fg(theme::TEXT_MUTED).bg(panel_bg),
+        ));
+
+        f.render_widget(
+            Paragraph::new(Line::from(spans)).style(panel_style),
+            area,
+        );
+    }
+
+    fn render_hints(&self, f: &mut Frame<'_>, area: ratatui::layout::Rect) {
+        let hints: &[(&str, &str)] = match &self.screen {
+            Screen::Agents => &[
+                ("↑↓", "navigate"),
+                ("Tab", "panes"),
+                ("g", "give-task"),
+                ("r", "restart"),
+                ("n", "new agent"),
+                ("Ctrl+Q", "quit"),
+            ],
+            Screen::Missions => &[
+                ("↑↓", "navigate"),
+                ("Tab", "panes"),
+                ("/", "search"),
+                ("Enter", "select"),
+                ("Ctrl+Q", "quit"),
+            ],
+            Screen::Feed => &[
+                ("/", "filter"),
+                ("w", "alerts-only"),
+                ("p", "pause"),
+                ("Enter", "detail"),
+                ("Ctrl+Q", "quit"),
+            ],
+            Screen::Config => &[
+                ("↑↓", "navigate"),
+                ("Ctrl+Q", "quit"),
+            ],
+        };
+
+        let mut spans: Vec<Span> = vec![];
+        for (key, desc) in hints {
+            spans.push(Span::styled(format!("  {key}"), theme::muted()));
+            spans.push(Span::styled(format!(" {desc}", desc = desc), theme::dim()));
+        }
+
+        f.render_widget(
+            Paragraph::new(Line::from(spans)).style(theme::dim()),
+            area,
+        );
     }
 }
 
-fn key_line<'a>(key: &'a str, desc: &'a str) -> Line<'a> {
-    Line::from(vec![
-        Span::styled(format!("  {key:<10}", key = key), theme::accent()),
-        Span::styled(desc, theme::dim()),
-    ])
+// Keep legacy landing/help screen rendering functions available (not called from main flow)
+#[allow(dead_code)]
+fn render_landing(f: &mut Frame<'_>, area: ratatui::layout::Rect) {
+    f.render_widget(LandingScreen, area);
+}
+
+#[allow(dead_code)]
+fn render_approval_queue<'a>(state: &'a crate::screens::approval_queue::ApprovalQueueState) -> ApprovalQueue<'a> {
+    ApprovalQueue { state }
+}
+
+#[allow(dead_code)]
+fn render_receipts<'a>(state: &'a ReceiptsState) -> ReceiptsScreen<'a> {
+    ReceiptsScreen { state }
+}
+
+#[allow(dead_code)]
+fn render_secrets<'a>(state: &'a SecretsState) -> SecretsScreen<'a> {
+    SecretsScreen { state }
 }

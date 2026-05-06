@@ -88,6 +88,29 @@ pub struct RunSummary {
     pub ended_at: Option<String>,
 }
 
+// ─── agent summary ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentSummary {
+    pub id: String,
+    pub name: String,
+    pub status: String, // "online", "idle", "busy", "offline"
+    #[serde(default)]
+    pub runtime: Option<String>,
+    #[serde(default)]
+    pub node_id: Option<String>,
+    #[serde(default)]
+    pub mission_id: Option<String>,
+    #[serde(default)]
+    pub mission_name: Option<String>,
+    #[serde(default)]
+    pub current_task_id: Option<String>,
+    #[serde(default)]
+    pub current_task_title: Option<String>,
+    #[serde(default)]
+    pub last_seen: Option<String>,
+}
+
 // ─── trait ───────────────────────────────────────────────────────────────────
 
 #[async_trait::async_trait]
@@ -100,6 +123,7 @@ pub trait DataClient: Send + Sync {
     async fn list_approvals(&self, mission_id: Option<&str>) -> Result<Vec<ApprovalSummary>>;
     async fn respond_approval(&self, approval_id: &str, decision: &str, note: Option<&str>) -> Result<()>;
     async fn list_runs(&self) -> Result<Vec<RunSummary>>;
+    async fn list_agents(&self) -> Result<Vec<AgentSummary>>;
 }
 
 // ─── fixture client (test / offline use) ─────────────────────────────────────
@@ -138,6 +162,10 @@ impl DataClient for FixtureDataClient {
     }
 
     async fn list_runs(&self) -> Result<Vec<RunSummary>> {
+        Ok(vec![])
+    }
+
+    async fn list_agents(&self) -> Result<Vec<AgentSummary>> {
         Ok(vec![])
     }
 }
@@ -225,5 +253,21 @@ impl DataClient for RemoteDataClient {
 
     async fn list_runs(&self) -> Result<Vec<RunSummary>> {
         self.get("/runs").await
+    }
+
+    async fn list_agents(&self) -> Result<Vec<AgentSummary>> {
+        let mut req = self.client.get(self.url("/agents"));
+        if let Some(tok) = &self.token {
+            req = req.bearer_auth(tok);
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(vec![]);
+        }
+        if !status.is_success() {
+            anyhow::bail!("backend returned {status} for /agents");
+        }
+        Ok(resp.json::<Vec<AgentSummary>>().await?)
     }
 }

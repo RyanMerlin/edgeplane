@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mc tui — v3 Feed</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117; color: #e6edf3;
+    font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+    font-size: 13px; line-height: 1.45; min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  .ok     { color: #3fb950; }
+  .warn   { color: #d29922; }
+  .err    { color: #f85149; }
+  .accent { color: #58a6ff; }
+  .purple { color: #bc8cff; }
+  .dim    { color: #484f58; }
+  .muted  { color: #8b949e; }
+
+  #topbar { display: flex; align-items: center; background: #161b22; border-bottom: 1px solid #21262d; padding: 0 1ch; height: 2.2em; flex-shrink: 0; }
+  #logo { color: #58a6ff; font-weight: 700; font-size: 14px; padding: 0 2ch 0 1ch; border-right: 1px solid #30363d; margin-right: 1ch; }
+  .tab { padding: 0 2ch; height: 100%; display: flex; align-items: center; color: #8b949e; white-space: nowrap; }
+  .tab.active { color: #e6edf3; background: #0d1117; border-left: 1px solid #30363d; border-right: 1px solid #30363d; border-bottom: 1px solid #0d1117; margin-bottom: -1px; }
+  #topbar-right { margin-left: auto; display: flex; align-items: center; gap: 2ch; color: #8b949e; font-size: 12px; padding-right: 1ch; }
+
+  #main { display: flex; flex: 1; overflow: hidden; min-height: 0; flex-direction: column; }
+
+  /* Filter bar */
+  #filterbar {
+    display: flex; align-items: center; flex-wrap: wrap;
+    background: #161b22; border-bottom: 1px solid #21262d;
+    padding: 0.35em 2ch; gap: 0.8ch; flex-shrink: 0;
+  }
+  .filter-search {
+    display: flex; align-items: center; gap: 0.5ch;
+    background: #0d1117; border: 1px solid #30363d; border-radius: 3px;
+    padding: 0.15em 0.8ch; font-size: 11px; color: #8b949e;
+  }
+  .filter-search .icon { color: #484f58; }
+  .filter-search input {
+    background: transparent; border: none; outline: none;
+    color: #e6edf3; font-family: inherit; font-size: 11px;
+    width: 20ch;
+  }
+  .filter-search input::placeholder { color: #484f58; }
+  .filter-search.focused { border-color: #58a6ff; }
+
+  .filter-sep { color: #21262d; margin: 0 0.3ch; font-size: 14px; }
+
+  .chip {
+    padding: 0.1em 0.9ch; border: 1px solid #30363d;
+    border-radius: 3px; font-size: 11px; color: #8b949e; cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip:hover { border-color: #8b949e; color: #e6edf3; }
+  .chip.active { border-color: #58a6ff; color: #58a6ff; background: #0d1f3c; }
+  .chip.active-err  { border-color: #f85149; color: #f85149; background: #1a0f0f; }
+  .chip.active-warn { border-color: #d29922; color: #d29922; background: #1a1500; }
+  .chip.active-ok   { border-color: #3fb950; color: #3fb950; background: #0d2b1a; }
+
+  .filter-alerts {
+    display: flex; align-items: center; gap: 0.5ch;
+    padding: 0.1em 0.9ch; border: 1px solid #30363d;
+    border-radius: 3px; font-size: 11px; color: #8b949e; cursor: pointer;
+  }
+  .filter-alerts.on { border-color: #d29922; color: #d29922; background: #1a1500; }
+  .alert-toggle-dot { width: 7px; height: 7px; border-radius: 50%; background: #484f58; }
+  .filter-alerts.on .alert-toggle-dot { background: #d29922; }
+
+  .filter-right { margin-left: auto; display: flex; align-items: center; gap: 1.5ch; }
+  .live-dot { color: #3fb950; animation: blink 1.5s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* Feed + detail split */
+  #feed-area { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+  #feed-left  { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #feed-right {
+    width: 44ch; border-left: 1px solid #21262d;
+    display: flex; flex-direction: column; overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  /* Column headers */
+  #feed-header {
+    display: grid;
+    grid-template-columns: 9ch 14ch 22ch 18ch 1fr;
+    gap: 0 1ch; padding: 0.2em 2ch;
+    background: #161b22; border-bottom: 1px solid #30363d;
+    color: #484f58; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    flex-shrink: 0;
+  }
+
+  /* Feed rows */
+  #feed { flex: 1; overflow-y: auto; }
+  .feed-row {
+    display: grid;
+    grid-template-columns: 9ch 14ch 22ch 18ch 1fr;
+    gap: 0 1ch; padding: 0.28em 2ch;
+    align-items: baseline; border-bottom: 1px solid #161b22;
+    cursor: pointer;
+  }
+  .feed-row:hover { background: #161b22; }
+  .feed-row.selected { background: #1c2d4a; }
+  .feed-row.alert-err  { background: #120a0a; border-left: 2px solid #f85149; }
+  .feed-row.alert-warn { background: #110f00; border-left: 2px solid #d29922; }
+  .feed-row.alert-gov  { background: #0a0f1a; border-left: 2px solid #bc8cff; }
+  .feed-row.selected.alert-err  { background: #1f1010; }
+  .feed-row.selected.alert-warn { background: #1f1a0a; }
+  .feed-row.selected.alert-gov  { background: #141c30; }
+
+  .feed-time  { color: #484f58; font-size: 12px; }
+  .feed-agent { color: #8b949e; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .feed-ctx   { color: #484f58; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .feed-type  { font-size: 11px; font-weight: 600; }
+  .feed-msg   { color: #8b949e; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .type-started   { color: #58a6ff; }
+  .type-finished  { color: #3fb950; }
+  .type-govern    { color: #bc8cff; font-weight: 700; }
+  .type-artifact  { color: #bc8cff; }
+  .type-heartbeat { color: #30363d; }
+  .type-error     { color: #f85149; font-weight: 700; }
+  .type-claimed   { color: #58a6ff; }
+  .type-task-done { color: #3fb950; font-weight: 700; }
+  .type-overlap   { color: #d29922; font-weight: 700; }
+
+  /* Right detail panel */
+  .detail-header {
+    background: #161b22; border-bottom: 1px solid #21262d;
+    padding: 0.3em 1.5ch; font-size: 11px; color: #8b949e;
+    display: flex; align-items: center; gap: 1ch; flex-shrink: 0;
+  }
+  .detail-header .title { color: #e6edf3; font-size: 12px; }
+  .detail-body { flex: 1; overflow-y: auto; padding: 0.8em 1.5ch; }
+
+  .detail-kv { display: flex; gap: 1ch; margin-bottom: 0.4em; font-size: 12px; }
+  .detail-k  { color: #484f58; width: 10ch; flex-shrink: 0; }
+  .detail-v  { color: #e6edf3; }
+  .detail-sep { border-top: 1px solid #21262d; margin: 0.8em 0 0.6em; }
+  .detail-section { color: #484f58; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5em; }
+
+  .payload-block {
+    background: #161b22; border: 1px solid #30363d; border-radius: 3px;
+    padding: 0.6em 1ch; font-size: 11px; line-height: 1.7;
+    color: #8b949e; margin-bottom: 0.6em;
+  }
+  .payload-block .key { color: #58a6ff; }
+  .payload-block .val { color: #e6edf3; }
+
+  #statusbar { background: #161b22; border-top: 1px solid #21262d; padding: 0.2em 2ch; display: flex; align-items: center; gap: 3ch; font-size: 11px; color: #484f58; flex-shrink: 0; }
+  #statusbar-right { margin-left: auto; display: flex; gap: 3ch; }
+  .hint b { color: #484f58; font-weight: normal; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div id="logo">mc</div>
+  <div class="tab">Agents</div>
+  <div class="tab">Missions</div>
+  <div class="tab active">Feed</div>
+  <div class="tab">Config</div>
+  <div id="topbar-right">
+    <span class="ok">● 4/5 nodes</span>
+    <span class="muted">12 agents</span>
+    <span class="dim">|</span>
+    <span>03:47:22</span>
+  </div>
+</div>
+
+<div id="main">
+
+  <!-- Filter bar -->
+  <div id="filterbar">
+    <div class="filter-search focused">
+      <span class="icon">/</span>
+      <input type="text" placeholder="filter events..." value="phoenix" />
+    </div>
+
+    <span class="filter-sep">|</span>
+
+    <span class="chip active">All</span>
+    <span class="chip active-err">Errors</span>
+    <span class="chip">Governance</span>
+    <span class="chip">Artifacts</span>
+    <span class="chip">Tasks</span>
+    <span class="chip">Heartbeat</span>
+
+    <span class="filter-sep">|</span>
+
+    <div class="filter-alerts on">
+      <div class="alert-toggle-dot"></div>
+      <span>⚠ Alerts only</span>
+    </div>
+
+    <div class="filter-right">
+      <span class="dim">312 events</span>
+      <span class="live-dot">●</span>
+      <span class="ok" style="font-weight:700">LIVE</span>
+    </div>
+  </div>
+
+  <div id="feed-area">
+
+    <!-- Feed list -->
+    <div id="feed-left">
+      <div id="feed-header">
+        <span>Time</span>
+        <span>Agent</span>
+        <span>Context</span>
+        <span>Event</span>
+        <span>Detail</span>
+      </div>
+
+      <div id="feed">
+
+        <div class="feed-row">
+          <span class="feed-time">03:47:22</span>
+          <span class="feed-agent">goose-prod-1</span>
+          <span class="feed-ctx">phoenix/app-deploy</span>
+          <span class="feed-type type-started">step_started</span>
+          <span class="feed-msg">Waiting for rollout — mc-server deployment</span>
+        </div>
+
+        <div class="feed-row alert-err selected">
+          <span class="feed-time err">03:47:18</span>
+          <span class="feed-agent err">goose-prod-2</span>
+          <span class="feed-ctx err">phoenix/app-deploy</span>
+          <span class="feed-type type-error">step_error</span>
+          <span class="feed-msg err">psql: connection refused — missioncontrol-cnpg-rw (retrying)</span>
+        </div>
+
+        <div class="feed-row alert-gov">
+          <span class="feed-time warn">03:47:05</span>
+          <span class="feed-agent warn">goose-prod-2</span>
+          <span class="feed-ctx warn">phoenix/app-deploy</span>
+          <span class="feed-type type-govern">governance</span>
+          <span class="feed-msg warn">apply-db-migrations — pending policy · production DB mutation</span>
+        </div>
+
+        <div class="feed-row">
+          <span class="feed-time">03:47:01</span>
+          <span class="feed-agent">codex-nyc</span>
+          <span class="feed-ctx">phoenix/app-deploy</span>
+          <span class="feed-type type-started">step_started</span>
+          <span class="feed-msg">deploy-worker-fleet — scaling to 4 replicas</span>
+        </div>
+
+        <div class="feed-row">
+          <span class="feed-time">03:46:55</span>
+          <span class="feed-agent">goose-prod-1</span>
+          <span class="feed-ctx">phoenix/app-deploy</span>
+          <span class="feed-type type-finished">step_finished</span>
+          <span class="feed-msg">helm upgrade mc-server — 3 resources configured (2.1s)</span>
+        </div>
+
+        <div class="feed-row">
+          <span class="feed-time">03:46:31</span>
+          <span class="feed-agent">goose-prod-1</span>
+          <span class="feed-ctx">phoenix/app-deploy</span>
+          <span class="feed-type type-artifact">artifact</span>
+          <span class="feed-msg purple">deploy-manifest.yaml — 847 bytes → rustfs://mc/artifacts/TSK-0091/</span>
+        </div>
+
+        <div class="feed-row alert-warn">
+          <span class="feed-time warn">03:46:19</span>
+          <span class="feed-agent warn">goose-prod-2</span>
+          <span class="feed-ctx warn">phoenix/app-deploy</span>
+          <span class="feed-type type-overlap">overlap_detected</span>
+          <span class="feed-msg warn">TSK-0092 similar to TSK-0081 (provision-postgres) — score 0.84</span>
+        </div>
+
+        <div class="feed-row">
+          <span class="feed-time">03:46:18</span>
+          <span class="feed-agent">goose-prod-1</span>
+          <span class="feed-ctx">phoenix/app-deploy</span>
+          <span class="feed-type type-finished">step_finished</span>
+          <span class="feed-msg">Image pulled — ghcr.io/ryanmerlin/missioncontrol:482a05b (17s)</span>
+        </div>
+
+        <div class="feed-row">
+          <span class="feed-time">03:46:00</span>
+          <span class="feed-agent">goose-prod-1</span>
+          <span class="feed-ctx">phoenix/app-deploy</span>
+          <span class="feed-type type-claimed">task_claimed</span>
+          <span class="feed-msg">deploy-api-server · TSK-0091 · lease: 15m</span>
+        </div>
+
+        <div class="feed-row">
+          <span class="feed-time">03:45:30</span>
+          <span class="feed-agent">goose-prod-2</span>
+          <span class="feed-ctx">phoenix/app-deploy</span>
+          <span class="feed-type type-claimed">task_claimed</span>
+          <span class="feed-msg">apply-migrations · TSK-0092 · lease: 15m</span>
+        </div>
+
+        <div class="feed-row">
+          <span class="feed-time">03:44:11</span>
+          <span class="feed-agent dim">aria-mc-engineer</span>
+          <span class="feed-ctx dim">phoenix/infra-init</span>
+          <span class="feed-type type-heartbeat">heartbeat</span>
+          <span class="feed-msg dim">aria-mc-engineer · idle · 0 tasks in flight</span>
+        </div>
+
+        <div class="feed-row">
+          <span class="feed-time">03:43:58</span>
+          <span class="feed-agent">goose-prod-1</span>
+          <span class="feed-ctx">phoenix/infra-init</span>
+          <span class="feed-type type-task-done">task_finished</span>
+          <span class="feed-msg ok">infra-init/verify-schema ✓ all 23 tables present (4.2s)</span>
+        </div>
+
+        <div class="feed-row">
+          <span class="feed-time">03:41:19</span>
+          <span class="feed-agent">gemini-deep</span>
+          <span class="feed-ctx">nightly/etl-pipeline</span>
+          <span class="feed-type type-started">step_started</span>
+          <span class="feed-msg">ETL pipeline stage 3 — vectorizing 4,201 documents</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Right detail pane -->
+    <div id="feed-right">
+      <div class="detail-header">
+        <span class="err">⚠</span>
+        <span class="title">step_error</span>
+        <span class="dim">·</span>
+        <span class="muted">03:47:18</span>
+      </div>
+      <div class="detail-body">
+
+        <div class="detail-kv">
+          <span class="detail-k">Time</span>
+          <span class="detail-v dim">03:47:18.441</span>
+        </div>
+        <div class="detail-kv">
+          <span class="detail-k">Agent</span>
+          <span class="detail-v">goose-prod-2</span>
+        </div>
+        <div class="detail-kv">
+          <span class="detail-k">Node</span>
+          <span class="detail-v muted">node-dallas</span>
+        </div>
+        <div class="detail-kv">
+          <span class="detail-k">Mission</span>
+          <span class="detail-v">Phoenix Deploy</span>
+        </div>
+        <div class="detail-kv">
+          <span class="detail-k">Kluster</span>
+          <span class="detail-v">app-deploy</span>
+        </div>
+        <div class="detail-kv">
+          <span class="detail-k">Task</span>
+          <span class="detail-v accent">TSK-0092 apply-migrations</span>
+        </div>
+
+        <div class="detail-sep"></div>
+        <div class="detail-section">Error</div>
+
+        <div class="payload-block">
+          <span class="key">type</span> <span class="val err">step_error</span><br>
+          <span class="key">step</span> <span class="val">psql-connect</span><br>
+          <span class="key">message</span> <span class="val err">connection refused — missioncontrol-cnpg-rw:5432</span><br>
+          <span class="key">retry_in</span> <span class="val">30s (attempt 1/3)</span>
+        </div>
+
+        <div class="detail-sep"></div>
+        <div class="detail-section">Context</div>
+
+        <div style="font-size:11px; color:#484f58; line-height:1.9">
+          <div><span class="muted">goose-prod-2:</span> Claimed apply-migrations</div>
+          <div><span class="muted">goose-prod-2:</span> Running: psql -h missioncontrol-cnpg-rw...</div>
+          <div><span class="muted">goose-prod-2:</span> <span class="err">Error: connection refused</span></div>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- #feed-area -->
+
+</div><!-- #main -->
+
+<div id="statusbar">
+  <span class="muted">312 events</span>
+  <span class="dim">·</span>
+  <span class="ok">9 agents active</span>
+  <span class="dim">·</span>
+  <span class="err">1 error</span>
+  <span class="warn">1 governance pending</span>
+  <span class="warn">1 overlap</span>
+  <div id="statusbar-right">
+    <span class="hint"><b>/</b> filter</span>
+    <span class="hint"><b>↑↓</b> scroll</span>
+    <span class="hint"><b>Enter</b> detail</span>
+    <span class="hint"><b>Esc</b> close detail</span>
+    <span class="hint"><b>p</b> pause</span>
+  </div>
+</div>
+
+</body>
+</html>

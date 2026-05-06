@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mc tui — v2 Matrix View</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+    font-size: 13px;
+    line-height: 1.45;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Color palette ── */
+  .ok      { color: #3fb950; }
+  .warn    { color: #d29922; }
+  .err     { color: #f85149; }
+  .accent  { color: #58a6ff; }
+  .purple  { color: #bc8cff; }
+  .dim     { color: #484f58; }
+  .muted   { color: #8b949e; }
+  .bold    { font-weight: 700; }
+  .bg-selected { background: #1c2d4a; }
+  .bg-focused  { background: #161b22; }
+
+  /* ── Top bar ── */
+  #topbar {
+    display: flex;
+    align-items: center;
+    background: #161b22;
+    border-bottom: 1px solid #21262d;
+    padding: 0 1ch;
+    height: 2.2em;
+    flex-shrink: 0;
+    gap: 0;
+  }
+  #logo {
+    color: #58a6ff;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 0 2ch 0 1ch;
+    border-right: 1px solid #30363d;
+    margin-right: 1ch;
+  }
+  .tab {
+    padding: 0 2ch;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    color: #8b949e;
+    cursor: pointer;
+    border-right: 1px solid transparent;
+    border-left: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .tab:hover { color: #e6edf3; background: #1c2938; }
+  .tab.active {
+    color: #e6edf3;
+    background: #0d1117;
+    border-left: 1px solid #30363d;
+    border-right: 1px solid #30363d;
+    border-bottom: 1px solid #0d1117;
+    margin-bottom: -1px;
+  }
+  .tab .badge {
+    display: inline-block;
+    background: #d29922;
+    color: #0d1117;
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 3px;
+    padding: 0 4px;
+    margin-left: 6px;
+    line-height: 1.5;
+  }
+  .tab .badge.err { background: #f85149; }
+  #topbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 2ch;
+    color: #8b949e;
+    font-size: 12px;
+    padding-right: 1ch;
+  }
+  #topbar-right .cluster-ok { color: #3fb950; }
+
+  /* ── Main layout ── */
+  #main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* ── Pane shared styles ── */
+  .pane {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #21262d;
+    overflow: hidden;
+  }
+  .pane-header {
+    background: #161b22;
+    border-bottom: 1px solid #21262d;
+    padding: 0.2em 1ch;
+    color: #8b949e;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    display: flex;
+    align-items: center;
+    gap: 1ch;
+    flex-shrink: 0;
+  }
+  .pane-header .title { color: #e6edf3; font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .pane-header .count { color: #484f58; }
+  .pane-body { flex: 1; overflow-y: auto; padding: 0.3em 0; }
+
+  /* ── Left: Missions tree ── */
+  #pane-tree { width: 22%; min-width: 22ch; }
+  .tree-mission {
+    padding: 0.25em 1ch;
+    cursor: pointer;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5ch;
+    white-space: nowrap;
+  }
+  .tree-mission:hover { background: #161b22; }
+  .tree-mission.selected { background: #1c2d4a; }
+  .tree-caret { color: #484f58; width: 1.5ch; display: inline-block; }
+  .tree-mission.expanded > .tree-caret { color: #8b949e; }
+  .tree-mission-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .tree-progress { color: #484f58; font-size: 11px; margin-left: auto; }
+
+  .tree-kluster {
+    padding: 0.2em 1ch 0.2em 3.5ch;
+    cursor: pointer;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5ch;
+    white-space: nowrap;
+  }
+  .tree-kluster:hover { background: #161b22; }
+  .tree-kluster.selected { background: #1c2938; }
+  .tree-kluster-name { flex: 1; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: #8b949e; }
+  .tree-kluster.selected .tree-kluster-name { color: #e6edf3; }
+  .tree-kluster-arrow { color: #484f58; font-size: 10px; }
+  .tree-kluster.selected .tree-kluster-arrow { color: #58a6ff; }
+
+  .tree-section-sep {
+    padding: 0.5em 1ch 0.2em;
+    color: #30363d;
+    font-size: 11px;
+    border-top: 1px solid #21262d;
+    margin-top: 0.3em;
+  }
+
+  /* ── Center: Task table ── */
+  #pane-tasks { flex: 1; }
+  .task-header {
+    display: grid;
+    grid-template-columns: 3ch 1fr 14ch 12ch 8ch;
+    gap: 0 1ch;
+    padding: 0.25em 1ch;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    color: #484f58;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+  }
+  .task-row {
+    display: grid;
+    grid-template-columns: 3ch 1fr 14ch 12ch 8ch;
+    gap: 0 1ch;
+    padding: 0.28em 1ch;
+    cursor: pointer;
+    align-items: baseline;
+  }
+  .task-row:hover { background: #161b22; }
+  .task-row.selected { background: #1c2d4a; }
+  .task-num { color: #484f58; text-align: right; }
+  .task-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-status { display: flex; align-items: baseline; gap: 0.5ch; }
+  .task-agent { color: #8b949e; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-dur { color: #484f58; font-size: 12px; text-align: right; }
+
+  .status-dot { font-size: 10px; }
+
+  /* Progress bar in task row */
+  .task-progress-bar {
+    height: 4px;
+    background: #21262d;
+    border-radius: 2px;
+    margin-top: 3px;
+    overflow: hidden;
+  }
+  .task-progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: #3fb950;
+  }
+  .task-progress-fill.running { background: #58a6ff; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+  /* ── Right: Task detail ── */
+  #pane-detail { width: 28%; min-width: 28ch; border-right: none; }
+  .detail-body { padding: 0.5em 1.5ch; }
+  .detail-kv {
+    display: flex;
+    gap: 1ch;
+    margin-bottom: 0.35em;
+    font-size: 12px;
+  }
+  .detail-k { color: #484f58; width: 8ch; flex-shrink: 0; }
+  .detail-v { color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-sep {
+    border-top: 1px solid #21262d;
+    margin: 0.7em 0 0.5em;
+  }
+  .detail-section-title {
+    color: #484f58;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.4em;
+  }
+  .event-row {
+    margin-bottom: 0.4em;
+    font-size: 12px;
+  }
+  .event-time { color: #484f58; }
+  .event-type { }
+  .event-msg { color: #8b949e; padding-left: 2ch; font-size: 11px; }
+
+  /* ── Bottom status bar ── */
+  #statusbar {
+    background: #161b22;
+    border-top: 1px solid #21262d;
+    padding: 0.2em 2ch;
+    display: flex;
+    align-items: center;
+    gap: 3ch;
+    font-size: 11px;
+    color: #484f58;
+    flex-shrink: 0;
+  }
+  #statusbar .crumb { color: #8b949e; }
+  #statusbar .crumb .sep { color: #30363d; margin: 0 0.5ch; }
+  #statusbar .crumb .active { color: #e6edf3; }
+  #statusbar-right { margin-left: auto; display: flex; gap: 3ch; }
+  .hint { color: #30363d; }
+  .hint b { color: #484f58; font-weight: normal; }
+
+  /* ── Empty state ── */
+  .empty-state {
+    padding: 3em 2ch;
+    color: #30363d;
+    text-align: center;
+    font-size: 12px;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ── Top navigation bar ── -->
+<div id="topbar">
+  <div id="logo">mc</div>
+  <div class="tab active">Matrix</div>
+  <div class="tab">Feed</div>
+  <div class="tab">Approvals <span class="badge">2</span></div>
+  <div class="tab">Receipts</div>
+  <div class="tab">Config</div>
+  <div id="topbar-right">
+    <span class="cluster-ok">● epyc</span>
+    <span>3/3 nodes</span>
+    <span>raft:ok</span>
+    <span class="dim">|</span>
+    <span>03:47:22</span>
+  </div>
+</div>
+
+<!-- ── Three-pane main area ── -->
+<div id="main">
+
+  <!-- Left: Mission tree -->
+  <div class="pane" id="pane-tree">
+    <div class="pane-header">
+      <span class="title">Missions</span>
+      <span class="count muted">4</span>
+    </div>
+    <div class="pane-body">
+
+      <!-- Mission 1 - expanded, selected -->
+      <div class="tree-mission expanded selected">
+        <span class="tree-caret">▾</span>
+        <span class="status-dot ok">●</span>
+        <span class="tree-mission-name bold">Phoenix Deploy</span>
+        <span class="tree-progress">3/5</span>
+      </div>
+      <div class="tree-kluster">
+        <span class="status-dot ok">●</span>
+        <span class="tree-kluster-name">infra-init</span>
+        <span class="tree-kluster-arrow dim">done</span>
+      </div>
+      <div class="tree-kluster selected">
+        <span class="status-dot accent">⟳</span>
+        <span class="tree-kluster-name">app-deploy</span>
+        <span class="tree-kluster-arrow accent">▶</span>
+      </div>
+      <div class="tree-kluster">
+        <span class="status-dot dim">○</span>
+        <span class="tree-kluster-name">smoke-tests</span>
+        <span class="tree-kluster-arrow dim">pend</span>
+      </div>
+
+      <!-- Mission 2 -->
+      <div class="tree-mission">
+        <span class="tree-caret">▸</span>
+        <span class="status-dot accent">⟳</span>
+        <span class="tree-mission-name">Nightly Analysis</span>
+        <span class="tree-progress">1/3</span>
+      </div>
+
+      <!-- Mission 3 -->
+      <div class="tree-mission">
+        <span class="tree-caret">▸</span>
+        <span class="status-dot ok">●</span>
+        <span class="tree-mission-name">Data Sync</span>
+        <span class="tree-progress dim">done</span>
+      </div>
+
+      <!-- Mission 4 -->
+      <div class="tree-mission">
+        <span class="tree-caret">▸</span>
+        <span class="status-dot dim">○</span>
+        <span class="tree-mission-name muted">Staging Deploy</span>
+        <span class="tree-progress dim">—</span>
+      </div>
+
+      <div class="tree-section-sep">↑↓ nav · Enter expand · Tab focus</div>
+    </div>
+  </div>
+
+  <!-- Center: Task table -->
+  <div class="pane" id="pane-tasks">
+    <div class="pane-header">
+      <span class="title">app-deploy</span>
+      <span class="dim">·</span>
+      <span class="muted">Phoenix Deploy</span>
+      <span class="dim">·</span>
+      <span class="ok" style="font-size:11px">2 running</span>
+      <span class="dim">·</span>
+      <span class="muted" style="font-size:11px">3 pending</span>
+    </div>
+
+    <!-- Column headers -->
+    <div class="task-header">
+      <span>#</span>
+      <span>Task</span>
+      <span>Status</span>
+      <span>Agent</span>
+      <span>Dur</span>
+    </div>
+
+    <div class="pane-body" style="padding:0">
+
+      <!-- Done -->
+      <div class="task-row">
+        <span class="task-num dim">1</span>
+        <span class="task-title muted">pull-docker-images</span>
+        <span class="task-status"><span class="status-dot ok">●</span> <span class="ok" style="font-size:11px">done</span></span>
+        <span class="task-agent">aria-prod</span>
+        <span class="task-dur">1m 12s</span>
+      </div>
+
+      <!-- Running - selected -->
+      <div class="task-row selected">
+        <span class="task-num dim">2</span>
+        <span class="task-title"><span class="bold">deploy-api-server</span></span>
+        <span class="task-status"><span class="status-dot accent">⟳</span> <span class="accent" style="font-size:11px">running</span></span>
+        <span class="task-agent accent">aria-prod</span>
+        <span class="task-dur">3m 44s</span>
+      </div>
+
+      <!-- Running -->
+      <div class="task-row">
+        <span class="task-num dim">3</span>
+        <span class="task-title">deploy-worker-fleet</span>
+        <span class="task-status"><span class="status-dot accent">⟳</span> <span class="accent" style="font-size:11px">running</span></span>
+        <span class="task-agent accent">aria-ops</span>
+        <span class="task-dur">3m 21s</span>
+      </div>
+
+      <!-- Approval needed -->
+      <div class="task-row">
+        <span class="task-num dim">4</span>
+        <span class="task-title warn">apply-db-migrations</span>
+        <span class="task-status"><span class="status-dot warn">⚠</span> <span class="warn" style="font-size:11px">approval</span></span>
+        <span class="task-agent warn">aria-prod</span>
+        <span class="task-dur warn">—</span>
+      </div>
+
+      <!-- Pending -->
+      <div class="task-row">
+        <span class="task-num dim">5</span>
+        <span class="task-title muted">run-smoke-tests</span>
+        <span class="task-status"><span class="status-dot dim">○</span> <span class="dim" style="font-size:11px">pending</span></span>
+        <span class="task-agent dim">—</span>
+        <span class="task-dur dim">—</span>
+      </div>
+
+      <div class="task-row">
+        <span class="task-num dim">6</span>
+        <span class="task-title muted">tag-release</span>
+        <span class="task-status"><span class="status-dot dim">○</span> <span class="dim" style="font-size:11px">pending</span></span>
+        <span class="task-agent dim">—</span>
+        <span class="task-dur dim">—</span>
+      </div>
+
+      <div class="task-row">
+        <span class="task-num dim">7</span>
+        <span class="task-title muted">notify-stakeholders</span>
+        <span class="task-status"><span class="status-dot dim">○</span> <span class="dim" style="font-size:11px">pending</span></span>
+        <span class="task-agent dim">—</span>
+        <span class="task-dur dim">—</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Right: Task detail -->
+  <div class="pane" id="pane-detail">
+    <div class="pane-header">
+      <span class="title">TSK-0089</span>
+      <span class="dim">·</span>
+      <span class="accent">deploy-api-server</span>
+    </div>
+    <div class="pane-body">
+      <div class="detail-body">
+
+        <div class="detail-kv">
+          <span class="detail-k">Status</span>
+          <span class="detail-v"><span class="accent">⟳ running</span></span>
+        </div>
+        <div class="detail-kv">
+          <span class="detail-k">Agent</span>
+          <span class="detail-v">aria-prod</span>
+        </div>
+        <div class="detail-kv">
+          <span class="detail-k">Runtime</span>
+          <span class="detail-v">claude-sonnet-4-6</span>
+        </div>
+        <div class="detail-kv">
+          <span class="detail-k">Lease</span>
+          <span class="detail-v ok">11m remaining</span>
+        </div>
+        <div class="detail-kv">
+          <span class="detail-k">Owner</span>
+          <span class="detail-v muted">merlin</span>
+        </div>
+        <div class="detail-kv">
+          <span class="detail-k">Artifacts</span>
+          <span class="detail-v purple">0</span>
+        </div>
+
+        <div class="detail-sep"></div>
+        <div class="detail-section-title">Progress</div>
+
+        <div class="event-row">
+          <div><span class="event-time">03:44:01</span> <span class="accent">step_started</span></div>
+          <div class="event-msg">Pulling ghcr.io/ryanmerlin/missioncontrol:482a05b</div>
+        </div>
+        <div class="event-row">
+          <div><span class="event-time">03:44:18</span> <span class="ok">step_finished</span></div>
+          <div class="event-msg">Image pulled (1.2 GB, 17s)</div>
+        </div>
+        <div class="event-row">
+          <div><span class="event-time">03:44:19</span> <span class="accent">step_started</span></div>
+          <div class="event-msg">Applying Helm chart values...</div>
+        </div>
+        <div class="event-row">
+          <div><span class="event-time">03:44:31</span> <span class="ok">step_finished</span></div>
+          <div class="event-msg">helm upgrade mc-server — 3 resources</div>
+        </div>
+        <div class="event-row">
+          <div><span class="event-time">03:44:32</span> <span class="accent">step_started</span></div>
+          <div class="event-msg">Waiting for rollout to complete...</div>
+        </div>
+        <div class="event-row">
+          <div><span class="event-time">03:47:44</span> <span class="accent dim">⟳ in progress</span></div>
+          <div class="event-msg">1/1 pods ready</div>
+        </div>
+
+        <div class="detail-sep"></div>
+        <div class="detail-section-title">Description</div>
+        <div style="font-size:12px; color:#8b949e; line-height:1.6">
+          Deploy the mc-server API container with the latest image tag. Run pre-flight checks, update Helm release, verify pod readiness and health endpoint.
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Status bar ── -->
+<div id="statusbar">
+  <span class="crumb">
+    <span>Phoenix Deploy</span>
+    <span class="sep">›</span>
+    <span>app-deploy</span>
+    <span class="sep">›</span>
+    <span class="active">deploy-api-server</span>
+  </span>
+  <span class="dim">|</span>
+  <span><span class="ok">1</span> <span class="dim">done</span></span>
+  <span><span class="accent">2</span> <span class="dim">running</span></span>
+  <span><span class="warn">1</span> <span class="dim">approval</span></span>
+  <span><span class="dim">3</span> <span class="dim">pending</span></span>
+  <div id="statusbar-right">
+    <span class="hint"><b>Tab</b> focus</span>
+    <span class="hint"><b>↑↓</b> nav</span>
+    <span class="hint"><b>Enter</b> drill</span>
+    <span class="hint"><b>a</b> approvals</span>
+    <span class="hint"><b>?</b> help</span>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mc tui — v3 Agents</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117; color: #e6edf3;
+    font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+    font-size: 13px; line-height: 1.45; min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  .ok     { color: #3fb950; }
+  .warn   { color: #d29922; }
+  .err    { color: #f85149; }
+  .accent { color: #58a6ff; }
+  .purple { color: #bc8cff; }
+  .dim    { color: #484f58; }
+  .muted  { color: #8b949e; }
+
+  /* Top bar */
+  #topbar { display: flex; align-items: center; background: #161b22; border-bottom: 1px solid #21262d; padding: 0 1ch; height: 2.2em; flex-shrink: 0; }
+  #logo { color: #58a6ff; font-weight: 700; font-size: 14px; padding: 0 2ch 0 1ch; border-right: 1px solid #30363d; margin-right: 1ch; }
+  .tab { padding: 0 2ch; height: 100%; display: flex; align-items: center; color: #8b949e; white-space: nowrap; }
+  .tab.active { color: #e6edf3; background: #0d1117; border-left: 1px solid #30363d; border-right: 1px solid #30363d; border-bottom: 1px solid #0d1117; margin-bottom: -1px; }
+  #topbar-right { margin-left: auto; display: flex; align-items: center; gap: 2ch; color: #8b949e; font-size: 12px; padding-right: 1ch; }
+
+  /* Main layout */
+  #main { display: flex; flex: 1; overflow: hidden; min-height: 0; flex-direction: column; }
+  #top-section { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+  /* Node pane */
+  #pane-nodes {
+    width: 26ch; flex-shrink: 0;
+    border-right: 1px solid #21262d;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .pane-header {
+    background: #161b22; border-bottom: 1px solid #21262d;
+    padding: 0.25em 1.5ch; font-size: 11px; color: #8b949e;
+    text-transform: uppercase; letter-spacing: 0.07em;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .pane-header .title { color: #e6edf3; text-transform: none; letter-spacing: 0; font-size: 12px; }
+
+  .node-row {
+    padding: 0.5em 1.5ch;
+    border-bottom: 1px solid #161b22;
+    cursor: pointer;
+  }
+  .node-row:hover { background: #161b22; }
+  .node-row.selected { background: #1c2d4a; border-left: 2px solid #58a6ff; }
+  .node-row.offline { opacity: 0.5; }
+  .node-name { font-size: 12px; display: flex; align-items: center; gap: 0.8ch; margin-bottom: 0.15em; }
+  .node-meta { font-size: 11px; color: #484f58; padding-left: 1.8ch; }
+  .node-dot-ok  { color: #3fb950; }
+  .node-dot-off { color: #484f58; }
+
+  .node-footer {
+    margin-top: auto; padding: 0.5em 1.5ch;
+    border-top: 1px solid #21262d;
+    font-size: 11px;
+  }
+  .new-agent-btn {
+    display: flex; align-items: center; gap: 0.8ch;
+    color: #58a6ff; cursor: pointer; padding: 0.3em 0;
+  }
+  .new-agent-btn:hover { color: #79c0ff; }
+
+  /* Agent table pane */
+  #pane-agents { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  .agent-table-header {
+    display: grid;
+    grid-template-columns: 2ch 18ch 16ch 12ch 12ch 1fr 10ch;
+    gap: 0 1ch;
+    padding: 0.2em 1.5ch;
+    background: #161b22; border-bottom: 1px solid #30363d;
+    color: #484f58; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    flex-shrink: 0;
+  }
+  .agent-table-body { flex: 1; overflow-y: auto; }
+  .agent-row {
+    display: grid;
+    grid-template-columns: 2ch 18ch 16ch 12ch 12ch 1fr 10ch;
+    gap: 0 1ch;
+    padding: 0.3em 1.5ch;
+    border-bottom: 1px solid #161b22;
+    align-items: center;
+    cursor: pointer;
+  }
+  .agent-row:hover { background: #161b22; }
+  .agent-row.selected { background: #1c2d4a; }
+  .agent-row.offline { opacity: 0.45; }
+
+  .status-dot-ok   { color: #3fb950; }
+  .status-dot-busy { color: #58a6ff; }
+  .status-dot-idle { color: #8b949e; }
+  .status-dot-off  { color: #484f58; }
+
+  .agent-name-cell { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agent-node-cell { font-size: 12px; color: #8b949e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agent-runtime   { font-size: 11px; color: #bc8cff; }
+  .agent-mission   { font-size: 11px; color: #8b949e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agent-task      { font-size: 11px; color: #58a6ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agent-task.idle { color: #484f58; }
+  .agent-uptime    { font-size: 11px; color: #484f58; text-align: right; }
+
+  /* Detail panel */
+  #pane-detail {
+    border-top: 1px solid #21262d;
+    background: #0d1117;
+    flex-shrink: 0;
+    height: 13em;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #detail-header {
+    background: #161b22; border-bottom: 1px solid #21262d;
+    padding: 0.25em 2ch; display: flex; align-items: center; gap: 1.5ch;
+    font-size: 12px; flex-shrink: 0;
+  }
+  #detail-body { display: flex; flex: 1; overflow: hidden; }
+  .detail-col { padding: 0.7em 2ch; flex: 1; display: flex; flex-direction: column; gap: 0.4em; }
+  .detail-col + .detail-col { border-left: 1px solid #21262d; }
+  .detail-kv { display: flex; gap: 1ch; font-size: 12px; }
+  .detail-k  { color: #484f58; width: 12ch; flex-shrink: 0; }
+  .detail-v  { color: #e6edf3; }
+  .detail-section { color: #484f58; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.3em; }
+
+  .action-row { display: flex; gap: 1ch; margin-top: auto; padding-top: 0.5em; }
+  .action-btn {
+    display: inline-flex; align-items: center; gap: 0.5ch;
+    padding: 0.3em 1.2ch; border-radius: 3px; border: 1px solid;
+    font-size: 11px; font-family: inherit; cursor: pointer;
+    color: #8b949e; background: #161b22; border-color: #30363d;
+  }
+  .action-btn .k { font-size: 10px; background: #21262d; border-radius: 2px; padding: 0 3px; }
+  .action-btn.primary { border-color: #1f6feb; color: #58a6ff; background: #0d1f3c; }
+  .action-btn.danger  { border-color: #da3633; color: #f85149; background: #1a0f0f; }
+  .action-btn.warn    { border-color: #9e6a03; color: #d29922; background: #1a1500; }
+
+  /* Status bar */
+  #statusbar { background: #161b22; border-top: 1px solid #21262d; padding: 0.2em 2ch; display: flex; align-items: center; gap: 3ch; font-size: 11px; color: #484f58; flex-shrink: 0; }
+  #statusbar-right { margin-left: auto; display: flex; gap: 3ch; }
+  .hint b { color: #484f58; font-weight: normal; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div id="logo">mc</div>
+  <div class="tab active">Agents</div>
+  <div class="tab">Missions</div>
+  <div class="tab">Feed</div>
+  <div class="tab">Config</div>
+  <div id="topbar-right">
+    <span class="ok">● 4/5 nodes</span>
+    <span class="muted">12 agents</span>
+    <span class="dim">|</span>
+    <span class="muted">9 active</span>
+    <span class="dim">|</span>
+    <span>03:47:22</span>
+  </div>
+</div>
+
+<div id="main">
+<div id="top-section">
+
+  <!-- Node list -->
+  <div id="pane-nodes">
+    <div class="pane-header">
+      <span class="title">Nodes</span>
+      <span>5</span>
+    </div>
+
+    <!-- All nodes row -->
+    <div class="node-row selected">
+      <div class="node-name"><span class="node-dot-ok">●</span> All Nodes</div>
+      <div class="node-meta">12 agents · 9 active</div>
+    </div>
+
+    <div class="node-row">
+      <div class="node-name"><span class="node-dot-ok">●</span> node-dallas</div>
+      <div class="node-meta">Dallas, TX · 3 agents</div>
+    </div>
+
+    <div class="node-row">
+      <div class="node-name"><span class="node-dot-ok">●</span> node-denver</div>
+      <div class="node-meta">Denver, CO · 2 agents</div>
+    </div>
+
+    <div class="node-row offline">
+      <div class="node-name"><span class="node-dot-off">○</span> node-chicago</div>
+      <div class="node-meta err">offline · last seen 01:12</div>
+    </div>
+
+    <div class="node-row">
+      <div class="node-name"><span class="node-dot-ok">●</span> node-seattle</div>
+      <div class="node-meta">Seattle, WA · 1 agent</div>
+    </div>
+
+    <div class="node-row">
+      <div class="node-name"><span class="node-dot-ok">●</span> node-miami</div>
+      <div class="node-meta">Miami, FL · 4 agents</div>
+    </div>
+
+    <div class="node-row">
+      <div class="node-name"><span class="node-dot-ok">●</span> node-nyc</div>
+      <div class="node-meta">New York, NY · 2 agents</div>
+    </div>
+
+    <div class="node-footer">
+      <div class="new-agent-btn">
+        <span>+</span>
+        <span>Launch Agent <span style="color:#484f58">[n]</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent table -->
+  <div id="pane-agents">
+    <div class="agent-table-header">
+      <span></span>
+      <span>Agent</span>
+      <span>Node</span>
+      <span>Runtime</span>
+      <span>Mission</span>
+      <span>Active Task</span>
+      <span style="text-align:right">Uptime</span>
+    </div>
+
+    <div class="agent-table-body">
+
+      <div class="agent-row">
+        <span class="status-dot-busy">⟳</span>
+        <span class="agent-name-cell">goose-prod-1</span>
+        <span class="agent-node-cell">node-dallas</span>
+        <span class="agent-runtime">goose</span>
+        <span class="agent-mission">Phoenix Deploy</span>
+        <span class="agent-task">TSK-0091 deploy-api-server</span>
+        <span class="agent-uptime">4h 12m</span>
+      </div>
+
+      <div class="agent-row selected">
+        <span class="status-dot-busy">⟳</span>
+        <span class="agent-name-cell accent">goose-prod-2</span>
+        <span class="agent-node-cell">node-dallas</span>
+        <span class="agent-runtime">goose</span>
+        <span class="agent-mission">Phoenix Deploy</span>
+        <span class="agent-task">TSK-0092 apply-migrations</span>
+        <span class="agent-uptime">4h 12m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="status-dot-ok">●</span>
+        <span class="agent-name-cell">codex-build</span>
+        <span class="agent-node-cell">node-dallas</span>
+        <span class="agent-runtime" style="color:#58a6ff">codex</span>
+        <span class="agent-mission">Phoenix Deploy</span>
+        <span class="agent-task">TSK-0093 build-image</span>
+        <span class="agent-uptime">2h 04m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="status-dot-idle">●</span>
+        <span class="agent-name-cell">aria-mc-engineer</span>
+        <span class="agent-node-cell">node-denver</span>
+        <span class="agent-runtime" style="color:#3fb950">claude</span>
+        <span class="agent-mission">MC Platform</span>
+        <span class="agent-task idle">— idle</span>
+        <span class="agent-uptime">8h 33m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="status-dot-busy">⟳</span>
+        <span class="agent-name-cell">goose-research</span>
+        <span class="agent-node-cell">node-denver</span>
+        <span class="agent-runtime">goose</span>
+        <span class="agent-mission">Research-Q2</span>
+        <span class="agent-task">TSK-0087 sector-analysis</span>
+        <span class="agent-uptime">1h 47m</span>
+      </div>
+
+      <div class="agent-row offline">
+        <span class="status-dot-off">○</span>
+        <span class="agent-name-cell dim">goose-chicago</span>
+        <span class="agent-node-cell dim">node-chicago</span>
+        <span class="agent-runtime dim">goose</span>
+        <span class="agent-mission dim">Security Audit</span>
+        <span class="agent-task idle">— offline</span>
+        <span class="agent-uptime dim">—</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="status-dot-busy">⟳</span>
+        <span class="agent-name-cell">gemini-deep</span>
+        <span class="agent-node-cell">node-seattle</span>
+        <span class="agent-runtime" style="color:#d29922">gemini</span>
+        <span class="agent-mission">Nightly Analysis</span>
+        <span class="agent-task">TSK-0079 etl-pipeline</span>
+        <span class="agent-uptime">6h 01m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="status-dot-ok">●</span>
+        <span class="agent-name-cell">goose-miami-1</span>
+        <span class="agent-node-cell">node-miami</span>
+        <span class="agent-runtime">goose</span>
+        <span class="agent-mission">Security Audit</span>
+        <span class="agent-task">TSK-0044 vuln-scan</span>
+        <span class="agent-uptime">3h 15m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="status-dot-idle">●</span>
+        <span class="agent-name-cell">goose-miami-2</span>
+        <span class="agent-node-cell">node-miami</span>
+        <span class="agent-runtime">goose</span>
+        <span class="agent-mission">Security Audit</span>
+        <span class="agent-task idle">— idle</span>
+        <span class="agent-uptime">3h 15m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="status-dot-busy">⟳</span>
+        <span class="agent-name-cell">goose-miami-3</span>
+        <span class="agent-node-cell">node-miami</span>
+        <span class="agent-runtime">goose</span>
+        <span class="agent-mission">Research-Q2</span>
+        <span class="agent-task">TSK-0088 data-fetch</span>
+        <span class="agent-uptime">3h 15m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="status-dot-busy">⟳</span>
+        <span class="agent-name-cell">codex-nyc</span>
+        <span class="agent-node-cell">node-nyc</span>
+        <span class="agent-runtime" style="color:#58a6ff">codex</span>
+        <span class="agent-mission">Phoenix Deploy</span>
+        <span class="agent-task">TSK-0094 run-tests</span>
+        <span class="agent-uptime">1h 22m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="status-dot-idle">●</span>
+        <span class="agent-name-cell">goose-nyc</span>
+        <span class="agent-node-cell">node-nyc</span>
+        <span class="agent-runtime">goose</span>
+        <span class="agent-mission">Research-Q2</span>
+        <span class="agent-task idle">— idle</span>
+        <span class="agent-uptime">0h 41m</span>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Agent detail panel (shown when agent selected) -->
+<div id="pane-detail">
+  <div id="detail-header">
+    <span class="status-dot-busy">⟳</span>
+    <span class="accent" style="font-weight:700">goose-prod-2</span>
+    <span class="dim">·</span>
+    <span class="muted">node-dallas · goose · Phoenix Deploy</span>
+    <span class="dim" style="margin-left:auto">uptime 4h 12m</span>
+  </div>
+  <div id="detail-body">
+
+    <div class="detail-col">
+      <div class="detail-section">Identity</div>
+      <div class="detail-kv"><span class="detail-k">Agent</span><span class="detail-v">goose-prod-2</span></div>
+      <div class="detail-kv"><span class="detail-k">Node</span><span class="detail-v">node-dallas &nbsp;<span class="dim">Dallas, TX</span></span></div>
+      <div class="detail-kv"><span class="detail-k">Runtime</span><span class="detail-v purple">goose 1.1.2</span></div>
+      <div class="detail-kv"><span class="detail-k">Mission</span><span class="detail-v">Phoenix Deploy</span></div>
+      <div class="detail-kv"><span class="detail-k">Status</span><span class="detail-v accent">⟳ running task</span></div>
+    </div>
+
+    <div class="detail-col">
+      <div class="detail-section">Current Task</div>
+      <div class="detail-kv"><span class="detail-k">Task ID</span><span class="detail-v accent">TSK-0092</span></div>
+      <div class="detail-kv"><span class="detail-k">Title</span><span class="detail-v">apply-migrations</span></div>
+      <div class="detail-kv"><span class="detail-k">Kluster</span><span class="detail-v">app-deploy</span></div>
+      <div class="detail-kv"><span class="detail-k">Running</span><span class="detail-v warn">7m 43s</span></div>
+      <div class="detail-kv"><span class="detail-k">Claimed</span><span class="detail-v dim">03:39:39</span></div>
+    </div>
+
+    <div class="detail-col">
+      <div class="detail-section">Operations</div>
+      <div class="action-row">
+        <button class="action-btn primary"><span class="k">g</span> Give Task</button>
+        <button class="action-btn warn"><span class="k">r</span> Restart</button>
+        <button class="action-btn"><span class="k">x</span> Clear Context</button>
+        <button class="action-btn danger"><span class="k">d</span> Remove</button>
+      </div>
+      <div style="margin-top:0.8em">
+        <div class="detail-section">Recent Tasks</div>
+        <div style="font-size:11px; color:#484f58; line-height:1.9">
+          <div><span class="ok">✓</span> TSK-0085 verify-schema <span class="dim">03:30</span></div>
+          <div><span class="ok">✓</span> TSK-0083 seed-initial-data <span class="dim">03:22</span></div>
+          <div><span class="ok">✓</span> TSK-0081 provision-postgres <span class="dim">03:10</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</div><!-- #main -->
+
+<div id="statusbar">
+  <span class="ok">9 running</span>
+  <span class="muted">3 idle</span>
+  <span class="err">1 offline</span>
+  <div id="statusbar-right">
+    <span class="hint"><b>↑↓</b> navigate</span>
+    <span class="hint"><b>Tab</b> panes</span>
+    <span class="hint"><b>g</b> give-task</span>
+    <span class="hint"><b>r</b> restart</span>
+    <span class="hint"><b>n</b> new agent</span>
+    <span class="hint"><b>Esc</b> close detail</span>
+  </div>
+</div>
+
+</body>
+</html>

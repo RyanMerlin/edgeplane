@@ -48,6 +48,8 @@ pub enum WorkRequest {
     RespondApproval { job_id: JobId, approval_id: String, decision: String, note: Option<String> },
     /// Fetch the list of runs from the backend.
     ListRuns { job_id: JobId },
+    /// Fetch the list of agents from the backend.
+    ListAgents { job_id: JobId },
 }
 
 // ─── results ─────────────────────────────────────────────────────────────────
@@ -100,6 +102,8 @@ pub enum WorkResult {
     ApprovalResponded { job_id: JobId, approval_id: String, ok: bool, error: Option<String> },
     /// Runs listed from the backend.
     RunsListed { job_id: JobId, runs: Vec<crate::data::RunSummary>, error: Option<String> },
+    /// Agents listed from the backend.
+    AgentsListed { job_id: JobId, agents: Vec<crate::data::AgentSummary>, error: Option<String> },
 }
 
 // ─── pool ────────────────────────────────────────────────────────────────────
@@ -258,6 +262,12 @@ impl WorkPool {
                     match handle.block_on(client.list_runs()) {
                         Ok(runs) => { let _ = tx.send(WorkResult::RunsListed { job_id, runs, error: None }); }
                         Err(e) => { let _ = tx.send(WorkResult::RunsListed { job_id, runs: vec![], error: Some(e.to_string()) }); }
+                    }
+                }
+                WorkRequest::ListAgents { job_id } => {
+                    match handle.block_on(client.list_agents()) {
+                        Ok(agents) => { let _ = tx.send(WorkResult::AgentsListed { job_id, agents, error: None }); }
+                        Err(e) => { let _ = tx.send(WorkResult::AgentsListed { job_id, agents: vec![], error: Some(e.to_string()) }); }
                     }
                 }
             }
