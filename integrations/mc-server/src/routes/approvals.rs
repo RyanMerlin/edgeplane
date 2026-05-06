@@ -147,25 +147,38 @@ async fn list_approvals(
     Query(q): Query<ApprovalListQuery>,
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(50).min(100).max(1);
-    let rows = if let Some(status) = &q.status {
-        sqlx::query(
+    let rows = match (&q.mission_id, &q.status) {
+        (Some(mid), Some(status)) => sqlx::query(
             "SELECT * FROM approvalrequest WHERE mission_id=$1 AND status=$2 \
              ORDER BY created_at DESC LIMIT $3",
         )
-        .bind(&q.mission_id)
+        .bind(mid)
         .bind(status)
         .bind(limit)
         .fetch_all(&state.db)
-        .await
-    } else {
-        sqlx::query(
+        .await,
+        (Some(mid), None) => sqlx::query(
             "SELECT * FROM approvalrequest WHERE mission_id=$1 \
              ORDER BY created_at DESC LIMIT $2",
         )
-        .bind(&q.mission_id)
+        .bind(mid)
         .bind(limit)
         .fetch_all(&state.db)
-        .await
+        .await,
+        (None, Some(status)) => sqlx::query(
+            "SELECT * FROM approvalrequest WHERE status=$1 \
+             ORDER BY created_at DESC LIMIT $2",
+        )
+        .bind(status)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await,
+        (None, None) => sqlx::query(
+            "SELECT * FROM approvalrequest ORDER BY created_at DESC LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await,
     };
 
     match rows {

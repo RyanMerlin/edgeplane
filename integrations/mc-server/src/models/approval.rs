@@ -51,7 +51,7 @@ pub struct ApprovalRespond {
 
 #[derive(Debug, Deserialize)]
 pub struct ApprovalListQuery {
-    pub mission_id: String,
+    pub mission_id: Option<String>,
     pub status: Option<String>,
     pub limit: Option<i64>,
 }

@@ -203,7 +203,7 @@ impl DataClient for RemoteDataClient {
         let path = if let Some(mid) = mission_id {
             format!("/approvals?mission_id={mid}&status=pending")
         } else {
-            "/approvals/requests?status=pending".to_string()
+            "/approvals?status=pending".to_string()
         };
         self.get(&path).await
     }
