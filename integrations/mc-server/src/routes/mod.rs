@@ -25,7 +25,6 @@ pub mod onboarding;
 pub mod ops;
 pub mod persistence;
 pub mod profiles;
-pub mod proxy;
 pub mod raft;
 pub mod remotectl;
 pub mod runs;
@@ -45,8 +44,8 @@ use std::sync::Arc;
 
 use crate::state::AppState;
 
-pub fn build_router(include_proxy: bool) -> Router<Arc<AppState>> {
-    let mut router = Router::new()
+pub fn build_router() -> Router<Arc<AppState>> {
+    Router::new()
         .merge(health::router())
         .merge(raft::router())
         .merge(auth::router())
@@ -86,9 +85,5 @@ pub fn build_router(include_proxy: bool) -> Router<Arc<AppState>> {
         .merge(ops::router())
         .merge(slack_integrations::router())
         .merge(family_governance::router())
-        .merge(webhooks_tailscale::router());
-    if include_proxy {
-        router = router.merge(proxy::router());
-    }
-    router
+        .merge(webhooks_tailscale::router())
 }

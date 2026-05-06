@@ -4,10 +4,6 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(name = "mc-server", about = "MissionControl API server")]
 struct Args {
-    /// Proxy unknown routes to a legacy backend URL (migration mode)
-    #[arg(long)]
-    api_proxy: Option<String>,
-
     /// Serve the mc-ui web frontend
     #[arg(long)]
     ui: bool,
@@ -23,6 +19,10 @@ struct Args {
     /// Advertised URL for this node (returned in /raft/status)
     #[arg(long, env = "MC_ADVERTISE_URL")]
     advertise_url: Option<String>,
+
+    /// Skip automatic database migration on startup
+    #[arg(long)]
+    no_migrate: bool,
 }
 
 #[tokio::main]
@@ -35,19 +35,22 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    tracing::info!(
-        api_proxy = args.api_proxy.as_deref().unwrap_or("none"),
-        bind = %args.bind,
-        "mc-server starting",
-    );
+    tracing::info!(bind = %args.bind, "mc-server starting");
+
+    let db = mc_server::db::connect().await?;
+
+    if !args.no_migrate {
+        tracing::info!("running database migrations");
+        sqlx::migrate!("./migrations").run(&db).await
+            .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
+        tracing::info!("migrations complete");
+    }
 
     let config = AppConfig {
-        api_proxy: args.api_proxy.clone(),
         node_id: args.node_id.unwrap_or(1),
         advertise_url: args.advertise_url.clone(),
     };
 
-    let db = mc_server::db::connect().await?;
     let app = build_app(db, config);
     let listener = tokio::net::TcpListener::bind(&args.bind).await?;
     tracing::info!(bind = %args.bind, "listening");

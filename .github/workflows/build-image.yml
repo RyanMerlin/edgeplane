@@ -28,7 +28,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push mc-server (Rust prod)
+      - name: Build and push mc-server
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -41,29 +41,15 @@ jobs:
           cache-from: type=gha,scope=mc-server
           cache-to: type=gha,mode=max,scope=mc-server
 
-      - name: Build and push missioncontrol-migrate (Python/Alembic)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: backend/Dockerfile
-          target: migrate
-          push: true
-          tags: |
-            ghcr.io/ryanmerlin/missioncontrol-migrate:${{ steps.sha.outputs.short }}
-            ghcr.io/ryanmerlin/missioncontrol-migrate:latest
-          cache-from: type=gha,scope=missioncontrol-migrate
-          cache-to: type=gha,mode=max,scope=missioncontrol-migrate
-
-      - name: Update gitops image tags
+      - name: Update gitops image tag
         run: |
           SHORT_SHA=${{ steps.sha.outputs.short }}
           git clone https://x-access-token:${{ secrets.MC_GIT_PUBLISH_TOKEN }}@github.com/RyanMerlin/gitops-merlinlabs.git /tmp/gitops
           cd /tmp/gitops
           DEPLOY=merlinlabs/applications/missioncontrol/mc-server-deployment.yaml
           sed -i "s|ghcr.io/ryanmerlin/mc-server:[a-zA-Z0-9._-]*|ghcr.io/ryanmerlin/mc-server:${SHORT_SHA}|g" "$DEPLOY"
-          sed -i "s|ghcr.io/ryanmerlin/missioncontrol-migrate:[a-zA-Z0-9._-]*|ghcr.io/ryanmerlin/missioncontrol-migrate:${SHORT_SHA}|g" "$DEPLOY"
           git config user.email "ci@ryanmerlin.dev"
           git config user.name "MC CI"
           git add "$DEPLOY"
-          git diff --staged --quiet || git commit -m "chore(deploy): bump mc-server + migrate to ${SHORT_SHA}"
+          git diff --staged --quiet || git commit -m "chore(deploy): bump mc-server to ${SHORT_SHA}"
           git push

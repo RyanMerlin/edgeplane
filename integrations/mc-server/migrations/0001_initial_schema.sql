@@ -1,0 +1,1588 @@
+CREATE TABLE IF NOT EXISTS public.agent (
+    id integer NOT NULL,
+    name character varying NOT NULL,
+    capabilities character varying NOT NULL,
+    status character varying NOT NULL,
+    metadata text,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.agent_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.agent_id_seq OWNED BY public.agent.id;
+CREATE TABLE IF NOT EXISTS public.agentmessage (
+    id integer NOT NULL,
+    from_agent_id integer NOT NULL,
+    to_agent_id integer NOT NULL,
+    content character varying NOT NULL,
+    message_type character varying NOT NULL,
+    task_id integer,
+    read boolean NOT NULL,
+    created_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.agentmessage_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.agentmessage_id_seq OWNED BY public.agentmessage.id;
+CREATE TABLE IF NOT EXISTS public.agentrun (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    mesh_agent_id character varying,
+    mesh_task_id character varying,
+    runtime_kind character varying NOT NULL,
+    runtime_session_id character varying,
+    status character varying NOT NULL,
+    started_at timestamp without time zone,
+    ended_at timestamp without time zone,
+    resume_token character varying NOT NULL,
+    last_checkpoint_at timestamp without time zone,
+    total_cost_cents integer NOT NULL,
+    parent_run_id character varying,
+    metadata_json text,
+    idempotency_key character varying,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.agentsession (
+    id integer NOT NULL,
+    agent_id integer NOT NULL,
+    context character varying NOT NULL,
+    started_at timestamp without time zone NOT NULL,
+    ended_at timestamp without time zone,
+    claude_session_id character varying,
+    end_reason character varying,
+    audit_log text
+);
+CREATE SEQUENCE IF NOT EXISTS public.agentsession_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.agentsession_id_seq OWNED BY public.agentsession.id;
+CREATE TABLE IF NOT EXISTS public.aievent (
+    id integer NOT NULL,
+    session_id character varying NOT NULL,
+    turn_id integer,
+    event_type character varying NOT NULL,
+    payload_json character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.aievent_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.aievent_id_seq OWNED BY public.aievent.id;
+CREATE TABLE IF NOT EXISTS public.aipendingaction (
+    id character varying NOT NULL,
+    session_id character varying NOT NULL,
+    turn_id integer NOT NULL,
+    tool character varying NOT NULL,
+    args_json character varying NOT NULL,
+    reason character varying NOT NULL,
+    status character varying NOT NULL,
+    requested_by character varying NOT NULL,
+    approved_by character varying NOT NULL,
+    rejected_by character varying NOT NULL,
+    rejection_note character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.aisession (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    title character varying NOT NULL,
+    status character varying NOT NULL,
+    runtime_kind character varying NOT NULL,
+    runtime_session_id character varying,
+    workspace_path character varying,
+    policy_json text,
+    capability_snapshot_json text,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.aiturn (
+    id integer NOT NULL,
+    session_id character varying NOT NULL,
+    role character varying NOT NULL,
+    content_json character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.aiturn_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.aiturn_id_seq OWNED BY public.aiturn.id;
+CREATE TABLE IF NOT EXISTS public.alembic_version (
+    version_num character varying(32) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.approvalnonceuse (
+    id integer NOT NULL,
+    nonce character varying NOT NULL,
+    approval_request_id integer,
+    request_id character varying NOT NULL,
+    action character varying NOT NULL,
+    actor_subject character varying NOT NULL,
+    consumed_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.approvalnonceuse_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.approvalnonceuse_id_seq OWNED BY public.approvalnonceuse.id;
+CREATE TABLE IF NOT EXISTS public.approvalrequest (
+    id integer NOT NULL,
+    mission_id character varying NOT NULL,
+    action character varying NOT NULL,
+    channel character varying NOT NULL,
+    reason character varying NOT NULL,
+    target_entity_type character varying NOT NULL,
+    target_entity_id character varying NOT NULL,
+    request_context_json character varying NOT NULL,
+    status character varying NOT NULL,
+    requested_by character varying NOT NULL,
+    approved_by character varying NOT NULL,
+    rejected_by character varying NOT NULL,
+    decision_note character varying NOT NULL,
+    approval_nonce character varying NOT NULL,
+    approval_expires_at timestamp without time zone,
+    approved_at timestamp without time zone,
+    rejected_at timestamp without time zone,
+    executed_at timestamp without time zone,
+    executed_action character varying NOT NULL,
+    executed_request_id character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.approvalrequest_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.approvalrequest_id_seq OWNED BY public.approvalrequest.id;
+CREATE TABLE IF NOT EXISTS public.artifact (
+    id integer NOT NULL,
+    kluster_id character varying NOT NULL,
+    name character varying NOT NULL,
+    artifact_type character varying NOT NULL,
+    uri character varying NOT NULL,
+    storage_backend character varying NOT NULL,
+    content_sha256 character varying NOT NULL,
+    size_bytes integer NOT NULL,
+    mime_type character varying NOT NULL,
+    storage_class character varying NOT NULL,
+    content_b64 text,
+    external_pointer boolean NOT NULL,
+    external_uri character varying NOT NULL,
+    status character varying NOT NULL,
+    version integer NOT NULL,
+    provenance character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.artifact_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.artifact_id_seq OWNED BY public.artifact.id;
+CREATE TABLE IF NOT EXISTS public.budgetpolicy (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    scope_type character varying NOT NULL,
+    scope_id character varying NOT NULL,
+    window_type character varying NOT NULL,
+    hard_cap_cents integer NOT NULL,
+    soft_cap_cents integer,
+    action_on_breach character varying NOT NULL,
+    active boolean NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.budgetwindow (
+    id character varying NOT NULL,
+    policy_id character varying,
+    window_start timestamp without time zone NOT NULL,
+    window_end timestamp without time zone NOT NULL,
+    consumed_cents integer NOT NULL,
+    state character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.chatinboundreceipt (
+    id integer NOT NULL,
+    provider character varying NOT NULL,
+    event_key character varying NOT NULL,
+    event_type character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.chatinboundreceipt_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.chatinboundreceipt_id_seq OWNED BY public.chatinboundreceipt.id;
+CREATE TABLE IF NOT EXISTS public.costprofile (
+    id character varying NOT NULL,
+    runtime_kind character varying NOT NULL,
+    provider character varying NOT NULL,
+    model character varying NOT NULL,
+    input_rate_per_mtok_cents integer NOT NULL,
+    output_rate_per_mtok_cents integer NOT NULL,
+    reasoning_rate_per_mtok_cents integer NOT NULL,
+    tool_call_flat_cents integer NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.doc (
+    id integer NOT NULL,
+    kluster_id character varying NOT NULL,
+    title character varying NOT NULL,
+    body character varying NOT NULL,
+    doc_type character varying NOT NULL,
+    status character varying NOT NULL,
+    version integer NOT NULL,
+    provenance character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.doc_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.doc_id_seq OWNED BY public.doc.id;
+CREATE TABLE IF NOT EXISTS public.epic (
+    id integer NOT NULL,
+    kluster_id character varying NOT NULL,
+    title character varying NOT NULL,
+    description character varying NOT NULL,
+    owner character varying NOT NULL,
+    status character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.epic_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.epic_id_seq OWNED BY public.epic.id;
+CREATE TABLE IF NOT EXISTS public.eventtrigger (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    event_type character varying NOT NULL,
+    predicate_json text,
+    target_type character varying NOT NULL,
+    target_spec_json text,
+    active boolean NOT NULL,
+    cooldown_seconds integer NOT NULL,
+    last_fired_at timestamp without time zone,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.evolvemission (
+    mission_id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    status character varying NOT NULL,
+    spec_json character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.evolverun (
+    run_id character varying NOT NULL,
+    mission_id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    agent character varying NOT NULL,
+    status character varying NOT NULL,
+    started_at timestamp without time zone NOT NULL,
+    ai_session_id character varying,
+    score double precision,
+    recipe_path character varying
+);
+CREATE TABLE IF NOT EXISTS public.executionsession (
+    id character varying NOT NULL,
+    lease_id character varying NOT NULL,
+    runtime_class character varying NOT NULL,
+    pty_requested boolean NOT NULL,
+    attach_token_prefix character varying NOT NULL,
+    status character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.feedbackentry (
+    id integer NOT NULL,
+    mission_id character varying NOT NULL,
+    kluster_id character varying NOT NULL,
+    source_type character varying NOT NULL,
+    source_subject character varying NOT NULL,
+    provider character varying NOT NULL,
+    channel_id character varying NOT NULL,
+    category character varying NOT NULL,
+    severity character varying NOT NULL,
+    summary character varying NOT NULL,
+    recommendation character varying NOT NULL,
+    status character varying NOT NULL,
+    triage_status character varying NOT NULL,
+    priority character varying NOT NULL,
+    owner character varying NOT NULL,
+    disposition character varying NOT NULL,
+    outcome_ref character varying NOT NULL,
+    metadata_json character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.feedbackentry_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.feedbackentry_id_seq OWNED BY public.feedbackentry.id;
+CREATE TABLE IF NOT EXISTS public.governancepolicy (
+    id integer NOT NULL,
+    version integer NOT NULL,
+    state character varying NOT NULL,
+    policy_json character varying NOT NULL,
+    change_note character varying NOT NULL,
+    created_by character varying NOT NULL,
+    published_by character varying NOT NULL,
+    published_at timestamp without time zone,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.governancepolicy_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.governancepolicy_id_seq OWNED BY public.governancepolicy.id;
+CREATE TABLE IF NOT EXISTS public.governancepolicyevent (
+    id integer NOT NULL,
+    policy_id integer,
+    version integer NOT NULL,
+    event_type character varying NOT NULL,
+    actor_subject character varying NOT NULL,
+    detail_json character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.governancepolicyevent_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.governancepolicyevent_id_seq OWNED BY public.governancepolicyevent.id;
+CREATE TABLE IF NOT EXISTS public.ingestionjob (
+    id integer NOT NULL,
+    kluster_id character varying NOT NULL,
+    source character varying NOT NULL,
+    status character varying NOT NULL,
+    config character varying NOT NULL,
+    logs character varying NOT NULL,
+    result_summary character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.ingestionjob_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.ingestionjob_id_seq OWNED BY public.ingestionjob.id;
+CREATE TABLE IF NOT EXISTS public.joblease (
+    id character varying NOT NULL,
+    job_id character varying NOT NULL,
+    node_id character varying NOT NULL,
+    status character varying NOT NULL,
+    claimed_at timestamp without time zone NOT NULL,
+    heartbeat_at timestamp without time zone,
+    started_at timestamp without time zone,
+    finished_at timestamp without time zone,
+    exit_code integer,
+    error_message text,
+    cleanup_status character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.kluster (
+    id character varying NOT NULL,
+    mission_id character varying,
+    name character varying NOT NULL,
+    description character varying NOT NULL,
+    owners character varying NOT NULL,
+    contributors character varying NOT NULL,
+    tags character varying NOT NULL,
+    status character varying NOT NULL,
+    workstream_md character varying NOT NULL,
+    workstream_version integer NOT NULL,
+    workstream_created_by character varying NOT NULL,
+    workstream_modified_by character varying NOT NULL,
+    workstream_created_at timestamp without time zone,
+    workstream_modified_at timestamp without time zone,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL,
+    CONSTRAINT ck_kluster_owners_nonempty CHECK ((TRIM(BOTH FROM owners) <> ''::text))
+);
+CREATE TABLE IF NOT EXISTS public.ledgerevent (
+    id integer NOT NULL,
+    event_id character varying NOT NULL,
+    mission_id character varying,
+    kluster_id character varying,
+    entity_type character varying NOT NULL,
+    entity_id character varying NOT NULL,
+    action character varying NOT NULL,
+    payload_json character varying NOT NULL,
+    state character varying NOT NULL,
+    created_by_agent_id integer,
+    created_by_subject character varying NOT NULL,
+    attempt_count integer NOT NULL,
+    last_error character varying NOT NULL,
+    git_commit character varying NOT NULL,
+    git_path character varying NOT NULL,
+    published_at timestamp without time zone,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.ledgerevent_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.ledgerevent_id_seq OWNED BY public.ledgerevent.id;
+CREATE TABLE IF NOT EXISTS public.meshagent (
+    id character varying NOT NULL,
+    mission_id character varying NOT NULL,
+    node_id character varying,
+    runtime_kind character varying NOT NULL,
+    runtime_version character varying NOT NULL,
+    capabilities text,
+    labels text,
+    status character varying NOT NULL,
+    current_task_id character varying,
+    enrolled_by_subject character varying NOT NULL,
+    enrolled_at timestamp without time zone NOT NULL,
+    last_heartbeat_at timestamp without time zone,
+    runtime_node_id character varying,
+    profile_json text,
+    machine_json text,
+    runtime_json text,
+    supervision_mode character varying
+);
+CREATE TABLE IF NOT EXISTS public.meshmessage (
+    id integer NOT NULL,
+    mission_id character varying NOT NULL,
+    kluster_id character varying,
+    from_agent_id character varying NOT NULL,
+    to_agent_id character varying,
+    task_id character varying,
+    channel character varying NOT NULL,
+    body_json text,
+    in_reply_to integer,
+    created_at timestamp without time zone NOT NULL,
+    read_at timestamp without time zone
+);
+CREATE SEQUENCE IF NOT EXISTS public.meshmessage_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.meshmessage_id_seq OWNED BY public.meshmessage.id;
+CREATE TABLE IF NOT EXISTS public.meshprogressevent (
+    id integer NOT NULL,
+    task_id character varying NOT NULL,
+    agent_id character varying NOT NULL,
+    seq integer NOT NULL,
+    event_type character varying NOT NULL,
+    phase character varying,
+    step character varying,
+    summary text,
+    payload_json text,
+    occurred_at timestamp without time zone NOT NULL,
+    agent_run_id character varying
+);
+CREATE SEQUENCE IF NOT EXISTS public.meshprogressevent_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.meshprogressevent_id_seq OWNED BY public.meshprogressevent.id;
+CREATE TABLE IF NOT EXISTS public.meshtask (
+    id character varying NOT NULL,
+    kluster_id character varying NOT NULL,
+    mission_id character varying NOT NULL,
+    parent_task_id character varying,
+    title character varying NOT NULL,
+    description text,
+    input_json text,
+    claim_policy character varying NOT NULL,
+    depends_on text,
+    produces text,
+    consumes text,
+    required_capabilities text,
+    status character varying NOT NULL,
+    claimed_by_agent_id character varying,
+    result_artifact_id character varying,
+    priority integer NOT NULL,
+    lease_expires_at timestamp without time zone,
+    claim_lease_id character varying,
+    version_counter integer NOT NULL,
+    created_by_subject character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.meshtaskartifact (
+    id integer NOT NULL,
+    task_id character varying NOT NULL,
+    artifact_id integer NOT NULL,
+    artifact_name character varying NOT NULL,
+    role character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.meshtaskartifact_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.meshtaskartifact_id_seq OWNED BY public.meshtaskartifact.id;
+CREATE TABLE IF NOT EXISTS public.mission (
+    id character varying NOT NULL,
+    name character varying NOT NULL,
+    description character varying NOT NULL,
+    owners character varying NOT NULL,
+    contributors character varying NOT NULL,
+    tags character varying NOT NULL,
+    visibility character varying NOT NULL,
+    status character varying NOT NULL,
+    northstar_md character varying NOT NULL,
+    northstar_version integer NOT NULL,
+    northstar_created_by character varying NOT NULL,
+    northstar_modified_by character varying NOT NULL,
+    northstar_created_at timestamp without time zone,
+    northstar_modified_at timestamp without time zone,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL,
+    CONSTRAINT ck_mission_owners_nonempty CHECK ((TRIM(BOTH FROM owners) <> ''::text))
+);
+CREATE TABLE IF NOT EXISTS public.missionpack (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    name character varying NOT NULL,
+    version integer NOT NULL,
+    sha256 character varying NOT NULL,
+    signature character varying,
+    tarball_b64 text,
+    manifest_json text,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.missionpersistencepolicy (
+    id integer NOT NULL,
+    mission_id character varying NOT NULL,
+    default_binding_id integer,
+    fallback_mode character varying NOT NULL,
+    require_approval boolean NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.missionpersistencepolicy_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.missionpersistencepolicy_id_seq OWNED BY public.missionpersistencepolicy.id;
+CREATE TABLE IF NOT EXISTS public.missionpersistenceroute (
+    id integer NOT NULL,
+    mission_id character varying NOT NULL,
+    entity_kind character varying NOT NULL,
+    event_kind character varying NOT NULL,
+    binding_id integer NOT NULL,
+    branch_override character varying NOT NULL,
+    path_template character varying NOT NULL,
+    format character varying NOT NULL,
+    active boolean NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.missionpersistenceroute_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.missionpersistenceroute_id_seq OWNED BY public.missionpersistenceroute.id;
+CREATE TABLE IF NOT EXISTS public.missionrolemembership (
+    id integer NOT NULL,
+    mission_id character varying NOT NULL,
+    subject character varying NOT NULL,
+    role character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.missionrolemembership_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.missionrolemembership_id_seq OWNED BY public.missionrolemembership.id;
+CREATE TABLE IF NOT EXISTS public.nodeevent (
+    id integer NOT NULL,
+    node_id character varying,
+    lease_id character varying,
+    event_type character varying NOT NULL,
+    payload_json text,
+    created_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.nodeevent_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.nodeevent_id_seq OWNED BY public.nodeevent.id;
+CREATE TABLE IF NOT EXISTS public.oidcauthrequest (
+    id character varying NOT NULL,
+    state character varying NOT NULL,
+    code_verifier character varying NOT NULL,
+    nonce character varying NOT NULL,
+    redirect_path character varying NOT NULL,
+    cli_nonce character varying,
+    created_at timestamp without time zone NOT NULL,
+    expires_at timestamp without time zone NOT NULL,
+    used_at timestamp without time zone
+);
+CREATE TABLE IF NOT EXISTS public.oidclogingrant (
+    id character varying NOT NULL,
+    auth_request_id character varying NOT NULL,
+    subject character varying NOT NULL,
+    email character varying NOT NULL,
+    cli_nonce character varying,
+    created_at timestamp without time zone NOT NULL,
+    expires_at timestamp without time zone NOT NULL,
+    used_at timestamp without time zone
+);
+CREATE TABLE IF NOT EXISTS public.overlapsuggestion (
+    id integer NOT NULL,
+    task_id integer NOT NULL,
+    candidate_task_id integer NOT NULL,
+    similarity_score double precision NOT NULL,
+    evidence character varying NOT NULL,
+    suggested_action character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.overlapsuggestion_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.overlapsuggestion_id_seq OWNED BY public.overlapsuggestion.id;
+CREATE TABLE IF NOT EXISTS public.publicationrecord (
+    id integer NOT NULL,
+    owner_subject character varying NOT NULL,
+    mission_id character varying,
+    ledger_event_id integer,
+    entity_kind character varying NOT NULL,
+    entity_id character varying NOT NULL,
+    event_kind character varying NOT NULL,
+    binding_id integer NOT NULL,
+    repo_url character varying NOT NULL,
+    branch character varying NOT NULL,
+    file_path character varying NOT NULL,
+    commit_sha character varying NOT NULL,
+    status character varying NOT NULL,
+    error character varying NOT NULL,
+    detail_json character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.publicationrecord_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.publicationrecord_id_seq OWNED BY public.publicationrecord.id;
+CREATE TABLE IF NOT EXISTS public.remotelaunchrecord (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    transport character varying NOT NULL,
+    target_id character varying,
+    target_host character varying NOT NULL,
+    target_namespace character varying NOT NULL,
+    agent_kind character varying NOT NULL,
+    agent_profile character varying NOT NULL,
+    runtime_session_id character varying NOT NULL,
+    session_token_id integer,
+    capability_scope text,
+    status character varying NOT NULL,
+    last_heartbeat_at timestamp without time zone,
+    exit_code integer,
+    error_message character varying NOT NULL,
+    log_tail text,
+    mc_binary_path character varying NOT NULL,
+    agent_binary_path character varying NOT NULL,
+    k8s_job_name character varying NOT NULL,
+    mc_version character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.remotetarget (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    name character varying NOT NULL,
+    host character varying NOT NULL,
+    "user" character varying NOT NULL,
+    port integer NOT NULL,
+    transport character varying NOT NULL,
+    ssh_pubkey text,
+    key_fingerprint character varying NOT NULL,
+    last_used_at timestamp without time zone,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.repobinding (
+    id integer NOT NULL,
+    owner_subject character varying NOT NULL,
+    name character varying NOT NULL,
+    connection_id integer NOT NULL,
+    branch_override character varying NOT NULL,
+    base_path character varying NOT NULL,
+    active boolean NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.repobinding_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.repobinding_id_seq OWNED BY public.repobinding.id;
+CREATE TABLE IF NOT EXISTS public.repoconnection (
+    id integer NOT NULL,
+    owner_subject character varying NOT NULL,
+    name character varying NOT NULL,
+    provider character varying NOT NULL,
+    host character varying NOT NULL,
+    repo_path character varying NOT NULL,
+    default_branch character varying NOT NULL,
+    credential_ref character varying NOT NULL,
+    options_json character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.repoconnection_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.repoconnection_id_seq OWNED BY public.repoconnection.id;
+CREATE TABLE IF NOT EXISTS public.reviewgate (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    mesh_task_id character varying NOT NULL,
+    run_id character varying,
+    gate_type character varying NOT NULL,
+    required_approvals character varying NOT NULL,
+    status character varying NOT NULL,
+    approval_request_id character varying,
+    ai_pending_action_id character varying,
+    policy_rule_id character varying,
+    created_at timestamp without time zone NOT NULL,
+    resolved_at timestamp without time zone
+);
+CREATE TABLE IF NOT EXISTS public.runcheckpoint (
+    id character varying NOT NULL,
+    run_id character varying,
+    seq integer NOT NULL,
+    kind character varying NOT NULL,
+    payload_json text,
+    created_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.runtimejob (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    mission_id character varying NOT NULL,
+    task_id integer,
+    runtime_session_id character varying NOT NULL,
+    runtime_class character varying NOT NULL,
+    image character varying NOT NULL,
+    command text,
+    args_json text,
+    env_json text,
+    cwd character varying NOT NULL,
+    mounts_json text,
+    artifact_rules_json text,
+    timeout_seconds integer NOT NULL,
+    restart_policy character varying NOT NULL,
+    required_capabilities_json text,
+    preferred_labels_json text,
+    status character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.runtimejointoken (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    token_hash character varying NOT NULL,
+    config_json text,
+    upgrade_channel character varying NOT NULL,
+    desired_version character varying NOT NULL,
+    expires_at timestamp without time zone,
+    used_at timestamp without time zone,
+    status character varying NOT NULL,
+    rotation_count integer NOT NULL,
+    node_id character varying,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.runtimenode (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    node_name character varying NOT NULL,
+    hostname character varying NOT NULL,
+    status character varying NOT NULL,
+    trust_tier character varying NOT NULL,
+    labels_json text,
+    capacity_json text,
+    capabilities_json text,
+    runtime_version character varying NOT NULL,
+    bootstrap_token_prefix character varying NOT NULL,
+    last_heartbeat_at timestamp without time zone,
+    registered_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.runtimenodespec (
+    id integer NOT NULL,
+    owner_subject character varying NOT NULL,
+    node_id character varying NOT NULL,
+    config_json text,
+    desired_version character varying NOT NULL,
+    upgrade_channel character varying NOT NULL,
+    drain_state character varying NOT NULL,
+    health_summary character varying NOT NULL,
+    config_hash character varying NOT NULL,
+    last_reconcile_at timestamp without time zone NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.runtimenodespec_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.runtimenodespec_id_seq OWNED BY public.runtimenodespec.id;
+CREATE TABLE IF NOT EXISTS public.scheduledagentjob (
+    id integer NOT NULL,
+    owner_subject character varying NOT NULL,
+    name character varying NOT NULL,
+    description character varying NOT NULL,
+    cron_expr character varying NOT NULL,
+    runtime_kind character varying NOT NULL,
+    initial_prompt text,
+    system_context text,
+    policy_json text,
+    enabled boolean NOT NULL,
+    last_run_at timestamp without time zone,
+    last_session_id character varying,
+    target_type character varying,
+    target_spec_json character varying,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.scheduledagentjob_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.scheduledagentjob_id_seq OWNED BY public.scheduledagentjob.id;
+CREATE TABLE IF NOT EXISTS public.serviceaccount (
+    id integer NOT NULL,
+    name character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    client_secret_hash character varying NOT NULL,
+    client_secret_prefix character varying DEFAULT ''::character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    revoked boolean DEFAULT false NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.serviceaccount_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.serviceaccount_id_seq OWNED BY public.serviceaccount.id;
+CREATE TABLE IF NOT EXISTS public.serviceaccounttoken (
+    id integer NOT NULL,
+    service_account_id integer NOT NULL,
+    token_hash character varying NOT NULL,
+    token_prefix character varying DEFAULT ''::character varying NOT NULL,
+    expires_at timestamp without time zone,
+    created_at timestamp without time zone NOT NULL,
+    last_used_at timestamp without time zone,
+    revoked boolean DEFAULT false NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.serviceaccounttoken_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.serviceaccounttoken_id_seq OWNED BY public.serviceaccounttoken.id;
+CREATE TABLE IF NOT EXISTS public.skillbundle (
+    id character varying NOT NULL,
+    scope_type character varying NOT NULL,
+    scope_id character varying NOT NULL,
+    mission_id character varying NOT NULL,
+    kluster_id character varying NOT NULL,
+    version integer NOT NULL,
+    status character varying NOT NULL,
+    signature_alg character varying NOT NULL,
+    signing_key_id character varying NOT NULL,
+    signature character varying NOT NULL,
+    signature_verified boolean NOT NULL,
+    manifest_json character varying NOT NULL,
+    tarball_b64 text,
+    sha256 character varying NOT NULL,
+    size_bytes integer NOT NULL,
+    created_by character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.skilllocalstate (
+    id integer NOT NULL,
+    actor_subject character varying NOT NULL,
+    mission_id character varying NOT NULL,
+    kluster_id character varying NOT NULL,
+    agent_id character varying NOT NULL,
+    last_snapshot_id character varying NOT NULL,
+    last_snapshot_sha256 character varying NOT NULL,
+    local_overlay_sha256 character varying NOT NULL,
+    degraded_offline boolean NOT NULL,
+    drift_flag boolean NOT NULL,
+    drift_details_json character varying NOT NULL,
+    last_sync_at timestamp without time zone,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.skilllocalstate_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.skilllocalstate_id_seq OWNED BY public.skilllocalstate.id;
+CREATE TABLE IF NOT EXISTS public.skillsnapshot (
+    id character varying NOT NULL,
+    mission_id character varying NOT NULL,
+    kluster_id character varying NOT NULL,
+    mission_bundle_id character varying NOT NULL,
+    kluster_bundle_id character varying NOT NULL,
+    effective_version character varying NOT NULL,
+    manifest_json character varying NOT NULL,
+    tarball_b64 text,
+    sha256 character varying NOT NULL,
+    size_bytes integer NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.slackchannelbinding (
+    id integer NOT NULL,
+    provider character varying NOT NULL,
+    mission_id character varying NOT NULL,
+    workspace_external_id character varying NOT NULL,
+    channel_id character varying NOT NULL,
+    channel_name character varying NOT NULL,
+    channel_metadata_json character varying NOT NULL,
+    created_by character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.slackchannelbinding_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.slackchannelbinding_id_seq OWNED BY public.slackchannelbinding.id;
+CREATE TABLE IF NOT EXISTS public.task (
+    id integer NOT NULL,
+    public_id character varying NOT NULL,
+    kluster_id character varying NOT NULL,
+    epic_id integer,
+    title character varying NOT NULL,
+    description character varying NOT NULL,
+    status character varying NOT NULL,
+    owner character varying NOT NULL,
+    contributors character varying NOT NULL,
+    dependencies character varying NOT NULL,
+    definition_of_done character varying NOT NULL,
+    related_artifacts character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.task_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.task_id_seq OWNED BY public.task.id;
+CREATE TABLE IF NOT EXISTS public.taskassignment (
+    id integer NOT NULL,
+    task_id integer NOT NULL,
+    agent_id integer NOT NULL,
+    status character varying NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.taskassignment_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.taskassignment_id_seq OWNED BY public.taskassignment.id;
+CREATE TABLE IF NOT EXISTS public.usagerecord (
+    id character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    run_id character varying,
+    mesh_task_id character varying,
+    mesh_agent_id character varying,
+    mission_id character varying,
+    kluster_id character varying,
+    runtime_kind character varying NOT NULL,
+    provider character varying NOT NULL,
+    model character varying NOT NULL,
+    input_tokens integer NOT NULL,
+    output_tokens integer NOT NULL,
+    reasoning_tokens integer NOT NULL,
+    tool_calls integer NOT NULL,
+    wall_ms integer NOT NULL,
+    cost_cents integer NOT NULL,
+    recorded_at timestamp without time zone NOT NULL,
+    source character varying NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.userprofile (
+    id integer NOT NULL,
+    name character varying NOT NULL,
+    owner_subject character varying NOT NULL,
+    description character varying NOT NULL,
+    is_default boolean NOT NULL,
+    manifest_json character varying NOT NULL,
+    tarball_b64 text,
+    mirror_uri character varying NOT NULL,
+    mirror_sha256 character varying NOT NULL,
+    mirror_size_bytes integer NOT NULL,
+    mirrored_at timestamp without time zone,
+    sha256 character varying,
+    size_bytes integer NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+CREATE SEQUENCE IF NOT EXISTS public.userprofile_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.userprofile_id_seq OWNED BY public.userprofile.id;
+CREATE TABLE IF NOT EXISTS public.usersession (
+    id integer NOT NULL,
+    subject character varying NOT NULL,
+    token_hash character varying NOT NULL,
+    token_prefix character varying NOT NULL,
+    expires_at timestamp without time zone NOT NULL,
+    created_at timestamp without time zone NOT NULL,
+    last_used_at timestamp without time zone NOT NULL,
+    user_agent character varying NOT NULL,
+    revoked boolean NOT NULL,
+    capability_scope text
+);
+CREATE SEQUENCE IF NOT EXISTS public.usersession_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.usersession_id_seq OWNED BY public.usersession.id;
+CREATE TABLE IF NOT EXISTS public.workspacelease (
+    id character varying NOT NULL,
+    mission_id character varying NOT NULL,
+    kluster_id character varying NOT NULL,
+    actor_subject character varying NOT NULL,
+    agent_id character varying NOT NULL,
+    workspace_label character varying NOT NULL,
+    status character varying NOT NULL,
+    base_snapshot_json character varying NOT NULL,
+    lease_seconds integer NOT NULL,
+    last_heartbeat_at timestamp without time zone NOT NULL,
+    expires_at timestamp without time zone NOT NULL,
+    release_reason character varying NOT NULL,
+    released_at timestamp without time zone,
+    created_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+ALTER TABLE ONLY public.agent ALTER COLUMN id SET DEFAULT nextval('public.agent_id_seq'::regclass);
+ALTER TABLE ONLY public.agentmessage ALTER COLUMN id SET DEFAULT nextval('public.agentmessage_id_seq'::regclass);
+ALTER TABLE ONLY public.agentsession ALTER COLUMN id SET DEFAULT nextval('public.agentsession_id_seq'::regclass);
+ALTER TABLE ONLY public.aievent ALTER COLUMN id SET DEFAULT nextval('public.aievent_id_seq'::regclass);
+ALTER TABLE ONLY public.aiturn ALTER COLUMN id SET DEFAULT nextval('public.aiturn_id_seq'::regclass);
+ALTER TABLE ONLY public.approvalnonceuse ALTER COLUMN id SET DEFAULT nextval('public.approvalnonceuse_id_seq'::regclass);
+ALTER TABLE ONLY public.approvalrequest ALTER COLUMN id SET DEFAULT nextval('public.approvalrequest_id_seq'::regclass);
+ALTER TABLE ONLY public.artifact ALTER COLUMN id SET DEFAULT nextval('public.artifact_id_seq'::regclass);
+ALTER TABLE ONLY public.chatinboundreceipt ALTER COLUMN id SET DEFAULT nextval('public.chatinboundreceipt_id_seq'::regclass);
+ALTER TABLE ONLY public.doc ALTER COLUMN id SET DEFAULT nextval('public.doc_id_seq'::regclass);
+ALTER TABLE ONLY public.epic ALTER COLUMN id SET DEFAULT nextval('public.epic_id_seq'::regclass);
+ALTER TABLE ONLY public.feedbackentry ALTER COLUMN id SET DEFAULT nextval('public.feedbackentry_id_seq'::regclass);
+ALTER TABLE ONLY public.governancepolicy ALTER COLUMN id SET DEFAULT nextval('public.governancepolicy_id_seq'::regclass);
+ALTER TABLE ONLY public.governancepolicyevent ALTER COLUMN id SET DEFAULT nextval('public.governancepolicyevent_id_seq'::regclass);
+ALTER TABLE ONLY public.ingestionjob ALTER COLUMN id SET DEFAULT nextval('public.ingestionjob_id_seq'::regclass);
+ALTER TABLE ONLY public.ledgerevent ALTER COLUMN id SET DEFAULT nextval('public.ledgerevent_id_seq'::regclass);
+ALTER TABLE ONLY public.meshmessage ALTER COLUMN id SET DEFAULT nextval('public.meshmessage_id_seq'::regclass);
+ALTER TABLE ONLY public.meshprogressevent ALTER COLUMN id SET DEFAULT nextval('public.meshprogressevent_id_seq'::regclass);
+ALTER TABLE ONLY public.meshtaskartifact ALTER COLUMN id SET DEFAULT nextval('public.meshtaskartifact_id_seq'::regclass);
+ALTER TABLE ONLY public.missionpersistencepolicy ALTER COLUMN id SET DEFAULT nextval('public.missionpersistencepolicy_id_seq'::regclass);
+ALTER TABLE ONLY public.missionpersistenceroute ALTER COLUMN id SET DEFAULT nextval('public.missionpersistenceroute_id_seq'::regclass);
+ALTER TABLE ONLY public.missionrolemembership ALTER COLUMN id SET DEFAULT nextval('public.missionrolemembership_id_seq'::regclass);
+ALTER TABLE ONLY public.nodeevent ALTER COLUMN id SET DEFAULT nextval('public.nodeevent_id_seq'::regclass);
+ALTER TABLE ONLY public.overlapsuggestion ALTER COLUMN id SET DEFAULT nextval('public.overlapsuggestion_id_seq'::regclass);
+ALTER TABLE ONLY public.publicationrecord ALTER COLUMN id SET DEFAULT nextval('public.publicationrecord_id_seq'::regclass);
+ALTER TABLE ONLY public.repobinding ALTER COLUMN id SET DEFAULT nextval('public.repobinding_id_seq'::regclass);
+ALTER TABLE ONLY public.repoconnection ALTER COLUMN id SET DEFAULT nextval('public.repoconnection_id_seq'::regclass);
+ALTER TABLE ONLY public.runtimenodespec ALTER COLUMN id SET DEFAULT nextval('public.runtimenodespec_id_seq'::regclass);
+ALTER TABLE ONLY public.scheduledagentjob ALTER COLUMN id SET DEFAULT nextval('public.scheduledagentjob_id_seq'::regclass);
+ALTER TABLE ONLY public.serviceaccount ALTER COLUMN id SET DEFAULT nextval('public.serviceaccount_id_seq'::regclass);
+ALTER TABLE ONLY public.serviceaccounttoken ALTER COLUMN id SET DEFAULT nextval('public.serviceaccounttoken_id_seq'::regclass);
+ALTER TABLE ONLY public.skilllocalstate ALTER COLUMN id SET DEFAULT nextval('public.skilllocalstate_id_seq'::regclass);
+ALTER TABLE ONLY public.slackchannelbinding ALTER COLUMN id SET DEFAULT nextval('public.slackchannelbinding_id_seq'::regclass);
+ALTER TABLE ONLY public.task ALTER COLUMN id SET DEFAULT nextval('public.task_id_seq'::regclass);
+ALTER TABLE ONLY public.taskassignment ALTER COLUMN id SET DEFAULT nextval('public.taskassignment_id_seq'::regclass);
+ALTER TABLE ONLY public.userprofile ALTER COLUMN id SET DEFAULT nextval('public.userprofile_id_seq'::regclass);
+ALTER TABLE ONLY public.usersession ALTER COLUMN id SET DEFAULT nextval('public.usersession_id_seq'::regclass);
+DO $$ BEGIN ALTER TABLE ONLY public.agent ADD CONSTRAINT agent_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.agentmessage ADD CONSTRAINT agentmessage_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.agentrun ADD CONSTRAINT agentrun_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.agentsession ADD CONSTRAINT agentsession_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.aievent ADD CONSTRAINT aievent_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.aipendingaction ADD CONSTRAINT aipendingaction_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.aisession ADD CONSTRAINT aisession_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.aiturn ADD CONSTRAINT aiturn_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.alembic_version ADD CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.approvalnonceuse ADD CONSTRAINT approvalnonceuse_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.approvalrequest ADD CONSTRAINT approvalrequest_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.artifact ADD CONSTRAINT artifact_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.budgetpolicy ADD CONSTRAINT budgetpolicy_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.budgetwindow ADD CONSTRAINT budgetwindow_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.chatinboundreceipt ADD CONSTRAINT chatinboundreceipt_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.costprofile ADD CONSTRAINT costprofile_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.doc ADD CONSTRAINT doc_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.epic ADD CONSTRAINT epic_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.eventtrigger ADD CONSTRAINT eventtrigger_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.evolvemission ADD CONSTRAINT evolvemission_pkey PRIMARY KEY (mission_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.evolverun ADD CONSTRAINT evolverun_pkey PRIMARY KEY (run_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.executionsession ADD CONSTRAINT executionsession_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.feedbackentry ADD CONSTRAINT feedbackentry_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.governancepolicy ADD CONSTRAINT governancepolicy_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.governancepolicyevent ADD CONSTRAINT governancepolicyevent_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.ingestionjob ADD CONSTRAINT ingestionjob_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.joblease ADD CONSTRAINT joblease_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.kluster ADD CONSTRAINT kluster_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.ledgerevent ADD CONSTRAINT ledgerevent_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.meshagent ADD CONSTRAINT meshagent_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.meshmessage ADD CONSTRAINT meshmessage_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.meshprogressevent ADD CONSTRAINT meshprogressevent_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.meshtask ADD CONSTRAINT meshtask_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.meshtaskartifact ADD CONSTRAINT meshtaskartifact_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.mission ADD CONSTRAINT mission_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.missionpack ADD CONSTRAINT missionpack_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.missionpersistencepolicy ADD CONSTRAINT missionpersistencepolicy_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.missionpersistenceroute ADD CONSTRAINT missionpersistenceroute_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.missionrolemembership ADD CONSTRAINT missionrolemembership_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.nodeevent ADD CONSTRAINT nodeevent_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.oidcauthrequest ADD CONSTRAINT oidcauthrequest_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.oidclogingrant ADD CONSTRAINT oidclogingrant_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.overlapsuggestion ADD CONSTRAINT overlapsuggestion_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.publicationrecord ADD CONSTRAINT publicationrecord_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.remotelaunchrecord ADD CONSTRAINT remotelaunchrecord_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.remotetarget ADD CONSTRAINT remotetarget_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.repobinding ADD CONSTRAINT repobinding_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.repoconnection ADD CONSTRAINT repoconnection_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.reviewgate ADD CONSTRAINT reviewgate_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.runcheckpoint ADD CONSTRAINT runcheckpoint_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.runtimejob ADD CONSTRAINT runtimejob_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.runtimejointoken ADD CONSTRAINT runtimejointoken_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.runtimenode ADD CONSTRAINT runtimenode_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.runtimenodespec ADD CONSTRAINT runtimenodespec_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.scheduledagentjob ADD CONSTRAINT scheduledagentjob_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.serviceaccount ADD CONSTRAINT serviceaccount_name_key UNIQUE (name); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.serviceaccount ADD CONSTRAINT serviceaccount_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.serviceaccounttoken ADD CONSTRAINT serviceaccounttoken_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.skillbundle ADD CONSTRAINT skillbundle_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.skilllocalstate ADD CONSTRAINT skilllocalstate_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.skillsnapshot ADD CONSTRAINT skillsnapshot_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.slackchannelbinding ADD CONSTRAINT slackchannelbinding_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.task ADD CONSTRAINT task_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.taskassignment ADD CONSTRAINT taskassignment_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.agentrun ADD CONSTRAINT uq_agentrun_owner_idempotency UNIQUE (owner_subject, idempotency_key); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.costprofile ADD CONSTRAINT uq_costprofile_runtime_provider_model UNIQUE (runtime_kind, provider, model); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.missionpersistencepolicy ADD CONSTRAINT uq_mission_persistence_policy_mission UNIQUE (mission_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.missionpack ADD CONSTRAINT uq_missionpack_owner_name_version UNIQUE (owner_subject, name, version); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.remotetarget ADD CONSTRAINT uq_remotetarget_owner_name UNIQUE (owner_subject, name); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.repobinding ADD CONSTRAINT uq_repo_binding_owner_name UNIQUE (owner_subject, name); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.repoconnection ADD CONSTRAINT uq_repo_connection_owner_name UNIQUE (owner_subject, name); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.runcheckpoint ADD CONSTRAINT uq_runcheckpoint_run_seq UNIQUE (run_id, seq); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.runtimenode ADD CONSTRAINT uq_runtimenode_name UNIQUE (node_name); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.userprofile ADD CONSTRAINT uq_userprofile_owner_name UNIQUE (owner_subject, name); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.usagerecord ADD CONSTRAINT usagerecord_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.userprofile ADD CONSTRAINT userprofile_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.usersession ADD CONSTRAINT usersession_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.workspacelease ADD CONSTRAINT workspacelease_pkey PRIMARY KEY (id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS ix_agent_name ON public.agent USING btree (name);
+CREATE INDEX IF NOT EXISTS ix_agentmessage_from_agent_id ON public.agentmessage USING btree (from_agent_id);
+CREATE INDEX IF NOT EXISTS ix_agentmessage_to_agent_id ON public.agentmessage USING btree (to_agent_id);
+CREATE INDEX IF NOT EXISTS ix_agentrun_mesh_agent_id ON public.agentrun USING btree (mesh_agent_id);
+CREATE INDEX IF NOT EXISTS ix_agentrun_mesh_task_id ON public.agentrun USING btree (mesh_task_id);
+CREATE INDEX IF NOT EXISTS ix_agentrun_owner_subject ON public.agentrun USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_agentrun_status ON public.agentrun USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_agentsession_agent_id ON public.agentsession USING btree (agent_id);
+CREATE INDEX IF NOT EXISTS ix_agentsession_claude_session_id ON public.agentsession USING btree (claude_session_id);
+CREATE INDEX IF NOT EXISTS ix_aievent_created_at ON public.aievent USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_aievent_event_type ON public.aievent USING btree (event_type);
+CREATE INDEX IF NOT EXISTS ix_aievent_session_id ON public.aievent USING btree (session_id);
+CREATE INDEX IF NOT EXISTS ix_aievent_turn_id ON public.aievent USING btree (turn_id);
+CREATE INDEX IF NOT EXISTS ix_aipendingaction_created_at ON public.aipendingaction USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_aipendingaction_session_id ON public.aipendingaction USING btree (session_id);
+CREATE INDEX IF NOT EXISTS ix_aipendingaction_status ON public.aipendingaction USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_aipendingaction_tool ON public.aipendingaction USING btree (tool);
+CREATE INDEX IF NOT EXISTS ix_aipendingaction_turn_id ON public.aipendingaction USING btree (turn_id);
+CREATE INDEX IF NOT EXISTS ix_aipendingaction_updated_at ON public.aipendingaction USING btree (updated_at);
+CREATE INDEX IF NOT EXISTS ix_aisession_created_at ON public.aisession USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_aisession_owner_subject ON public.aisession USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_aisession_runtime_kind ON public.aisession USING btree (runtime_kind);
+CREATE INDEX IF NOT EXISTS ix_aisession_status ON public.aisession USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_aisession_updated_at ON public.aisession USING btree (updated_at);
+CREATE INDEX IF NOT EXISTS ix_aiturn_created_at ON public.aiturn USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_aiturn_role ON public.aiturn USING btree (role);
+CREATE INDEX IF NOT EXISTS ix_aiturn_session_id ON public.aiturn USING btree (session_id);
+CREATE INDEX IF NOT EXISTS ix_approvalnonceuse_action ON public.approvalnonceuse USING btree (action);
+CREATE INDEX IF NOT EXISTS ix_approvalnonceuse_approval_request_id ON public.approvalnonceuse USING btree (approval_request_id);
+CREATE INDEX IF NOT EXISTS ix_approvalnonceuse_consumed_at ON public.approvalnonceuse USING btree (consumed_at);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_approvalnonceuse_nonce ON public.approvalnonceuse USING btree (nonce);
+CREATE INDEX IF NOT EXISTS ix_approvalrequest_action ON public.approvalrequest USING btree (action);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_approvalrequest_approval_nonce ON public.approvalrequest USING btree (approval_nonce);
+CREATE INDEX IF NOT EXISTS ix_approvalrequest_channel ON public.approvalrequest USING btree (channel);
+CREATE INDEX IF NOT EXISTS ix_approvalrequest_created_at ON public.approvalrequest USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_approvalrequest_mission_id ON public.approvalrequest USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_approvalrequest_status ON public.approvalrequest USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_artifact_kluster_id ON public.artifact USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_budgetpolicy_owner_subject ON public.budgetpolicy USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_budgetwindow_policy_id ON public.budgetwindow USING btree (policy_id);
+CREATE INDEX IF NOT EXISTS ix_chatinboundreceipt_created_at ON public.chatinboundreceipt USING btree (created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_chatinboundreceipt_event_key ON public.chatinboundreceipt USING btree (event_key);
+CREATE INDEX IF NOT EXISTS ix_chatinboundreceipt_event_type ON public.chatinboundreceipt USING btree (event_type);
+CREATE INDEX IF NOT EXISTS ix_chatinboundreceipt_provider ON public.chatinboundreceipt USING btree (provider);
+CREATE INDEX IF NOT EXISTS ix_doc_kluster_id ON public.doc USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_epic_kluster_id ON public.epic USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_eventtrigger_owner_subject ON public.eventtrigger USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_evolvemission_created_at ON public.evolvemission USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_evolvemission_mission_id ON public.evolvemission USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_evolvemission_owner_subject ON public.evolvemission USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_evolvemission_status ON public.evolvemission USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_evolvemission_updated_at ON public.evolvemission USING btree (updated_at);
+CREATE INDEX IF NOT EXISTS ix_evolverun_agent ON public.evolverun USING btree (agent);
+CREATE INDEX IF NOT EXISTS ix_evolverun_ai_session_id ON public.evolverun USING btree (ai_session_id);
+CREATE INDEX IF NOT EXISTS ix_evolverun_mission_id ON public.evolverun USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_evolverun_owner_subject ON public.evolverun USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_evolverun_run_id ON public.evolverun USING btree (run_id);
+CREATE INDEX IF NOT EXISTS ix_evolverun_started_at ON public.evolverun USING btree (started_at);
+CREATE INDEX IF NOT EXISTS ix_evolverun_status ON public.evolverun USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_executionsession_created_at ON public.executionsession USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_executionsession_lease_id ON public.executionsession USING btree (lease_id);
+CREATE INDEX IF NOT EXISTS ix_executionsession_runtime_class ON public.executionsession USING btree (runtime_class);
+CREATE INDEX IF NOT EXISTS ix_executionsession_status ON public.executionsession USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_category ON public.feedbackentry USING btree (category);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_channel_id ON public.feedbackentry USING btree (channel_id);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_created_at ON public.feedbackentry USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_disposition ON public.feedbackentry USING btree (disposition);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_kluster_id ON public.feedbackentry USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_mission_id ON public.feedbackentry USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_owner ON public.feedbackentry USING btree (owner);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_priority ON public.feedbackentry USING btree (priority);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_provider ON public.feedbackentry USING btree (provider);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_severity ON public.feedbackentry USING btree (severity);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_source_subject ON public.feedbackentry USING btree (source_subject);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_source_type ON public.feedbackentry USING btree (source_type);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_status ON public.feedbackentry USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_feedbackentry_triage_status ON public.feedbackentry USING btree (triage_status);
+CREATE INDEX IF NOT EXISTS ix_governancepolicy_created_at ON public.governancepolicy USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_governancepolicy_state ON public.governancepolicy USING btree (state);
+CREATE INDEX IF NOT EXISTS ix_governancepolicy_version ON public.governancepolicy USING btree (version);
+CREATE INDEX IF NOT EXISTS ix_governancepolicyevent_created_at ON public.governancepolicyevent USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_governancepolicyevent_event_type ON public.governancepolicyevent USING btree (event_type);
+CREATE INDEX IF NOT EXISTS ix_governancepolicyevent_policy_id ON public.governancepolicyevent USING btree (policy_id);
+CREATE INDEX IF NOT EXISTS ix_governancepolicyevent_version ON public.governancepolicyevent USING btree (version);
+CREATE INDEX IF NOT EXISTS ix_ingestionjob_kluster_id ON public.ingestionjob USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_ingestionjob_source ON public.ingestionjob USING btree (source);
+CREATE INDEX IF NOT EXISTS ix_joblease_claimed_at ON public.joblease USING btree (claimed_at);
+CREATE INDEX IF NOT EXISTS ix_joblease_created_at ON public.joblease USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_joblease_job_id ON public.joblease USING btree (job_id);
+CREATE INDEX IF NOT EXISTS ix_joblease_node_id ON public.joblease USING btree (node_id);
+CREATE INDEX IF NOT EXISTS ix_joblease_status ON public.joblease USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_kluster_mission_id ON public.kluster USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_kluster_name ON public.kluster USING btree (name);
+CREATE INDEX IF NOT EXISTS ix_ledgerevent_action ON public.ledgerevent USING btree (action);
+CREATE INDEX IF NOT EXISTS ix_ledgerevent_created_at ON public.ledgerevent USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_ledgerevent_created_by_agent_id ON public.ledgerevent USING btree (created_by_agent_id);
+CREATE INDEX IF NOT EXISTS ix_ledgerevent_entity_id ON public.ledgerevent USING btree (entity_id);
+CREATE INDEX IF NOT EXISTS ix_ledgerevent_entity_type ON public.ledgerevent USING btree (entity_type);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_ledgerevent_event_id ON public.ledgerevent USING btree (event_id);
+CREATE INDEX IF NOT EXISTS ix_ledgerevent_kluster_id ON public.ledgerevent USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_ledgerevent_mission_id ON public.ledgerevent USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_ledgerevent_state ON public.ledgerevent USING btree (state);
+CREATE INDEX IF NOT EXISTS ix_meshagent_current_task_id ON public.meshagent USING btree (current_task_id);
+CREATE INDEX IF NOT EXISTS ix_meshagent_mission_id ON public.meshagent USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_meshagent_node_id ON public.meshagent USING btree (node_id);
+CREATE INDEX IF NOT EXISTS ix_meshagent_runtime_kind ON public.meshagent USING btree (runtime_kind);
+CREATE INDEX IF NOT EXISTS ix_meshagent_runtime_node_id ON public.meshagent USING btree (runtime_node_id);
+CREATE INDEX IF NOT EXISTS ix_meshagent_status ON public.meshagent USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_meshmessage_created_at ON public.meshmessage USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_meshmessage_from_agent_id ON public.meshmessage USING btree (from_agent_id);
+CREATE INDEX IF NOT EXISTS ix_meshmessage_kluster_id ON public.meshmessage USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_meshmessage_mission_id ON public.meshmessage USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_meshmessage_task_id ON public.meshmessage USING btree (task_id);
+CREATE INDEX IF NOT EXISTS ix_meshmessage_to_agent_id ON public.meshmessage USING btree (to_agent_id);
+CREATE INDEX IF NOT EXISTS ix_meshprogressevent_agent_id ON public.meshprogressevent USING btree (agent_id);
+CREATE INDEX IF NOT EXISTS ix_meshprogressevent_event_type ON public.meshprogressevent USING btree (event_type);
+CREATE INDEX IF NOT EXISTS ix_meshprogressevent_occurred_at ON public.meshprogressevent USING btree (occurred_at);
+CREATE INDEX IF NOT EXISTS ix_meshprogressevent_task_id ON public.meshprogressevent USING btree (task_id);
+CREATE INDEX IF NOT EXISTS ix_meshtask_claimed_by_agent_id ON public.meshtask USING btree (claimed_by_agent_id);
+CREATE INDEX IF NOT EXISTS ix_meshtask_kluster_id ON public.meshtask USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_meshtask_mission_id ON public.meshtask USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_meshtask_parent_task_id ON public.meshtask USING btree (parent_task_id);
+CREATE INDEX IF NOT EXISTS ix_meshtask_priority ON public.meshtask USING btree (priority);
+CREATE INDEX IF NOT EXISTS ix_meshtask_status ON public.meshtask USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_meshtaskartifact_artifact_id ON public.meshtaskartifact USING btree (artifact_id);
+CREATE INDEX IF NOT EXISTS ix_meshtaskartifact_task_id ON public.meshtaskartifact USING btree (task_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_mission_name ON public.mission USING btree (name);
+CREATE INDEX IF NOT EXISTS ix_missionpack_owner_subject ON public.missionpack USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_missionpersistencepolicy_created_at ON public.missionpersistencepolicy USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_missionpersistencepolicy_default_binding_id ON public.missionpersistencepolicy USING btree (default_binding_id);
+CREATE INDEX IF NOT EXISTS ix_missionpersistencepolicy_fallback_mode ON public.missionpersistencepolicy USING btree (fallback_mode);
+CREATE INDEX IF NOT EXISTS ix_missionpersistencepolicy_mission_id ON public.missionpersistencepolicy USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_missionpersistencepolicy_require_approval ON public.missionpersistencepolicy USING btree (require_approval);
+CREATE INDEX IF NOT EXISTS ix_missionpersistenceroute_active ON public.missionpersistenceroute USING btree (active);
+CREATE INDEX IF NOT EXISTS ix_missionpersistenceroute_binding_id ON public.missionpersistenceroute USING btree (binding_id);
+CREATE INDEX IF NOT EXISTS ix_missionpersistenceroute_created_at ON public.missionpersistenceroute USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_missionpersistenceroute_entity_kind ON public.missionpersistenceroute USING btree (entity_kind);
+CREATE INDEX IF NOT EXISTS ix_missionpersistenceroute_event_kind ON public.missionpersistenceroute USING btree (event_kind);
+CREATE INDEX IF NOT EXISTS ix_missionpersistenceroute_mission_id ON public.missionpersistenceroute USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_missionrolemembership_created_at ON public.missionrolemembership USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_missionrolemembership_mission_id ON public.missionrolemembership USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_missionrolemembership_role ON public.missionrolemembership USING btree (role);
+CREATE INDEX IF NOT EXISTS ix_missionrolemembership_subject ON public.missionrolemembership USING btree (subject);
+CREATE INDEX IF NOT EXISTS ix_nodeevent_created_at ON public.nodeevent USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_nodeevent_event_type ON public.nodeevent USING btree (event_type);
+CREATE INDEX IF NOT EXISTS ix_nodeevent_lease_id ON public.nodeevent USING btree (lease_id);
+CREATE INDEX IF NOT EXISTS ix_nodeevent_node_id ON public.nodeevent USING btree (node_id);
+CREATE INDEX IF NOT EXISTS ix_oidcauthrequest_cli_nonce ON public.oidcauthrequest USING btree (cli_nonce);
+CREATE INDEX IF NOT EXISTS ix_oidcauthrequest_created_at ON public.oidcauthrequest USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_oidcauthrequest_expires_at ON public.oidcauthrequest USING btree (expires_at);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_oidcauthrequest_state ON public.oidcauthrequest USING btree (state);
+CREATE INDEX IF NOT EXISTS ix_oidclogingrant_auth_request_id ON public.oidclogingrant USING btree (auth_request_id);
+CREATE INDEX IF NOT EXISTS ix_oidclogingrant_cli_nonce ON public.oidclogingrant USING btree (cli_nonce);
+CREATE INDEX IF NOT EXISTS ix_oidclogingrant_created_at ON public.oidclogingrant USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_oidclogingrant_email ON public.oidclogingrant USING btree (email);
+CREATE INDEX IF NOT EXISTS ix_oidclogingrant_expires_at ON public.oidclogingrant USING btree (expires_at);
+CREATE INDEX IF NOT EXISTS ix_oidclogingrant_subject ON public.oidclogingrant USING btree (subject);
+CREATE INDEX IF NOT EXISTS ix_overlapsuggestion_candidate_task_id ON public.overlapsuggestion USING btree (candidate_task_id);
+CREATE INDEX IF NOT EXISTS ix_overlapsuggestion_task_id ON public.overlapsuggestion USING btree (task_id);
+CREATE INDEX IF NOT EXISTS ix_publicationrecord_binding_id ON public.publicationrecord USING btree (binding_id);
+CREATE INDEX IF NOT EXISTS ix_publicationrecord_commit_sha ON public.publicationrecord USING btree (commit_sha);
+CREATE INDEX IF NOT EXISTS ix_publicationrecord_created_at ON public.publicationrecord USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_publicationrecord_entity_id ON public.publicationrecord USING btree (entity_id);
+CREATE INDEX IF NOT EXISTS ix_publicationrecord_entity_kind ON public.publicationrecord USING btree (entity_kind);
+CREATE INDEX IF NOT EXISTS ix_publicationrecord_event_kind ON public.publicationrecord USING btree (event_kind);
+CREATE INDEX IF NOT EXISTS ix_publicationrecord_ledger_event_id ON public.publicationrecord USING btree (ledger_event_id);
+CREATE INDEX IF NOT EXISTS ix_publicationrecord_mission_id ON public.publicationrecord USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_publicationrecord_owner_subject ON public.publicationrecord USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_publicationrecord_status ON public.publicationrecord USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_remotelaunchrecord_created_at ON public.remotelaunchrecord USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_remotelaunchrecord_owner_subject ON public.remotelaunchrecord USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_remotelaunchrecord_runtime_session_id ON public.remotelaunchrecord USING btree (runtime_session_id);
+CREATE INDEX IF NOT EXISTS ix_remotelaunchrecord_status ON public.remotelaunchrecord USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_remotelaunchrecord_target_id ON public.remotelaunchrecord USING btree (target_id);
+CREATE INDEX IF NOT EXISTS ix_remotetarget_name ON public.remotetarget USING btree (name);
+CREATE INDEX IF NOT EXISTS ix_remotetarget_owner_subject ON public.remotetarget USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_repobinding_active ON public.repobinding USING btree (active);
+CREATE INDEX IF NOT EXISTS ix_repobinding_connection_id ON public.repobinding USING btree (connection_id);
+CREATE INDEX IF NOT EXISTS ix_repobinding_created_at ON public.repobinding USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_repobinding_name ON public.repobinding USING btree (name);
+CREATE INDEX IF NOT EXISTS ix_repobinding_owner_subject ON public.repobinding USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_repoconnection_created_at ON public.repoconnection USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_repoconnection_host ON public.repoconnection USING btree (host);
+CREATE INDEX IF NOT EXISTS ix_repoconnection_name ON public.repoconnection USING btree (name);
+CREATE INDEX IF NOT EXISTS ix_repoconnection_owner_subject ON public.repoconnection USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_repoconnection_provider ON public.repoconnection USING btree (provider);
+CREATE INDEX IF NOT EXISTS ix_reviewgate_created_at ON public.reviewgate USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_reviewgate_mesh_task_id ON public.reviewgate USING btree (mesh_task_id);
+CREATE INDEX IF NOT EXISTS ix_reviewgate_owner_subject ON public.reviewgate USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_reviewgate_run_id ON public.reviewgate USING btree (run_id);
+CREATE INDEX IF NOT EXISTS ix_runcheckpoint_created_at ON public.runcheckpoint USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_runcheckpoint_run_id ON public.runcheckpoint USING btree (run_id);
+CREATE INDEX IF NOT EXISTS ix_runtimejob_created_at ON public.runtimejob USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_runtimejob_mission_id ON public.runtimejob USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_runtimejob_owner_subject ON public.runtimejob USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_runtimejob_runtime_class ON public.runtimejob USING btree (runtime_class);
+CREATE INDEX IF NOT EXISTS ix_runtimejob_runtime_session_id ON public.runtimejob USING btree (runtime_session_id);
+CREATE INDEX IF NOT EXISTS ix_runtimejob_status ON public.runtimejob USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_runtimejob_task_id ON public.runtimejob USING btree (task_id);
+CREATE INDEX IF NOT EXISTS ix_runtimejointoken_node_id ON public.runtimejointoken USING btree (node_id);
+CREATE INDEX IF NOT EXISTS ix_runtimejointoken_owner_subject ON public.runtimejointoken USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_runtimenode_node_name ON public.runtimenode USING btree (node_name);
+CREATE INDEX IF NOT EXISTS ix_runtimenode_owner_subject ON public.runtimenode USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_runtimenode_registered_at ON public.runtimenode USING btree (registered_at);
+CREATE INDEX IF NOT EXISTS ix_runtimenode_status ON public.runtimenode USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_runtimenodespec_node_id ON public.runtimenodespec USING btree (node_id);
+CREATE INDEX IF NOT EXISTS ix_runtimenodespec_owner_subject ON public.runtimenodespec USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_scheduledagentjob_created_at ON public.scheduledagentjob USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_scheduledagentjob_owner_subject ON public.scheduledagentjob USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_scheduledagentjob_updated_at ON public.scheduledagentjob USING btree (updated_at);
+CREATE INDEX IF NOT EXISTS ix_serviceaccount_owner_subject ON public.serviceaccount USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_serviceaccount_revoked ON public.serviceaccount USING btree (revoked);
+CREATE INDEX IF NOT EXISTS ix_serviceaccounttoken_revoked ON public.serviceaccounttoken USING btree (revoked);
+CREATE INDEX IF NOT EXISTS ix_serviceaccounttoken_service_account_id ON public.serviceaccounttoken USING btree (service_account_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_serviceaccounttoken_token_hash ON public.serviceaccounttoken USING btree (token_hash);
+CREATE INDEX IF NOT EXISTS ix_skillbundle_created_at ON public.skillbundle USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_skillbundle_kluster_id ON public.skillbundle USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_skillbundle_mission_id ON public.skillbundle USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_skillbundle_scope_id ON public.skillbundle USING btree (scope_id);
+CREATE INDEX IF NOT EXISTS ix_skillbundle_scope_type ON public.skillbundle USING btree (scope_type);
+CREATE INDEX IF NOT EXISTS ix_skillbundle_sha256 ON public.skillbundle USING btree (sha256);
+CREATE INDEX IF NOT EXISTS ix_skillbundle_signature_alg ON public.skillbundle USING btree (signature_alg);
+CREATE INDEX IF NOT EXISTS ix_skillbundle_signature_verified ON public.skillbundle USING btree (signature_verified);
+CREATE INDEX IF NOT EXISTS ix_skillbundle_signing_key_id ON public.skillbundle USING btree (signing_key_id);
+CREATE INDEX IF NOT EXISTS ix_skillbundle_status ON public.skillbundle USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_skillbundle_version ON public.skillbundle USING btree (version);
+CREATE INDEX IF NOT EXISTS ix_skilllocalstate_actor_subject ON public.skilllocalstate USING btree (actor_subject);
+CREATE INDEX IF NOT EXISTS ix_skilllocalstate_agent_id ON public.skilllocalstate USING btree (agent_id);
+CREATE INDEX IF NOT EXISTS ix_skilllocalstate_created_at ON public.skilllocalstate USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_skilllocalstate_degraded_offline ON public.skilllocalstate USING btree (degraded_offline);
+CREATE INDEX IF NOT EXISTS ix_skilllocalstate_drift_flag ON public.skilllocalstate USING btree (drift_flag);
+CREATE INDEX IF NOT EXISTS ix_skilllocalstate_kluster_id ON public.skilllocalstate USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_skilllocalstate_last_snapshot_id ON public.skilllocalstate USING btree (last_snapshot_id);
+CREATE INDEX IF NOT EXISTS ix_skilllocalstate_last_snapshot_sha256 ON public.skilllocalstate USING btree (last_snapshot_sha256);
+CREATE INDEX IF NOT EXISTS ix_skilllocalstate_local_overlay_sha256 ON public.skilllocalstate USING btree (local_overlay_sha256);
+CREATE INDEX IF NOT EXISTS ix_skilllocalstate_mission_id ON public.skilllocalstate USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_skillsnapshot_created_at ON public.skillsnapshot USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_skillsnapshot_effective_version ON public.skillsnapshot USING btree (effective_version);
+CREATE INDEX IF NOT EXISTS ix_skillsnapshot_kluster_bundle_id ON public.skillsnapshot USING btree (kluster_bundle_id);
+CREATE INDEX IF NOT EXISTS ix_skillsnapshot_kluster_id ON public.skillsnapshot USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_skillsnapshot_mission_bundle_id ON public.skillsnapshot USING btree (mission_bundle_id);
+CREATE INDEX IF NOT EXISTS ix_skillsnapshot_mission_id ON public.skillsnapshot USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_skillsnapshot_sha256 ON public.skillsnapshot USING btree (sha256);
+CREATE INDEX IF NOT EXISTS ix_slackchannelbinding_channel_id ON public.slackchannelbinding USING btree (channel_id);
+CREATE INDEX IF NOT EXISTS ix_slackchannelbinding_created_at ON public.slackchannelbinding USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_slackchannelbinding_mission_id ON public.slackchannelbinding USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_slackchannelbinding_provider ON public.slackchannelbinding USING btree (provider);
+CREATE INDEX IF NOT EXISTS ix_slackchannelbinding_workspace_external_id ON public.slackchannelbinding USING btree (workspace_external_id);
+CREATE INDEX IF NOT EXISTS ix_task_epic_id ON public.task USING btree (epic_id);
+CREATE INDEX IF NOT EXISTS ix_task_kluster_id ON public.task USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_task_public_id ON public.task USING btree (public_id);
+CREATE INDEX IF NOT EXISTS ix_taskassignment_agent_id ON public.taskassignment USING btree (agent_id);
+CREATE INDEX IF NOT EXISTS ix_taskassignment_task_id ON public.taskassignment USING btree (task_id);
+CREATE INDEX IF NOT EXISTS ix_usagerecord_owner_subject ON public.usagerecord USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_userprofile_name ON public.userprofile USING btree (name);
+CREATE INDEX IF NOT EXISTS ix_userprofile_owner_subject ON public.userprofile USING btree (owner_subject);
+CREATE INDEX IF NOT EXISTS ix_usersession_expires_at ON public.usersession USING btree (expires_at);
+CREATE INDEX IF NOT EXISTS ix_usersession_revoked ON public.usersession USING btree (revoked);
+CREATE INDEX IF NOT EXISTS ix_usersession_subject ON public.usersession USING btree (subject);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_usersession_token_hash ON public.usersession USING btree (token_hash);
+CREATE INDEX IF NOT EXISTS ix_workspacelease_actor_subject ON public.workspacelease USING btree (actor_subject);
+CREATE INDEX IF NOT EXISTS ix_workspacelease_agent_id ON public.workspacelease USING btree (agent_id);
+CREATE INDEX IF NOT EXISTS ix_workspacelease_created_at ON public.workspacelease USING btree (created_at);
+CREATE INDEX IF NOT EXISTS ix_workspacelease_expires_at ON public.workspacelease USING btree (expires_at);
+CREATE INDEX IF NOT EXISTS ix_workspacelease_kluster_id ON public.workspacelease USING btree (kluster_id);
+CREATE INDEX IF NOT EXISTS ix_workspacelease_last_heartbeat_at ON public.workspacelease USING btree (last_heartbeat_at);
+CREATE INDEX IF NOT EXISTS ix_workspacelease_mission_id ON public.workspacelease USING btree (mission_id);
+CREATE INDEX IF NOT EXISTS ix_workspacelease_status ON public.workspacelease USING btree (status);
+CREATE INDEX IF NOT EXISTS ix_workspacelease_workspace_label ON public.workspacelease USING btree (workspace_label);
+DO $$ BEGIN ALTER TABLE ONLY public.agentrun ADD CONSTRAINT agentrun_mesh_agent_id_fkey FOREIGN KEY (mesh_agent_id) REFERENCES public.meshagent(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.agentrun ADD CONSTRAINT agentrun_mesh_task_id_fkey FOREIGN KEY (mesh_task_id) REFERENCES public.meshtask(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.agentrun ADD CONSTRAINT agentrun_parent_run_id_fkey FOREIGN KEY (parent_run_id) REFERENCES public.agentrun(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.budgetwindow ADD CONSTRAINT budgetwindow_policy_id_fkey FOREIGN KEY (policy_id) REFERENCES public.budgetpolicy(id) ON DELETE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.meshagent ADD CONSTRAINT meshagent_runtime_node_id_fkey FOREIGN KEY (runtime_node_id) REFERENCES public.runtimenode(id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.meshprogressevent ADD CONSTRAINT meshprogressevent_agent_run_id_fkey FOREIGN KEY (agent_run_id) REFERENCES public.agentrun(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.reviewgate ADD CONSTRAINT reviewgate_mesh_task_id_fkey FOREIGN KEY (mesh_task_id) REFERENCES public.meshtask(id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.reviewgate ADD CONSTRAINT reviewgate_run_id_fkey FOREIGN KEY (run_id) REFERENCES public.agentrun(id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.runcheckpoint ADD CONSTRAINT runcheckpoint_run_id_fkey FOREIGN KEY (run_id) REFERENCES public.agentrun(id) ON DELETE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.serviceaccounttoken ADD CONSTRAINT serviceaccounttoken_service_account_id_fkey FOREIGN KEY (service_account_id) REFERENCES public.serviceaccount(id) ON DELETE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.usagerecord ADD CONSTRAINT usagerecord_mesh_agent_id_fkey FOREIGN KEY (mesh_agent_id) REFERENCES public.meshagent(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.usagerecord ADD CONSTRAINT usagerecord_mesh_task_id_fkey FOREIGN KEY (mesh_task_id) REFERENCES public.meshtask(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY public.usagerecord ADD CONSTRAINT usagerecord_run_id_fkey FOREIGN KEY (run_id) REFERENCES public.agentrun(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
