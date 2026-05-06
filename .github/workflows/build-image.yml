@@ -28,7 +28,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push mc-server
+      - name: Build and push missioncontrol
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -36,10 +36,10 @@ jobs:
           target: prod
           push: true
           tags: |
-            ghcr.io/ryanmerlin/mc-server:${{ steps.sha.outputs.short }}
-            ghcr.io/ryanmerlin/mc-server:latest
-          cache-from: type=gha,scope=mc-server
-          cache-to: type=gha,mode=max,scope=mc-server
+            ghcr.io/ryanmerlin/missioncontrol:${{ steps.sha.outputs.short }}
+            ghcr.io/ryanmerlin/missioncontrol:latest
+          cache-from: type=gha,scope=missioncontrol
+          cache-to: type=gha,mode=max,scope=missioncontrol
 
       - name: Update gitops image tag
         run: |
@@ -47,7 +47,7 @@ jobs:
           git clone https://x-access-token:${{ secrets.MC_GIT_PUBLISH_TOKEN }}@github.com/RyanMerlin/gitops-merlinlabs.git /tmp/gitops
           cd /tmp/gitops
           DEPLOY=merlinlabs/applications/missioncontrol/mc-server-deployment.yaml
-          sed -i "s|ghcr.io/ryanmerlin/mc-server:[a-zA-Z0-9._-]*|ghcr.io/ryanmerlin/mc-server:${SHORT_SHA}|g" "$DEPLOY"
+          sed -i "s|ghcr.io/ryanmerlin/missioncontrol:[a-zA-Z0-9._-]*|ghcr.io/ryanmerlin/missioncontrol:${SHORT_SHA}|g" "$DEPLOY"
           git config user.email "ci@ryanmerlin.dev"
           git config user.name "MC CI"
           git add "$DEPLOY"
