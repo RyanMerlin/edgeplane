@@ -5,7 +5,7 @@ Rust-native Mission Control CLI, daemon, and matrix bridge.
 This binary (previously referred to as mc-mcp-rs) is now the canonical local agent gateway: it talks
 to the FastAPI MCP surface, keeps a lightweight agent context so approvals and sync metadata stay
 aligned, and exposes the SSE matrix feed that powers the real-time inbox/approval dashboards described
-in [`docs/REAL-TIME.md`](../docs/REAL-TIME.md).
+in [`docs/REAL-TIME.md`](../docs/reference/REAL-TIME.md).
 
 ## Building & installing
 
@@ -136,7 +136,7 @@ mc [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 - `mc auth logout [--local-only]` — revoke current session token and clear local session file
 
 ### Doctor & daemon
-- `mc system doctor [--matrix-endpoint /events/stream] [--matrix-sample-seconds 5] [--fix]` — runs the health, tools, and matrix checks described in `[docs/REAL-TIME.md](../docs/REAL-TIME.md)` and prints a JSON report; `--fix` ensures local directories + agent_id metadata are available for future runs.
+- `mc system doctor [--matrix-endpoint /events/stream] [--matrix-sample-seconds 5] [--fix]` — runs the health, tools, and matrix checks described in `[docs/REAL-TIME.md](../docs/reference/REAL-TIME.md)` and prints a JSON report; `--fix` ensures local directories + agent_id metadata are available for future runs.
 - `mc daemon --matrix-endpoint /events/stream [--fanout-port <port>] [--mqtt-url mqtt://host:1884] [--mqtt-topic missioncontrol/inbox] [--shim-host 127.0.0.1] [--shim-port 8765] [--tools-cache-ttl-sec 60] [--tools-stale-sec 600] [--shim-token <token>]` — keeps an SSE stream alive for the matrix/inbox feed; fan-out and MQTT options replay the telemetry to local dashboards, and the shim API exposes local `/v1/*` control endpoints for MCP shim clients.
 
 ### Claude channel bridge
@@ -194,7 +194,7 @@ approval, and matrix dashboards. When you pair local swarm-style workflows with 
 enforcement, skill sync metadata) stays in lockstep with the agent planners and vector memory.
 
 Run `mc daemon` with `--fanout-port <port>` to expose a local SSE server on `/events` for dashboards and
-local controller processes. The new [docs/REAL-TIME.md](../docs/REAL-TIME.md) describes the `/events/stream` schema,
+local controller processes. The new [docs/REAL-TIME.md](../docs/reference/REAL-TIME.md) describes the `/events/stream` schema,
 rate-limit expectations, reconnect/backoff behavior, and how the daemon should honor ticker headers so the
 local fan-out does not exhaust the upstream MQ/NATS guardrails.
 

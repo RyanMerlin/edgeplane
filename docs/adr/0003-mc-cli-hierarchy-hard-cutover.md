@@ -33,4 +33,4 @@ No legacy aliases are retained in this phase.
 ## Follow-up
 - Update docs and catalog entries to the new hierarchy.
 - Ensure in-product hints and repair messages reference new command paths.
-- Maintain [`docs/COMMAND-MAP.md`](../COMMAND-MAP.md) as the canonical command index.
+- Maintain [`docs/reference/COMMAND-MAP.md`](../reference/COMMAND-MAP.md) as the canonical command index.
