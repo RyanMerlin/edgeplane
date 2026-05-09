@@ -135,11 +135,10 @@ echo '{"op":"get","session":"'$MC_SECRETS_SESSION'","name":"MY_API_KEY"}' \
 
 ## mc-controlplane
 
-Axum HTTP server. Backs `mc` REST/SSE calls and proxies to the Python backend for routes not
-yet natively implemented.
+Axum HTTP server. Full Rust implementation of the MissionControl API — missions, klusters, tasks, agents, approvals, governance, SSE telemetry, and OIDC auth. Migrations run automatically on startup via sqlx.
 
 ```bash
-mc-controlplane --serve --bind 0.0.0.0:8008 [--api-proxy http://legacy:8000]
+mc-controlplane --serve --bind 0.0.0.0:8008
 curl http://localhost:8008/health
 curl http://localhost:8008/raft/status
 ```

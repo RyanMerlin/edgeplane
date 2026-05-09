@@ -3,9 +3,9 @@
 Rust-native Mission Control CLI, daemon, and matrix bridge.
 
 This binary (previously referred to as mc-mcp-rs) is now the canonical local agent gateway: it talks
-to the FastAPI MCP surface, keeps a lightweight agent context so approvals and sync metadata stay
+to the mc-controlplane API, keeps a lightweight agent context so approvals and sync metadata stay
 aligned, and exposes the SSE matrix feed that powers the real-time inbox/approval dashboards described
-in [`docs/REAL-TIME.md`](../docs/reference/REAL-TIME.md).
+in [`docs/reference/REAL-TIME.md`](../docs/reference/REAL-TIME.md).
 
 ## Building & installing
 

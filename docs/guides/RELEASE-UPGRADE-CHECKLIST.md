@@ -7,15 +7,14 @@ Use this checklist for each release that includes schema, auth, or deployment ch
 ## Pre-Release
 
 1. Confirm migration state:
-   - `cd backend`
-   - `alembic current`
-   - `alembic heads`
+   - `cd integrations/mc-controlplane`
+   - `sqlx migrate info` — confirm all migrations applied
 2. Validate migration integrity locally:
-   - `alembic upgrade head`
-   - `alembic check`
-   - `alembic downgrade base && alembic upgrade head`
+   - `sqlx migrate run` — apply pending migrations
+   - Start server and confirm `GET /health` returns 200
 3. Run tests:
-   - `python -m unittest discover -s tests -p "test_*.py"`
+   - `cargo test -p mc-controlplane`
+   - `cargo test -p mc-tui`
 4. Validate docker profiles:
    - `bash scripts/smoke.sh --profile quickstart`
    - `bash scripts/smoke.sh --profile full`
@@ -28,8 +27,8 @@ Use this checklist for each release that includes schema, auth, or deployment ch
 1. Backup DB snapshot in target environment.
 2. Deploy application image.
 3. Run schema migrations:
-   - `cd backend`
-   - `alembic upgrade head`
+   - mc-controlplane runs migrations automatically on startup
+   - To run manually: `cd integrations/mc-controlplane && sqlx migrate run`
 4. Verify API health:
    - `GET /`
    - `GET /schema-pack`

@@ -29,7 +29,7 @@ The optional `rate_limit` block mirrors upstream MQ/NATS guardrails so local dae
 
 - Keep a short-lived backoff (start at 1s, double up to ~30s) whenever the `/events/stream` SSE connection drops; log the adapter errors, then reconnect automatically.
 - When reconnecting, preserve the latest event `id` (if provided) so the server can resume the stream without gaps.
-- Mirror the SSE feed to an optional websocket endpoint (`/events/ws`) or local SSE fan-out so dashboards never miss a chunk even if the FastAPI stream hiccups, and record reconnect timestamps inside `mc system doctor` so you can surface whether rate-limit throttling is the root cause.
+- Mirror the SSE feed to an optional websocket endpoint (`/events/ws`) or local SSE fan-out so dashboards never miss a chunk even if the Axum SSE stream hiccups, and record reconnect timestamps inside `mc system doctor` so you can surface whether rate-limit throttling is the root cause.
 - Track stream health (error rates, reconnects) and expose them via the local `mc system doctor` output or logs so dashboards can show whether the daemon is healthy.
 
 - `mc system doctor` now probes the health, tools, and matrix endpoints together and emits a structured JSON report with repair hints; `mc system doctor --fix` also ensures `MC_HOME`/`MC_SKILLS_HOME` exist and seeds a stable `agent_id` file so local swarms and ruler daemons stay identifiable.

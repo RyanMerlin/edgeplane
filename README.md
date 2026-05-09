@@ -47,7 +47,7 @@ MissionControl solves the coordination problem. It is a control plane for AI age
                                │  HTTP
 ┌──────────────────────────────▼───────────────────────────────┐
 │                     MissionControl API                       │
-│                      FastAPI  ·  MQTT                        │
+│                       Axum  ·  MQTT                          │
 ├─────────────────┬──────────────────────┬─────────────────────┤
 │  Missions &     │  Tasks · Overlap     │  Governance &       │
 │  Klusters       │  Detection · Semantic│  Approvals          │
@@ -82,8 +82,8 @@ MissionControl solves the coordination problem. It is a control plane for AI age
 | Philosophy & vision | [MISSIONCONTROL_PHILOSOPHY.md](MISSIONCONTROL_PHILOSOPHY.md) |
 | API reference | `/api/docs` (Swagger UI, when running locally) |
 | Web UI (SvelteKit) | `web/README.md` (AI Console + dashboard tabs, dev server, build, OIDC login) |
-| AI Console protocol | `docs/AI-CONSOLE.md` |
-| Evolve loop docs | `docs/EVOLVE.md` |
+| AI Console protocol | `docs/reference/AI-CONSOLE.md` |
+| Evolve loop docs | `docs/runbooks/EVOLVE.md` |
 
 ## Fastest Start (3 Commands)
 
@@ -116,13 +116,13 @@ Then open:
 ## Evolve (Self-Improvement Loop)
 
 `mc agent evolve` currently supports seeding evolve missions and recording/inspecting run metadata.
-For the exact current behavior and limitations, see [`docs/EVOLVE.md`](docs/EVOLVE.md).
+For the exact current behavior and limitations, see [`docs/runbooks/EVOLVE.md`](docs/runbooks/EVOLVE.md).
 
 ## Web UI (SvelteKit)
 
-The `web/` directory is a standalone SvelteKit 2 application with an AI-first console landing view (chat-first transcript + prompt composer), while preserving matrix/explorer/onboarding/governance tabs. Dark mode is the default theme, with a top-right moon/sun toggle. Production login is OIDC-first via backend PKCE flow (`/auth/oidc/start` and `/auth/oidc/exchange`), while token login remains for testing. For local experimentation run `cd web && npm install && npm run dev -- --host 0.0.0.0 --port 5173`. Production (or API-bundled) usage is handled by `npm run build`, which emits static files into `web/build`; the FastAPI backend mounts that directory at `/ui/`.
+The `web/` directory is a standalone SvelteKit 2 application with an AI-first console landing view (chat-first transcript + prompt composer), while preserving matrix/explorer/onboarding/governance tabs. Dark mode is the default theme, with a top-right moon/sun toggle. Production login is OIDC-first via backend PKCE flow (`/auth/oidc/start` and `/auth/oidc/exchange`), while token login remains for testing. For local experimentation run `cd web && npm install && npm run dev -- --host 0.0.0.0 --port 5173`. Production (or API-bundled) usage is handled by `npm run build`, which emits static files into `web/build`; mc-controlplane serves that directory at `/ui/`.
 
-AI console behavior and event contracts are documented in [`docs/AI-CONSOLE.md`](docs/AI-CONSOLE.md).
+AI console behavior and event contracts are documented in [`docs/reference/AI-CONSOLE.md`](docs/reference/AI-CONSOLE.md).
 
 ---
 
@@ -193,7 +193,7 @@ MC_STACK_PROFILE=quickstart bash scripts/dev-down.sh
 
 Use the `Docker Dev (Recommended)` flow above for local compose startup, smoke checks, and shutdown.
 
-## Quickstart (Python)
+## Quickstart (native Rust)
 
 0. Create env file:
 
@@ -204,16 +204,12 @@ cp .env.example .env
 Set OIDC env vars in `.env` for production login flow, and keep `MC_TOKEN` only as testing fallback.
 MQTT settings are also available for agent messaging (see `.env.example`).
 
-1. Install backend deps:
+1. Build and run mc-controlplane:
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+cd integrations/mc-controlplane
+cargo build --release
 ```
-
-2. Run the API:
 
 Load env vars first (bash/zsh):
 
@@ -222,12 +218,14 @@ set -a; source .env; set +a
 ```
 
 ```bash
-uvicorn app.main:app --reload
+./target/release/mc-controlplane
 ```
 
-3. Open the UI:
+The server binds to `0.0.0.0:8008` by default. Database migrations run automatically on startup via sqlx.
 
-After building the front-end (`cd web && npm run build`) the backend serves `/ui/` so you can browse `http://localhost:8008/ui/`. For active editing, run `cd web && npm run dev -- --host 0.0.0.0 --port 5173` and point your browser there instead.
+2. Open the UI:
+
+After building the front-end (`cd web && npm run build`) mc-controlplane serves `/ui/` so you can browse `http://localhost:8008/ui/`. For active editing, run `cd web && npm run dev -- --host 0.0.0.0 --port 5173` and point your browser there instead.
 
 ## API Overview
 
@@ -314,11 +312,11 @@ mc auth logout                       # revoke session
 Pass `--preflight-only` to validate without launching (useful in CI).
 Pass `-- <args>` to forward arguments to the agent binary.
 
-For manual setup, session token details, Codex swarm workflows, and skill sync: see [`docs/AGENT-INSTALL.md`](docs/AGENT-INSTALL.md).
+For manual setup, session token details, Codex swarm workflows, and skill sync: see [`docs/guides/AGENT-INSTALL.md`](docs/guides/AGENT-INSTALL.md).
 
 - **Rust CLI (`mc`) first:** see `integrations/mc/README.md` for installation, daemon, governance, tooling, sync, and matrix telemetry commands; the CLI mirrors the HTTP/MCP surface described elsewhere in this README and is the recommended interface for most OSS users.
 - **Agent configs & doctor:** use `scripts/generate-agent-config.sh` to emit MCP onboarding manifests and run `mc system doctor` (preferred) to validate connectivity before handing configs to Codex/Claude/Gemini.
-- **Codex multi-session swarms:** follow `docs/CODEX-SWARM-WORKFLOW.md` for first-class collaborative runs without nested `codex exec`.
+- **Codex multi-session swarms:** follow `docs/runbooks/CODEX-SWARM-WORKFLOW.md` for first-class collaborative runs without nested `codex exec`.
 - **Auth modes:** API accepts `token`, `oidc`, or `dual` via `AUTH_MODE`. `mc auth login` issues server-side session tokens (`mcs_*`) that work across all auth modes, are revocable, and never need to be written to agent config files.
 
 ## MCP Examples
@@ -382,16 +380,18 @@ curl "http://localhost:8008/search/klusters?q=mission"
 
 ## DB Migrations
 
-Alembic is available for forward schema migrations:
+Migrations are managed with sqlx and run automatically when mc-controlplane starts. Migration files live in `integrations/mc-controlplane/migrations/`.
+
+To run migrations manually:
 
 ```bash
-cd backend
-alembic upgrade head
+cd integrations/mc-controlplane
+sqlx migrate run
 ```
 
-Migration CI workflow: `.github/workflows/ci-migrations.yml`
+Or pass `--no-migrate` to the server to skip auto-migration and run manually. Migration CI workflow: `.github/workflows/ci-migrations.yml`
 
-Release procedure checklist: `docs/RELEASE-UPGRADE-CHECKLIST.md`
+Release procedure checklist: `docs/guides/RELEASE-UPGRADE-CHECKLIST.md`
 
 ## Tests
 
