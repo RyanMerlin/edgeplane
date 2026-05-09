@@ -4,10 +4,6 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(name = "mc-controlplane", about = "MissionControl API server")]
 struct Args {
-    /// Serve the mc-ui web frontend
-    #[arg(long)]
-    ui: bool,
-
     /// Bind address
     #[arg(long, default_value = "0.0.0.0:8008", env = "MC_BIND")]
     bind: String,
@@ -19,6 +15,10 @@ struct Args {
     /// Advertised URL for this node (returned in /raft/status)
     #[arg(long, env = "MC_ADVERTISE_URL")]
     advertise_url: Option<String>,
+
+    /// Proxy unknown routes to this upstream base URL (e.g. http://legacy-api:3000)
+    #[arg(long, env = "MC_API_PROXY")]
+    api_proxy: Option<String>,
 
     /// Skip automatic database migration on startup
     #[arg(long)]
@@ -49,6 +49,7 @@ async fn main() -> anyhow::Result<()> {
     let config = AppConfig {
         node_id: args.node_id.unwrap_or(1),
         advertise_url: args.advertise_url.clone(),
+        api_proxy: args.api_proxy.clone(),
     };
 
     let app = build_app(db, config);

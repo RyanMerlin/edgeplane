@@ -151,4 +151,13 @@ pub struct MeshTaskRecord {
     /// heartbeat/complete/fail calls and detect stolen leases (409).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claim_lease_id: Option<String>,
+    /// Task IDs this task depends on (must all be finished before this is ready).
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    /// Semantic outputs this task declares it will produce.
+    #[serde(default)]
+    pub produces: serde_json::Value,
+    /// Semantic inputs this task requires from prior tasks.
+    #[serde(default)]
+    pub consumes: serde_json::Value,
 }

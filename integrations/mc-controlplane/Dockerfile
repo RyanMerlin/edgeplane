@@ -7,7 +7,7 @@ RUN mkdir -p integrations/mc-controlplane/src && \
     echo 'pub fn stub() {}' > integrations/mc-controlplane/src/lib.rs
 RUN cargo build --release --manifest-path integrations/mc-controlplane/Cargo.toml
 
-COPY integrations/mc-server ./integrations/mc-server
+COPY integrations/mc-controlplane ./integrations/mc-controlplane
 RUN touch integrations/mc-controlplane/src/main.rs integrations/mc-controlplane/src/lib.rs && \
     cargo build --release --manifest-path integrations/mc-controlplane/Cargo.toml
 
@@ -19,4 +19,4 @@ COPY --from=builder /build/integrations/mc-controlplane/target/release/mc-contro
 
 EXPOSE 8008
 ENTRYPOINT ["mc-controlplane"]
-CMD ["--serve"]
+CMD []

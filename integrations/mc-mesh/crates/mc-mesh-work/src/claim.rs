@@ -9,13 +9,38 @@ pub struct ClaimOutcome {
 }
 
 /// Filter a list of tasks to those matching the given capabilities.
+///
+/// A task that declares `consumes` but no `depends_on` is misconfigured: its
+/// inputs can't have been produced yet. Those tasks are skipped with a warning
+/// so we don't claim something that will fail immediately.  Well-formed tasks
+/// rely on the backend's `unblock_dependents` to hold them in `pending` until
+/// their deps finish; by the time they appear as `ready` here, the gate is
+/// already satisfied.
 pub fn filter_eligible<'a>(tasks: &'a [MeshTaskRecord], caps: &[Capability]) -> Vec<&'a MeshTaskRecord> {
     tasks
         .iter()
         .filter(|t| {
-            t.required_capabilities
+            // Capability gate.
+            if !t.required_capabilities
                 .iter()
                 .all(|req| caps.iter().any(|c| c.0 == *req))
+            {
+                return false;
+            }
+            // Consumes sanity gate: if a task declares consumes but has no
+            // depends_on, its inputs can't exist yet — skip it.
+            let has_consumes = t.consumes
+                .as_object()
+                .map(|m| !m.is_empty())
+                .unwrap_or(false);
+            if has_consumes && t.depends_on.is_empty() {
+                tracing::warn!(
+                    task_id = %t.id,
+                    "task declares consumes but has no depends_on — skipping (misconfigured task)"
+                );
+                return false;
+            }
+            true
         })
         .collect()
 }
@@ -63,6 +88,17 @@ mod tests {
             required_capabilities: required_caps.iter().map(|s| s.to_string()).collect(),
             lease_expires_at: None,
             claim_lease_id: None,
+            depends_on: vec![],
+            produces: serde_json::json!({}),
+            consumes: serde_json::json!({}),
+        }
+    }
+
+    fn task_with_consumes(id: &str, depends_on: Vec<String>) -> MeshTaskRecord {
+        MeshTaskRecord {
+            consumes: serde_json::json!({"prior_output": {}}),
+            depends_on,
+            ..task(id, &[], "first_claim")
         }
     }
 
@@ -124,5 +160,27 @@ mod tests {
         let eligible = filter_eligible(&tasks, &[]);
         assert_eq!(eligible.len(), 1);
         assert_eq!(eligible[0].id, "t2");
+    }
+
+    #[test]
+    fn consumes_with_depends_on_is_eligible() {
+        let tasks = vec![task_with_consumes("t1", vec!["dep-task".into()])];
+        let eligible = filter_eligible(&tasks, &[]);
+        assert_eq!(eligible.len(), 1, "task with consumes + depends_on should be eligible");
+    }
+
+    #[test]
+    fn consumes_without_depends_on_is_rejected() {
+        // Misconfigured: declares consumes but has no depends_on — inputs can't exist yet.
+        let tasks = vec![task_with_consumes("t1", vec![])];
+        let eligible = filter_eligible(&tasks, &[]);
+        assert!(eligible.is_empty(), "misconfigured task (consumes with no depends_on) should be skipped");
+    }
+
+    #[test]
+    fn empty_consumes_object_is_fine_without_depends_on() {
+        let tasks = vec![task("t1", &[], "first_claim")]; // consumes: {}
+        let eligible = filter_eligible(&tasks, &[]);
+        assert_eq!(eligible.len(), 1, "empty consumes should not trigger the gate");
     }
 }

@@ -28,8 +28,7 @@ jobs:
           key: ${{ runner.os }}-cargo-test-${{ hashFiles('integrations/mc/Cargo.lock', 'integrations/mc-controlplane/Cargo.lock', 'integrations/mc-mesh/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-test-
       - name: Test mc-controlplane
-        # test_proxy excluded — pre-existing AppConfig field mismatch unrelated to CI
-        run: cargo test --manifest-path integrations/mc-controlplane/Cargo.toml --test test_health --test test_routes
+        run: cargo test --manifest-path integrations/mc-controlplane/Cargo.toml --test test_health --test test_routes --test test_proxy --test test_work
       - name: Test mc
         run: cargo test --manifest-path integrations/mc/Cargo.toml -- --test-threads=1
       - name: Check mc-mesh

@@ -10,6 +10,10 @@
 ///
 /// A parallel message relay loop polls inbound messages and delivers them to
 /// the runtime via `AgentRuntime::signal()`.
+///
+/// A parallel notify WS loop connects to `/work/agents/{id}/notify` and wakes
+/// the main loop immediately when a `task_available` push arrives from the
+/// backend, reducing idle latency without changing error-path behavior.
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,7 +25,8 @@ use mc_mesh_work::watchdog::{ConnectivityState, OfflinePolicy};
 use mc_mesh_work::{claim, task};
 use mc_mesh_work::task::TaskError;
 
-const POLL_INTERVAL: Duration = Duration::from_secs(5);
+const POLL_INTERVAL_MIN: Duration = Duration::from_secs(5);
+const POLL_INTERVAL_MAX: Duration = Duration::from_secs(30);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const MESSAGE_POLL_INTERVAL: Duration = Duration::from_secs(3);
 
@@ -47,9 +52,23 @@ pub async fn run_for_agent(
             run_message_relay(relay_agent, relay_runtime, relay_client, relay_agent_id).await;
         });
     }
+
+    // Spawn a WebSocket notify listener that wakes the main loop on task_available push.
+    let (wake_tx, mut wake_rx) = tokio::sync::watch::channel(false);
+    {
+        let notify_base = client.base_url.clone();
+        let notify_token = client.token.clone();
+        let notify_agent_id = agent_id.clone();
+        tokio::spawn(async move {
+            run_notify_ws(notify_base, notify_token, notify_agent_id, wake_tx).await;
+        });
+    }
+
     // Track the last claimed task so we can fail it if we go offline mid-run.
     let mut current_task_id: Option<String> = None;
     let mut current_lease_id: Option<String> = None;
+    // Adaptive backoff: doubles on idle/error iterations, resets on claim.
+    let mut poll_interval = POLL_INTERVAL_MIN;
 
     loop {
         // Enforce offline policy before doing any work.
@@ -66,13 +85,15 @@ pub async fn run_for_agent(
                     current_lease_id = None;
                 }
                 tracing::warn!("Watchdog strict offline: pausing task loop for agent {agent_id}");
-                tokio::time::sleep(POLL_INTERVAL).await;
+                tokio::time::sleep(poll_interval).await;
+                poll_interval = (poll_interval * 2).min(POLL_INTERVAL_MAX);
                 continue;
             }
             // SafeReadonly: pause claiming but don't actively fail tasks.
             (OfflinePolicy::SafeReadonly, ConnectivityState::Offline { .. }) => {
                 tracing::info!("Watchdog safe-readonly offline: suspending claims for agent {agent_id}");
-                tokio::time::sleep(POLL_INTERVAL).await;
+                tokio::time::sleep(poll_interval).await;
+                poll_interval = (poll_interval * 2).min(POLL_INTERVAL_MAX);
                 continue;
             }
             // Autonomous: continue until the TTL is exceeded, then act like Strict.
@@ -86,7 +107,8 @@ pub async fn run_for_agent(
                         let _ = task::fail_task(&client, &tid, current_lease_id.as_deref(), "watchdog: autonomous TTL exceeded").await;
                         current_lease_id = None;
                     }
-                    tokio::time::sleep(POLL_INTERVAL).await;
+                    tokio::time::sleep(poll_interval).await;
+                    poll_interval = (poll_interval * 2).min(POLL_INTERVAL_MAX);
                     continue;
                 }
                 // Within TTL — fall through and keep running.
@@ -104,7 +126,8 @@ pub async fn run_for_agent(
         {
             tracing::warn!("Agent heartbeat failed: {e}");
             watchdog.record_heartbeat_failure();
-            tokio::time::sleep(POLL_INTERVAL).await;
+            tokio::time::sleep(poll_interval).await;
+            poll_interval = (poll_interval * 2).min(POLL_INTERVAL_MAX);
             continue;
         }
         watchdog.record_heartbeat_success();
@@ -114,7 +137,8 @@ pub async fn run_for_agent(
             Ok(k) => k,
             Err(e) => {
                 tracing::warn!("Could not list klusters for mission {mission_id}: {e}");
-                tokio::time::sleep(POLL_INTERVAL).await;
+                tokio::time::sleep(poll_interval).await;
+                poll_interval = (poll_interval * 2).min(POLL_INTERVAL_MAX);
                 continue;
             }
         };
@@ -134,7 +158,17 @@ pub async fn run_for_agent(
         }
 
         let Some(outcome) = claimed else {
-            tokio::time::sleep(POLL_INTERVAL).await;
+            // Sleep until the interval expires OR the backend pushes a task notification.
+            tokio::select! {
+                _ = tokio::time::sleep(poll_interval) => {
+                    poll_interval = (poll_interval * 2).min(POLL_INTERVAL_MAX);
+                }
+                _ = wake_rx.changed() => {
+                    let _ = wake_rx.borrow_and_update();
+                    poll_interval = POLL_INTERVAL_MIN;
+                    tracing::debug!("task_available notification received for {agent_id}, polling immediately");
+                }
+            }
             continue;
         };
 
@@ -147,8 +181,8 @@ pub async fn run_for_agent(
             task_record.title,
             lease_id,
         );
-        current_task_id = Some(task_record.id.clone());
-        current_lease_id = lease_id.clone();
+        // Reset backoff now that we have work.
+        poll_interval = POLL_INTERVAL_MIN;
 
         // Update agent status to busy.
         let _ = client
@@ -182,8 +216,8 @@ pub async fn run_for_agent(
             description: task_record.description.clone(),
             input_json: "{}".into(),
             required_capabilities: task_record.required_capabilities.clone(),
-            produces: serde_json::Value::Object(Default::default()),
-            consumes: serde_json::Value::Object(Default::default()),
+            produces: task_record.produces.clone(),
+            consumes: task_record.consumes.clone(),
             agent_profile,
             mission_roster,
         };
@@ -196,8 +230,6 @@ pub async fn run_for_agent(
                 tracing::error!("inject_task failed: {e}");
                 let _ = task::fail_task(&client, &task_record.id, lease_id.as_deref(), &e.to_string()).await;
                 drop(handle);
-                current_task_id = None;
-                current_lease_id = None;
                 set_agent_idle(&client, &agent_id).await;
                 continue;
             }
@@ -238,8 +270,6 @@ pub async fn run_for_agent(
             }
         }
 
-        current_task_id = None;
-        current_lease_id = None;
         set_agent_idle(&client, &agent_id).await;
     }
 }
@@ -379,5 +409,77 @@ async fn run_message_relay(
                 tracing::warn!("signal() delivery failed for agent {agent_id}: {e}");
             }
         }
+    }
+}
+
+/// Connect to `/work/agents/{id}/notify` via WebSocket and signal `wake_tx`
+/// whenever a `task_available` push arrives.  Reconnects with exponential
+/// backoff (2s → 60s) on disconnect or error.  Runs forever — drop the task
+/// to stop it.
+async fn run_notify_ws(
+    base_url: String,
+    token: String,
+    agent_id: String,
+    wake_tx: tokio::sync::watch::Sender<bool>,
+) {
+    use tokio_tungstenite::{connect_async, tungstenite};
+
+    let ws_base = base_url
+        .trim_end_matches('/')
+        .replacen("http://", "ws://", 1)
+        .replacen("https://", "wss://", 1);
+    let url = format!("{ws_base}/work/agents/{agent_id}/notify");
+
+    let mut backoff = Duration::from_secs(2);
+    const MAX_BACKOFF: Duration = Duration::from_secs(60);
+
+    loop {
+        let request = match tungstenite::client::IntoClientRequest::into_client_request(url.as_str()) {
+            Ok(mut req) => {
+                req.headers_mut().insert(
+                    "Authorization",
+                    format!("Bearer {token}").parse().expect("valid header value"),
+                );
+                req
+            }
+            Err(e) => {
+                tracing::warn!("notify WS: failed to build request for {agent_id}: {e}");
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(MAX_BACKOFF);
+                continue;
+            }
+        };
+
+        match connect_async(request).await {
+            Ok((mut ws, _)) => {
+                tracing::debug!("notify WS connected for agent {agent_id}");
+                backoff = Duration::from_secs(2); // reset on successful connect
+                loop {
+                    use futures::StreamExt as _;
+                    match ws.next().await {
+                        Some(Ok(tungstenite::Message::Text(txt))) => {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
+                                if v.get("type").and_then(|t| t.as_str()) == Some("task_available") {
+                                    let _ = wake_tx.send(true);
+                                }
+                            }
+                        }
+                        Some(Ok(_)) => {} // ping/binary frames ignored
+                        Some(Err(e)) => {
+                            tracing::debug!("notify WS error for {agent_id}: {e}");
+                            break;
+                        }
+                        None => break, // server closed
+                    }
+                }
+                tracing::debug!("notify WS disconnected for agent {agent_id}, reconnecting");
+            }
+            Err(e) => {
+                tracing::debug!("notify WS connect failed for {agent_id}: {e}");
+            }
+        }
+
+        tokio::time::sleep(backoff).await;
+        backoff = (backoff * 2).min(MAX_BACKOFF);
     }
 }

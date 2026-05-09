@@ -9,10 +9,38 @@ use axum::{
 use tokio_stream::wrappers::ReceiverStream;
 use chrono::Utc;
 use sqlx::Row;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::{Arc, OnceLock}};
+use std::time::Duration;
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use crate::{auth::Principal, state::AppState};
+
+// ── Task-available notification registry ──────────────────────────────────────
+// Keyed by mission_id. Agents subscribe per-mission; senders are created on
+// demand and never removed (the channel stays alive for the process lifetime,
+// which is fine since we never have more missions than fit in RAM).
+
+type NotifyRegistry = tokio::sync::Mutex<HashMap<String, broadcast::Sender<String>>>;
+
+static NOTIFY_REGISTRY: OnceLock<NotifyRegistry> = OnceLock::new();
+
+pub fn notify_registry() -> &'static NotifyRegistry {
+    NOTIFY_REGISTRY.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
+}
+
+pub async fn broadcast_task_available(mission_id: &str, kluster_id: &str, task_id: &str) {
+    let msg = serde_json::json!({
+        "type": "task_available",
+        "kluster_id": kluster_id,
+        "task_id": task_id,
+    })
+    .to_string();
+    let reg = notify_registry().lock().await;
+    if let Some(tx) = reg.get(mission_id) {
+        let _ = tx.send(msg); // best-effort; no subscribers is fine
+    }
+}
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -43,6 +71,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/work/agents/{agent_id}/profile", patch(update_agent_profile))
         .route("/work/agents/{agent_id}", get(get_agent))
         .route("/work/agents/{agent_id}/messages", get(get_agent_messages))
+        .route("/work/agents/{agent_id}/notify", get(agent_notify_ws))
         // Kluster messages + stream
         .route("/work/klusters/{kluster_id}/messages", get(list_kluster_messages).post(send_kluster_message))
         .route("/work/klusters/{kluster_id}/stream", get(kluster_stream))
@@ -539,7 +568,13 @@ async fn create_task(
     .await;
 
     match row {
-        Ok(r) => (StatusCode::CREATED, Json(row_to_task(&r))).into_response(),
+        Ok(r) => {
+            if initial_status == "ready" {
+                let tid: String = r.get("id");
+                broadcast_task_available(&mission_id, &kluster_id, &tid).await;
+            }
+            (StatusCode::CREATED, Json(row_to_task(&r))).into_response()
+        }
         Err(e) => {
             tracing::error!("create_task insert: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -954,7 +989,7 @@ async fn append_progress(
     match row {
         Ok(r) => {
             Json(serde_json::json!({
-                "id": r.get::<i64, _>("id"),
+                "id": r.get::<i32, _>("id"),
                 "task_id": r.get::<String, _>("task_id"),
                 "agent_id": r.get::<String, _>("agent_id"),
                 "seq": r.get::<i32, _>("seq"),
@@ -1057,7 +1092,11 @@ async fn complete_task(
     .await
     {
         Ok(r) => {
+            let mission_id: String = r.get("mission_id");
             let unblocked = unblock_dependents(&state.db, &kluster_id, &task_id).await;
+            for tid in &unblocked {
+                broadcast_task_available(&mission_id, &kluster_id, tid).await;
+            }
             let mut val = row_to_task(&r);
             val["unblocked_tasks"] = serde_json::json!(unblocked);
             Json(val).into_response()
@@ -1425,12 +1464,73 @@ async fn resolve_gate(
             .bind(now)
             .execute(&state.db)
             .await;
-            unblock_dependents(&state.db, &kluster_id, &task_id).await;
+            let mission_id: String = task_row.get("mission_id");
+            let unblocked = unblock_dependents(&state.db, &kluster_id, &task_id).await;
+            for tid in &unblocked {
+                broadcast_task_available(&mission_id, &kluster_id, tid).await;
+            }
         }
         // else: some still pending, leave as waiting_review
     }
 
     Json(gate_val).into_response()
+}
+
+// ── Agent notify WebSocket ────────────────────────────────────────────────────
+
+async fn agent_notify_ws(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+    _principal: Principal,
+    Path(agent_id): Path<String>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_agent_notify(socket, state, agent_id))
+}
+
+async fn handle_agent_notify(mut socket: WebSocket, state: Arc<AppState>, agent_id: String) {
+    // Look up the agent's mission so we can subscribe to the right channel.
+    let mission_id = match sqlx::query_scalar::<_, String>(
+        "SELECT mission_id FROM meshagent WHERE id=$1",
+    )
+    .bind(&agent_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(m)) => m,
+        _ => return,
+    };
+
+    // Subscribe to the mission's broadcast channel, creating it on demand.
+    let mut rx = {
+        let mut reg = notify_registry().lock().await;
+        let tx = reg
+            .entry(mission_id.clone())
+            .or_insert_with(|| broadcast::channel::<String>(64).0);
+        tx.subscribe()
+    };
+
+    // Forward notifications; send pings every 30s to keep the connection alive.
+    let ping_msg = r#"{"type":"ping"}"#;
+    loop {
+        tokio::select! {
+            result = rx.recv() => {
+                match result {
+                    Ok(payload) => {
+                        if socket.send(Message::Text(payload.into())).await.is_err() {
+                            return;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => return,
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                if socket.send(Message::Text(ping_msg.into())).await.is_err() {
+                    return;
+                }
+            }
+        }
+    }
 }
 
 // ── Agent handlers ─────────────────────────────────────────────────────────────
@@ -2056,7 +2156,7 @@ async fn global_sse(
     let db = state.db.clone();
 
     tokio::spawn(async move {
-        let mut last_id: i64 = 0;
+        let mut last_id: i32 = 0;
         let mut ticks_since_heartbeat: u32 = 0;
 
         loop {
@@ -2072,7 +2172,7 @@ async fn global_sse(
             .unwrap_or_default();
 
             for row in &rows {
-                let id: i64 = row.get("id");
+                let id: i32 = row.get("id");
                 if id > last_id { last_id = id; }
                 let data = serde_json::json!({
                     "id": id,

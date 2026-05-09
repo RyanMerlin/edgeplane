@@ -32,6 +32,10 @@ pub struct DaemonConfig {
     /// Unix socket path for the local control interface.
     #[serde(default = "default_socket")]
     pub control_socket: PathBuf,
+    /// Runtime node ID assigned by mc-controlplane at registration.
+    /// When set, the daemon sends periodic node heartbeats (including Tailscale info).
+    #[serde(default)]
+    pub node_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +105,7 @@ impl DaemonConfig {
             offline_grace_secs: default_grace(),
             offline_policy: default_policy(),
             control_socket: default_socket(),
+            node_id: None,
         });
         cfg.resolve_credentials();
         cfg

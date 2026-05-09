@@ -1339,7 +1339,7 @@ dependencies = [
 
 [[package]]
 name = "mc-mesh"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1357,13 +1357,14 @@ dependencies = [
  "serde_yaml",
  "tempfile",
  "tokio",
+ "tokio-tungstenite",
  "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "mc-mesh-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1387,7 +1388,7 @@ dependencies = [
 
 [[package]]
 name = "mc-mesh-packs"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "mc-mesh-sandbox",
  "mc-mesh-secrets",
@@ -1400,7 +1401,7 @@ dependencies = [
 
 [[package]]
 name = "mc-mesh-receipts"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -1415,7 +1416,7 @@ dependencies = [
 
 [[package]]
 name = "mc-mesh-runtimes"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1437,7 +1438,7 @@ dependencies = [
 
 [[package]]
 name = "mc-mesh-sandbox"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "dirs",
  "hex",
@@ -1452,7 +1453,7 @@ dependencies = [
 
 [[package]]
 name = "mc-mesh-secrets"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "keyring",
  "once_cell",
@@ -1468,7 +1469,7 @@ dependencies = [
 
 [[package]]
 name = "mc-mesh-sync"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1481,7 +1482,7 @@ dependencies = [
 
 [[package]]
 name = "mc-mesh-work"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",

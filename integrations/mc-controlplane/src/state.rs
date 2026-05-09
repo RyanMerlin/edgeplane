@@ -3,6 +3,8 @@ use sqlx::PgPool;
 pub struct AppState {
     pub db: PgPool,
     pub node: NodeInfo,
+    /// Optional upstream URL — unknown routes are forwarded here (proxy mode).
+    pub api_proxy: Option<String>,
 }
 
 /// Static node identity — populated from CLI args at startup.

@@ -2,6 +2,7 @@
 use anyhow::Result;
 use mc_mesh_core::capability_dispatcher::CapabilityDispatcher;
 use mc_mesh_core::client::BackendClient;
+use mc_mesh_core::machine::MachineInfo;
 use mc_mesh_core::paths;
 use mc_mesh_packs::{PackRegistry, PolicyBundle};
 use mc_mesh_runtimes::{
@@ -163,6 +164,33 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
             "No agents configured. Add missions/agents to {} and restart.",
             DaemonConfig::user_config_path().display()
         );
+    }
+
+    // If the daemon has a registered node_id, send periodic node heartbeats
+    // to mc-controlplane with current Tailscale info.
+    if let Some(node_id) = cfg.node_id.clone() {
+        let heartbeat_client = Arc::clone(&client);
+        let heartbeat_work_dir = cfg.work_dir.clone();
+        tokio::spawn(async move {
+            const NODE_HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+            loop {
+                tokio::time::sleep(NODE_HEARTBEAT_INTERVAL).await;
+                let info = MachineInfo::detect(&heartbeat_work_dir);
+                let body = serde_json::json!({
+                    "status": "online",
+                    "tailscale_ip": info.tailscale_ip,
+                    "tailscale_fqdn": info.tailscale_fqdn,
+                });
+                if let Err(e) = heartbeat_client
+                    .raw_post(&format!("/runtime/nodes/{node_id}/heartbeat"), &body)
+                    .await
+                {
+                    tracing::warn!("Node heartbeat failed for {node_id}: {e}");
+                } else {
+                    tracing::debug!("Node heartbeat sent for {node_id}");
+                }
+            }
+        });
     }
 
     // Start the attach gateway in the background.

@@ -136,7 +136,7 @@ impl MgmtGateway {
         let mut reader = BufReader::new(read_half);
 
         // AUTH handshake only when MC_TOKEN is configured.
-        let authenticated = if let Some(expected_token) = &self.mc_token {
+        if let Some(expected_token) = &self.mc_token {
             let mut line = String::new();
             reader.read_line(&mut line).await?;
             let line = line.trim();
@@ -144,7 +144,6 @@ impl MgmtGateway {
             if let Some(token) = line.strip_prefix("AUTH ") {
                 if token == expected_token.as_str() {
                     write_half.write_all(b"OK\n").await?;
-                    true
                 } else {
                     write_half.write_all(b"ERR unauthorized\n").await?;
                     return Ok(());
@@ -153,10 +152,7 @@ impl MgmtGateway {
                 write_half.write_all(b"ERR unauthorized\n").await?;
                 return Ok(());
             }
-        } else {
-            // No token configured — accept all.
-            true
-        };
+        }
 
         // Rejoin halves into a unified async stream for handle_connection.
         // We use a wrapper that chains our already-buffered reader with the write half.

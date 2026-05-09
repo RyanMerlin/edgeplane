@@ -1,13 +1,14 @@
-# mc-controlplane dev overlay — runs mc-controlplane + Postgres alongside the dev FastAPI.
-# Both services share the same Postgres DB.
+# mc-controlplane local dev stack — Postgres + mc-controlplane
 #
 # Usage:
-#   docker compose -f docker-compose.dev.yml -f docker-compose.mc-dev.yml up --build
+#   docker compose -f docker-compose.mc-dev.yml up --build
 #
 # Ports:
-#   8008 — FastAPI (upstream, unchanged)
-#   8009 — mc-controlplane (proxy mode: handles native routes, forwards rest to FastAPI)
+#   8009 — mc-controlplane API
 #   5432 — Postgres (exposed for psql / pgAdmin)
+#
+# Quick test:
+#   curl http://localhost:8009/health
 
 services:
   postgres:
@@ -26,36 +27,6 @@ services:
       timeout: 5s
       retries: 10
 
-  migrate:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: dev
-    container_name: missioncontrol-migrate-dev
-    depends_on:
-      postgres:
-        condition: service_healthy
-    env_file:
-      - .env.dev
-    environment:
-      DATABASE_URL: postgresql+psycopg://missioncontrol:missioncontrol@postgres:5432/missioncontrol
-    working_dir: /app
-    volumes:
-      - ./backend:/app
-    command: ["python", "-m", "alembic", "upgrade", "head"]
-    restart: "no"
-
-  # Override the api service to use Postgres instead of SQLite
-  api:
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    environment:
-      DATABASE_URL: postgresql+psycopg://missioncontrol:missioncontrol@postgres:5432/missioncontrol
-      MC_DB_RUNTIME_MIGRATIONS: "false"
-
   mc-controlplane:
     build:
       context: .
@@ -64,8 +35,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://missioncontrol:missioncontrol@postgres:5432/missioncontrol
       MC_BIND: 0.0.0.0:8009
@@ -73,7 +42,6 @@ services:
       RUST_LOG: mc_controlplane=debug,info
     ports:
       - "8009:8009"
-    command: ["--serve", "--api-proxy", "http://api:8008"]
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8009/health || exit 1"]
