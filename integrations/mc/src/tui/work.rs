@@ -363,7 +363,7 @@ fn parse_feed_data(data: &str) -> (Option<String>, Option<String>, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::data::{DataClient, FixtureDataClient, MissionSummary};
+    use crate::tui::data::{DataClient, FixtureDataClient, MissionSummary};
     use std::sync::Arc;
 
     #[tokio::test]
