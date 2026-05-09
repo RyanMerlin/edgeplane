@@ -1,5 +1,5 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 // ─── domain types ────────────────────────────────────────────────────────────
 
@@ -31,29 +31,6 @@ pub struct TaskSummary {
     pub description: String,
 }
 
-// ─── raft status ─────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RaftStatus {
-    pub node_id: u64,
-    pub role: String,
-    pub term: u64,
-    pub leader_id: Option<u64>,
-    pub advertise_url: Option<String>,
-}
-
-impl Default for RaftStatus {
-    fn default() -> Self {
-        Self {
-            node_id: 1,
-            role: "standalone".to_string(),
-            term: 0,
-            leader_id: None,
-            advertise_url: None,
-        }
-    }
-}
-
 // ─── approvals ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,21 +48,40 @@ pub struct ApprovalSummary {
     pub status: String,
 }
 
-// ─── runs ─────────────────────────────────────────────────────────────────────
+// ─── agent summary ───────────────────────────────────────────────────────────
+
+fn id_to_string<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<String, D::Error> {
+    use serde::de::Error;
+    let v = serde_json::Value::deserialize(d)?;
+    match v {
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Number(n) => Ok(n.to_string()),
+        other => Err(D::Error::custom(format!("expected string or number for id, got {other}"))),
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunSummary {
+pub struct AgentSummary {
+    #[serde(deserialize_with = "id_to_string")]
     pub id: String,
+    pub name: String,
     pub status: String,
-    pub created_at: String,
     #[serde(default)]
-    pub owner_subject: Option<String>,
+    pub capabilities: Option<String>,
     #[serde(default)]
-    pub mesh_agent_id: Option<String>,
+    pub updated_at: Option<String>,
     #[serde(default)]
-    pub runtime_kind: Option<String>,
+    pub runtime: Option<String>,
     #[serde(default)]
-    pub ended_at: Option<String>,
+    pub node_id: Option<String>,
+    #[serde(default)]
+    pub mission_id: Option<String>,
+    #[serde(default)]
+    pub mission_name: Option<String>,
+    #[serde(default)]
+    pub current_task_title: Option<String>,
+    #[serde(default)]
+    pub last_seen: Option<String>,
 }
 
 // ─── trait ───────────────────────────────────────────────────────────────────
@@ -93,13 +89,12 @@ pub struct RunSummary {
 #[async_trait::async_trait]
 pub trait DataClient: Send + Sync {
     async fn ping(&self) -> Result<()>;
-    async fn raft_status(&self) -> Result<RaftStatus>;
     async fn list_missions(&self) -> Result<Vec<MissionSummary>>;
     async fn list_klusters(&self, mission_id: &str) -> Result<Vec<KlusterSummary>>;
-    async fn list_tasks(&self, kluster_id: &str) -> Result<Vec<TaskSummary>>;
+    async fn list_tasks(&self, mission_id: &str, kluster_id: &str) -> Result<Vec<TaskSummary>>;
     async fn list_approvals(&self, mission_id: Option<&str>) -> Result<Vec<ApprovalSummary>>;
     async fn respond_approval(&self, approval_id: &str, decision: &str, note: Option<&str>) -> Result<()>;
-    async fn list_runs(&self) -> Result<Vec<RunSummary>>;
+    async fn list_agents(&self) -> Result<Vec<AgentSummary>>;
 }
 
 // ─── fixture client (test / offline use) ─────────────────────────────────────
@@ -113,10 +108,6 @@ pub struct FixtureDataClient {
 impl DataClient for FixtureDataClient {
     async fn ping(&self) -> Result<()> { Ok(()) }
 
-    async fn raft_status(&self) -> Result<RaftStatus> {
-        Ok(RaftStatus::default())
-    }
-
     async fn list_missions(&self) -> Result<Vec<MissionSummary>> {
         Ok(self.missions.clone())
     }
@@ -125,7 +116,7 @@ impl DataClient for FixtureDataClient {
         Ok(vec![])
     }
 
-    async fn list_tasks(&self, _kluster_id: &str) -> Result<Vec<TaskSummary>> {
+    async fn list_tasks(&self, _mission_id: &str, _kluster_id: &str) -> Result<Vec<TaskSummary>> {
         Ok(vec![])
     }
 
@@ -137,7 +128,7 @@ impl DataClient for FixtureDataClient {
         Ok(())
     }
 
-    async fn list_runs(&self) -> Result<Vec<RunSummary>> {
+    async fn list_agents(&self) -> Result<Vec<AgentSummary>> {
         Ok(vec![])
     }
 }
@@ -183,10 +174,6 @@ impl DataClient for RemoteDataClient {
         Ok(())
     }
 
-    async fn raft_status(&self) -> Result<RaftStatus> {
-        self.get("/raft/status").await
-    }
-
     async fn list_missions(&self) -> Result<Vec<MissionSummary>> {
         self.get("/missions").await
     }
@@ -195,8 +182,9 @@ impl DataClient for RemoteDataClient {
         self.get(&format!("/missions/{mission_id}/k")).await
     }
 
-    async fn list_tasks(&self, kluster_id: &str) -> Result<Vec<TaskSummary>> {
-        self.get(&format!("/klusters/{kluster_id}/t")).await
+    // Uses the canonical auth-required path rather than the /klusters/:id/t shortcut.
+    async fn list_tasks(&self, mission_id: &str, kluster_id: &str) -> Result<Vec<TaskSummary>> {
+        self.get(&format!("/missions/{mission_id}/k/{kluster_id}/t")).await
     }
 
     async fn list_approvals(&self, mission_id: Option<&str>) -> Result<Vec<ApprovalSummary>> {
@@ -223,7 +211,19 @@ impl DataClient for RemoteDataClient {
         Ok(())
     }
 
-    async fn list_runs(&self) -> Result<Vec<RunSummary>> {
-        self.get("/runs").await
+    async fn list_agents(&self) -> Result<Vec<AgentSummary>> {
+        let mut req = self.client.get(self.url("/agents"));
+        if let Some(tok) = &self.token {
+            req = req.bearer_auth(tok);
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(vec![]);
+        }
+        if !status.is_success() {
+            anyhow::bail!("backend returned {status} for /agents");
+        }
+        Ok(resp.json::<Vec<AgentSummary>>().await?)
     }
 }

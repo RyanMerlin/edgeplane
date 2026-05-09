@@ -149,7 +149,7 @@ pub fn servers_file_path() -> PathBuf {
 
 /// Resolution order:
 /// 1. MC_SERVERS env var (manual override)
-/// 2. ~/.mc/servers file (written by `mc discover` or mc-server bootstrap)
+/// 2. ~/.mc/servers file (written by `mc discover` or mc-controlplane bootstrap)
 /// 3. MC_BASE_URL env var (legacy single-server compat)
 /// 4. localhost:8008 (development fallback)
 pub fn load_server_list() -> Vec<String> {

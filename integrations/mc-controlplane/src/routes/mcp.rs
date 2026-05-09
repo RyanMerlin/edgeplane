@@ -20,7 +20,7 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 async fn mcp_health() -> impl IntoResponse {
-    Json(json!({"ok": true, "version": "mc-server"}))
+    Json(json!({"ok": true, "version": "mc-controlplane"}))
 }
 
 fn tool_def(name: &str, description: &str, schema: Value) -> Value {
@@ -2288,12 +2288,12 @@ async fn dispatch(
             }
 
             // Commit and push
-            let commit_msg = format!("mc-server: publish {} ledger events for {}", events.len(), mission_id);
+            let commit_msg = format!("mc-controlplane: publish {} ledger events for {}", events.len(), mission_id);
             let _ = std::process::Command::new("git")
-                .args(["-C", &repo_dir, "config", "user.email", "mc-server@missioncontrol.ai"])
+                .args(["-C", &repo_dir, "config", "user.email", "git@ryanmerlin.com"])
                 .output();
             let _ = std::process::Command::new("git")
-                .args(["-C", &repo_dir, "config", "user.name", "mc-server"])
+                .args(["-C", &repo_dir, "config", "user.name", "mc-controlplane"])
                 .output();
             let commit_out = std::process::Command::new("git")
                 .args(["-C", &repo_dir, "commit", "--allow-empty", "-m", &commit_msg])

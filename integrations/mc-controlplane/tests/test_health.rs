@@ -1,5 +1,5 @@
 use axum_test::TestServer;
-use mc_server::{build_app, AppConfig};
+use mc_controlplane::{build_app, AppConfig};
 use sqlx::PgPool;
 
 fn test_pool() -> PgPool {

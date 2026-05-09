@@ -119,7 +119,7 @@ pub enum McCommand {
     /// Bidirectional git-backed config sync for this node.
     #[command(name = "mesh-sync", subcommand)]
     MeshSync(cmd::sync::SyncCmd),
-    /// Discover mc-server nodes and write ~/.mc/servers.
+    /// Discover mc-controlplane nodes and write ~/.mc/servers.
     Discover(discover::DiscoverArgs),
     /// Launch the terminal UI (ratatui) for fleet monitoring and management.
     Tui(TuiArgs),

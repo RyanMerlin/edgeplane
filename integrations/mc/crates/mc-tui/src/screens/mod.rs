@@ -1,6 +1,6 @@
 pub mod agent_feed;
+pub mod agents;
 pub mod approval_queue;
-pub mod landing;
+pub mod config;
 pub mod mission_matrix;
-pub mod receipts;
 pub mod secrets;

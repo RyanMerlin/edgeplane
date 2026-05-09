@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mc tui — v2 Approvals</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117; color: #e6edf3;
+    font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+    font-size: 13px; line-height: 1.45; min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  .ok      { color: #3fb950; }
+  .warn    { color: #d29922; }
+  .err     { color: #f85149; }
+  .accent  { color: #58a6ff; }
+  .purple  { color: #bc8cff; }
+  .dim     { color: #484f58; }
+  .muted   { color: #8b949e; }
+  .bold    { font-weight: 700; }
+
+  #topbar { display: flex; align-items: center; background: #161b22; border-bottom: 1px solid #21262d; padding: 0 1ch; height: 2.2em; flex-shrink: 0; gap: 0; }
+  #logo { color: #58a6ff; font-weight: 700; font-size: 14px; padding: 0 2ch 0 1ch; border-right: 1px solid #30363d; margin-right: 1ch; }
+  .tab { padding: 0 2ch; height: 100%; display: flex; align-items: center; color: #8b949e; border-right: 1px solid transparent; border-left: 1px solid transparent; white-space: nowrap; }
+  .tab.active { color: #e6edf3; background: #0d1117; border-left: 1px solid #30363d; border-right: 1px solid #30363d; border-bottom: 1px solid #0d1117; margin-bottom: -1px; }
+  .tab .badge { display: inline-block; background: #d29922; color: #0d1117; font-size: 10px; font-weight: 700; border-radius: 3px; padding: 0 4px; margin-left: 6px; line-height: 1.5; }
+  #topbar-right { margin-left: auto; display: flex; align-items: center; gap: 2ch; color: #8b949e; font-size: 12px; padding-right: 1ch; }
+  .cluster-ok { color: #3fb950; }
+
+  #main { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+  .pane { display: flex; flex-direction: column; border-right: 1px solid #21262d; overflow: hidden; }
+  .pane-header { background: #161b22; border-bottom: 1px solid #21262d; padding: 0.2em 1.5ch; color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; display: flex; align-items: center; gap: 1ch; flex-shrink: 0; }
+  .pane-header .title { color: #e6edf3; font-size: 12px; text-transform: none; letter-spacing: 0; }
+
+  /* Left queue pane */
+  #pane-queue { width: 42%; }
+  .queue-row {
+    padding: 0.6em 1.5ch;
+    border-bottom: 1px solid #161b22;
+    cursor: pointer;
+    position: relative;
+  }
+  .queue-row:hover { background: #161b22; }
+  .queue-row.selected { background: #1c2d4a; border-left: 2px solid #58a6ff; }
+  .queue-row.high { border-left: 3px solid #f85149; }
+  .queue-row.medium { border-left: 3px solid #d29922; }
+  .queue-row.low { border-left: 3px solid #3fb950; }
+  .queue-row.selected.high { background: #1f1010; border-left: 3px solid #f85149; }
+  .queue-row.selected.medium { background: #1f1a0a; border-left: 3px solid #d29922; }
+
+  .queue-action { font-size: 13px; font-weight: 700; margin-bottom: 0.2em; }
+  .queue-meta { font-size: 11px; color: #8b949e; display: flex; gap: 2ch; align-items: center; }
+  .risk-badge { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 2px; }
+  .risk-high   { background: #5a1a1a; color: #f85149; }
+  .risk-medium { background: #3d2e00; color: #d29922; }
+  .risk-low    { background: #0d2b1a; color: #3fb950; }
+  .queue-wait { margin-left: auto; color: #484f58; font-size: 11px; }
+  .queue-tool { color: #bc8cff; font-size: 11px; }
+
+  .queue-section-title {
+    padding: 0.5em 1.5ch 0.3em;
+    color: #484f58; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    border-top: 1px solid #21262d; margin-top: 0.3em;
+    background: #161b22;
+  }
+  .history-row {
+    padding: 0.3em 1.5ch;
+    display: flex; align-items: center; gap: 1ch;
+    font-size: 12px; color: #484f58;
+  }
+
+  /* Right detail pane */
+  #pane-detail { flex: 1; border-right: none; }
+  .detail-body { padding: 1em 2ch; overflow-y: auto; height: 100%; }
+
+  .detail-kv { display: flex; gap: 1ch; margin-bottom: 0.4em; font-size: 12px; }
+  .detail-k  { color: #484f58; width: 10ch; flex-shrink: 0; }
+  .detail-v  { color: #e6edf3; }
+
+  .detail-sep { border-top: 1px solid #21262d; margin: 0.8em 0 0.6em; }
+  .detail-section { color: #484f58; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5em; }
+
+  .tool-block {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 0.6em 1.5ch;
+    font-size: 12px;
+    margin-bottom: 0.8em;
+  }
+  .tool-name { color: #f85149; font-weight: 700; margin-bottom: 0.4em; font-size: 13px; }
+  .tool-input { color: #8b949e; line-height: 1.6; }
+  .tool-input .key { color: #58a6ff; }
+  .tool-input .val { color: #e6edf3; }
+
+  .reasoning-block {
+    background: #0d1117;
+    border-left: 2px solid #30363d;
+    padding: 0.5em 1.5ch;
+    font-size: 12px;
+    color: #8b949e;
+    line-height: 1.7;
+    margin-bottom: 0.8em;
+  }
+
+  .action-bar {
+    display: flex;
+    gap: 2ch;
+    padding: 0.8em 0;
+    border-top: 1px solid #21262d;
+    margin-top: 0.5em;
+  }
+  .action-btn {
+    display: flex; align-items: center; gap: 0.7ch;
+    padding: 0.4em 1.5ch;
+    border-radius: 4px;
+    font-size: 12px; font-weight: 700;
+    border: 1px solid;
+  }
+  .action-btn .key { font-size: 10px; border-radius: 2px; padding: 1px 4px; margin-right: 0.3ch; }
+  .btn-approve { border-color: #238636; color: #3fb950; background: #0d2b1a; }
+  .btn-approve .key { background: #238636; color: #e6edf3; }
+  .btn-deny    { border-color: #da3633; color: #f85149; background: #1f0f0f; }
+  .btn-deny .key { background: #da3633; color: #e6edf3; }
+  .btn-skip    { border-color: #30363d; color: #8b949e; background: #161b22; }
+  .btn-skip .key { background: #30363d; color: #8b949e; }
+
+  #statusbar { background: #161b22; border-top: 1px solid #21262d; padding: 0.2em 2ch; display: flex; align-items: center; gap: 3ch; font-size: 11px; color: #484f58; flex-shrink: 0; }
+  #statusbar-right { margin-left: auto; display: flex; gap: 3ch; }
+  .hint { color: #30363d; }
+  .hint b { color: #484f58; font-weight: normal; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div id="logo">mc</div>
+  <div class="tab">Matrix</div>
+  <div class="tab">Feed</div>
+  <div class="tab active">Approvals <span class="badge">2</span></div>
+  <div class="tab">Receipts</div>
+  <div class="tab">Config</div>
+  <div id="topbar-right">
+    <span class="cluster-ok">● epyc</span>
+    <span>3/3 nodes</span>
+    <span class="dim">|</span>
+    <span>03:47:22</span>
+  </div>
+</div>
+
+<div id="main">
+
+  <!-- Left: Pending queue -->
+  <div class="pane" id="pane-queue">
+    <div class="pane-header">
+      <span class="title">Pending</span>
+      <span class="muted">2 requests</span>
+    </div>
+
+    <!-- Approval 1 - selected, HIGH risk -->
+    <div class="queue-row high selected">
+      <div class="queue-action err">apply-db-migrations</div>
+      <div class="queue-meta">
+        <span class="risk-badge risk-high">HIGH</span>
+        <span class="queue-tool">bash_execute</span>
+        <span class="queue-wait">waiting 2m 04s</span>
+      </div>
+    </div>
+
+    <!-- Approval 2 - MEDIUM risk -->
+    <div class="queue-row medium">
+      <div class="queue-action warn">push-to-production</div>
+      <div class="queue-meta">
+        <span class="risk-badge risk-medium">MED</span>
+        <span class="queue-tool">git_push</span>
+        <span class="queue-wait">waiting 0m 31s</span>
+      </div>
+    </div>
+
+    <div class="queue-section-title">Recent Decisions</div>
+
+    <div class="history-row">
+      <span class="ok">✓</span>
+      <span>provision-postgres</span>
+      <span class="dim">kubectl_apply</span>
+      <span style="margin-left:auto; color:#484f58">03:41</span>
+    </div>
+    <div class="history-row">
+      <span class="ok">✓</span>
+      <span>create-s3-bucket</span>
+      <span class="dim">aws_cli</span>
+      <span style="margin-left:auto; color:#484f58">03:38</span>
+    </div>
+    <div class="history-row">
+      <span class="err">✗</span>
+      <span class="muted">nuke-old-data</span>
+      <span class="dim">bash_execute</span>
+      <span style="margin-left:auto; color:#484f58">03:15</span>
+    </div>
+    <div class="history-row">
+      <span class="ok">✓</span>
+      <span>deploy-nginx</span>
+      <span class="dim">helm_install</span>
+      <span style="margin-left:auto; color:#484f58">02:58</span>
+    </div>
+    <div class="history-row">
+      <span class="ok">✓</span>
+      <span>apply-tls-cert</span>
+      <span class="dim">kubectl_apply</span>
+      <span style="margin-left:auto; color:#484f58">02:44</span>
+    </div>
+  </div>
+
+  <!-- Right: Detail -->
+  <div class="pane" id="pane-detail">
+    <div class="pane-header">
+      <span class="title">apply-db-migrations</span>
+      <span class="dim">·</span>
+      <span class="muted">TSK-0090 · Phoenix Deploy</span>
+      <span class="dim">·</span>
+      <span class="err bold">HIGH RISK</span>
+    </div>
+    <div class="detail-body">
+
+      <div class="detail-kv">
+        <span class="detail-k">Task</span>
+        <span class="detail-v">apply-db-migrations · <span class="muted">TSK-0090</span></span>
+      </div>
+      <div class="detail-kv">
+        <span class="detail-k">Mission</span>
+        <span class="detail-v">Phoenix Deploy</span>
+      </div>
+      <div class="detail-kv">
+        <span class="detail-k">Agent</span>
+        <span class="detail-v">aria-prod</span>
+      </div>
+      <div class="detail-kv">
+        <span class="detail-k">Runtime</span>
+        <span class="detail-v">claude-sonnet-4-6</span>
+      </div>
+      <div class="detail-kv">
+        <span class="detail-k">Waiting</span>
+        <span class="detail-v warn">2m 04s</span>
+      </div>
+
+      <div class="detail-sep"></div>
+      <div class="detail-section">Tool Call</div>
+
+      <div class="tool-block">
+        <div class="tool-name">⚡ bash_execute</div>
+        <div class="tool-input">
+          <span class="key">command</span> <span class="val">psql -h missioncontrol-cnpg-rw -U missioncontrol -d missioncontrol -f /migrations/0042_add_mesh_progress.sql</span><br>
+          <span class="key">timeout</span> <span class="val">120</span><br>
+          <span class="key">environment</span> <span class="val">production</span>
+        </div>
+      </div>
+
+      <div class="detail-sep"></div>
+      <div class="detail-section">Agent Reasoning</div>
+
+      <div class="reasoning-block">
+        The migration adds the <span class="accent">meshprogressevent</span> table required for the SSE feed feature. It uses <span class="accent">CREATE TABLE IF NOT EXISTS</span> with no destructive operations. The migration has been tested on staging (schema matches) and is idempotent. I'm requesting approval because this runs directly against the production database.
+      </div>
+
+      <div class="detail-sep"></div>
+      <div class="detail-section">Conversation Context</div>
+
+      <div style="font-size:11px; color:#484f58; line-height:1.7; margin-bottom:0.8em">
+        <div><span class="muted">aria-prod:</span> Schema diff complete — 1 pending migration</div>
+        <div><span class="muted">aria-prod:</span> Verified staging matches production schema</div>
+        <div><span class="muted">aria-prod:</span> Requesting approval to run migration on production DB</div>
+      </div>
+
+      <div class="action-bar">
+        <div class="action-btn btn-approve">
+          <span class="key">y</span> Approve
+        </div>
+        <div class="action-btn btn-deny">
+          <span class="key">n</span> Deny
+        </div>
+        <div class="action-btn btn-skip">
+          <span class="key">s</span> Skip
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<div id="statusbar">
+  <span class="warn">2 pending</span>
+  <span class="dim">·</span>
+  <span class="muted">avg wait: 1m 17s</span>
+  <div id="statusbar-right">
+    <span class="hint"><b>↑↓</b> nav queue</span>
+    <span class="hint"><b>Tab</b> focus</span>
+    <span class="hint"><b>y</b> approve</span>
+    <span class="hint"><b>n</b> deny</span>
+    <span class="hint"><b>s</b> skip</span>
+  </div>
+</div>
+
+</body>
+</html>

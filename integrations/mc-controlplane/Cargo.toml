@@ -1,5 +1,5 @@
 [package]
-name = "mc-server"
+name = "mc-controlplane"
 version = "0.4.0"
 edition = "2024"
 authors = ["MissionControl Engineers <support@missioncontrol.ai>"]
@@ -7,11 +7,11 @@ description = "MissionControl server node — Raft-backed HTTP API + distributed
 license = "Apache-2.0"
 
 [[bin]]
-name = "mc-server"
+name = "mc-controlplane"
 path = "src/main.rs"
 
 [lib]
-name = "mc_server"
+name = "mc_controlplane"
 path = "src/lib.rs"
 
 [dependencies]

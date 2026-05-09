@@ -1,8 +1,8 @@
-use mc_server::{build_app, AppConfig};
+use mc_controlplane::{build_app, AppConfig};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(name = "mc-server", about = "MissionControl API server")]
+#[command(name = "mc-controlplane", about = "MissionControl API server")]
 struct Args {
     /// Serve the mc-ui web frontend
     #[arg(long)]
@@ -29,15 +29,15 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "mc_server=info".into()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "mc_controlplane=info".into()),
         )
         .init();
 
     let args = Args::parse();
 
-    tracing::info!(bind = %args.bind, "mc-server starting");
+    tracing::info!(bind = %args.bind, "mc-controlplane starting");
 
-    let db = mc_server::db::connect().await?;
+    let db = mc_controlplane::db::connect().await?;
 
     if !args.no_migrate {
         tracing::info!("running database migrations");

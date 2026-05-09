@@ -1,6 +1,6 @@
 [package]
 name = "mc-tui"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "Ratatui terminal UI for MissionControl"
 license = "Apache-2.0"
@@ -23,3 +23,4 @@ mc-mesh-secrets = { path = "../../../mc-mesh/crates/mc-mesh-secrets" }
 
 [dev-dependencies]
 tempfile = "3.9"
+wiremock = "0.6"

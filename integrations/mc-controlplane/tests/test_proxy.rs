@@ -1,5 +1,5 @@
 use axum_test::TestServer;
-use mc_server::{build_app, AppConfig};
+use mc_controlplane::{build_app, AppConfig};
 use sqlx::PgPool;
 use wiremock::{matchers::{method, path}, Mock, MockServer, ResponseTemplate};
 
