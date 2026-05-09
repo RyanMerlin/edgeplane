@@ -1,3 +1,5 @@
+@import "tailwindcss/utilities";
+
 :root,
 :root[data-theme='dark'] {
   --bg: #070c15;
