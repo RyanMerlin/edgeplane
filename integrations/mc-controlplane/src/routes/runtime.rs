@@ -61,6 +61,8 @@ fn row_to_node(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         "capacity": serde_json::from_str::<serde_json::Value>(row.get::<&str, _>("capacity_json")).unwrap_or(serde_json::json!({})),
         "capabilities": serde_json::from_str::<serde_json::Value>(row.get::<&str, _>("capabilities_json")).unwrap_or(serde_json::json!([])),
         "runtime_version": row.get::<String, _>("runtime_version"),
+        "tailscale_ip": row.get::<Option<String>, _>("tailscale_ip"),
+        "tailscale_fqdn": row.get::<Option<String>, _>("tailscale_fqdn"),
         "last_heartbeat_at": row.get::<Option<chrono::NaiveDateTime>, _>("last_heartbeat_at"),
         "registered_at": row.get::<chrono::NaiveDateTime, _>("registered_at"),
         "updated_at": row.get::<chrono::NaiveDateTime, _>("updated_at"),
@@ -334,6 +336,10 @@ struct NodeRegister {
     runtime_version: String,
     #[serde(default)]
     bootstrap_token: String,
+    #[serde(default)]
+    tailscale_ip: Option<String>,
+    #[serde(default)]
+    tailscale_fqdn: Option<String>,
 }
 fn default_untrusted() -> String {
     "untrusted".to_string()
@@ -347,6 +353,10 @@ struct NodeHeartbeat {
     capacity: Option<serde_json::Value>,
     capabilities: Option<Vec<String>>,
     runtime_version: Option<String>,
+    #[serde(default)]
+    tailscale_ip: Option<String>,
+    #[serde(default)]
+    tailscale_fqdn: Option<String>,
 }
 fn default_online() -> String {
     "online".to_string()
@@ -773,9 +783,9 @@ async fn register_node(
     let node_row = match sqlx::query(
         "INSERT INTO runtimenode \
          (id, owner_subject, node_name, hostname, status, trust_tier, labels_json, capacity_json, \
-          capabilities_json, runtime_version, bootstrap_token_prefix, last_heartbeat_at, \
-          registered_at, updated_at) \
-         VALUES ($1,$2,$3,$4,'registered',$5,$6,$7,$8,$9,$10,NULL,$11,$11) RETURNING *",
+          capabilities_json, runtime_version, bootstrap_token_prefix, tailscale_ip, tailscale_fqdn, \
+          last_heartbeat_at, registered_at, updated_at) \
+         VALUES ($1,$2,$3,$4,'registered',$5,$6,$7,$8,$9,$10,$11,$12,NULL,$13,$13) RETURNING *",
     )
     .bind(&node_id)
     .bind(subject)
@@ -787,6 +797,8 @@ async fn register_node(
     .bind(&capabilities_json)
     .bind(&body.runtime_version)
     .bind(body.bootstrap_token.get(..8).unwrap_or(&body.bootstrap_token))
+    .bind(&body.tailscale_ip)
+    .bind(&body.tailscale_fqdn)
     .bind(now)
     .fetch_one(&state.db)
     .await
@@ -921,7 +933,9 @@ async fn heartbeat_node(
          labels_json=CASE WHEN $3='' THEN labels_json ELSE $3 END, \
          capacity_json=CASE WHEN $4='' THEN capacity_json ELSE $4 END, \
          capabilities_json=CASE WHEN $5='[]' THEN capabilities_json ELSE $5 END, \
-         runtime_version=CASE WHEN $6='' THEN runtime_version ELSE $6 END \
+         runtime_version=CASE WHEN $6='' THEN runtime_version ELSE $6 END, \
+         tailscale_ip=COALESCE($8, tailscale_ip), \
+         tailscale_fqdn=COALESCE($9, tailscale_fqdn) \
          WHERE id=$7 RETURNING *",
     )
     .bind(&body.status)
@@ -931,6 +945,8 @@ async fn heartbeat_node(
     .bind(&capabilities_json)
     .bind(&runtime_version)
     .bind(&node_id)
+    .bind(&body.tailscale_ip)
+    .bind(&body.tailscale_fqdn)
     .fetch_one(&state.db)
     .await
     {
