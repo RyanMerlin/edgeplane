@@ -203,6 +203,7 @@ async fn run_doctor(
             Duration::from_secs(args.matrix_sample_seconds),
         )
         .await,
+        run_tailscale_check().await,
     ];
     let repairs = if args.fix {
         perform_repairs(config)
@@ -383,6 +384,136 @@ async fn run_matrix_check(
             None
         } else {
             Some("Confirm the matrix listener is enabled and not blocked by firewalls".into())
+        },
+    }
+}
+
+async fn run_tailscale_check() -> DoctorCheck {
+    let start = std::time::Instant::now();
+    let mut check = tokio::task::spawn_blocking(tailscale_check_sync)
+        .await
+        .unwrap_or_else(|_| DoctorCheck {
+            name: "tailscale".into(),
+            ok: false,
+            detail: "tailscale check panicked".into(),
+            duration_ms: 0,
+            payload: None,
+            repair_hint: None,
+        });
+    check.duration_ms = start.elapsed().as_millis();
+    check
+}
+
+fn tailscale_check_sync() -> DoctorCheck {
+    let name = "tailscale".to_string();
+
+    // Check if tailscale binary is present.
+    if which::which("tailscale").is_err() {
+        return DoctorCheck {
+            name,
+            ok: false,
+            detail: "tailscale not found in PATH".into(),
+            duration_ms: 0,
+            payload: None,
+            repair_hint: Some("Install at https://tailscale.com/download".into()),
+        };
+    }
+
+    // Run `tailscale status --json` to get connection state.
+    let output = match std::process::Command::new("tailscale")
+        .args(["status", "--json"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(err) => {
+            return DoctorCheck {
+                name,
+                ok: false,
+                detail: format!("tailscale status failed: {err}"),
+                duration_ms: 0,
+                payload: None,
+                repair_hint: Some("Ensure tailscaled is running: sudo systemctl start tailscaled".into()),
+            };
+        }
+    };
+
+    let status_json: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(v) => v,
+        Err(_) => {
+            let detail = if output.stdout.is_empty() {
+                "tailscale daemon not responding (no output from status --json)".into()
+            } else {
+                "tailscale status --json returned unparseable output".into()
+            };
+            return DoctorCheck {
+                name,
+                ok: false,
+                detail,
+                duration_ms: 0,
+                payload: None,
+                repair_hint: Some("Check tailscaled health: sudo systemctl status tailscaled".into()),
+            };
+        }
+    };
+
+    let backend_state = status_json
+        .get("BackendState")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown");
+
+    match backend_state {
+        "Running" => {
+            let dns_name = status_json
+                .get("Self")
+                .and_then(|s| s.get("DNSName"))
+                .and_then(|n| n.as_str())
+                .map(|s| s.trim_end_matches('.').to_string())
+                .unwrap_or_default();
+            let ts_ip = status_json
+                .get("Self")
+                .and_then(|s| s.get("TailscaleIPs"))
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let detail = if dns_name.is_empty() {
+                format!("Connected | {ts_ip}")
+            } else {
+                format!("Connected | {dns_name} | {ts_ip}")
+            };
+            DoctorCheck {
+                name,
+                ok: true,
+                detail,
+                duration_ms: 0,
+                payload: Some(status_json),
+                repair_hint: None,
+            }
+        }
+        "NeedsLogin" => DoctorCheck {
+            name,
+            ok: false,
+            detail: "Tailscale needs login".into(),
+            duration_ms: 0,
+            payload: Some(status_json),
+            repair_hint: Some("tailscale up --authkey <key>".into()),
+        },
+        "Stopped" => DoctorCheck {
+            name,
+            ok: false,
+            detail: "Tailscale daemon is stopped".into(),
+            duration_ms: 0,
+            payload: Some(status_json),
+            repair_hint: Some("sudo systemctl start tailscaled".into()),
+        },
+        other => DoctorCheck {
+            name,
+            ok: false,
+            detail: format!("Unexpected BackendState: {other}"),
+            duration_ms: 0,
+            payload: Some(status_json),
+            repair_hint: Some("Check tailscale status for details".into()),
         },
     }
 }

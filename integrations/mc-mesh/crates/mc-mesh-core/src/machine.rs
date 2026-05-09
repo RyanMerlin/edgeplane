@@ -19,11 +19,18 @@ pub struct MachineInfo {
     pub disk_free_gb: f64,
     pub working_dir: String,
     pub installed_tools: Vec<ToolInfo>,
+    /// Tailscale IPv4 address (e.g. "100.x.x.x"), None if not installed or not connected.
+    #[serde(default)]
+    pub tailscale_ip: Option<String>,
+    /// Tailscale FQDN (e.g. "epyc.my-tailnet.ts.net"), None if unavailable.
+    #[serde(default)]
+    pub tailscale_fqdn: Option<String>,
 }
 
 impl MachineInfo {
     /// Detect current host info. Non-fatal: missing values default to zero/empty.
     pub fn detect(work_dir: &std::path::Path) -> Self {
+        let (tailscale_ip, tailscale_fqdn) = detect_tailscale();
         MachineInfo {
             hostname: hostname(),
             os: os_string(),
@@ -32,6 +39,8 @@ impl MachineInfo {
             disk_free_gb: disk_free_gb(work_dir),
             working_dir: work_dir.display().to_string(),
             installed_tools: detect_tools(),
+            tailscale_ip,
+            tailscale_fqdn,
         }
     }
 }
@@ -147,6 +156,37 @@ fn disk_free_gb(path: &std::path::Path) -> f64 {
     0.0
 }
 
+/// Detect Tailscale IPv4 address and FQDN. Both are optional — returns (None, None)
+/// if Tailscale is not installed, not connected, or any command fails.
+fn detect_tailscale() -> (Option<String>, Option<String>) {
+    // Step 1: get IPv4 address via `tailscale ip --4`
+    let ip = std::process::Command::new("tailscale")
+        .args(["ip", "--4"])
+        .output()
+        .ok()
+        .and_then(|o| if o.status.success() { Some(o.stdout) } else { None })
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .map(|s| s.lines().next().unwrap_or("").trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    // Step 2: get FQDN via `tailscale status --json` → .Self.DNSName (strip trailing dot)
+    let fqdn = std::process::Command::new("tailscale")
+        .args(["status", "--json"])
+        .output()
+        .ok()
+        .and_then(|o| if o.status.success() { Some(o.stdout) } else { None })
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|v| {
+            v.get("Self")
+                .and_then(|s| s.get("DNSName"))
+                .and_then(|n| n.as_str())
+                .map(|s| s.trim_end_matches('.').to_string())
+        })
+        .filter(|s| !s.is_empty());
+
+    (ip, fqdn)
+}
+
 /// Probe a set of well-known CLIs and capture their versions.
 fn detect_tools() -> Vec<ToolInfo> {
     let probes: &[(&str, &[&str])] = &[
@@ -158,8 +198,9 @@ fn detect_tools() -> Vec<ToolInfo> {
         ("rustc",   &["--version"]),
         ("python3", &["--version"]),
         ("node",    &["--version"]),
-        ("docker",  &["--version"]),
-        ("kubectl", &["version", "--client", "--short"]),
+        ("docker",     &["--version"]),
+        ("kubectl",    &["version", "--client", "--short"]),
+        ("tailscale",  &["version"]),
     ];
 
     probes
@@ -215,9 +256,29 @@ mod tests {
                 name: "git".into(),
                 version: "git version 2.47.0".into(),
             }],
+            tailscale_ip: None,
+            tailscale_fqdn: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("test-host"));
         assert!(json.contains("git"));
+    }
+
+    #[test]
+    fn serializes_tailscale_fields() {
+        let info = MachineInfo {
+            hostname: "epyc".into(),
+            os: "Linux".into(),
+            cpu_cores: 4,
+            ram_gb: 8.0,
+            disk_free_gb: 50.0,
+            working_dir: "/tmp".into(),
+            installed_tools: vec![],
+            tailscale_ip: Some("100.64.0.1".into()),
+            tailscale_fqdn: Some("epyc.example.ts.net".into()),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("100.64.0.1"));
+        assert!(json.contains("epyc.example.ts.net"));
     }
 }
