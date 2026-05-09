@@ -70,11 +70,18 @@ impl App {
         // Load agents immediately on startup
         pool.dispatch(client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
 
+        let token_masked = token.as_ref().map(|t| {
+            if t.len() > 8 { format!("{}…", &t[..8]) } else { "***".into() }
+        });
         let config = ConfigScreenState {
             base_url: base_url.clone(),
             connected: false,
             latency_ms: None,
             nav_selection: 0,
+            version: version.clone(),
+            context_name: context_name.clone(),
+            token_masked,
+            server_version: None,
         };
 
         Self {
@@ -99,9 +106,12 @@ impl App {
     pub fn tick(&mut self) {
         while let Ok(result) = self.pool.result_rx.try_recv() {
             match result {
-                WorkResult::Pinged { ok, latency_ms, .. } => {
+                WorkResult::Pinged { ok, latency_ms, server_version, .. } => {
                     self.config.connected = ok;
                     self.config.latency_ms = Some(latency_ms);
+                    if server_version.is_some() {
+                        self.config.server_version = server_version;
+                    }
                 }
                 WorkResult::AgentsListed { agents, error, .. } => {
                     self.agents.loading = false;
@@ -455,7 +465,7 @@ impl App {
                 f.render_widget(SecretsScreen { state: &self.secrets }, chunks[1]);
                 render_tree_overlay(&self.secrets, f, chunks[1]);
             }
-            Screen::Config => f.render_widget(ConfigScreen { state: &self.config, base_url: &self.base_url }, chunks[1]),
+            Screen::Config => f.render_widget(ConfigScreen { state: &self.config }, chunks[1]),
         }
 
         self.render_hints(f, chunks[2]);

@@ -4,11 +4,11 @@
 #   docker compose -f docker-compose.mc-dev.yml up --build
 #
 # Ports:
-#   8009 — mc-controlplane API
+#   8008 — mc-controlplane API
 #   5432 — Postgres (exposed for psql / pgAdmin)
 #
 # Quick test:
-#   curl http://localhost:8009/health
+#   curl http://localhost:8008/health
 
 services:
   postgres:
@@ -37,14 +37,14 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://missioncontrol:missioncontrol@postgres:5432/missioncontrol
-      MC_BIND: 0.0.0.0:8009
+      MC_BIND: 0.0.0.0:8008
       MC_TOKEN: dev-token
       RUST_LOG: mc_controlplane=debug,info
     ports:
-      - "8009:8009"
+      - "8008:8008"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8009/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8008/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

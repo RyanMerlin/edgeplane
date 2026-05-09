@@ -88,7 +88,7 @@ pub struct AgentSummary {
 
 #[async_trait::async_trait]
 pub trait DataClient: Send + Sync {
-    async fn ping(&self) -> Result<()>;
+    async fn ping(&self) -> Result<Option<String>>;
     async fn list_missions(&self) -> Result<Vec<MissionSummary>>;
     async fn list_klusters(&self, mission_id: &str) -> Result<Vec<KlusterSummary>>;
     async fn list_tasks(&self, mission_id: &str, kluster_id: &str) -> Result<Vec<TaskSummary>>;
@@ -106,7 +106,7 @@ pub struct FixtureDataClient {
 
 #[async_trait::async_trait]
 impl DataClient for FixtureDataClient {
-    async fn ping(&self) -> Result<()> { Ok(()) }
+    async fn ping(&self) -> Result<Option<String>> { Ok(None) }
 
     async fn list_missions(&self) -> Result<Vec<MissionSummary>> {
         Ok(self.missions.clone())
@@ -169,9 +169,10 @@ impl RemoteDataClient {
 
 #[async_trait::async_trait]
 impl DataClient for RemoteDataClient {
-    async fn ping(&self) -> Result<()> {
-        self.get::<serde_json::Value>("/health").await?;
-        Ok(())
+    async fn ping(&self) -> Result<Option<String>> {
+        let v = self.get::<serde_json::Value>("/health").await?;
+        let ver = v.get("version").and_then(|v| v.as_str()).map(|s| s.to_string());
+        Ok(ver)
     }
 
     async fn list_missions(&self) -> Result<Vec<MissionSummary>> {

@@ -72,6 +72,7 @@ pub enum WorkResult {
         job_id: JobId,
         ok: bool,
         latency_ms: u64,
+        server_version: Option<String>,
     },
     /// An individual SSE event from the agent-feed stream.
     FeedEvent(crate::screens::agent_feed::FeedEvent),
@@ -122,11 +123,17 @@ impl WorkPool {
                 }
                 WorkRequest::Ping { job_id } => {
                     let start = std::time::Instant::now();
-                    let ok = handle.block_on(client.ping()).is_ok();
+                    let result = handle.block_on(client.ping());
+                    let latency_ms = start.elapsed().as_millis() as u64;
+                    let (ok, server_version) = match result {
+                        Ok(ver) => (true, ver),
+                        Err(_) => (false, None),
+                    };
                     let _ = tx.send(WorkResult::Pinged {
                         job_id,
                         ok,
-                        latency_ms: start.elapsed().as_millis() as u64,
+                        latency_ms,
+                        server_version,
                     });
                 }
                 WorkRequest::ListMissions { job_id } => {
