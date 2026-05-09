@@ -21,6 +21,7 @@ pub struct TuiConfig {
     pub token: Option<String>,
     pub version: String,
     pub initial_mission: Option<String>,
+    pub context_name: String,
 }
 
 pub fn run(cfg: TuiConfig) -> Result<()> {
@@ -34,7 +35,14 @@ pub fn run(cfg: TuiConfig) -> Result<()> {
 
     let data_client: Arc<dyn data::DataClient> =
         Arc::new(RemoteDataClient::new(cfg.base_url.clone(), cfg.token.clone())?);
-    let mut app = App::new(cfg.base_url, cfg.token, cfg.version, cfg.initial_mission, data_client);
+    let mut app = App::new(
+        cfg.base_url,
+        cfg.token,
+        cfg.version,
+        cfg.initial_mission,
+        cfg.context_name,
+        data_client,
+    );
 
     let result = event_loop(&mut terminal, &mut app);
 

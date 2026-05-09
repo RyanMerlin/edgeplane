@@ -75,7 +75,25 @@ pub struct SavedSession {
     pub session_id: Option<i64>,
 }
 
+/// Returns the session file path for the active context.
+/// Falls back to the legacy `~/.mc/session.json` when `contexts.yaml` is absent
+/// so existing installs keep working without any migration step.
 pub fn session_file_path() -> PathBuf {
+    let file = crate::context::load_contexts();
+    let (name, _) = crate::context::active_context(&file);
+
+    // Only use the per-context path when contexts.yaml actually exists on disk
+    // (i.e. the user has run `mc context add` at least once). Otherwise honour
+    // the legacy path so nothing breaks for existing single-server installs.
+    let ctx_path = crate::context::contexts_file_path();
+    if ctx_path.exists() {
+        let dir = crate::context::sessions_dir();
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            tracing::warn!("could not create sessions dir: {e}");
+        }
+        return crate::context::session_file_for(&name);
+    }
+
     mc_home_dir().join("session.json")
 }
 
@@ -472,7 +490,7 @@ pub async fn whoami(client: &MissionControlClient) -> Result<()> {
 /// Resolve MC_BASE_URL for the main CLI startup, incorporating saved config as fallback.
 /// Unlike the login flow, this does NOT prompt — it just returns the best available value.
 pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> String {
-    // If explicitly set (not the hardcoded default), trust it
+    // 1. Explicit CLI flag or env var — always wins
     if let Some(ref url) = flag_or_env {
         let url = url.trim_end_matches('/');
         if !url.is_empty() {
@@ -480,17 +498,23 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> S
         }
     }
 
-    // Try saved config
+    // 2. Active context from contexts.yaml (preferred over legacy config.json)
+    let ctx_file = crate::context::contexts_file_path();
+    if ctx_file.exists() {
+        let ctxs = crate::context::load_contexts();
+        let (_, entry) = crate::context::active_context(&ctxs);
+        let url = entry.base_url.trim_end_matches('/');
+        if !url.is_empty() {
+            return url.to_string();
+        }
+    }
+
+    // 3. Legacy config.json
     let cfg = load_saved_config();
     if let Some(url) = cfg.base_url.as_deref() {
         if !url.is_empty() {
             return url.trim_end_matches('/').to_string();
         }
-    }
-
-    // Explicit flag/env if provided (even if it's the default)
-    if let Some(url) = flag_or_env {
-        return url.trim_end_matches('/').to_string();
     }
 
     default.trim_end_matches('/').to_string()

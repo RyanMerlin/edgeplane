@@ -6,7 +6,7 @@ fn make_app(missions: Vec<MissionSummary>) -> App {
     // Called from within a #[tokio::test] context, so Handle::current() is available
     // for the WorkPool threads without creating a nested runtime.
     let client: Arc<dyn DataClient> = Arc::new(FixtureDataClient { missions });
-    App::new("http://localhost:8008".into(), None, "test".into(), None, client)
+    App::new("http://localhost:8008".into(), None, "test".into(), None, "default".into(), client)
 }
 
 #[tokio::test]

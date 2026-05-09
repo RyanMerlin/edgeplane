@@ -123,6 +123,38 @@ pub enum McCommand {
     Discover(discover::DiscoverArgs),
     /// Launch the terminal UI (ratatui) for fleet monitoring and management.
     Tui(TuiArgs),
+    /// Manage named controlplane connection contexts.
+    #[command(subcommand)]
+    Context(ContextCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ContextCommand {
+    /// List all configured contexts, marking the active one with *.
+    List,
+    /// Show the active context name and URL.
+    Current,
+    /// Switch the active context.
+    Use {
+        /// Context name to activate.
+        name: String,
+    },
+    /// Add a new named context.
+    Add {
+        /// Context name (e.g. "local", "production", "team-alpha").
+        name: String,
+        /// Controlplane base URL.
+        #[arg(long)]
+        url: String,
+        /// Optional human-readable description.
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Remove a context (cannot remove the currently active one).
+    Remove {
+        /// Context name to remove.
+        name: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -820,17 +852,87 @@ pub async fn run(
         McCommand::MeshSync(sub) => cmd::sync::run(Some(sub)).map_err(Into::into),
         McCommand::Discover(args) => discover::run(args).await,
         McCommand::Tui(args) => handle_tui(args, &config),
+        McCommand::Context(cmd) => handle_context(cmd),
     }
+}
+
+fn handle_context(cmd: ContextCommand) -> Result<()> {
+    use crate::context::{active_context, load_contexts, save_contexts, session_file_for};
+
+    match cmd {
+        ContextCommand::List => {
+            let file = load_contexts();
+            let (active_name, _) = active_context(&file);
+            if file.contexts.is_empty() {
+                println!("No contexts configured. Run: mc context add <name> --url <url>");
+                return Ok(());
+            }
+            for (name, entry) in &file.contexts {
+                let marker = if *name == active_name { "*" } else { " " };
+                let desc = entry.description.as_deref().unwrap_or("");
+                let desc_part = if desc.is_empty() { String::new() } else { format!("  # {}", desc) };
+                println!("{} {}  {}{}", marker, name, entry.base_url, desc_part);
+            }
+        }
+        ContextCommand::Current => {
+            let file = load_contexts();
+            let (name, entry) = active_context(&file);
+            println!("{} ({})", name, entry.base_url);
+        }
+        ContextCommand::Use { name } => {
+            let mut file = load_contexts();
+            if !file.contexts.contains_key(&name) {
+                anyhow::bail!("context '{}' not found — run `mc context list` to see available contexts", name);
+            }
+            file.active = name.clone();
+            save_contexts(&file).map_err(|e| anyhow::anyhow!("failed to save contexts: {e}"))?;
+            println!("Switched to context '{}'", name);
+        }
+        ContextCommand::Add { name, url, description } => {
+            let mut file = load_contexts();
+            if file.contexts.contains_key(&name) {
+                anyhow::bail!("context '{}' already exists — remove it first with `mc context remove {}`", name, name);
+            }
+            let url = url.trim_end_matches('/').to_string();
+            file.contexts.insert(name.clone(), crate::context::ContextEntry {
+                base_url: url.clone(),
+                description,
+            });
+            save_contexts(&file).map_err(|e| anyhow::anyhow!("failed to save contexts: {e}"))?;
+            println!("Added context '{}' → {}", name, url);
+            println!("Run `mc context use {}` to make it active.", name);
+        }
+        ContextCommand::Remove { name } => {
+            let mut file = load_contexts();
+            let (active_name, _) = active_context(&file);
+            if name == active_name {
+                anyhow::bail!("cannot remove the active context '{}' — switch first with `mc context use <other>`", name);
+            }
+            if file.contexts.remove(&name).is_none() {
+                anyhow::bail!("context '{}' not found", name);
+            }
+            let session = session_file_for(&name);
+            if session.exists() {
+                let _ = fs::remove_file(&session);
+            }
+            save_contexts(&file).map_err(|e| anyhow::anyhow!("failed to save contexts: {e}"))?;
+            println!("Removed context '{}'", name);
+        }
+    }
+    Ok(())
 }
 
 fn handle_tui(args: TuiArgs, #[allow(unused_variables)] config: &McConfig) -> Result<()> {
     #[cfg(feature = "tui")]
     {
+        let ctxs = crate::context::load_contexts();
+        let (context_name, _) = crate::context::active_context(&ctxs);
         let cfg = mc_tui::TuiConfig {
             base_url: config.base_url.to_string(),
             token: config.token.clone(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             initial_mission: args.mission,
+            context_name,
         };
         mc_tui::run(cfg)
     }

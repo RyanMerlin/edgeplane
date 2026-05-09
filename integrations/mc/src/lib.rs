@@ -10,6 +10,7 @@ pub mod codex;
 pub mod commands;
 pub mod compat;
 pub mod config;
+pub mod context;
 pub mod daemon;
 pub mod discover;
 pub mod drift;

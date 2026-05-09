@@ -34,6 +34,7 @@ pub struct App {
     pub base_url: String,
     pub token: Option<String>,
     pub version: String,
+    pub context_name: String,
     pub should_quit: bool,
 
     // Per-screen state
@@ -54,6 +55,7 @@ impl App {
         token: Option<String>,
         version: String,
         initial_mission: Option<String>,
+        context_name: String,
         client: std::sync::Arc<dyn DataClient>,
     ) -> Self {
         let mut matrix = MissionMatrixState::default();
@@ -80,6 +82,7 @@ impl App {
             base_url,
             token,
             version,
+            context_name,
             should_quit: false,
             agents: AgentScreenState::default(),
             matrix,
@@ -490,23 +493,25 @@ impl App {
             spans.push(Span::styled(" │ ", Style::default().fg(theme::PANEL_BORDER).bg(panel_bg)));
         }
 
-        // Status and time on the right
-        let (conn_style, conn_str) = if self.config.connected {
-            (Style::default().fg(theme::OK).bg(panel_bg), "● connected")
+        // Right side: "<context> ● connected" or "<context> ● offline"
+        let (dot, dot_style, status_str) = if self.config.connected {
+            ("●", Style::default().fg(theme::OK).bg(panel_bg), "connected")
         } else {
-            (Style::default().fg(theme::ERR).bg(panel_bg), "○ offline")
+            ("●", Style::default().fg(theme::ERR).bg(panel_bg), "offline")
         };
 
-        let time_str = chrono::Local::now().format("%H:%M:%S").to_string();
-
+        let right_part = format!("  {}  {} {}  ", self.context_name, dot, status_str);
         let left_width: usize = spans.iter().map(|s| s.content.len()).sum();
-        let right_part = format!("  {conn_str}  {time_str}  ");
         let pad = (area.width as usize).saturating_sub(left_width + right_part.len());
 
         spans.push(Span::styled(" ".repeat(pad), panel_style));
-        spans.push(Span::styled(format!("  {conn_str}  "), conn_style));
         spans.push(Span::styled(
-            format!("{time_str}  "),
+            format!("  {}  ", self.context_name),
+            Style::default().fg(theme::TEXT_MUTED).bg(panel_bg),
+        ));
+        spans.push(Span::styled(format!("{} ", dot), dot_style));
+        spans.push(Span::styled(
+            format!("{}  ", status_str),
             Style::default().fg(theme::TEXT_MUTED).bg(panel_bg),
         ));
 
