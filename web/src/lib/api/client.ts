@@ -1,3 +1,21 @@
+function readCookie(name: string): string | null {
+	if (typeof document === 'undefined') return null;
+	const needle = `${name}=`;
+	for (const part of document.cookie.split(';')) {
+		const item = part.trim();
+		if (item.startsWith(needle)) return decodeURIComponent(item.slice(needle.length));
+	}
+	return null;
+}
+
+export function authHeader(token?: string): Record<string, string> {
+	const headers: Record<string, string> = {};
+	if (token) headers.Authorization = `Bearer ${token}`;
+	const csrf = readCookie('mc_csrf_token');
+	if (csrf) headers['X-CSRF-Token'] = csrf;
+	return headers;
+}
+
 export class ApiError extends Error {
 	constructor(
 		message: string,
