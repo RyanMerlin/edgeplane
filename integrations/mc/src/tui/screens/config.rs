@@ -24,6 +24,7 @@ pub struct InfisicalAddForm {
 
 pub struct ConfigScreenState {
     pub nav_selection: usize,
+    pub content_focused: bool, // true = ↑↓ drive content panel, false = ↑↓ drive nav
     pub base_url: String,
     pub connected: bool,
     pub latency_ms: Option<u64>,
@@ -47,6 +48,7 @@ impl Default for ConfigScreenState {
     fn default() -> Self {
         Self {
             nav_selection: 0,
+            content_focused: false,
             base_url: String::new(),
             connected: false,
             latency_ms: None,
@@ -92,6 +94,11 @@ impl ConfigScreenState {
         self.infisical_profiles = InfisicalProfileMap::default();
     }
 
+    /// Panels that support content-panel focus
+    fn is_interactive_panel(&self) -> bool {
+        matches!(self.nav_selection, 4 | 5)
+    }
+
     pub fn handle_key(&mut self, key: crossterm::event::KeyCode) -> bool {
         use crossterm::event::KeyCode::*;
 
@@ -101,77 +108,88 @@ impl ConfigScreenState {
         }
 
         match key {
-            // ↑↓ always drive the left nav panel
+            // → enters the content panel (on interactive panels only)
+            Right if !self.content_focused && self.is_interactive_panel() => {
+                self.content_focused = true;
+                true
+            }
+            // ← / Esc returns to the nav panel
+            Left | Esc if self.content_focused => {
+                self.content_focused = false;
+                true
+            }
+            // ↑↓ — nav panel when unfocused, content list when focused
             Up => {
-                if self.nav_selection > 0 {
-                    self.nav_selection -= 1;
+                if self.content_focused {
+                    match self.nav_selection {
+                        4 => { if self.context_selection > 0 { self.context_selection -= 1; } }
+                        5 => { if self.infisical_selection > 0 { self.infisical_selection -= 1; } }
+                        _ => {}
+                    }
+                } else {
+                    if self.nav_selection > 0 {
+                        self.nav_selection -= 1;
+                    }
+                    self.content_focused = false;
                 }
                 true
             }
             Down => {
-                if self.nav_selection < NAV_ITEMS.len() - 1 {
-                    self.nav_selection += 1;
+                if self.content_focused {
+                    match self.nav_selection {
+                        4 => {
+                            if self.context_selection + 1 < self.contexts.len() {
+                                self.context_selection += 1;
+                            }
+                        }
+                        5 => {
+                            let n = self.infisical_profiles.profiles.len();
+                            if n > 0 && self.infisical_selection + 1 < n {
+                                self.infisical_selection += 1;
+                            }
+                        }
+                        _ => {}
+                    }
+                } else {
+                    if self.nav_selection < NAV_ITEMS.len() - 1 {
+                        self.nav_selection += 1;
+                    }
+                    self.content_focused = false;
                 }
                 true
             }
-            // j/k navigate within the active content panel
-            Char('j') => match self.nav_selection {
-                4 => {
-                    if self.context_selection + 1 < self.contexts.len() {
-                        self.context_selection += 1;
-                    }
-                    true
-                }
-                5 => {
-                    let count = self.infisical_profiles.profiles.len();
-                    if count > 0 && self.infisical_selection + 1 < count {
-                        self.infisical_selection += 1;
-                    }
-                    true
-                }
-                _ => false,
-            },
-            Char('k') => match self.nav_selection {
-                4 => {
-                    if self.context_selection > 0 {
-                        self.context_selection -= 1;
-                    }
-                    true
-                }
-                5 => {
-                    if self.infisical_selection > 0 {
-                        self.infisical_selection -= 1;
-                    }
-                    true
-                }
-                _ => false,
-            },
-            // n — add new Infisical profile
+            // n — open add-profile form (Infisical panel, any focus state)
             Char('n') if self.nav_selection == 5 => {
                 self.infisical_form = Some(InfisicalAddForm::default());
                 true
             }
-            // d — delete selected Infisical profile
-            Char('d') if self.nav_selection == 5 => {
+            // d — delete selected Infisical profile (content focused)
+            Char('d') if self.nav_selection == 5 && self.content_focused => {
                 self.delete_selected_infisical_profile();
                 true
             }
-            // Enter — context switch (Profile) or activate (Infisical)
-            Enter => match self.nav_selection {
-                4 => {
-                    if let Some((name, _)) = self.contexts.get(self.context_selection) {
-                        if name != &self.context_name {
-                            self.pending_context_switch = Some(name.clone());
+            // Enter — action depends on panel + focus
+            Enter => {
+                if self.content_focused {
+                    match self.nav_selection {
+                        4 => {
+                            if let Some((name, _)) = self.contexts.get(self.context_selection) {
+                                if name != &self.context_name {
+                                    self.pending_context_switch = Some(name.clone());
+                                }
+                            }
+                            true
                         }
+                        5 => {
+                            self.activate_selected_infisical_profile();
+                            true
+                        }
+                        _ => false,
                     }
-                    true
+                } else {
+                    false
                 }
-                5 => {
-                    self.activate_selected_infisical_profile();
-                    true
-                }
-                _ => false,
-            },
+            }
             _ => false,
         }
     }
@@ -344,10 +362,11 @@ fn render_content(buf: &mut Buffer, area: Rect, state: &ConfigScreenState) {
     let (_, item_name) = NAV_ITEMS[state.nav_selection];
     let title = format!(" {item_name} ");
 
+    let focused = state.content_focused || state.infisical_form.is_some();
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(theme::border_normal())
+        .border_style(theme::border_for(focused))
         .title(Span::styled(title, theme::panel_title()))
         .style(theme::normal());
     let inner = block.inner(area);
@@ -458,10 +477,17 @@ fn panel_profile(state: &ConfigScreenState) -> Vec<Line<'static>> {
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "  j/k navigate   Enter switch   mc context add <name> --url <url> to add",
-        theme::dim(),
-    )));
+    if state.content_focused {
+        lines.push(Line::from(Span::styled(
+            "  ↑↓ navigate   Enter switch   ← back to nav",
+            theme::dim(),
+        )));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "  → focus list   mc context add <name> --url <url> to add",
+            theme::dim(),
+        )));
+    }
 
     lines
 }
@@ -521,10 +547,17 @@ fn panel_infisical(state: &ConfigScreenState) -> Vec<Line<'static>> {
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "  j/k navigate   Enter activate   n add   d delete",
-        theme::dim(),
-    )));
+    if state.content_focused {
+        lines.push(Line::from(Span::styled(
+            "  ↑↓ navigate   Enter activate   d delete   ← back to nav   n add",
+            theme::dim(),
+        )));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "  → focus list   n add profile",
+            theme::dim(),
+        )));
+    }
 
     lines
 }

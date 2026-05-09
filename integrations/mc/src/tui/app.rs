@@ -626,23 +626,24 @@ impl App {
                 ("Enter", "save"),
                 ("Esc", "cancel"),
             ],
-            Screen::Config if self.config.nav_selection == 4 => &[
-                ("↑↓", "nav panel"),
-                ("j/k", "contexts"),
-                ("Enter", "switch"),
+            Screen::Config if self.config.content_focused && self.config.nav_selection == 4 => &[
+                ("↑↓", "navigate"),
+                ("Enter", "switch context"),
+                ("←/Esc", "nav panel"),
                 ("Ctrl+Q", "quit"),
             ],
-            Screen::Config if self.config.nav_selection == 5 => &[
-                ("↑↓", "nav panel"),
-                ("j/k", "profiles"),
+            Screen::Config if self.config.content_focused && self.config.nav_selection == 5 => &[
+                ("↑↓", "navigate"),
                 ("Enter", "activate"),
-                ("n", "add"),
                 ("d", "delete"),
+                ("←/Esc", "nav panel"),
+                ("n", "add"),
                 ("Ctrl+Q", "quit"),
             ],
             Screen::Config => &[
                 ("Tab/S+Tab", "next/prev tab"),
                 ("↑↓", "navigate"),
+                ("→", "focus panel"),
                 ("Ctrl+Q", "quit"),
             ],
         };
