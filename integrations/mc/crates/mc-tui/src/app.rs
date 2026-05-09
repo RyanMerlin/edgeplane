@@ -259,6 +259,10 @@ impl App {
 
     fn handle_global_nav(&mut self, key: KeyEvent) {
         match key.code {
+            // Tab / Shift+Tab cycle through tabs sequentially
+            KeyCode::Tab => self.next_tab(),
+            KeyCode::BackTab => self.prev_tab(),
+            // Single-char shortcuts for direct jumps (work when not consumed by screen)
             KeyCode::Char('a') => self.switch_to_agents(),
             KeyCode::Char('m') => self.switch_to_missions(),
             KeyCode::Char('f') => self.switch_to_feed(),
@@ -266,6 +270,28 @@ impl App {
             KeyCode::Char('s') => self.switch_to_secrets(),
             KeyCode::Char('c') => self.screen = Screen::Config,
             _ => {}
+        }
+    }
+
+    fn next_tab(&mut self) {
+        match self.screen {
+            Screen::Agents    => self.switch_to_missions(),
+            Screen::Missions  => self.switch_to_feed(),
+            Screen::Feed      => self.switch_to_approvals(),
+            Screen::Approvals => self.switch_to_secrets(),
+            Screen::Secrets   => { self.screen = Screen::Config; }
+            Screen::Config    => self.switch_to_agents(),
+        }
+    }
+
+    fn prev_tab(&mut self) {
+        match self.screen {
+            Screen::Agents    => { self.screen = Screen::Config; }
+            Screen::Missions  => self.switch_to_agents(),
+            Screen::Feed      => self.switch_to_missions(),
+            Screen::Approvals => self.switch_to_feed(),
+            Screen::Secrets   => self.switch_to_approvals(),
+            Screen::Config    => self.switch_to_secrets(),
         }
     }
 
@@ -493,28 +519,26 @@ impl App {
     fn render_hints(&self, f: &mut Frame<'_>, area: ratatui::layout::Rect) {
         let hints: &[(&str, &str)] = match &self.screen {
             Screen::Agents => &[
+                ("Tab/S+Tab", "next/prev tab"),
                 ("↑↓", "navigate"),
-                ("Tab", "panes"),
-                ("g", "give-task"),
-                ("r", "restart"),
-                ("n", "new agent"),
                 ("Ctrl+Q", "quit"),
             ],
             Screen::Missions => &[
+                ("Tab/S+Tab", "next/prev tab"),
+                ("←→", "panes"),
                 ("↑↓", "navigate"),
-                ("Tab", "panes"),
                 ("/", "search"),
                 ("Enter", "select"),
                 ("Ctrl+Q", "quit"),
             ],
             Screen::Feed => &[
-                ("/", "filter"),
-                ("w", "alerts-only"),
+                ("Tab/S+Tab", "next/prev tab"),
                 ("p", "pause"),
-                ("Enter", "detail"),
+                ("c", "clear"),
                 ("Ctrl+Q", "quit"),
             ],
             Screen::Approvals => &[
+                ("Tab/S+Tab", "next/prev tab"),
                 ("↑↓", "navigate"),
                 ("y", "approve"),
                 ("n", "deny"),
@@ -522,14 +546,14 @@ impl App {
                 ("Ctrl+Q", "quit"),
             ],
             Screen::Secrets => &[
+                ("Tab/S+Tab", "next/prev tab"),
                 ("↑↓", "navigate"),
                 ("→/Enter", "expand"),
                 ("←", "collapse"),
-                ("Space", "select"),
-                ("Esc", "cancel"),
                 ("Ctrl+Q", "quit"),
             ],
             Screen::Config => &[
+                ("Tab/S+Tab", "next/prev tab"),
                 ("↑↓", "navigate"),
                 ("Ctrl+Q", "quit"),
             ],

@@ -102,12 +102,20 @@ impl MissionMatrixState {
         }
 
         match key {
-            Tab => {
+            // Left/Right move focus between the three columns
+            Right => {
                 self.focus = match self.focus {
                     Focus::Missions => Focus::Klusters,
                     Focus::Klusters => Focus::Tasks,
-                    Focus::Tasks => Focus::Missions,
-                    Focus::Detail => Focus::Missions,
+                    Focus::Tasks | Focus::Detail => Focus::Tasks,
+                };
+                true
+            }
+            Left => {
+                self.focus = match self.focus {
+                    Focus::Tasks | Focus::Detail => Focus::Klusters,
+                    Focus::Klusters => Focus::Missions,
+                    Focus::Missions => Focus::Missions,
                 };
                 true
             }
