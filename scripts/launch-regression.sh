@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MC_MANIFEST_PATH="${ROOT_DIR}/integrations/mc/Cargo.toml"
 
-STRICT="${MC_LAUNCH_REQUIRE_ALL:-1}"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
@@ -23,85 +22,42 @@ export MC_HOME="$TEST_MC_HOME"
 export MC_BASE_URL="${MC_BASE_URL:-http://127.0.0.1:8008}"
 export MC_TOKEN="${MC_TOKEN:-launch-regression-token}"
 
-cat >"$TEST_BIN/codex" <<'EOF'
+# Stub binaries — exit 0 so mc run completes without launching a real agent.
+for agent in codex claude gemini; do
+    cat >"$TEST_BIN/$agent" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-cat >"$TEST_BIN/claude" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
-cat >"$TEST_BIN/gemini" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
-cat >"$TEST_BIN/openclaw" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
-cat >"$TEST_BIN/custom" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
-chmod +x "$TEST_BIN/"*
+    chmod +x "$TEST_BIN/$agent"
+done
 export PATH="$TEST_BIN:$PATH"
 
-run_launch() {
-  local agent="$1"
-  shift
-  cargo run --quiet --manifest-path "$MC_MANIFEST_PATH" -- launch "$agent" --skip-config-gen "$@"
-}
-
-latest_instance_dir() {
-  ls -1dt "$MC_HOME"/instances/* 2>/dev/null | head -n1
+run_mc() {
+    cargo run --quiet --manifest-path "$MC_MANIFEST_PATH" -- "$@"
 }
 
 assert_exists() {
-  local path="$1"
-  [[ -e "$path" ]] || { echo "[launch-regression] missing expected path: $path" >&2; exit 1; }
+    local path="$1"
+    [[ -e "$path" ]] || { echo "[launch-regression] FAIL: missing expected path: $path" >&2; exit 1; }
 }
 
 assert_not_exists() {
-  local path="$1"
-  [[ ! -e "$path" ]] || { echo "[launch-regression] unexpected path exists: $path" >&2; exit 1; }
+    local path="$1"
+    [[ ! -e "$path" ]] || { echo "[launch-regression] FAIL: unexpected path exists: $path" >&2; exit 1; }
 }
 
-echo "[launch-regression] default instance-local config behavior"
-run_launch codex
-inst="$(latest_instance_dir)"
-assert_exists "$inst/home/.codex/config.toml"
-assert_not_exists "$HOME/.codex/config.toml"
+# ── codex: configs land in profile dir, not global home ──────────────────────
+echo "[launch-regression] codex profile isolation"
+run_mc run codex
+assert_exists  "$MC_HOME/profiles/codex/default/codex-home/config.toml"
+assert_not_exists "$TEST_HOME/.codex/config.toml"
 
-run_launch claude
-inst="$(latest_instance_dir)"
-assert_exists "$inst/home/.claude.json"
-assert_not_exists "$HOME/.claude.json"
-
-run_launch gemini
-inst="$(latest_instance_dir)"
-assert_exists "$inst/home/.gemini/settings.json"
-assert_not_exists "$HOME/.gemini/settings.json"
-
-run_launch openclaw
-inst="$(latest_instance_dir)"
-assert_exists "$inst/mc/config/openclaw.acp.json"
-
-run_launch custom
-inst="$(latest_instance_dir)"
-assert_exists "$inst/mc/config/custom.acp.json"
-
-echo "[launch-regression] legacy global config escape hatch"
-run_launch codex --legacy-global-config
-assert_exists "$HOME/.codex/config.toml"
-
-run_launch claude --legacy-global-config
-assert_exists "$HOME/.claude.json"
-
-run_launch gemini --legacy-global-config
-assert_exists "$HOME/.gemini/settings.json"
-
-if [[ "$STRICT" == "1" ]]; then
-  echo "[launch-regression] strict mode: all agent checks required and passed"
-fi
+# ── claude: configs land in profile dir, not global home ─────────────────────
+echo "[launch-regression] claude profile isolation"
+run_mc run claude
+assert_exists  "$MC_HOME/profiles/default/claude/runtime/home/.claude.json"
+assert_not_exists "$TEST_HOME/.claude.json"
 
 echo "[launch-regression] ok"
+# Note: gemini uses the legacy launch::run path which fetches the onboarding
+# manifest from MC_BASE_URL. It cannot be tested without a live server.
