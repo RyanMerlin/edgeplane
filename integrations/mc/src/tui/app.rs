@@ -85,6 +85,7 @@ impl App {
             ..Default::default()
         };
         config.reload_contexts();
+        config.reload_infisical_from_disk();
 
         Self {
             screen: Screen::Agents,
@@ -432,6 +433,7 @@ impl App {
         self.config.latency_ms = None;
         self.config.server_version = None;
         self.config.reload_contexts();
+        self.config.reload_infisical_from_disk();
 
         // Reset all data that belonged to the old server.
         self.agents.agents.clear();
@@ -619,10 +621,23 @@ impl App {
                 ("←", "collapse"),
                 ("Ctrl+Q", "quit"),
             ],
+            Screen::Config if self.config.infisical_form.is_some() => &[
+                ("Tab", "next field"),
+                ("Enter", "save"),
+                ("Esc", "cancel"),
+            ],
             Screen::Config if self.config.nav_selection == 4 => &[
-                ("Tab/S+Tab", "next/prev tab"),
-                ("↑↓", "contexts"),
+                ("↑↓", "nav panel"),
+                ("j/k", "contexts"),
                 ("Enter", "switch"),
+                ("Ctrl+Q", "quit"),
+            ],
+            Screen::Config if self.config.nav_selection == 5 => &[
+                ("↑↓", "nav panel"),
+                ("j/k", "profiles"),
+                ("Enter", "activate"),
+                ("n", "add"),
+                ("d", "delete"),
                 ("Ctrl+Q", "quit"),
             ],
             Screen::Config => &[
