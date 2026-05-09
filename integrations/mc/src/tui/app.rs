@@ -73,7 +73,7 @@ impl App {
         let token_masked = token.as_ref().map(|t| {
             if t.len() > 8 { format!("{}…", &t[..8]) } else { "***".into() }
         });
-        let config = ConfigScreenState {
+        let mut config = ConfigScreenState {
             base_url: base_url.clone(),
             connected: false,
             latency_ms: None,
@@ -82,7 +82,9 @@ impl App {
             context_name: context_name.clone(),
             token_masked,
             server_version: None,
+            ..Default::default()
         };
+        config.reload_contexts();
 
         Self {
             screen: Screen::Agents,
@@ -263,7 +265,13 @@ impl App {
                         | KeyCode::Char('a')
                 )
             }
-            Screen::Config => self.config.handle_key(key.code),
+            Screen::Config => {
+                let c = self.config.handle_key(key.code);
+                if let Some(name) = self.config.take_pending_context_switch() {
+                    self.switch_context(name);
+                }
+                c
+            }
         };
         if !consumed {
             self.handle_global_nav(key);
@@ -402,6 +410,48 @@ impl App {
                 },
             );
         }
+    }
+
+    fn switch_context(&mut self, name: String) {
+        let mut ctxs = crate::context::load_contexts();
+        let Some(entry) = ctxs.contexts.get(&name).cloned() else { return };
+        ctxs.active = name.clone();
+        let _ = crate::context::save_contexts(&ctxs);
+
+        let Ok(new_client) = super::data::RemoteDataClient::new(entry.base_url.clone(), self.token.clone())
+        else { return };
+        let new_client: std::sync::Arc<dyn DataClient> = std::sync::Arc::new(new_client);
+
+        self.client = new_client.clone();
+        self.base_url = entry.base_url.clone();
+        self.context_name = name.clone();
+
+        self.config.base_url = entry.base_url.clone();
+        self.config.context_name = name.clone();
+        self.config.connected = false;
+        self.config.latency_ms = None;
+        self.config.server_version = None;
+        self.config.reload_contexts();
+
+        // Reset all data that belonged to the old server.
+        self.agents.agents.clear();
+        self.agents.loading = false;
+        self.agents.error = None;
+        self.matrix.missions.clear();
+        self.matrix.klusters.clear();
+        self.matrix.tasks.clear();
+        self.matrix.loading_missions = false;
+        self.matrix.loading_klusters = false;
+        self.matrix.loading_tasks = false;
+        self.matrix.error = None;
+        self.agent_feed.live = false;
+        self.agent_feed.paused = false;
+        self.approval_queue.pending.clear();
+        self.approval_queue.loading = false;
+        self.approval_queue.last_error = None;
+
+        self.pool.dispatch(new_client.clone(), WorkRequest::Ping { job_id: next_job_id() });
+        self.pool.dispatch(new_client, WorkRequest::ListAgents { job_id: next_job_id() });
     }
 
     fn missions_enter(&mut self) {
@@ -567,6 +617,12 @@ impl App {
                 ("↑↓", "navigate"),
                 ("→/Enter", "expand"),
                 ("←", "collapse"),
+                ("Ctrl+Q", "quit"),
+            ],
+            Screen::Config if self.config.nav_selection == 4 => &[
+                ("Tab/S+Tab", "next/prev tab"),
+                ("↑↓", "contexts"),
+                ("Enter", "switch"),
                 ("Ctrl+Q", "quit"),
             ],
             Screen::Config => &[

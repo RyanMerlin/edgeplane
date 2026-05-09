@@ -17,6 +17,9 @@ pub struct ConfigScreenState {
     pub context_name: String,
     pub token_masked: Option<String>,
     pub server_version: Option<String>,
+    pub contexts: Vec<(String, crate::context::ContextEntry)>,
+    pub context_selection: usize,
+    pub(crate) pending_context_switch: Option<String>,
 }
 
 impl Default for ConfigScreenState {
@@ -30,25 +33,66 @@ impl Default for ConfigScreenState {
             context_name: String::new(),
             token_masked: None,
             server_version: None,
+            contexts: Vec::new(),
+            context_selection: 0,
+            pending_context_switch: None,
         }
     }
 }
 
 impl ConfigScreenState {
+    /// Returns the name of the context the user wants to switch to, if any.
+    pub fn take_pending_context_switch(&mut self) -> Option<String> {
+        self.pending_context_switch.take()
+    }
+
+    /// Reload context list from disk and sync selection to the active context.
+    pub fn reload_contexts(&mut self) {
+        let ctxs = crate::context::load_contexts();
+        self.contexts = ctxs.contexts.into_iter().collect();
+        self.contexts.sort_by(|a, b| a.0.cmp(&b.0));
+        self.context_selection = self.contexts
+            .iter()
+            .position(|(n, _)| n == &self.context_name)
+            .unwrap_or(0);
+    }
+
     pub fn handle_key(&mut self, key: crossterm::event::KeyCode) -> bool {
         use crossterm::event::KeyCode::*;
+        const PROFILE_NAV: usize = 4;
+
         match key {
             Up => {
-                if self.nav_selection > 0 {
+                if self.nav_selection == PROFILE_NAV && !self.contexts.is_empty() {
+                    if self.context_selection > 0 {
+                        self.context_selection -= 1;
+                    }
+                } else if self.nav_selection > 0 {
                     self.nav_selection -= 1;
                 }
                 true
             }
             Down => {
-                if self.nav_selection < NAV_ITEMS.len() - 1 {
+                if self.nav_selection == PROFILE_NAV && !self.contexts.is_empty() {
+                    if self.context_selection < self.contexts.len() - 1 {
+                        self.context_selection += 1;
+                    }
+                } else if self.nav_selection < NAV_ITEMS.len() - 1 {
                     self.nav_selection += 1;
                 }
                 true
+            }
+            Enter => {
+                if self.nav_selection == PROFILE_NAV {
+                    if let Some((name, _)) = self.contexts.get(self.context_selection) {
+                        if name != &self.context_name {
+                            self.pending_context_switch = Some(name.clone());
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
             }
             _ => false,
         }
@@ -209,22 +253,46 @@ fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
 }
 
 fn panel_profile(state: &ConfigScreenState) -> Vec<Line<'static>> {
-    vec![
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  Context  ", theme::muted()),
-            Span::styled(state.context_name.clone(), theme::accent()),
-        ]),
-        Line::from(vec![
-            Span::styled("  URL      ", theme::muted()),
-            Span::styled(state.base_url.clone(), theme::normal()),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled("  Manage contexts:", theme::muted())),
-        Line::from(Span::styled("  mc context list", theme::dim())),
-        Line::from(Span::styled("  mc context add <name> --url <url>", theme::dim())),
-        Line::from(Span::styled("  mc context use <name>", theme::dim())),
-    ]
+    if state.contexts.is_empty() {
+        return vec![
+            Line::from(""),
+            Line::from(Span::styled("  No contexts found.", theme::muted())),
+            Line::from(""),
+            Line::from(Span::styled("  mc context add <name> --url <url>", theme::dim())),
+        ];
+    }
+
+    let mut lines = vec![Line::from("")];
+
+    for (i, (name, entry)) in state.contexts.iter().enumerate() {
+        let is_active = name == &state.context_name;
+        let is_cursor = i == state.context_selection;
+
+        let bullet = if is_active { "● " } else { "○ " };
+        let row_prefix = if is_cursor { "▶ " } else { "  " };
+
+        let name_style = if is_cursor {
+            theme::selected()
+        } else if is_active {
+            Style::default().fg(theme::OK)
+        } else {
+            theme::normal()
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {row_prefix}"), name_style),
+            Span::styled(format!("{bullet}{name}  ", name = name.clone()), name_style),
+            Span::styled(entry.base_url.clone(), theme::dim()),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  ↑↓ navigate   Enter switch   mc context add <name> --url <url> to add",
+        theme::dim(),
+    )));
+
+    lines
 }
 
 fn panel_version(state: &ConfigScreenState) -> Vec<Line<'static>> {
