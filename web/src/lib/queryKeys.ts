@@ -15,6 +15,7 @@ export const queryKeys = {
 	governance: {
 		all: ['governance'] as const,
 		policy: () => [...queryKeys.governance.all, 'policy'] as const,
+		versions: () => [...queryKeys.governance.all, 'versions'] as const,
 		events: () => [...queryKeys.governance.all, 'events'] as const
 	},
 	evolve: {
