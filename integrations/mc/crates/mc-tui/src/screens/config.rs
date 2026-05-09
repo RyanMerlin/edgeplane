@@ -56,7 +56,7 @@ impl ConfigScreenState {
 }
 
 static NAV_ITEMS: &[(&str, &str)] = &[
-    ("Connection", "Server"),
+    ("Connection", "Controlplane"),
     ("Connection", "Auth"),
     ("Fleet", "Nodes"),
     ("Fleet", "Agent Defaults"),
@@ -114,7 +114,7 @@ fn render_nav(buf: &mut Buffer, area: Rect, state: &ConfigScreenState) {
         let prefix = if selected { "▶ " } else { "  " };
 
         let suffix = match *item {
-            "Server" => if state.connected { " ✓" } else { " ○" },
+            "Controlplane" => if state.connected { " ✓" } else { " ○" },
             _ => "",
         };
 
