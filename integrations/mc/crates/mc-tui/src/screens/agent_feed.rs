@@ -78,14 +78,15 @@ impl AgentFeedState {
     pub fn handle_key(&mut self, key: crossterm::event::KeyCode) -> bool {
         use crossterm::event::KeyCode::*;
 
-        // Filter input mode
+        // Filter input mode — swallow all keys so Tab can't escape to global nav
         if self.filter_active {
             match key {
-                Char(c) => { self.filter.push(c); return true; }
-                Backspace => { self.filter.pop(); return true; }
-                Esc => { self.filter_active = false; return true; }
+                Char(c) => { self.filter.push(c); }
+                Backspace => { self.filter.pop(); }
+                Esc => { self.filter_active = false; }
                 _ => {}
             }
+            return true;
         }
 
         match key {

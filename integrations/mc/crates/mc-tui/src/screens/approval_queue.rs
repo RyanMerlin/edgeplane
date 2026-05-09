@@ -49,11 +49,12 @@ impl ApprovalQueueState {
     pub fn handle_key(&mut self, key: crossterm::event::KeyCode) -> bool {
         use crossterm::event::KeyCode::*;
         match key {
-            Tab => {
-                self.focus = match self.focus {
-                    Focus::Queue => Focus::Detail,
-                    Focus::Detail => Focus::Queue,
-                };
+            Right => {
+                self.focus = Focus::Detail;
+                true
+            }
+            Left => {
+                self.focus = Focus::Queue;
                 true
             }
             Up if self.focus == Focus::Queue => {

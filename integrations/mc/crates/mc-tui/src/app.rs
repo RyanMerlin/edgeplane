@@ -520,6 +520,7 @@ impl App {
         let hints: &[(&str, &str)] = match &self.screen {
             Screen::Agents => &[
                 ("Tab/S+Tab", "next/prev tab"),
+                ("←→", "panels"),
                 ("↑↓", "navigate"),
                 ("Ctrl+Q", "quit"),
             ],
@@ -539,6 +540,7 @@ impl App {
             ],
             Screen::Approvals => &[
                 ("Tab/S+Tab", "next/prev tab"),
+                ("←→", "queue/detail"),
                 ("↑↓", "navigate"),
                 ("y", "approve"),
                 ("n", "deny"),

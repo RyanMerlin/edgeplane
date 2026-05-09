@@ -47,11 +47,12 @@ impl AgentScreenState {
     pub fn handle_key(&mut self, key: crossterm::event::KeyCode) -> bool {
         use crossterm::event::KeyCode::*;
         match key {
-            Tab => {
-                self.focus = match self.focus {
-                    AgentFocus::Nodes => AgentFocus::Agents,
-                    AgentFocus::Agents => AgentFocus::Nodes,
-                };
+            Right => {
+                self.focus = AgentFocus::Agents;
+                true
+            }
+            Left => {
+                self.focus = AgentFocus::Nodes;
                 true
             }
             Up => {

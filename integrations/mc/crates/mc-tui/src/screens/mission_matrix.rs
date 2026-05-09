@@ -69,7 +69,8 @@ impl MissionMatrixState {
     pub fn handle_key(&mut self, key: crossterm::event::KeyCode) -> bool {
         use crossterm::event::KeyCode::*;
 
-        // Filter input mode
+        // Filter input mode — swallow all keys except the ones we handle
+        // so Tab/←/→ can't leak into global nav while typing
         if self.filter_active != FilterActive::None {
             match key {
                 Char(c) => {
@@ -78,7 +79,6 @@ impl MissionMatrixState {
                         FilterActive::Kluster => self.kluster_filter.push(c),
                         FilterActive::None => {}
                     }
-                    return true;
                 }
                 Backspace => {
                     match self.filter_active {
@@ -86,7 +86,6 @@ impl MissionMatrixState {
                         FilterActive::Kluster => { self.kluster_filter.pop(); }
                         FilterActive::None => {}
                     }
-                    return true;
                 }
                 Esc => {
                     match self.filter_active {
@@ -95,10 +94,10 @@ impl MissionMatrixState {
                         FilterActive::None => {}
                     }
                     self.filter_active = FilterActive::None;
-                    return true;
                 }
                 _ => {}
             }
+            return true;
         }
 
         match key {
