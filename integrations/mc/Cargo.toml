@@ -1,13 +1,19 @@
 [workspace]
 resolver = "2"
 
-[package]
-name = "mc"
+[workspace.package]
 version = "0.5.0"
 edition = "2024"
 authors = ["MissionControl Engineers <support@missioncontrol.ai>"]
-description = "Rust-native MCP bridge for Mission Control"
 license = "Apache-2.0"
+
+[package]
+name = "mc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Rust-native MCP bridge for Mission Control"
+license.workspace = true
 
 [dependencies]
 anyhow = "1.0"

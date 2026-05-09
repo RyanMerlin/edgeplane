@@ -1,6 +1,6 @@
 [package]
 name = "mc-mesh"
-version = "0.4.0"
+version.workspace = true
 edition = "2024"
 description = "mc-mesh daemon — work-first agent coordination for MissionControl"
 license = "Apache-2.0"

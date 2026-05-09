@@ -1,6 +1,6 @@
 [package]
 name = "mc-mesh-receipts"
-version = "0.4.0"
+version.workspace = true
 edition = "2024"
 description = "SQLite audit store for mc-mesh capability executions"
 license = "Apache-2.0"

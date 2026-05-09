@@ -1,6 +1,6 @@
 [package]
 name = "mc-mesh-work"
-version = "0.4.0"
+version.workspace = true
 edition = "2024"
 description = "Work model: task dispatch, graph, claim, messaging, and watchdog for mc-mesh"
 license = "Apache-2.0"
