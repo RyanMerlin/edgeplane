@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Widget},
 };
 
-use crate::theme;
+use crate::tui::theme;
 
 pub struct ConfigScreenState {
     pub nav_selection: usize,

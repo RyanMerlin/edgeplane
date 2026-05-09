@@ -1,5 +1,4 @@
 [workspace]
-members = ["crates/mc-tui", "crates/mc-tui-widgets"]
 resolver = "2"
 
 [package]
@@ -49,7 +48,9 @@ mc-mesh-packs = { path = "../mc-mesh/crates/mc-mesh-packs" }
 mc-mesh-receipts = { path = "../mc-mesh/crates/mc-mesh-receipts" }
 mc-mesh-sync = { path = "../mc-mesh/crates/mc-mesh-sync" }
 mc-mesh-secrets = { path = "../mc-mesh/crates/mc-mesh-secrets" }
-mc-tui = { path = "crates/mc-tui" }
+ratatui = "0.29"
+crossterm = "0.28"
+async-trait = "0.1"
 
 [dev-dependencies]
 httpmock = "0.6"

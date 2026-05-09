@@ -925,14 +925,14 @@ fn handle_context(cmd: ContextCommand) -> Result<()> {
 fn handle_tui(args: TuiArgs, config: &McConfig) -> Result<()> {
     let ctxs = crate::context::load_contexts();
     let (context_name, _) = crate::context::active_context(&ctxs);
-    let cfg = mc_tui::TuiConfig {
+    let cfg = crate::tui::TuiConfig {
         base_url: config.base_url.to_string(),
         token: config.token.clone(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         initial_mission: args.mission,
         context_name,
     };
-    mc_tui::run(cfg)
+    crate::tui::run(cfg)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]

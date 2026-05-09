@@ -7,7 +7,7 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::theme;
+use crate::tui::theme;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedEvent {

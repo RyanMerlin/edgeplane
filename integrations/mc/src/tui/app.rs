@@ -9,15 +9,15 @@ use ratatui::{
     Frame, Terminal,
 };
 
-use crate::data::DataClient;
-use crate::screens::agent_feed::{AgentFeed, AgentFeedState};
-use crate::screens::agents::{AgentScreen, AgentScreenState};
-use crate::screens::approval_queue::{ApprovalQueue, ApprovalQueueState};
-use crate::screens::config::{ConfigScreen, ConfigScreenState};
-use crate::screens::mission_matrix::{Focus as MatrixFocus, MissionMatrix, MissionMatrixState};
-use crate::screens::secrets::{SecretsScreen, SecretsState, render_tree_overlay};
-use crate::theme;
-use crate::work::{WorkPool, WorkRequest, WorkResult, next_job_id};
+use super::data::DataClient;
+use super::screens::agent_feed::{AgentFeed, AgentFeedState};
+use super::screens::agents::{AgentScreen, AgentScreenState};
+use super::screens::approval_queue::{ApprovalQueue, ApprovalQueueState};
+use super::screens::config::{ConfigScreen, ConfigScreenState};
+use super::screens::mission_matrix::{Focus as MatrixFocus, MissionMatrix, MissionMatrixState};
+use super::screens::secrets::{SecretsScreen, SecretsState, render_tree_overlay};
+use super::theme;
+use super::work::{WorkPool, WorkRequest, WorkResult, next_job_id};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
@@ -172,7 +172,7 @@ impl App {
                     } else {
                         self.approval_queue.pending = approvals
                             .into_iter()
-                            .map(|a| crate::screens::approval_queue::ApprovalRequest {
+                            .map(|a| super::screens::approval_queue::ApprovalRequest {
                                 id: a.id,
                                 mission_id: a.mission_id,
                                 action: a.action,

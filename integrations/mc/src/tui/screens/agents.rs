@@ -6,8 +6,8 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Widget},
 };
 
-use crate::data::AgentSummary;
-use crate::theme;
+use crate::tui::data::AgentSummary;
+use crate::tui::theme;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentFocus {

@@ -53,19 +53,19 @@ pub enum WorkRequest {
 pub enum WorkResult {
     MissionsListed {
         job_id: JobId,
-        missions: Vec<crate::data::MissionSummary>,
+        missions: Vec<super::data::MissionSummary>,
         error: Option<String>,
     },
     KlustersListed {
         job_id: JobId,
         mission_id: String,
-        klusters: Vec<crate::data::KlusterSummary>,
+        klusters: Vec<super::data::KlusterSummary>,
         error: Option<String>,
     },
     TasksListed {
         job_id: JobId,
         kluster_id: String,
-        tasks: Vec<crate::data::TaskSummary>,
+        tasks: Vec<super::data::TaskSummary>,
         error: Option<String>,
     },
     Pinged {
@@ -75,7 +75,7 @@ pub enum WorkResult {
         server_version: Option<String>,
     },
     /// An individual SSE event from the agent-feed stream.
-    FeedEvent(crate::screens::agent_feed::FeedEvent),
+    FeedEvent(super::screens::agent_feed::FeedEvent),
     /// The feed SSE connection is established (or re-established).
     FeedConnected,
     /// The feed SSE connection was lost; the caller should re-subscribe.
@@ -87,13 +87,13 @@ pub enum WorkResult {
     /// Pending approvals fetched.
     ApprovalsListed {
         job_id: JobId,
-        approvals: Vec<crate::data::ApprovalSummary>,
+        approvals: Vec<super::data::ApprovalSummary>,
         error: Option<String>,
     },
     /// Approval respond call completed.
     ApprovalResponded { job_id: JobId, approval_id: String, ok: bool, error: Option<String> },
     /// Agents listed from the backend.
-    AgentsListed { job_id: JobId, agents: Vec<crate::data::AgentSummary>, error: Option<String> },
+    AgentsListed { job_id: JobId, agents: Vec<super::data::AgentSummary>, error: Option<String> },
 }
 
 // ─── pool ────────────────────────────────────────────────────────────────────
@@ -113,7 +113,7 @@ impl WorkPool {
     ///
     /// The thread calls back into the tokio runtime via `Handle::current().block_on()`
     /// so async data fetches work without running inside the draw loop.
-    pub fn dispatch(&self, client: std::sync::Arc<dyn crate::data::DataClient>, req: WorkRequest) {
+    pub fn dispatch(&self, client: std::sync::Arc<dyn super::data::DataClient>, req: WorkRequest) {
         let tx = self.result_tx.clone();
         let handle = tokio::runtime::Handle::current();
         std::thread::spawn(move || {
@@ -321,7 +321,7 @@ async fn stream_feed(base_url: String, token: Option<String>, tx: std::sync::mps
                     let ts = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
                     let (agent_id, mission_id, evdata) =
                         parse_feed_data(&current_data);
-                    let ev = crate::screens::agent_feed::FeedEvent {
+                    let ev = super::screens::agent_feed::FeedEvent {
                         ts,
                         agent_id,
                         mission_id,
@@ -363,7 +363,7 @@ fn parse_feed_data(data: &str) -> (Option<String>, Option<String>, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{DataClient, FixtureDataClient, MissionSummary};
+    use super::data::{DataClient, FixtureDataClient, MissionSummary};
     use std::sync::Arc;
 
     #[tokio::test]

@@ -1,9 +1,9 @@
 use crossterm::event::KeyCode;
 use ratatui::{prelude::*, widgets::*};
 
-use mc_tui_widgets::secrets_tree::{SecretsTree, SecretsTreeAction, TreeMode};
-use crate::theme;
-use crate::work::{JobId, WorkRequest, next_job_id};
+use crate::tui::widgets::secrets_tree::{SecretsTree, SecretsTreeAction, TreeMode};
+use crate::tui::theme;
+use crate::tui::work::{JobId, WorkRequest, next_job_id};
 
 // ── state ─────────────────────────────────────────────────────────────────────
 

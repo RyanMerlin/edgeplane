@@ -2,6 +2,7 @@ pub mod app;
 pub mod data;
 pub mod screens;
 pub mod theme;
+pub mod widgets;
 pub mod work;
 
 use anyhow::Result;

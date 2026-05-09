@@ -34,4 +34,5 @@ pub mod task_md;
 pub mod schema_pack;
 pub mod secrets;
 pub mod ui;
+pub mod tui;
 pub mod update;

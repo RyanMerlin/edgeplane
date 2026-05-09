@@ -6,8 +6,8 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Widget},
 };
 
-use crate::data::{KlusterSummary, MissionSummary, TaskSummary};
-use crate::theme;
+use crate::tui::data::{KlusterSummary, MissionSummary, TaskSummary};
+use crate::tui::theme;
 
 /// Which filter is currently being typed.
 #[derive(Debug, Clone, PartialEq, Default)]

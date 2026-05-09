@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use crossterm::event::KeyCode;
 use ratatui::{prelude::*, widgets::*};
 
-use crate::theme;
+use super::theme;
 
 // ── JobId ─────────────────────────────────────────────────────────────────────
 
