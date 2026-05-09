@@ -7,7 +7,7 @@ use crate::config::{load_server_list, write_servers_file};
 
 #[derive(Args, Debug)]
 pub struct DiscoverArgs {
-    /// Candidate mc-server URLs to probe (comma-separated or repeated).
+    /// Candidate mc-controlplane URLs to probe (comma-separated or repeated).
     /// If omitted, probes the current server list + localhost:8008.
     #[arg(long, value_delimiter = ',')]
     pub probe: Vec<String>,
@@ -34,7 +34,7 @@ pub async fn run(args: DiscoverArgs) -> Result<()> {
 
     if live.is_empty() {
         anyhow::bail!(
-            "No mc-server nodes responded. Try: mc discover --probe https://your-node:8008"
+            "No mc-controlplane nodes responded. Try: mc discover --probe https://your-node:8008"
         );
     }
 

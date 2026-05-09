@@ -825,8 +825,8 @@ async fn publish_execute(
     if !clone_ok {
         return (StatusCode::CONFLICT, Json(json!({"detail": "git clone failed"}))).into_response();
     }
-    let _ = std::process::Command::new("git").args(["-C", &repo_dir, "config", "user.email", "mc-server@missioncontrol.ai"]).output();
-    let _ = std::process::Command::new("git").args(["-C", &repo_dir, "config", "user.name", "mc-server"]).output();
+    let _ = std::process::Command::new("git").args(["-C", &repo_dir, "config", "user.email", "git@ryanmerlin.com"]).output();
+    let _ = std::process::Command::new("git").args(["-C", &repo_dir, "config", "user.name", "mc-controlplane"]).output();
 
     let now = Utc::now().naive_utc();
     for event in &events {
@@ -861,7 +861,7 @@ async fn publish_execute(
         let _ = std::process::Command::new("git").args(["-C", &repo_dir, "add", &rel]).output();
     }
 
-    let commit_msg = format!("mc-server: publish {} ledger events for {}", events.len(), mission_id);
+    let commit_msg = format!("mc-controlplane: publish {} ledger events for {}", events.len(), mission_id);
     let _ = std::process::Command::new("git")
         .args(["-C", &repo_dir, "commit", "--allow-empty", "-m", &commit_msg])
         .output();

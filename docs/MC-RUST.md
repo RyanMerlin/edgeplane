@@ -6,7 +6,7 @@ fleet views, agent launch, capability dispatch, secrets management, and the TUI.
 `mc-mesh` is the headless executor daemon (like kubelet to `mc`'s kubectl). Agents reach it via
 Unix socket; operators never interact with it directly.
 
-`mc-server` is the Axum HTTP server that backs the REST/SSE API.
+`mc-controlplane` is the Axum HTTP server that backs the REST/SSE API.
 
 ## Installation
 
@@ -17,8 +17,8 @@ cp target/release/mc ~/.local/bin/mc
 cd integrations/mc-mesh && cargo build --release
 cp target/release/mc-mesh ~/.local/bin/mc-mesh
 
-cd integrations/mc-server && cargo build --release
-cp target/release/mc-server ~/.local/bin/mc-server
+cd integrations/mc-controlplane && cargo build --release
+cp target/release/mc-controlplane ~/.local/bin/mc-controlplane
 ```
 
 ## Environment
@@ -131,13 +131,13 @@ echo '{"op":"get","session":"'$MC_SECRETS_SESSION'","name":"MY_API_KEY"}' \
   | nc -U "$MC_SECRETS_SOCKET"
 ```
 
-## mc-server
+## mc-controlplane
 
 Axum HTTP server. Backs `mc` REST/SSE calls and proxies to the Python backend for routes not
 yet natively implemented.
 
 ```bash
-mc-server --serve --bind 0.0.0.0:8008 [--api-proxy http://legacy:8000]
+mc-controlplane --serve --bind 0.0.0.0:8008 [--api-proxy http://legacy:8000]
 curl http://localhost:8008/health
 curl http://localhost:8008/raft/status
 ```
@@ -156,5 +156,5 @@ cd integrations/mc-mesh && cargo check
 cd integrations/mc-mesh && cargo build
 cd integrations/mc-mesh && cargo test
 
-cd integrations/mc-server && cargo build
+cd integrations/mc-controlplane && cargo build
 ```

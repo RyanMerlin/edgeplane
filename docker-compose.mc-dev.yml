@@ -1,4 +1,4 @@
-# mc-server dev overlay — runs mc-server + Postgres alongside the dev FastAPI.
+# mc-controlplane dev overlay — runs mc-controlplane + Postgres alongside the dev FastAPI.
 # Both services share the same Postgres DB.
 #
 # Usage:
@@ -6,7 +6,7 @@
 #
 # Ports:
 #   8008 — FastAPI (upstream, unchanged)
-#   8009 — mc-server (proxy mode: handles native routes, forwards rest to FastAPI)
+#   8009 — mc-controlplane (proxy mode: handles native routes, forwards rest to FastAPI)
 #   5432 — Postgres (exposed for psql / pgAdmin)
 
 services:
@@ -56,11 +56,11 @@ services:
       DATABASE_URL: postgresql+psycopg://missioncontrol:missioncontrol@postgres:5432/missioncontrol
       MC_DB_RUNTIME_MIGRATIONS: "false"
 
-  mc-server:
+  mc-controlplane:
     build:
       context: .
-      dockerfile: integrations/mc-server/Dockerfile
-    container_name: missioncontrol-mc-server-dev
+      dockerfile: integrations/mc-controlplane/Dockerfile
+    container_name: missioncontrol-mc-controlplane-dev
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,7 +70,7 @@ services:
       DATABASE_URL: postgres://missioncontrol:missioncontrol@postgres:5432/missioncontrol
       MC_BIND: 0.0.0.0:8009
       MC_TOKEN: dev-token
-      RUST_LOG: mc_server=debug,info
+      RUST_LOG: mc_controlplane=debug,info
     ports:
       - "8009:8009"
     command: ["--serve", "--api-proxy", "http://api:8008"]

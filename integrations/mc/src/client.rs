@@ -189,7 +189,7 @@ impl MissionControlClient {
 
 // ── Multi-server failover client ──────────────────────────────────────────────
 
-/// Wraps a list of mc-server endpoints and retries each in order on connection
+/// Wraps a list of mc-controlplane endpoints and retries each in order on connection
 /// failure or 5xx. Reads the server list from `~/.mc/servers` (via
 /// `load_server_list()`) unless overridden with explicit URLs.
 ///
@@ -297,7 +297,7 @@ impl MultiServerClient {
     }
 
     async fn try_servers(&self, method: Method, path: &str, body: Option<&Value>) -> Result<Value> {
-        let mut last_err = anyhow::anyhow!("no mc-server nodes configured");
+        let mut last_err = anyhow::anyhow!("no mc-controlplane nodes configured");
         for base in &self.servers {
             let url = base
                 .join(path)
@@ -308,7 +308,7 @@ impl MultiServerClient {
             }
             match builder.send().await {
                 Err(e) => {
-                    tracing::debug!(server = %base, error = %e, "mc-server unreachable, trying next");
+                    tracing::debug!(server = %base, error = %e, "mc-controlplane unreachable, trying next");
                     last_err = e.into();
                 }
                 Ok(resp) => {
@@ -319,7 +319,7 @@ impl MultiServerClient {
                         return Err(anyhow::anyhow!("HTTP {status}: {text}"));
                     }
                     if status.is_server_error() {
-                        tracing::debug!(server = %base, %status, "mc-server 5xx, trying next");
+                        tracing::debug!(server = %base, %status, "mc-controlplane 5xx, trying next");
                         last_err = anyhow::anyhow!("HTTP {status} from {base}");
                         continue;
                     }

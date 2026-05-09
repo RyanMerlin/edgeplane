@@ -13,7 +13,7 @@ Nothing currently blocked.
   actual API calls. Currently the screen renders pending approvals but taking action
   does nothing.
 - **Backend needed:** `POST /klusters/{id}/approvals/{approval_id}/respond` in
-  `mc-server` (or proxy to Python backend). Response body: `{"ok":true}`.
+  `mc-controlplane` (or proxy to Python backend). Response body: `{"ok":true}`.
 - **TUI needed:** `ApprovalQueueState::handle_key` dispatches a
   `WorkRequest::RespondApproval` on `y`/`n`; result re-fetches the queue.
 - **Estimate:** ~half day.
@@ -31,7 +31,7 @@ Nothing currently blocked.
   write to the same temp path and race. Add unique temp dir per test.
 - `mc tui` SSE agent-feed: verify end-to-end against a live cluster (proxy fix
   shipped, needs integration test with a real SSE-emitting backend).
-- Raft consensus implementation behind the `--serve` flag in `mc-server` (currently
+- Raft consensus implementation behind the `--serve` flag in `mc-controlplane` (currently
   the server is standalone; the flag parses but does nothing).
 - `mc secrets infisical` Universal Auth (client_id + client_secret → token exchange)
   — the config fields exist but `InfisicalClient` only uses `service_token` today.
@@ -43,6 +43,6 @@ Nothing currently blocked.
 - [x] `mc secrets infisical {add,list,use,test,rm,get}` CLI (2026-04-28)
 - [x] `mc-mesh` secrets broker: SessionStore + SecretsGateway Unix socket +
       CapabilityDispatcher broker mode + `mc-mesh get-secret` helper (2026-04-28)
-- [x] `mc-server` GET /raft/status endpoint (2026-04-28)
-- [x] `mc-server` SSE proxy fix: header forwarding + streaming response body (2026-04-28)
+- [x] `mc-controlplane` GET /raft/status endpoint (2026-04-28)
+- [x] `mc-controlplane` SSE proxy fix: header forwarding + streaming response body (2026-04-28)
 - [x] `mc tui` status bar wired to /raft/status: shows `node N · role · connected Xms` (2026-04-28)

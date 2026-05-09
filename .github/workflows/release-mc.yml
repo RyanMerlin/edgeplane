@@ -143,7 +143,7 @@ jobs:
           path: ${{ matrix.artifact }}
           retention-days: 1
 
-  build-mc-server:
+  build-mc-controlplane:
     name: Build ${{ matrix.artifact }}
     runs-on: ubuntu-latest
     strategy:
@@ -151,10 +151,10 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            artifact: mc-server-linux-x86_64
+            artifact: mc-controlplane-linux-x86_64
             use_cross: false
           - target: aarch64-unknown-linux-gnu
-            artifact: mc-server-linux-aarch64
+            artifact: mc-controlplane-linux-aarch64
             use_cross: true
 
     steps:
@@ -175,21 +175,21 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-${{ matrix.target }}-mc-server-cargo-${{ hashFiles('integrations/mc-server/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-${{ matrix.target }}-mc-server-cargo-
+          key: ${{ runner.os }}-${{ matrix.target }}-mc-controlplane-cargo-${{ hashFiles('integrations/mc-controlplane/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-mc-controlplane-cargo-
 
       - name: Build (cross)
         if: matrix.use_cross
-        run: cross build --release --target ${{ matrix.target }} --manifest-path integrations/mc-server/Cargo.toml
+        run: cross build --release --target ${{ matrix.target }} --manifest-path integrations/mc-controlplane/Cargo.toml
 
       - name: Build (native)
         if: '!matrix.use_cross'
-        working-directory: integrations/mc-server
+        working-directory: integrations/mc-controlplane
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Rename artifact
         run: |
-          BIN=$(find integrations/mc-server/target/${{ matrix.target }}/release target/${{ matrix.target }}/release -maxdepth 1 -name mc-server -type f 2>/dev/null | head -1)
+          BIN=$(find integrations/mc-controlplane/target/${{ matrix.target }}/release target/${{ matrix.target }}/release -maxdepth 1 -name mc-controlplane -type f 2>/dev/null | head -1)
           cp "$BIN" ${{ matrix.artifact }}
           chmod +x ${{ matrix.artifact }}
 
@@ -202,7 +202,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [build, build-mc-mesh, build-mc-server]
+    needs: [build, build-mc-mesh, build-mc-controlplane]
     if: always()
     runs-on: ubuntu-latest
     steps:

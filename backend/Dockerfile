@@ -1,16 +1,16 @@
-# ── mc-server builder ────────────────────────────────────────────────────────
-FROM rust:1.88-slim AS mc-server-builder
+# ── mc-controlplane builder ───────────────────────────────────────────────────
+FROM rust:1.88-slim AS mc-controlplane-builder
 WORKDIR /build
 
-COPY integrations/mc-server/Cargo.toml integrations/mc-server/Cargo.lock ./integrations/mc-server/
-RUN mkdir -p integrations/mc-server/src && \
-    echo 'fn main() {}' > integrations/mc-server/src/main.rs && \
-    echo 'pub fn stub() {}' > integrations/mc-server/src/lib.rs
-RUN cargo build --release --manifest-path integrations/mc-server/Cargo.toml
+COPY integrations/mc-controlplane/Cargo.toml integrations/mc-controlplane/Cargo.lock ./integrations/mc-controlplane/
+RUN mkdir -p integrations/mc-controlplane/src && \
+    echo 'fn main() {}' > integrations/mc-controlplane/src/main.rs && \
+    echo 'pub fn stub() {}' > integrations/mc-controlplane/src/lib.rs
+RUN cargo build --release --manifest-path integrations/mc-controlplane/Cargo.toml
 
-COPY integrations/mc-server ./integrations/mc-server
-RUN touch integrations/mc-server/src/main.rs integrations/mc-server/src/lib.rs && \
-    cargo build --release --manifest-path integrations/mc-server/Cargo.toml
+COPY integrations/mc-controlplane ./integrations/mc-controlplane
+RUN touch integrations/mc-controlplane/src/main.rs integrations/mc-controlplane/src/lib.rs && \
+    cargo build --release --manifest-path integrations/mc-controlplane/Cargo.toml
 
 # ── prod: pure Rust binary ────────────────────────────────────────────────────
 FROM debian:trixie-slim AS prod
@@ -19,9 +19,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 3000 missioncontrol \
     && useradd --uid 3000 --gid 3000 --no-create-home --shell /usr/sbin/nologin missioncontrol
-COPY --from=mc-server-builder \
-    /build/integrations/mc-server/target/release/mc-server \
-    /usr/local/bin/mc-server
+COPY --from=mc-controlplane-builder \
+    /build/integrations/mc-controlplane/target/release/mc-controlplane \
+    /usr/local/bin/mc-controlplane
 USER missioncontrol
 EXPOSE 8008
-CMD ["mc-server", "--bind", "0.0.0.0:8008"]
+CMD ["mc-controlplane", "--bind", "0.0.0.0:8008"]

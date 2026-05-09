@@ -637,7 +637,7 @@ async fn get_artifact_download_url(
     let expires_seconds: i64 = q.get("expires_seconds").and_then(|v| v.parse().ok()).unwrap_or(60).min(3600).max(1);
 
     if storage_backend == "s3" {
-        // S3 presigning requires AWS SDK — not available in mc-server; return 409 with the URI
+        // S3 presigning requires AWS SDK — not available in mc-controlplane; return 409 with the URI
         return (StatusCode::CONFLICT, Json(serde_json::json!({
             "detail": "S3 presigning requires the Python API",
             "artifact_id": artifact_id,

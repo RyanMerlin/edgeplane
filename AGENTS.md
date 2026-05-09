@@ -16,11 +16,11 @@ cd integrations/mc-mesh && cargo build
 # Tests
 cd integrations/mc && cargo test -- --test-threads=1
 cd integrations/mc-mesh && cargo test
-cd integrations/mc-server && cargo build
+cd integrations/mc-controlplane && cargo build
 ```
 
 The Python FastAPI backend at `backend/` is still present for legacy proxy use but
-is not the primary development target. The Rust `mc-server` (Axum) is the active
+is not the primary development target. The Rust `mc-controlplane` (Axum) is the active
 server implementation.
 
 ## Agent Launch
@@ -86,10 +86,10 @@ Socket locations (`~/.mc/`):
 - `mc-mesh-secrets.sock` — secrets broker (agents only)
 - `mc-mesh.sock` — PTY attach gateway
 
-## Server (mc-server)
+## Server (mc-controlplane)
 
 ```bash
-mc-server --serve --bind 0.0.0.0:8008 [--api-proxy http://legacy:8000]
+mc-controlplane --serve --bind 0.0.0.0:8008 [--api-proxy http://legacy:8000]
 curl http://localhost:8008/health
 curl http://localhost:8008/raft/status
 ```
