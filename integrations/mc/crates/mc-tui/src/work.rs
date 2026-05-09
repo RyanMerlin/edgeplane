@@ -17,12 +17,10 @@ pub enum WorkRequest {
     ListMissions { job_id: JobId },
     /// Fetch klusters for a mission.
     ListKlusters { mission_id: String, job_id: JobId },
-    /// Fetch tasks for a kluster.
-    ListTasks { kluster_id: String, job_id: JobId },
+    /// Fetch tasks for a kluster using the canonical authenticated path.
+    ListTasks { mission_id: String, kluster_id: String, job_id: JobId },
     /// Health-ping the backend; used for the status bar.
     Ping { job_id: JobId },
-    /// Fetch raft/node status for the status bar.
-    FetchRaftStatus { job_id: JobId },
     /// Subscribe to the agent-feed SSE endpoint. The spawned thread streams
     /// events until the result channel closes or the connection drops.
     SubscribeFeed { base_url: String, token: Option<String> },
@@ -46,8 +44,6 @@ pub enum WorkRequest {
     FetchApprovals { job_id: JobId, mission_id: Option<String> },
     /// Respond to a pending approval with "approve" or "reject".
     RespondApproval { job_id: JobId, approval_id: String, decision: String, note: Option<String> },
-    /// Fetch the list of runs from the backend.
-    ListRuns { job_id: JobId },
     /// Fetch the list of agents from the backend.
     ListAgents { job_id: JobId },
 }
@@ -77,11 +73,6 @@ pub enum WorkResult {
         ok: bool,
         latency_ms: u64,
     },
-    RaftStatusFetched {
-        job_id: JobId,
-        status: crate::data::RaftStatus,
-        error: Option<String>,
-    },
     /// An individual SSE event from the agent-feed stream.
     FeedEvent(crate::screens::agent_feed::FeedEvent),
     /// The feed SSE connection is established (or re-established).
@@ -100,8 +91,6 @@ pub enum WorkResult {
     },
     /// Approval respond call completed.
     ApprovalResponded { job_id: JobId, approval_id: String, ok: bool, error: Option<String> },
-    /// Runs listed from the backend.
-    RunsListed { job_id: JobId, runs: Vec<crate::data::RunSummary>, error: Option<String> },
     /// Agents listed from the backend.
     AgentsListed { job_id: JobId, agents: Vec<crate::data::AgentSummary>, error: Option<String> },
 }
@@ -140,20 +129,6 @@ impl WorkPool {
                         latency_ms: start.elapsed().as_millis() as u64,
                     });
                 }
-                WorkRequest::FetchRaftStatus { job_id } => {
-                    match handle.block_on(client.raft_status()) {
-                        Ok(status) => {
-                            let _ = tx.send(WorkResult::RaftStatusFetched { job_id, status, error: None });
-                        }
-                        Err(e) => {
-                            let _ = tx.send(WorkResult::RaftStatusFetched {
-                                job_id,
-                                status: crate::data::RaftStatus::default(),
-                                error: Some(e.to_string()),
-                            });
-                        }
-                    }
-                }
                 WorkRequest::ListMissions { job_id } => {
                     match handle.block_on(client.list_missions()) {
                         Ok(missions) => {
@@ -180,8 +155,8 @@ impl WorkPool {
                         }
                     }
                 }
-                WorkRequest::ListTasks { kluster_id, job_id } => {
-                    match handle.block_on(client.list_tasks(&kluster_id)) {
+                WorkRequest::ListTasks { mission_id, kluster_id, job_id } => {
+                    match handle.block_on(client.list_tasks(&mission_id, &kluster_id)) {
                         Ok(tasks) => {
                             let _ = tx.send(WorkResult::TasksListed { job_id, kluster_id, tasks, error: None });
                         }
@@ -257,12 +232,6 @@ impl WorkPool {
                         Err(e) => (false, Some(e.to_string())),
                     };
                     let _ = tx.send(WorkResult::ApprovalResponded { job_id, approval_id, ok, error });
-                }
-                WorkRequest::ListRuns { job_id } => {
-                    match handle.block_on(client.list_runs()) {
-                        Ok(runs) => { let _ = tx.send(WorkResult::RunsListed { job_id, runs, error: None }); }
-                        Err(e) => { let _ = tx.send(WorkResult::RunsListed { job_id, runs: vec![], error: Some(e.to_string()) }); }
-                    }
                 }
                 WorkRequest::ListAgents { job_id } => {
                     match handle.block_on(client.list_agents()) {

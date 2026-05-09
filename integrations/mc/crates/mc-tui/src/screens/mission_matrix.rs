@@ -55,6 +55,7 @@ pub struct MissionMatrixState {
     pub mission_filter: String,
     pub kluster_filter: String,
     pub filter_active: FilterActive,
+    pub error: Option<String>,
 }
 
 impl Default for Focus {

@@ -36,6 +36,31 @@ ENV | meaning | default
 
 All command-line flags mirror these env vars and can be passed explicitly when needed.
 
+## TUI
+
+`mc tui` launches a full-screen ratatui terminal UI for real-time fleet management.
+
+```bash
+# Auth and server come from env / ~/.mc/config.json / global flags:
+MC_BASE_URL=http://localhost:8008 mc tui
+mc --base-url http://localhost:8008 tui
+mc tui --mission <mission-id>   # pre-focus a specific mission
+```
+
+| Key | Tab | Description |
+|-----|-----|-------------|
+| `a` | Agents | Fleet nodes — status, current task, runtime |
+| `m` | Missions | Missions → Klusters → Tasks drill-down (Enter to expand) |
+| `f` | Feed | Live SSE event stream (`p` to pause) |
+| `p` | Approvals | Pending approvals (`y` approve / `n` deny / `s` skip) |
+| `s` | Secrets | Infisical folder/secret browser (read-only) |
+| `c` | Config | Connection status and server info |
+| Ctrl+Q | | Quit |
+
+Secrets tab requires an active Infisical profile (`mc secrets infisical add ... --activate`).
+
+Design mockups: [`docs/tui/v3-agents.html`](../docs/tui/v3-agents.html) · [`v3-missions.html`](../docs/tui/v3-missions.html) · [`v3-feed.html`](../docs/tui/v3-feed.html)
+
 ## Command surface
 
 ```

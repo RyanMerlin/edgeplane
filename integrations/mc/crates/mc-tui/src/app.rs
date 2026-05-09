@@ -14,10 +14,8 @@ use crate::screens::agent_feed::{AgentFeed, AgentFeedState};
 use crate::screens::agents::{AgentScreen, AgentScreenState};
 use crate::screens::approval_queue::{ApprovalQueue, ApprovalQueueState};
 use crate::screens::config::{ConfigScreen, ConfigScreenState};
-use crate::screens::landing::LandingScreen;
-use crate::screens::mission_matrix::{MissionMatrix, MissionMatrixState};
-use crate::screens::receipts::{ReceiptsScreen, ReceiptsState};
-use crate::screens::secrets::{SecretsScreen, SecretsState};
+use crate::screens::mission_matrix::{Focus as MatrixFocus, MissionMatrix, MissionMatrixState};
+use crate::screens::secrets::{SecretsScreen, SecretsState, render_tree_overlay};
 use crate::theme;
 use crate::work::{WorkPool, WorkRequest, WorkResult, next_job_id};
 
@@ -26,6 +24,8 @@ pub enum Screen {
     Agents,
     Missions,
     Feed,
+    Approvals,
+    Secrets,
     Config,
 }
 
@@ -40,12 +40,9 @@ pub struct App {
     pub agents: AgentScreenState,
     pub matrix: MissionMatrixState,
     pub agent_feed: AgentFeedState,
-    pub config: ConfigScreenState,
-
-    // Legacy screen states (kept so existing code doesn't break)
     pub approval_queue: ApprovalQueueState,
-    pub receipts: ReceiptsState,
     pub secrets: SecretsState,
+    pub config: ConfigScreenState,
 
     client: std::sync::Arc<dyn DataClient>,
     pool: WorkPool,
@@ -62,7 +59,6 @@ impl App {
         let mut matrix = MissionMatrixState::default();
         if let Some(mid) = initial_mission {
             matrix.selected_mission_id = Some(mid);
-            // Don't switch to missions screen on startup — start on agents
         }
 
         let pool = WorkPool::new();
@@ -88,10 +84,9 @@ impl App {
             agents: AgentScreenState::default(),
             matrix,
             agent_feed: AgentFeedState::new(),
-            config,
             approval_queue: ApprovalQueueState::default(),
-            receipts: ReceiptsState::default(),
             secrets: SecretsState::default(),
+            config,
             client,
             pool,
         }
@@ -105,9 +100,6 @@ impl App {
                     self.config.connected = ok;
                     self.config.latency_ms = Some(latency_ms);
                 }
-                WorkResult::RaftStatusFetched { .. } => {
-                    // Raft removed from v3; ignore the result
-                }
                 WorkResult::AgentsListed { agents, error, .. } => {
                     self.agents.loading = false;
                     if let Some(e) = error {
@@ -119,7 +111,7 @@ impl App {
                 }
                 WorkResult::MissionsListed { missions, error, .. } => {
                     if let Some(e) = error {
-                        self.agents.error = Some(format!("missions error: {e}"));
+                        self.matrix.error = Some(format!("missions error: {e}"));
                     } else {
                         self.matrix.loading_missions = false;
                         self.matrix.missions = missions;
@@ -188,29 +180,11 @@ impl App {
                         {
                             self.approval_queue.selection -= 1;
                         }
-                        self.pool.dispatch(self.client.clone(), crate::work::WorkRequest::FetchApprovals {
-                            job_id: crate::work::next_job_id(), mission_id: None,
+                        self.pool.dispatch(self.client.clone(), WorkRequest::FetchApprovals {
+                            job_id: next_job_id(), mission_id: None,
                         });
                     } else {
                         self.approval_queue.last_error = error;
-                    }
-                }
-                WorkResult::RunsListed { runs, error, .. } => {
-                    self.receipts.loading = false;
-                    if error.is_none() {
-                        use crate::screens::receipts::ReceiptEntry;
-                        self.receipts.entries = runs.into_iter().map(|r| ReceiptEntry {
-                            id: r.id,
-                            created_at: r.created_at,
-                            mission_name: None,
-                            task_title: r.mesh_agent_id,
-                            agent_id: r.owner_subject,
-                            capability: r.runtime_kind,
-                            outcome: r.status,
-                            duration_ms: None,
-                            artifact_count: 0,
-                            output_summary: None,
-                        }).collect();
                     }
                 }
             }
@@ -229,10 +203,53 @@ impl App {
             Screen::Agents => self.agents.handle_key(key.code),
             Screen::Missions => {
                 let c = self.matrix.handle_key(key.code);
-                if key.code == KeyCode::Enter { self.missions_enter(); }
+                if key.code == KeyCode::Enter {
+                    match self.matrix.focus {
+                        MatrixFocus::Missions => self.missions_enter(),
+                        MatrixFocus::Klusters => self.klusters_enter(),
+                        _ => {}
+                    }
+                }
                 c
             }
             Screen::Feed => self.agent_feed.handle_key(key.code),
+            Screen::Approvals => {
+                let c = self.approval_queue.handle_key(key.code);
+                if let Some((id, approve)) = self.approval_queue.take_pending_response() {
+                    self.pool.dispatch(
+                        self.client.clone(),
+                        WorkRequest::RespondApproval {
+                            job_id: next_job_id(),
+                            approval_id: id.to_string(),
+                            decision: if approve { "approve".into() } else { "reject".into() },
+                            note: None,
+                        },
+                    );
+                }
+                c
+            }
+            Screen::Secrets => {
+                let requests = self.secrets.handle_key(key.code);
+                for req in requests {
+                    self.pool.dispatch(self.client.clone(), req);
+                }
+                // Consume keys handled by the secrets tree widget;
+                // let global nav handle the rest so tab-switching still works.
+                matches!(
+                    key.code,
+                    KeyCode::Up
+                        | KeyCode::Down
+                        | KeyCode::Left
+                        | KeyCode::Right
+                        | KeyCode::Enter
+                        | KeyCode::Esc
+                        | KeyCode::Backspace
+                        | KeyCode::PageUp
+                        | KeyCode::PageDown
+                        | KeyCode::Char(' ')
+                        | KeyCode::Char('a')
+                )
+            }
             Screen::Config => self.config.handle_key(key.code),
         };
         if !consumed {
@@ -245,6 +262,8 @@ impl App {
             KeyCode::Char('a') => self.switch_to_agents(),
             KeyCode::Char('m') => self.switch_to_missions(),
             KeyCode::Char('f') => self.switch_to_feed(),
+            KeyCode::Char('p') => self.switch_to_approvals(),
+            KeyCode::Char('s') => self.switch_to_secrets(),
             KeyCode::Char('c') => self.screen = Screen::Config,
             _ => {}
         }
@@ -271,9 +290,76 @@ impl App {
         if !self.agent_feed.live && !self.agent_feed.paused {
             self.pool.dispatch(
                 self.client.clone(),
-                crate::work::WorkRequest::SubscribeFeed {
+                WorkRequest::SubscribeFeed {
                     base_url: self.base_url.clone(),
                     token: self.token.clone(),
+                },
+            );
+        }
+    }
+
+    fn switch_to_approvals(&mut self) {
+        self.screen = Screen::Approvals;
+        if self.approval_queue.pending.is_empty() && !self.approval_queue.loading {
+            self.approval_queue.loading = true;
+            self.pool.dispatch(
+                self.client.clone(),
+                WorkRequest::FetchApprovals { job_id: next_job_id(), mission_id: None },
+            );
+        }
+    }
+
+    fn switch_to_secrets(&mut self) {
+        self.screen = Screen::Secrets;
+        if self.secrets.tree.is_some() || self.secrets.no_profile_error.is_some() {
+            return; // already initialized
+        }
+
+        let profile_path = dirs::home_dir()
+            .map(|h| h.join(".mc").join("infisical_profiles.json"));
+
+        let map: Option<mc_mesh_secrets::InfisicalProfileMap> = profile_path
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str(&s).ok());
+
+        let cfg = map.as_ref().and_then(|m| m.active_profile().cloned());
+
+        let Some(cfg) = cfg else {
+            self.secrets.no_profile_error = Some(
+                "No active Infisical profile. Run: mc secrets infisical add <name> --service-token <token> --activate".into(),
+            );
+            return;
+        };
+
+        let Some(pid) = cfg.default_project_id.clone() else {
+            self.secrets.no_profile_error = Some(
+                "Active profile has no default_project_id configured.".into(),
+            );
+            return;
+        };
+
+        let env = cfg.default_environment.clone();
+        self.secrets.cfg = Some(cfg.clone());
+
+        if let Some((fid, nid)) = self.secrets.init_tree(pid.clone(), env.clone()) {
+            self.pool.dispatch(
+                self.client.clone(),
+                WorkRequest::LoadSecretFolders {
+                    job_id: fid,
+                    project_id: pid.clone(),
+                    environment: env.clone(),
+                    path: "/".into(),
+                    cfg: cfg.clone(),
+                },
+            );
+            self.pool.dispatch(
+                self.client.clone(),
+                WorkRequest::LoadSecretNames {
+                    job_id: nid,
+                    project_id: pid,
+                    environment: env,
+                    path: "/".into(),
+                    cfg,
                 },
             );
         }
@@ -295,6 +381,21 @@ impl App {
         );
     }
 
+    fn klusters_enter(&mut self) {
+        let visible = self.matrix.visible_klusters();
+        let Some(kluster) = visible.get(self.matrix.kluster_selection) else { return };
+        let kid = kluster.id.clone();
+        let mid = self.matrix.selected_mission_id.clone().unwrap_or_default();
+        self.matrix.selected_kluster_id = Some(kid.clone());
+        self.matrix.tasks.clear();
+        self.matrix.loading_tasks = true;
+        self.matrix.task_selection = 0;
+        self.pool.dispatch(
+            self.client.clone(),
+            WorkRequest::ListTasks { mission_id: mid, kluster_id: kid, job_id: next_job_id() },
+        );
+    }
+
     pub fn draw<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         self.tick();
         terminal.draw(|f| self.render(f))?;
@@ -304,7 +405,7 @@ impl App {
     fn render(&self, f: &mut Frame<'_>) {
         let area = f.area();
 
-        // New v3 layout: tab bar (1) | content | hints bar (1)
+        // v3 layout: tab bar (1) | content | hints bar (1)
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -320,6 +421,11 @@ impl App {
             Screen::Agents => f.render_widget(AgentScreen { state: &self.agents }, chunks[1]),
             Screen::Missions => f.render_widget(MissionMatrix { state: &self.matrix }, chunks[1]),
             Screen::Feed => f.render_widget(AgentFeed { state: &self.agent_feed }, chunks[1]),
+            Screen::Approvals => f.render_widget(ApprovalQueue { state: &self.approval_queue }, chunks[1]),
+            Screen::Secrets => {
+                f.render_widget(SecretsScreen { state: &self.secrets }, chunks[1]);
+                render_tree_overlay(&self.secrets, f, chunks[1]);
+            }
             Screen::Config => f.render_widget(ConfigScreen { state: &self.config, base_url: &self.base_url }, chunks[1]),
         }
 
@@ -334,6 +440,8 @@ impl App {
             (Screen::Agents, "Agents"),
             (Screen::Missions, "Missions"),
             (Screen::Feed, "Feed"),
+            (Screen::Approvals, "Approvals"),
+            (Screen::Secrets, "Secrets"),
             (Screen::Config, "Config"),
         ];
 
@@ -365,7 +473,6 @@ impl App {
 
         let time_str = chrono::Local::now().format("%H:%M:%S").to_string();
 
-        // Calculate padding to push right-side to edge
         let left_width: usize = spans.iter().map(|s| s.content.len()).sum();
         let right_part = format!("  {conn_str}  {time_str}  ");
         let pad = (area.width as usize).saturating_sub(left_width + right_part.len());
@@ -407,6 +514,21 @@ impl App {
                 ("Enter", "detail"),
                 ("Ctrl+Q", "quit"),
             ],
+            Screen::Approvals => &[
+                ("↑↓", "navigate"),
+                ("y", "approve"),
+                ("n", "deny"),
+                ("s", "skip"),
+                ("Ctrl+Q", "quit"),
+            ],
+            Screen::Secrets => &[
+                ("↑↓", "navigate"),
+                ("→/Enter", "expand"),
+                ("←", "collapse"),
+                ("Space", "select"),
+                ("Esc", "cancel"),
+                ("Ctrl+Q", "quit"),
+            ],
             Screen::Config => &[
                 ("↑↓", "navigate"),
                 ("Ctrl+Q", "quit"),
@@ -424,25 +546,4 @@ impl App {
             area,
         );
     }
-}
-
-// Keep legacy landing/help screen rendering functions available (not called from main flow)
-#[allow(dead_code)]
-fn render_landing(f: &mut Frame<'_>, area: ratatui::layout::Rect) {
-    f.render_widget(LandingScreen, area);
-}
-
-#[allow(dead_code)]
-fn render_approval_queue<'a>(state: &'a crate::screens::approval_queue::ApprovalQueueState) -> ApprovalQueue<'a> {
-    ApprovalQueue { state }
-}
-
-#[allow(dead_code)]
-fn render_receipts<'a>(state: &'a ReceiptsState) -> ReceiptsScreen<'a> {
-    ReceiptsScreen { state }
-}
-
-#[allow(dead_code)]
-fn render_secrets<'a>(state: &'a SecretsState) -> SecretsScreen<'a> {
-    SecretsScreen { state }
 }

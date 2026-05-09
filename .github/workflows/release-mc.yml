@@ -60,12 +60,12 @@ jobs:
 
       - name: Build (cross)
         if: matrix.use_cross
-        run: cross build --release --target ${{ matrix.target }} --manifest-path integrations/mc/Cargo.toml
+        run: cross build --release --features tui --target ${{ matrix.target }} --manifest-path integrations/mc/Cargo.toml
 
       - name: Build (native)
         if: '!matrix.use_cross'
         working-directory: integrations/mc
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --features tui --target ${{ matrix.target }}
 
       - name: Rename artifact (Unix)
         if: runner.os != 'Windows'

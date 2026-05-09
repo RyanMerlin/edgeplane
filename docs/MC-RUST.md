@@ -32,26 +32,28 @@ cp target/release/mc-controlplane ~/.local/bin/mc-controlplane
 
 ### `mc tui`
 
-Full-screen terminal UI for fleet management.
+Full-screen terminal UI for fleet management. Auth and server are global `mc` flags:
 
 ```bash
-mc tui [--server http://localhost:8008] [--token $MC_TOKEN] [--mission <id>]
+# Server/token come from env, ~/.mc/config.json, or global flags — not on mc tui itself
+MC_BASE_URL=http://localhost:8008 mc tui [--mission <id>]
+# or:
+mc --base-url http://localhost:8008 tui
 ```
 
 Screens (press key to switch):
 
-| Key | Screen |
-|-----|--------|
-| `m` | Mission matrix — missions → klusters → tasks |
-| `f` | Agent feed — live SSE event stream |
-| `a` | Approval queue — pending y/n/e/s decisions |
-| `q` | Receipts — capability execution history |
-| `s` | Secrets browser — Infisical folder/secret tree |
-| `?` | Help |
-| Esc | Landing |
-| Ctrl+Q / Ctrl+C | Quit |
+| Key | Tab | Description |
+|-----|-----|-------------|
+| `a` | Agents | Fleet nodes — status, current task, ops |
+| `m` | Missions | Missions → Klusters → Tasks (Enter to drill down) |
+| `f` | Feed | Live SSE event stream (`p` to pause) |
+| `p` | Approvals | Pending approval queue (`y` approve / `n` deny / `s` skip) |
+| `s` | Secrets | Infisical folder/secret browser (read-only) |
+| `c` | Config | Connection status and server info |
+| Ctrl+Q / Ctrl+C | | Quit |
 
-Status bar shows `mc v<version> · <base_url> · node <id> · <role> · connected <ms>ms`.
+Status bar shows `● connected` / `○ offline` and a live clock.
 
 ### `mc run` — Agent Launch
 
