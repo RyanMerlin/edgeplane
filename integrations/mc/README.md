@@ -118,7 +118,7 @@ mc [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 - `mc system drift triage [--mission <id>] [--provider <name>]` — merges latest compat+drift artifacts into a `policy-decision.json` gate decision.
 
 ### Maintenance & backups
-- `mc system doctor [--matrix-endpoint /events/stream] [--matrix-sample-seconds 5] [--fix]`
+- `mc system doctor [--matrix-endpoint /events/stream] [--matrix-sample-seconds 5] [--fix]` — includes an RTK availability check; `--fix` has no effect on RTK (install it separately).
 - `mc system backup [--target postgres|rustfs|all] [--reason <note>]`
 
 ### Remote control
@@ -144,9 +144,9 @@ mc [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 - `mc channel claude missioncontrol --session-id <ai_session_id> [--poll-interval-ms 500] [--channel-name missioncontrol] [--instructions ...] [--debug-protocol]` — bridges MissionControl AI session SSE (`/ai/sessions/{id}/stream`) into `notifications/claude/channel` for `user_message` events. Reply tool is intentionally disabled in this mode until a non-looping outbound endpoint is added.
 
 ### Agent launch (unified)
-- `mc run claude [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [-- ARGS...]` — unified Claude launch with profile runtime + optional mesh participation.
-- `mc run codex [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [-- ARGS...]` — unified Codex launch.
-- `mc run gemini [-p PROFILE] [-- ARGS...]` — unified Gemini launch.
+- `mc run claude [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [--with-rtk] [-- ARGS...]` — unified Claude launch with profile runtime + optional mesh participation. `--with-rtk` is a soft flag: warns and continues if [rtk](https://github.com/merlinlabs/rtk) is not installed.
+- `mc run codex [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [--with-rtk] [-- ARGS...]` — unified Codex launch.
+- `mc run gemini [-p PROFILE] [--with-rtk] [-- ARGS...]` — unified Gemini launch.
 
 ### Runtime diagnostics
 - `mc run claude doctor [-p PROFILE] [--fix] [--json]` — inspect/repair Claude runtime readiness.

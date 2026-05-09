@@ -8,6 +8,7 @@ use anyhow::Result;
 /// Launch Gemini in a prepared MissionControl runtime.
 pub async fn run_gemini_compat(
     profile: Option<String>,
+    _with_rtk: bool,
     extra_args: Vec<String>,
     client: &MissionControlClient,
     config: &McConfig,

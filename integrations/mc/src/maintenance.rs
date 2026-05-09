@@ -204,6 +204,7 @@ async fn run_doctor(
         )
         .await,
         run_tailscale_check().await,
+        run_rtk_check(),
     ];
     let repairs = if args.fix {
         perform_repairs(config)
@@ -250,6 +251,47 @@ async fn run_backup(client: &MissionControlClient, args: BackupArgs) -> Result<(
     let response = client.post_json("/ops/backups", &payload).await?;
     print_json(&response);
     Ok(())
+}
+
+fn run_rtk_check() -> DoctorCheck {
+    let start = std::time::Instant::now();
+    let name = "rtk".to_string();
+    match which::which("rtk") {
+        Ok(path) => {
+            let detail = std::process::Command::new(&path)
+                .arg("--version")
+                .output()
+                .ok()
+                .and_then(|out| {
+                    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if s.is_empty() {
+                        None
+                    } else {
+                        Some(s)
+                    }
+                })
+                .unwrap_or_else(|| "rtk (version unknown)".to_string());
+            DoctorCheck {
+                name,
+                ok: true,
+                detail,
+                duration_ms: start.elapsed().as_millis(),
+                payload: None,
+                repair_hint: None,
+            }
+        }
+        Err(_) => DoctorCheck {
+            name,
+            ok: false,
+            detail: "not found".to_string(),
+            duration_ms: start.elapsed().as_millis(),
+            payload: None,
+            repair_hint: Some(
+                "Install rtk: brew install rtk  OR  curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh"
+                    .to_string(),
+            ),
+        },
+    }
 }
 
 async fn run_health_check(client: &MissionControlClient) -> DoctorCheck {

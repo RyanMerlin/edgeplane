@@ -55,6 +55,7 @@ pub async fn run_launch(
     profile: String,
     new: bool,
     _headless: bool,
+    _with_rtk: bool,
     _passthrough: Vec<String>,
     config: &McConfig,
 ) -> Result<()> {
@@ -258,6 +259,28 @@ pub fn claude_paths(profile: &str) -> ClaudePaths {
     }
 }
 
+fn add_rtk_issues(issues: &mut Vec<ClaudeDoctorIssue>, paths: &ClaudePaths) {
+    if which::which("rtk").is_ok() {
+        if !check_rtk_hooks_configured(paths) {
+            issues.push(issue(
+                "RTK_NOT_CONFIGURED",
+                "warning",
+                "RTK is installed but hooks are not configured for this Claude profile. \
+                 Run with --fix to install them, or run `rtk init` manually.",
+                true,
+            ));
+        }
+    } else {
+        issues.push(issue(
+            "RTK_NOT_INSTALLED",
+            "info",
+            "RTK not found in PATH. Install it for 60-90% token savings on agent runs. \
+             See: brew install rtk",
+            false,
+        ));
+    }
+}
+
 fn inspect_profile(profile: &str, config: &McConfig, fix: bool) -> Result<ClaudeDoctorReport> {
     let mut issues = Vec::<ClaudeDoctorIssue>::new();
     let mut repaired = false;
@@ -312,6 +335,8 @@ fn inspect_profile(profile: &str, config: &McConfig, fix: bool) -> Result<Claude
         ));
     }
 
+    add_rtk_issues(&mut issues, &paths);
+
     if fix {
         repaired = apply_repairs(&paths, config, claude_bin.as_deref())?;
         issues.clear();
@@ -355,6 +380,8 @@ fn inspect_profile(profile: &str, config: &McConfig, fix: bool) -> Result<Claude
                 true,
             ));
         }
+
+        add_rtk_issues(&mut issues, &paths);
     }
 
     let ready = issues
@@ -395,6 +422,24 @@ fn apply_repairs(
     }
 
     changed |= write_manifest(paths)?;
+
+    // Repair RTK hooks if rtk is installed but not configured
+    if which::which("rtk").is_ok() && !check_rtk_hooks_configured(paths) {
+        match std::process::Command::new("rtk").arg("init").output() {
+            Ok(out) if out.status.success() => {
+                changed = true;
+                tracing::info!("RTK hooks installed via `rtk init`");
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                tracing::warn!("rtk init failed: {}", stderr.trim());
+            }
+            Err(e) => {
+                tracing::warn!("Failed to run rtk init: {}", e);
+            }
+        }
+    }
+
     Ok(changed)
 }
 
@@ -788,6 +833,26 @@ pub fn launch_claude_blocking(
         cmd.env("PATH", new_path);
     }
     cmd.status().context("failed to spawn claude")
+}
+
+fn check_rtk_hooks_configured(paths: &ClaudePaths) -> bool {
+    let hooks_dir = &paths.hooks_dir;
+    if !hooks_dir.exists() {
+        return false;
+    }
+    std::fs::read_dir(hooks_dir)
+        .ok()
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .any(|e| {
+                    let file_name = e.file_name();
+                    let name_str = file_name.to_string_lossy();
+                    // Check for RTK-specific hook filenames created by `rtk init`
+                    name_str == "rtk-rewrite.sh" || name_str == ".rtk-hook.sha256"
+                })
+        })
+        .unwrap_or(false)
 }
 
 fn issue(code: &str, severity: &str, detail: &str, fixable: bool) -> ClaudeDoctorIssue {

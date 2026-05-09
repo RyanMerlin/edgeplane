@@ -102,11 +102,15 @@ When the backend is unreachable past the grace period, the watchdog transitions 
 
 All three runtimes share the `AgentRuntime` trait and are pluggable:
 
-- **claude-code** — `claude -p "<prompt>" --output-format stream-json`. Parses JSONL into typed `ProgressEvent`s.
+- **claude-code** — `claude -p "<prompt>" --output-format stream-json`. Parses JSONL into typed `ProgressEvent`s. When `LaunchContext::with_rtk` is true, `ensure_rtk_hooks()` is called once per session before the first task is injected, wiring RTK token-compression hooks into the agent's Claude Code profile.
 - **codex** — `codex --approval-mode full-auto --quiet "<prompt>"`. Classifies output lines heuristically.
 - **gemini** — `gemini -p "<prompt>" --yolo`. Detects tool calls via `Tool:`/`Calling tool:` prefixes.
 
 All three support interactive PTY attach via `portable-pty`.
+
+### Optional: RTK token compression
+
+[rtk](https://github.com/merlinlabs/rtk) can be installed alongside mc-mesh to compress shell command output before it reaches agent context windows (typically 60–90% token reduction). It is a soft dependency — agents launch normally if it is absent, with a one-time warning. Enable per-launch with `mc run claude --with-rtk` or set `with_rtk: true` on `LaunchContext` when dispatching via mc-mesh directly.
 
 ## Backend endpoints
 

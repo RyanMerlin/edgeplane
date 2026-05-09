@@ -14,6 +14,7 @@ use mc_mesh_core::types::{
 };
 use std::io::{Read, Write};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -21,6 +22,13 @@ pub struct ClaudeCodeRuntime {
     capabilities: Vec<Capability>,
     version: String,
     install_done: OnceLock<()>,
+    // SAFETY: This runtime instance is used for exactly one agent session. `with_rtk`
+    // is written once in `launch()` before `inject_task()` is ever called, so
+    // the Relaxed ordering is sufficient.
+    with_rtk: AtomicBool,
+    /// Tracks whether RTK hooks have already been verified/installed for this runtime
+    /// instance. Avoids running a subprocess on every task injection.
+    rtk_hooks_done: OnceLock<()>,
 }
 
 impl ClaudeCodeRuntime {
@@ -35,6 +43,8 @@ impl ClaudeCodeRuntime {
             ],
             version: detect_version(),
             install_done: OnceLock::new(),
+            with_rtk: AtomicBool::new(false),
+            rtk_hooks_done: OnceLock::new(),
         }
     }
 
@@ -191,6 +201,9 @@ impl AgentRuntime for ClaudeCodeRuntime {
         // Launch just validates the binary exists and creates the work dir.
         std::fs::create_dir_all(&ctx.work_dir)?;
 
+        // Capture rtk preference from launch context.
+        self.with_rtk.store(ctx.with_rtk, Ordering::Relaxed);
+
         // Quick check that `claude` is on PATH.
         let output = std::process::Command::new("claude")
             .arg("--version")
@@ -228,6 +241,43 @@ impl AgentRuntime for ClaudeCodeRuntime {
         let work_dir = paths::mc_mesh_work_dir().join(&agent_id);
 
         tracing::info!("claude-code injecting task {task_id}: {}", &prompt[..prompt.len().min(80)]);
+
+        // If RTK compression was requested, attempt to install hooks before spawning.
+        // The OnceLock ensures we only run the subprocess once per runtime instance.
+        'rtk_setup: {
+            if !self.with_rtk.load(Ordering::Relaxed) {
+                break 'rtk_setup;
+            }
+            if self.rtk_hooks_done.get().is_some() {
+                break 'rtk_setup;
+            }
+            if !crate::shared::is_rtk_installed() {
+                tracing::warn!(
+                    "RTK requested (--with-rtk) but rtk binary not found in PATH; running without compression"
+                );
+                break 'rtk_setup;
+            }
+            if dirs::home_dir().is_none() {
+                tracing::warn!("RTK: could not determine home directory; skipping hook setup");
+                break 'rtk_setup;
+            }
+            let hooks_dir = dirs::home_dir().unwrap().join(".claude").join("hooks");
+            if let Err(e) = std::fs::create_dir_all(&hooks_dir) {
+                tracing::warn!("RTK: could not create hooks dir {}: {e}", hooks_dir.display());
+                break 'rtk_setup;
+            }
+            match crate::shared::ensure_rtk_hooks().await {
+                Ok(true) => {
+                    tracing::info!("RTK hooks installed in {}", hooks_dir.display());
+                    self.rtk_hooks_done.set(()).ok();
+                }
+                Ok(false) => {
+                    tracing::debug!("RTK hooks already present in {}", hooks_dir.display());
+                    self.rtk_hooks_done.set(()).ok();
+                }
+                Err(e) => tracing::warn!("RTK hooks setup failed, running without compression: {e:#}"),
+            }
+        }
 
         let mut cmd = Command::new("claude");
         cmd.arg("-p")

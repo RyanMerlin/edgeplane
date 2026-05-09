@@ -53,7 +53,7 @@ pub struct TaskSpec {
 }
 
 /// Context passed to `AgentRuntime::launch`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LaunchContext {
     pub agent_id: String,
     pub mission_id: String,
@@ -71,6 +71,9 @@ pub struct LaunchContext {
     /// Concise roster of other agents in the mission.
     /// Injected into every task prompt so the agent can reason about delegation.
     pub roster: Vec<serde_json::Value>,
+    /// If true, the runtime should attempt to enable RTK (Rust Token Killer) hooks
+    /// for output compression before spawning the agent process.
+    pub with_rtk: bool,
 }
 
 /// A handle to a running agent runtime process.

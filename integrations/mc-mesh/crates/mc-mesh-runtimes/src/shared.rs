@@ -168,6 +168,45 @@ pub async fn shutdown_child(mut child: Child, timeout_secs: u64) -> Result<()> {
     Ok(())
 }
 
+/// Returns true if the `rtk` binary is available in PATH.
+pub fn is_rtk_installed() -> bool {
+    which::which("rtk").is_ok()
+}
+
+/// Verifies or installs RTK hooks globally via `rtk init`.
+///
+/// Returns `Ok(true)` if hooks were installed/updated, `Ok(false)` if already present.
+/// Returns `Err` if rtk is not installed or the install command fails.
+pub async fn ensure_rtk_hooks() -> anyhow::Result<bool> {
+    if !is_rtk_installed() {
+        anyhow::bail!("rtk binary not found in PATH");
+    }
+
+    // `rtk init --check` exits 0 if hooks are already configured, non-zero otherwise.
+    let check = tokio::process::Command::new("rtk")
+        .args(["init", "--check"])
+        .output()
+        .await?;
+
+    if check.status.success() {
+        // Already configured.
+        return Ok(false);
+    }
+
+    // Not configured — run `rtk init` (auto-detects Claude Code).
+    let install = tokio::process::Command::new("rtk")
+        .arg("init")
+        .output()
+        .await?;
+
+    if !install.status.success() {
+        let stderr = String::from_utf8_lossy(&install.stderr);
+        anyhow::bail!("rtk init failed: {}", stderr.trim());
+    }
+
+    Ok(true)
+}
+
 /// Returns the directory to prepend to PATH so agents can invoke `mc`.
 ///
 /// Resolution order:

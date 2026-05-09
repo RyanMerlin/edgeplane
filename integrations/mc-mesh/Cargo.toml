@@ -32,3 +32,4 @@ dirs = "4"
 serde_yaml = "0.9"
 keyring = { version = "3", features = ["async-secret-service", "async-io", "crypto-rust"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
+which = "6"
