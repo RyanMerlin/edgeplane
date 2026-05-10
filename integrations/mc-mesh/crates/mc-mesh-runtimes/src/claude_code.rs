@@ -250,6 +250,7 @@ impl AgentRuntime for ClaudeCodeRuntime {
         // Spawn `claude -p "{prompt}" --output-format stream-json --no-session-persistence`
         // in the agent's work dir.
         let work_dir = paths::mc_mesh_work_dir().join(&agent_id);
+        std::fs::create_dir_all(&work_dir)?;
 
         tracing::info!("claude-code injecting task {task_id}: {}", &prompt[..prompt.len().min(80)]);
 
@@ -295,6 +296,7 @@ impl AgentRuntime for ClaudeCodeRuntime {
             .arg(&prompt)
             .arg("--output-format")
             .arg("stream-json")
+            .arg("--verbose")
             .arg("--no-session-persistence")
             .current_dir(&work_dir)
             .stdout(std::process::Stdio::piped())

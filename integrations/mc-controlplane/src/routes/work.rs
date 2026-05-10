@@ -142,10 +142,10 @@ fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         "claimed_by_agent_id": row.get::<Option<String>, _>("claimed_by_agent_id"),
         "result_artifact_id": row.get::<Option<String>, _>("result_artifact_id"),
         "priority": row.get::<i32, _>("priority"),
-        "lease_expires_at": row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at"),
+        "lease_expires_at": row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at").map(|dt| dt.and_utc()),
         "created_by_subject": row.get::<String, _>("created_by_subject"),
-        "created_at": row.get::<chrono::NaiveDateTime, _>("created_at"),
-        "updated_at": row.get::<chrono::NaiveDateTime, _>("updated_at"),
+        "created_at": row.get::<chrono::NaiveDateTime, _>("created_at").and_utc(),
+        "updated_at": row.get::<chrono::NaiveDateTime, _>("updated_at").and_utc(),
     })
 }
 

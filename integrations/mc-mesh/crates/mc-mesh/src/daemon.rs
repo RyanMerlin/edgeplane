@@ -313,17 +313,24 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         });
     }
 
-    // Wait for ctrl-c or all loops to exit.
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            tracing::info!("Received Ctrl-C, shutting down");
-        }
-        _ = async {
-            for h in task_handles {
-                let _ = h.await;
+    // Wait for ctrl-c or all daemon-level loops to exit.
+    // In standalone/yaml mode task_handles is empty (agents run as detached
+    // tokio tasks in `running`), so we must not treat an empty vec as "done".
+    if task_handles.is_empty() {
+        tokio::signal::ctrl_c().await.ok();
+        tracing::info!("Received Ctrl-C, shutting down");
+    } else {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Received Ctrl-C, shutting down");
             }
-        } => {
-            tracing::info!("All task loops exited");
+            _ = async {
+                for h in task_handles {
+                    let _ = h.await;
+                }
+            } => {
+                tracing::info!("All task loops exited");
+            }
         }
     }
 
