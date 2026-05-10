@@ -110,14 +110,19 @@ impl Widget for SecretsScreen<'_> {
         if let Some(ref err) = self.state.no_profile_error {
             let chunks = Layout::vertical([
                 Constraint::Fill(1),
-                Constraint::Length(3),
+                Constraint::Length(5),
                 Constraint::Fill(1),
             ]).split(inner);
             let lines = vec![
                 Line::from(Span::styled(err.as_str(), theme::err())),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "  Run: mc secrets infisical add <name> --service-token <token> --activate",
+                    "Go to Config → Identity → Infisical, then press n to add a profile.",
+                    theme::muted(),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Or run: mc secrets infisical add <name> --service-token <token> --activate",
                     theme::dim(),
                 )),
             ];

@@ -108,8 +108,8 @@ impl ConfigScreenState {
         }
 
         match key {
-            // → enters the content panel (on interactive panels only)
-            Right if !self.content_focused && self.is_interactive_panel() => {
+            // → or Enter enters the content panel (on interactive panels only)
+            Right | Enter if !self.content_focused && self.is_interactive_panel() => {
                 self.content_focused = true;
                 true
             }

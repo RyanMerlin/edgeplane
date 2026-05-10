@@ -374,7 +374,7 @@ impl App {
 
         let Some(cfg) = cfg else {
             self.secrets.no_profile_error = Some(
-                "No active Infisical profile. Run: mc secrets infisical add <name> --service-token <token> --activate".into(),
+                "No active Infisical profile.".into(),
             );
             return;
         };
