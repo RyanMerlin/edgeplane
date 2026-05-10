@@ -13,10 +13,10 @@ summary: >
 source_of_truth:
   docs:
     - README.md
-    - docs/MC-RUST.md
+    - docs/reference/MC-RUST.md
   code_paths:
-    - backend/app/routers/remotectl.py
-    - backend/app/models.py
+    - integrations/mc-controlplane/src/routes/remotectl.rs
+    - integrations/mc-controlplane/src/models/mod.rs
 
 entrypoints:
   verify:
@@ -61,8 +61,8 @@ dependencies:
   - auth
 
 read_next:
-  - docs/MC-RUST.md
-  - docs/DEPLOYMENT.md
+  - docs/reference/MC-RUST.md
+  - docs/guides/DEPLOYMENT.md
 
 last_reviewed: 2026-03-21
 confidence: medium

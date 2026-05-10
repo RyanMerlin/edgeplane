@@ -12,11 +12,11 @@ summary: >
 source_of_truth:
   docs:
     - README.md
-    - docs/CLOUD-INTEGRATION.md
+    - docs/design/CLOUD-INTEGRATION.md
   code_paths:
-    - backend/app/routers/slack_integrations.py
-    - backend/app/routers/google_chat_integrations.py
-    - backend/app/routers/remotectl.py
+    - integrations/mc-controlplane/src/routes/slack_integrations.rs
+    - integrations/mc-controlplane/src/routes/chat_integrations.rs
+    - integrations/mc-controlplane/src/routes/remotectl.rs
     - integrations/
 
 entrypoints:
@@ -47,7 +47,7 @@ dependencies:
   - api
 
 read_next:
-  - docs/CLOUD-INTEGRATION.md
+  - docs/design/CLOUD-INTEGRATION.md
   - README.md
 
 last_reviewed: 2026-03-21

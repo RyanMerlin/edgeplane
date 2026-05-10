@@ -11,9 +11,9 @@ summary: >
 
 source_of_truth:
   docs:
-    - docs/COMMAND-MAP.md
-    - docs/MC-RUST.md
-    - docs/REAL-TIME.md
+    - docs/reference/COMMAND-MAP.md
+    - docs/reference/MC-RUST.md
+    - docs/reference/REAL-TIME.md
     - README.md
   code_paths:
     - distribution/
@@ -100,10 +100,10 @@ dependencies:
   - auth
 
 read_next:
-  - docs/COMMAND-MAP.md
-  - docs/MC-RUST.md
-  - docs/REAL-TIME.md
-  - docs/DEPLOYMENT.md
+  - docs/reference/COMMAND-MAP.md
+  - docs/reference/MC-RUST.md
+  - docs/reference/REAL-TIME.md
+  - docs/guides/DEPLOYMENT.md
 
 last_reviewed: 2026-04-12
 confidence: high

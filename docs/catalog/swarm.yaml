@@ -11,7 +11,7 @@ summary: >
 
 source_of_truth:
   docs:
-    - docs/CODEX-SWARM-WORKFLOW.md
+    - docs/runbooks/CODEX-SWARM-WORKFLOW.md
     - README.md
   code_paths:
     - scripts/mc-collab-driver.sh
@@ -49,7 +49,7 @@ dependencies:
   - mc-rust
 
 read_next:
-  - docs/CODEX-SWARM-WORKFLOW.md
+  - docs/runbooks/CODEX-SWARM-WORKFLOW.md
 
 last_reviewed: 2026-03-21
 confidence: medium

@@ -12,11 +12,11 @@ summary: >
 source_of_truth:
   docs:
     - README.md
-    - docs/OIDC.md
-    - docs/DEPLOYMENT.md
+    - docs/guides/OIDC.md
+    - docs/guides/DEPLOYMENT.md
   code_paths:
-    - backend/app/services/authz.py
-    - backend/app/routers/
+    - integrations/mc-controlplane/src/auth.rs
+    - integrations/mc-controlplane/src/routes/auth.rs
 
 entrypoints:
   run:
@@ -62,8 +62,8 @@ dependencies:
   - api
 
 read_next:
-  - docs/OIDC.md
-  - docs/DEPLOYMENT.md
+  - docs/guides/OIDC.md
+  - docs/guides/DEPLOYMENT.md
 
 last_reviewed: 2026-03-21
 confidence: medium

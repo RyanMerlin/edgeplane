@@ -1,32 +1,31 @@
 id: api
-title: FastAPI backend and MCP surface
+title: Rust controlplane backend and MCP surface
 status: active
 maturity: productionish
 owners:
   - platform
 summary: >
-  FastAPI backend exposing REST endpoints for missions, tasks, docs, artifacts,
+  Rust (Axum) backend exposing REST endpoints for missions, tasks, docs, artifacts,
   profiles, search, and governance. Also serves the MCP protocol surface at /mcp/
   for agent tool calls. 50+ MCP tools available to agents without a custom SDK.
 
 source_of_truth:
   docs:
     - README.md
-    - docs/architecture.md
-    - docs/AI-CONSOLE.md
-    - docs/DEPLOYMENT.md
+    - docs/design/architecture.md
+    - docs/reference/AI-CONSOLE.md
+    - docs/guides/DEPLOYMENT.md
   code_paths:
-    - backend/app/main.py
-    - backend/app/routers/
-    - backend/app/models.py
-    - backend/app/schemas.py
+    - integrations/mc-controlplane/src/main.rs
+    - integrations/mc-controlplane/src/routes/
+    - integrations/mc-controlplane/src/models/mod.rs
   openapi: http://localhost:8008/api/docs
 
 entrypoints:
   run:
     - command: bash scripts/dev-up.sh
       purpose: Start full local stack
-    - command: cd backend && uvicorn app.main:app --reload --port 8008
+    - command: cargo run --manifest-path integrations/mc-controlplane/Cargo.toml
       purpose: Start backend only
   verify:
     - command: curl http://localhost:8008/healthz
@@ -79,9 +78,9 @@ dependencies:
   - storage
 
 read_next:
-  - docs/architecture.md
-  - docs/AI-CONSOLE.md
-  - docs/DEPLOYMENT.md
+  - docs/design/architecture.md
+  - docs/reference/AI-CONSOLE.md
+  - docs/guides/DEPLOYMENT.md
 
 last_reviewed: 2026-03-21
 confidence: high

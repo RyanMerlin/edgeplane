@@ -12,8 +12,8 @@ summary: >
 
 source_of_truth:
   docs:
-    - docs/AI-CONSOLE.md
-    - docs/MC-RUST.md
+    - docs/reference/AI-CONSOLE.md
+    - docs/reference/MC-RUST.md
     - README.md
   code_paths:
     - web/src/
@@ -61,7 +61,7 @@ dependencies:
   - auth
 
 read_next:
-  - docs/AI-CONSOLE.md
+  - docs/reference/AI-CONSOLE.md
 
 last_reviewed: 2026-03-21
 confidence: high
