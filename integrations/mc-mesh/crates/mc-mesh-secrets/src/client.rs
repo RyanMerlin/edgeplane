@@ -203,7 +203,7 @@ impl InfisicalClient {
     ) -> Result<Vec<String>> {
         let token = self.bearer_token().await?;
         let url = format!(
-            "{}/api/v1/folders?workspaceId={}&environment={}&secretPath={}",
+            "{}/api/v1/folders?workspaceId={}&environment={}&path={}",
             self.site_url,
             project_id,
             environment,
