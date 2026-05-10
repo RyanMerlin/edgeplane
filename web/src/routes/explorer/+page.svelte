@@ -3,6 +3,7 @@
   import { useAuthState } from '$lib/stores/auth-state.svelte';
   import { queryKeys } from '$lib/queryKeys';
   import { fetchTree, fetchNode } from '$lib/api';
+  import AgentTerminal from '$lib/components/AgentTerminal.svelte';
 
   const queryClient = useQueryClient();
   const auth = useAuthState();
@@ -80,6 +81,24 @@
 
   function refreshTree() {
     queryClient.invalidateQueries({ queryKey: queryKeys.explorer.tree() });
+  }
+
+  // Agent terminal drawer — manual node/agent entry MVP. Future work surfaces
+  // these as a node type in the tree.
+  let terminalOpen = $state(false);
+  let terminalNodeId = $state('');
+  let terminalAgentId = $state('');
+  let activeTerminal = $state<{ nodeId: string; agentId: string } | null>(null);
+
+  function openAgentTerminal() {
+    if (!terminalNodeId || !terminalAgentId) return;
+    activeTerminal = { nodeId: terminalNodeId, agentId: terminalAgentId };
+    terminalOpen = true;
+  }
+
+  function closeAgentTerminal() {
+    terminalOpen = false;
+    activeTerminal = null;
   }
 </script>
 
@@ -178,4 +197,47 @@
       {/if}
     </section>
   </div>
+
+  <section class="glass-panel agent-terminal-panel">
+    <div class="grid">
+      <h4>Agent Terminal</h4>
+      {#if !terminalOpen}
+        <div class="agent-attach-form">
+          <input bind:value={terminalNodeId} placeholder="node id (e.g. vail-epyc)" />
+          <input bind:value={terminalAgentId} placeholder="agent id" />
+          <button class="primary" onclick={openAgentTerminal} disabled={!terminalNodeId || !terminalAgentId}>
+            Attach
+          </button>
+        </div>
+      {:else}
+        <button class="ghost" onclick={closeAgentTerminal}>Detach</button>
+      {/if}
+    </div>
+    {#if terminalOpen && activeTerminal && auth.currentToken}
+      <div class="agent-terminal-host">
+        <AgentTerminal
+          nodeId={activeTerminal.nodeId}
+          agentId={activeTerminal.agentId}
+          token={auth.currentToken}
+        />
+      </div>
+    {/if}
+  </section>
 </div>
+
+<style>
+  .agent-terminal-panel {
+    margin-top: 1rem;
+  }
+  .agent-attach-form {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .agent-terminal-host {
+    margin-top: 0.75rem;
+    height: 480px;
+    min-height: 0;
+  }
+</style>

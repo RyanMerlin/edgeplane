@@ -23,6 +23,9 @@
   },
   "dependencies": {
     "@tanstack/svelte-query": "^6.1.28",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
     "bits-ui": "^2.18.1",
     "clsx": "^2.1.1",
     "tailwind-merge": "^3.5.0"
