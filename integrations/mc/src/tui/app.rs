@@ -245,12 +245,14 @@ impl App {
                 c
             }
             Screen::Secrets => {
+                if key.code == KeyCode::Esc {
+                    self.prev_tab();
+                    return;
+                }
                 let requests = self.secrets.handle_key(key.code);
                 for req in requests {
                     self.pool.dispatch(self.client.clone(), req);
                 }
-                // Consume keys handled by the secrets tree widget;
-                // let global nav handle the rest so tab-switching still works.
                 matches!(
                     key.code,
                     KeyCode::Up
@@ -258,7 +260,6 @@ impl App {
                         | KeyCode::Left
                         | KeyCode::Right
                         | KeyCode::Enter
-                        | KeyCode::Esc
                         | KeyCode::Backspace
                         | KeyCode::PageUp
                         | KeyCode::PageDown
@@ -552,7 +553,7 @@ impl App {
         for (screen, label) in tabs {
             let active = std::mem::discriminant(&self.screen) == std::mem::discriminant(screen);
             let style = if active {
-                Style::default().fg(theme::TEXT).bg(theme::BG).add_modifier(Modifier::BOLD)
+                Style::default().fg(theme::ACCENT).bg(theme::BG).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme::TEXT_MUTED).bg(panel_bg)
             };
