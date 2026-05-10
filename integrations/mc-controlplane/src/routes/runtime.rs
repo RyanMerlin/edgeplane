@@ -535,6 +535,22 @@ pub fn router() -> Router<Arc<AppState>> {
             "/runtime/nodes/{node_id}/agents/{agent_id}/attach",
             get(agent_attach_proxy),
         )
+        // Phase 4a — controlplane-driven enrollment for mc-mesh.
+        // List meshagent rows assigned to this runtime node; daemons call
+        // this on startup and after assignment-change notifications to pick
+        // up new/removed/reassigned agents.
+        .route(
+            "/runtime/nodes/{node_id}/agents",
+            get(list_node_agents),
+        )
+        // WS — daemons subscribe here to receive `agent.assigned` /
+        // `agent.unassigned` / `agent.reassigned` notifications for their
+        // node, so they can rebalance supervisors live without polling or
+        // restart.
+        .route(
+            "/runtime/nodes/{node_id}/notify",
+            get(node_notify_ws),
+        )
 }
 
 // ── Join tokens ───────────────────────────────────────────────────────────────
@@ -2371,4 +2387,144 @@ async fn run_attach_proxy(
         _ = m2b => {}
     }
     Ok(())
+}
+
+// ── Phase 4a: controlplane-driven enrollment ─────────────────────────────────
+//
+// `list_node_agents` and `node_notify_ws` are the two surfaces mc-mesh
+// daemons consume to drive the new "no missions in yaml" flow:
+//
+//   1. On daemon start, GET this list to discover what to spawn locally.
+//   2. Subscribe to `node_notify_ws` so add/remove/reassign mutations
+//      land as live rebalances instead of yaml edits + restarts.
+//
+// The plan: docs/plans/2026-05-10-mc-mesh-controlplane-driven-enrollment.md.
+
+/// `GET /runtime/nodes/{node_id}/agents`
+///
+/// List the meshagent rows assigned to this runtime node — i.e. rows where
+/// `runtime_node_id = $1`. Owner-scoped: the principal must own the node.
+///
+/// The daemon calls this once at startup and again after any
+/// `agent.assignment_changed` event from `node_notify_ws` to reconcile its
+/// local supervisor set against the controlplane.
+async fn list_node_agents(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(node_id): Path<String>,
+) -> impl IntoResponse {
+    // Verify the node exists and the caller owns it (or is admin).
+    let owner_check = sqlx::query_scalar::<_, String>(
+        "SELECT owner_subject FROM runtimenode WHERE id = $1",
+    )
+    .bind(&node_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let owner = match owner_check {
+        Ok(Some(o)) => o,
+        Ok(None) => return (StatusCode::NOT_FOUND, "node not found").into_response(),
+        Err(e) => {
+            tracing::error!("list_node_agents owner lookup: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    if owner != principal.subject && !principal.is_admin {
+        return (StatusCode::FORBIDDEN, "node does not belong to you").into_response();
+    }
+
+    // Pull meshagent rows assigned to this node.
+    let rows = sqlx::query(
+        "SELECT * FROM meshagent WHERE runtime_node_id = $1 ORDER BY enrolled_at ASC",
+    )
+    .bind(&node_id)
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(rs) => Json(
+            rs.iter()
+                .map(crate::routes::work::row_to_agent)
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(e) => {
+            tracing::error!("list_node_agents fetch: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// `GET /runtime/nodes/{node_id}/notify` (WebSocket)
+///
+/// Long-lived subscription for the daemon owning `node_id`. The controlplane
+/// publishes JSON messages here whenever a meshagent assignment for this
+/// node changes (assigned / unassigned / reassigned). 30s ping keeps the
+/// connection alive through Tailscale + reverse proxies.
+///
+/// See `crate::routes::work::broadcast_assignment_changed` for the publisher
+/// side.
+async fn node_notify_ws(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(node_id): Path<String>,
+) -> impl IntoResponse {
+    // Owner check up-front; on failure, refuse the upgrade with a 403.
+    let owner_check = sqlx::query_scalar::<_, String>(
+        "SELECT owner_subject FROM runtimenode WHERE id = $1",
+    )
+    .bind(&node_id)
+    .fetch_optional(&state.db)
+    .await;
+    match owner_check {
+        Ok(Some(owner)) if owner == principal.subject || principal.is_admin => {}
+        Ok(Some(_)) => {
+            return (StatusCode::FORBIDDEN, "node does not belong to you").into_response();
+        }
+        Ok(None) => return (StatusCode::NOT_FOUND, "node not found").into_response(),
+        Err(e) => {
+            tracing::error!("node_notify_ws owner lookup: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    }
+
+    ws.on_upgrade(move |socket| handle_node_notify(socket, node_id))
+}
+
+async fn handle_node_notify(mut socket: WebSocket, node_id: String) {
+    use crate::routes::work::node_notify_registry;
+    use std::time::Duration;
+    use tokio::sync::broadcast::error::RecvError;
+
+    // Subscribe to the per-node broadcast channel, creating it on demand.
+    let mut rx = {
+        let mut reg = node_notify_registry().lock().await;
+        let tx = reg
+            .entry(node_id.clone())
+            .or_insert_with(|| broadcast::channel::<String>(64).0);
+        tx.subscribe()
+    };
+
+    let ping_msg = r#"{"type":"ping"}"#;
+    loop {
+        tokio::select! {
+            result = rx.recv() => {
+                match result {
+                    Ok(payload) => {
+                        if socket.send(Message::Text(payload.into())).await.is_err() {
+                            return;
+                        }
+                    }
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => return,
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                if socket.send(Message::Text(ping_msg.into())).await.is_err() {
+                    return;
+                }
+            }
+        }
+    }
 }

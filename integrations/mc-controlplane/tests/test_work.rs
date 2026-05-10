@@ -93,3 +93,104 @@ async fn test_kluster_graph_route_requires_auth() {
     assert_ne!(status, 404, "/work/klusters/{{id}}/graph should be registered");
     assert_ne!(status, 200);
 }
+
+// ── Phase 4a: node-keyed assignment-change registry ──────────────────────────
+//
+// Mirrors the mission-keyed `notify_registry` tests above. mc-mesh daemons
+// subscribe per `runtime_node_id`; the controlplane publishes here from
+// `enroll_agent` (and Phase 4d's reassign / unassign handlers).
+
+#[tokio::test]
+async fn test_assignment_changed_delivers_to_node_subscriber() {
+    use mc_controlplane::routes::work::{broadcast_assignment_changed, node_notify_registry};
+    use tokio::sync::broadcast;
+
+    let mut rx = {
+        let mut reg = node_notify_registry().lock().await;
+        let tx = reg
+            .entry("test-node-assigned".into())
+            .or_insert_with(|| broadcast::channel::<String>(8).0);
+        tx.subscribe()
+    };
+
+    broadcast_assignment_changed(
+        "test-node-assigned",
+        serde_json::json!({
+            "type": "agent.assigned",
+            "agent_id": "a-1",
+            "agent": { "id": "a-1", "mission_id": "m-1", "runtime_kind": "claude_agent_acp" },
+        }),
+    )
+    .await;
+
+    let msg = rx.try_recv().expect("subscriber should receive notification");
+    let v: serde_json::Value = serde_json::from_str(&msg).expect("valid JSON");
+    assert_eq!(v["type"], "agent.assigned");
+    assert_eq!(v["agent_id"], "a-1");
+    assert_eq!(v["agent"]["runtime_kind"], "claude_agent_acp");
+}
+
+#[tokio::test]
+async fn test_assignment_changed_no_subscriber_is_silent() {
+    use mc_controlplane::routes::work::broadcast_assignment_changed;
+    broadcast_assignment_changed(
+        "no-subscriber-node",
+        serde_json::json!({"type": "agent.unassigned", "agent_id": "a-x"}),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_assignment_changed_isolates_per_node() {
+    use mc_controlplane::routes::work::{broadcast_assignment_changed, node_notify_registry};
+    use tokio::sync::broadcast;
+
+    let mut rx_a = {
+        let mut reg = node_notify_registry().lock().await;
+        let tx = reg
+            .entry("iso-node-a".into())
+            .or_insert_with(|| broadcast::channel::<String>(8).0);
+        tx.subscribe()
+    };
+
+    // Publish to node-b only — node-a must not see it.
+    broadcast_assignment_changed(
+        "iso-node-b",
+        serde_json::json!({"type": "agent.assigned", "agent_id": "a-b1"}),
+    )
+    .await;
+    assert!(rx_a.try_recv().is_err(), "node-a must not receive node-b's event");
+
+    // Publish to node-a — must arrive.
+    broadcast_assignment_changed(
+        "iso-node-a",
+        serde_json::json!({"type": "agent.reassigned", "agent_id": "a-a1"}),
+    )
+    .await;
+    let msg = rx_a.try_recv().expect("node-a should receive its own event");
+    let v: serde_json::Value = serde_json::from_str(&msg).unwrap();
+    assert_eq!(v["type"], "agent.reassigned");
+    assert_eq!(v["agent_id"], "a-a1");
+}
+
+// ── Route registration smoke tests ───────────────────────────────────────────
+//
+// We can't easily create a registered runtimenode + valid principal here
+// without a real DB, so we just verify the routes are wired. Behavior is
+// covered by integration tests against a live stack.
+
+#[tokio::test]
+async fn test_list_node_agents_route_registered() {
+    let res = server().get("/runtime/nodes/test-node-id/agents").await;
+    let status = res.status_code().as_u16();
+    assert_ne!(status, 404, "/runtime/nodes/{{id}}/agents should be registered");
+    assert_ne!(status, 200, "unauthenticated request must not succeed");
+}
+
+#[tokio::test]
+async fn test_node_notify_route_registered() {
+    let res = server().get("/runtime/nodes/test-node-id/notify").await;
+    let status = res.status_code().as_u16();
+    assert_ne!(status, 404, "/runtime/nodes/{{id}}/notify should be registered");
+    assert_ne!(status, 200, "unauthenticated request must not succeed");
+}

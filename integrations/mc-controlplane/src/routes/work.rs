@@ -42,6 +42,38 @@ pub async fn broadcast_task_available(mission_id: &str, kluster_id: &str, task_i
     }
 }
 
+// ── Node-keyed assignment-change notifications ────────────────────────────────
+//
+// Parallel to `notify_registry()` above, but keyed by `runtime_node_id`
+// (the runtimenode UUID) instead of mission_id. mc-mesh daemons subscribe
+// here at startup and react to add/remove/reassign by spawning, shutting
+// down, or rebalancing supervisors live — no daemon restart, no yaml edit.
+//
+// Wire payload shapes:
+//   {"type":"agent.assigned",   "agent_id":"…", "agent": {…}}
+//   {"type":"agent.unassigned", "agent_id":"…"}
+//   {"type":"agent.reassigned", "agent_id":"…", "agent": {…},
+//                               "old_mission_id":"…", "new_mission_id":"…"}
+
+static NODE_NOTIFY_REGISTRY: OnceLock<NotifyRegistry> = OnceLock::new();
+
+pub fn node_notify_registry() -> &'static NotifyRegistry {
+    NODE_NOTIFY_REGISTRY.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
+}
+
+/// Notify the daemon at `runtime_node_id` that one of its agents was newly
+/// assigned, removed, or reassigned. Best-effort — silent when no daemon is
+/// currently subscribed for that node.
+pub async fn broadcast_assignment_changed(
+    runtime_node_id: &str,
+    payload: serde_json::Value,
+) {
+    let reg = node_notify_registry().lock().await;
+    if let Some(tx) = reg.get(runtime_node_id) {
+        let _ = tx.send(payload.to_string());
+    }
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         // Tasks
@@ -117,13 +149,19 @@ fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     })
 }
 
-fn row_to_agent(row: &sqlx::postgres::PgRow) -> serde_json::Value {
+pub fn row_to_agent(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     let profile: Option<serde_json::Value> = row.get::<Option<&str>, _>("profile_json")
         .and_then(|s| serde_json::from_str(s).ok());
     let machine: Option<serde_json::Value> = row.get::<Option<&str>, _>("machine_json")
         .and_then(|s| serde_json::from_str(s).ok());
     let runtime: Option<serde_json::Value> = row.get::<Option<&str>, _>("runtime_json")
         .and_then(|s| serde_json::from_str(s).ok());
+    let discovered_capabilities: serde_json::Value = row
+        .try_get::<Option<&str>, _>("discovered_capabilities")
+        .ok()
+        .flatten()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or(serde_json::json!([]));
     serde_json::json!({
         "id": row.get::<String, _>("id"),
         "mission_id": row.get::<String, _>("mission_id"),
@@ -136,9 +174,14 @@ fn row_to_agent(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         "current_task_id": row.get::<Option<String>, _>("current_task_id"),
         "enrolled_at": row.get::<chrono::NaiveDateTime, _>("enrolled_at"),
         "last_heartbeat_at": row.get::<Option<chrono::NaiveDateTime>, _>("last_heartbeat_at"),
+        // Daemon-driving fields — required by mc-mesh's controlplane-driven
+        // enrollment loop (Phase 4 plan 2026-05-10).
+        "runtime_node_id": row.get::<Option<String>, _>("runtime_node_id"),
+        "supervision_mode": row.get::<Option<String>, _>("supervision_mode"),
         "profile": profile,
         "machine": machine,
         "runtime": runtime,
+        "discovered_capabilities": discovered_capabilities,
     })
 }
 
@@ -1612,7 +1655,23 @@ async fn enroll_agent(
     .await;
 
     match row {
-        Ok(r) => (StatusCode::CREATED, Json(row_to_agent(&r))).into_response(),
+        Ok(r) => {
+            let agent_json = row_to_agent(&r);
+            // Notify the daemon for this node, if any, so it can spawn the
+            // supervisor live. No-op when no `runtime_node_id` was set.
+            if let Some(rn_id) = body.runtime_node_id.as_deref() {
+                broadcast_assignment_changed(
+                    rn_id,
+                    serde_json::json!({
+                        "type": "agent.assigned",
+                        "agent_id": agent_json["id"],
+                        "agent": agent_json,
+                    }),
+                )
+                .await;
+            }
+            (StatusCode::CREATED, Json(agent_json)).into_response()
+        }
         Err(e) => {
             tracing::error!("enroll_agent: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
