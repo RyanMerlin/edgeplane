@@ -528,6 +528,13 @@ pub fn router() -> Router<Arc<AppState>> {
             "/runtime/execution-sessions/{session_id}/pty",
             get(execution_session_pty),
         )
+        // Mesh agent attach proxy: browser WS → controlplane → mc-mesh node WS.
+        // The browser uses ?mc_token=<bearer> for auth; controlplane signs a
+        // short-lived HMAC token to dial the mesh node.
+        .route(
+            "/runtime/nodes/{node_id}/agents/{agent_id}/attach",
+            get(agent_attach_proxy),
+        )
 }
 
 // ── Join tokens ───────────────────────────────────────────────────────────────
@@ -779,13 +786,17 @@ async fn register_node(
     let capacity_json = json_dump(&body.capacity);
     let capabilities_json = serde_json::to_string(&body.capabilities)
         .unwrap_or_else(|_| "[]".to_string());
+    // Mint a per-node attach secret. Returned plaintext once; stored in DB for
+    // the controlplane proxy to sign short-lived HMAC tokens when dialing this
+    // node's attach-WS endpoint. Not included in list/get node responses.
+    let attach_secret = hex::encode(rand::random::<[u8; 32]>());
 
     let node_row = match sqlx::query(
         "INSERT INTO runtimenode \
          (id, owner_subject, node_name, hostname, status, trust_tier, labels_json, capacity_json, \
           capabilities_json, runtime_version, bootstrap_token_prefix, tailscale_ip, tailscale_fqdn, \
-          last_heartbeat_at, registered_at, updated_at) \
-         VALUES ($1,$2,$3,$4,'registered',$5,$6,$7,$8,$9,$10,$11,$12,NULL,$13,$13) RETURNING *",
+          attach_secret, last_heartbeat_at, registered_at, updated_at) \
+         VALUES ($1,$2,$3,$4,'registered',$5,$6,$7,$8,$9,$10,$11,$12,$13,NULL,$14,$14) RETURNING *",
     )
     .bind(&node_id)
     .bind(subject)
@@ -799,6 +810,7 @@ async fn register_node(
     .bind(body.bootstrap_token.get(..8).unwrap_or(&body.bootstrap_token))
     .bind(&body.tailscale_ip)
     .bind(&body.tailscale_fqdn)
+    .bind(&attach_secret)
     .bind(now)
     .fetch_one(&state.db)
     .await
@@ -847,7 +859,10 @@ async fn register_node(
     )
     .await;
 
-    (StatusCode::CREATED, Json(row_to_node(&node_row))).into_response()
+    // Return node fields + attach_secret (plaintext, this response only).
+    let mut resp = row_to_node(&node_row);
+    resp["attach_secret"] = serde_json::Value::String(attach_secret);
+    (StatusCode::CREATED, Json(resp)).into_response()
 }
 
 async fn list_nodes(
@@ -2158,4 +2173,202 @@ async fn handle_pty_ws(socket: WebSocket, session_id: String, conn_id: String) {
         _ = read_task => {}
         _ = write_task => {}
     }
+}
+
+// ── Mesh agent attach proxy ───────────────────────────────────────────────────
+
+/// `GET /runtime/nodes/{node_id}/agents/{agent_id}/attach`
+///
+/// Auth: bearer token in `Authorization` header **or** `?mc_token=` query
+/// param (browsers can't set headers on a WS upgrade). The token is checked
+/// the same way `Principal` extraction does — admin token or a valid user
+/// session.
+///
+/// Behavior: resolve `node_id` → tailscale_fqdn/ip + per-node attach_secret
+/// from the runtimenode row, sign a short-lived HMAC token, dial the mesh
+/// node's `/attach/{agent_id}` WS endpoint over Tailscale, then proxy frames
+/// bidirectionally between the browser socket and the mesh socket.
+async fn agent_attach_proxy(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+    Path((node_id, agent_id)): Path<(String, String)>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    // 1) Auth — accept either Authorization header or mc_token query.
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .map(|s| s.to_string())
+        .or_else(|| params.get("mc_token").cloned())
+        .unwrap_or_default();
+
+    if !verify_attach_caller_token(&state, &token).await {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+
+    // 2) Resolve node → reachable address + per-node attach secret.
+    let row = sqlx::query(
+        "SELECT tailscale_fqdn, tailscale_ip, attach_secret FROM runtimenode WHERE id = $1",
+    )
+    .bind(&node_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let Some(row) = row else {
+        return (StatusCode::NOT_FOUND, "node not found").into_response();
+    };
+    let fqdn: Option<String> = row.try_get("tailscale_fqdn").ok();
+    let ip: Option<String> = row.try_get("tailscale_ip").ok();
+    let host = match fqdn.filter(|s| !s.is_empty()).or(ip.filter(|s| !s.is_empty())) {
+        Some(h) => h,
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "node has no tailscale address registered",
+            )
+                .into_response();
+        }
+    };
+
+    // 3) Sign HMAC attach token with the per-node secret stored at registration.
+    let secret: Option<String> = row.try_get("attach_secret").ok().flatten();
+    let secret = match secret.filter(|s| !s.is_empty()) {
+        Some(s) => s,
+        None => {
+            tracing::warn!(node_id = %node_id, "agent_attach_proxy: node has no attach_secret — refusing to dial mesh");
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "node has no attach_secret configured",
+            )
+                .into_response();
+        }
+    };
+    // 60-second window is plenty — only used to gate the upgrade itself.
+    let exp = Utc::now().timestamp() + 60;
+    let mesh_token = sign_attach_token(&secret, &agent_id, exp);
+    let mesh_url = format!("ws://{host}:8009/attach/{agent_id}?token={mesh_token}&exp={exp}");
+
+    // 4) Upgrade caller, then dial mesh.
+    ws.on_upgrade(move |browser_socket| async move {
+        if let Err(e) = run_attach_proxy(browser_socket, mesh_url).await {
+            tracing::debug!("attach proxy session ended: {e:#}");
+        }
+    })
+}
+
+async fn verify_attach_caller_token(state: &AppState, token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    // Admin token short-circuit.
+    let admin = std::env::var("MC_TOKEN").unwrap_or_default();
+    if !admin.is_empty() && token == admin {
+        return true;
+    }
+    // Look up either a user session or service-account token by hash.
+    let hash = hash_token_local(token);
+    let now = Utc::now().naive_utc();
+    let user_ok = sqlx::query("SELECT 1 FROM usersession WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > $2) LIMIT 1")
+        .bind(&hash)
+        .bind(now)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+    if user_ok {
+        return true;
+    }
+    sqlx::query("SELECT 1 FROM serviceaccounttoken WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > $2) LIMIT 1")
+        .bind(&hash)
+        .bind(now)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+}
+
+fn sign_attach_token(secret: &str, agent_id: &str, exp: i64) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let mut mac = <Hmac<Sha256>>::new_from_slice(secret.as_bytes()).expect("hmac key");
+    mac.update(format!("attach:{agent_id}:{exp}").as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+#[cfg(test)]
+mod attach_proxy_tests {
+    use super::sign_attach_token;
+
+    /// Locks the wire format. mc-mesh's `attach_ws::sign_attach` MUST produce
+    /// the same output for the same inputs — see the matching test there.
+    #[test]
+    fn sign_attach_token_is_stable() {
+        let sig = sign_attach_token("s3cret", "agent-1", 1_700_000_000);
+        assert_eq!(sig.len(), 64);
+        // Re-sign produces the same value.
+        assert_eq!(sig, sign_attach_token("s3cret", "agent-1", 1_700_000_000));
+        // Different inputs produce different signatures.
+        assert_ne!(sig, sign_attach_token("s3cret", "agent-2", 1_700_000_000));
+        assert_ne!(sig, sign_attach_token("other", "agent-1", 1_700_000_000));
+    }
+}
+
+async fn run_attach_proxy(
+    browser_socket: WebSocket,
+    mesh_url: String,
+) -> anyhow::Result<()> {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as TgMessage;
+
+    let (mesh_ws, _) = tokio_tungstenite::connect_async(&mesh_url)
+        .await
+        .map_err(|e| anyhow::anyhow!("dial mesh {mesh_url}: {e}"))?;
+
+    let (mut browser_sink, mut browser_stream) = browser_socket.split();
+    let (mut mesh_sink, mut mesh_stream) = mesh_ws.split();
+
+    // Browser → mesh
+    let b2m = tokio::spawn(async move {
+        while let Some(msg) = browser_stream.next().await {
+            let Ok(msg) = msg else { break };
+            let out = match msg {
+                Message::Binary(b) => TgMessage::Binary(b.to_vec().into()),
+                Message::Text(t) => TgMessage::Text(t.to_string().into()),
+                Message::Close(_) => break,
+                _ => continue,
+            };
+            if mesh_sink.send(out).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Mesh → browser
+    let m2b = tokio::spawn(async move {
+        while let Some(msg) = mesh_stream.next().await {
+            let Ok(msg) = msg else { break };
+            let out = match msg {
+                TgMessage::Binary(b) => Message::Binary(b.to_vec().into()),
+                TgMessage::Text(t) => Message::Text(t.to_string().into()),
+                TgMessage::Close(_) => break,
+                _ => continue,
+            };
+            if browser_sink.send(out).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Either direction closing tears down the session.
+    tokio::select! {
+        _ = b2m => {}
+        _ = m2b => {}
+    }
+    Ok(())
 }
