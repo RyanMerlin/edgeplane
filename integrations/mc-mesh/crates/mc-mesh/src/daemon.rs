@@ -26,6 +26,7 @@ use crate::attach_registry::AttachRegistry;
 use crate::attach_ws;
 use crate::config::{DaemonConfig, SessionMode};
 use crate::mgmt_gateway::MgmtGateway;
+use crate::reconcile::{self, RunningAgent, RunningAgents};
 use crate::secrets_gateway::SecretsGateway;
 use crate::session_supervisor;
 use crate::state;
@@ -97,6 +98,20 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
 
     let mut task_handles = vec![];
 
+    // Phase 4d: per-agent registry tracking running supervisors. The WS
+    // subscriber and the periodic poll fall through `reconcile::diff_specs`
+    // → apply against this map so individual agents can be cycled without
+    // restarting the daemon.
+    let running: RunningAgents = Arc::new(Mutex::new(HashMap::new()));
+
+    let spawner = Arc::new(Spawner {
+        client: Arc::clone(&client),
+        watchdog: Arc::clone(&watchdog),
+        supervisor: Arc::clone(&supervisor),
+        runtime_map: Arc::clone(&runtime_map),
+        attach_registry: Arc::clone(&attach_registry),
+    });
+
     // Phase 4c: build the flat list of agents to spawn from the controlplane
     // first (state.node_id present → GET /runtime/nodes/{id}/agents), falling
     // back to legacy yaml-defined missions only when no node identity is
@@ -104,183 +119,78 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     // both sources are populated.
     let agent_specs = resolve_agent_specs(&cfg, &client).await;
 
-    // Spawn each agent. mission_id now travels per-agent (controlplane is the
-    // source of truth) instead of being grouped under a yaml mission.
-    for spec in &agent_specs {
-        let extra_caps: Vec<mc_mesh_core::types::Capability> = spec
-            .capabilities
-            .iter()
-            .map(|s| mc_mesh_core::types::Capability::new(s.clone()))
-            .collect();
-        let work_dir = paths::mc_mesh_work_dir().join(&spec.agent_id);
-
-        // For ACP+persistent we need SpawnOpts to feed the ACP supervisor
-        // directly. Capture them here while the runtime is still
-        // concrete-typed; once it's behind `Box<dyn AgentRuntime>` we
-        // can't call `spawn_opts` on it.
-        let mut acp_spawn_opts: Option<mc_mesh_acp::SpawnOpts> = None;
-
-        let rt: Arc<mc_mesh_core::agent_runtime::DynAgentRuntime> =
-            match spec.runtime_kind.as_str() {
-                "claude_code" => Arc::new(Box::new(ClaudeCodeRuntime::with_extra_capabilities(
-                    extra_caps,
-                ))),
-                "claude_agent_acp" => {
-                    let concrete =
-                        ClaudeAgentAcpRuntime::with_extra_capabilities(extra_caps);
-                    if let Err(e) = std::fs::create_dir_all(&work_dir) {
-                        tracing::error!(
-                            "failed to create work dir for {}: {e}",
-                            spec.agent_id
-                        );
-                        continue;
-                    }
-                    if let Err(e) = concrete.ensure_installed().await {
-                        tracing::error!(
-                            "ensure_installed failed for ACP agent {}: {e:#}. Skipping.",
-                            spec.agent_id
-                        );
-                        continue;
-                    }
-                    match concrete.spawn_opts(&work_dir) {
-                        Ok(opts) => acp_spawn_opts = Some(opts),
-                        Err(e) => {
-                            tracing::error!(
-                                "could not resolve ACP spawn opts for {}: {e:#}. Skipping.",
-                                spec.agent_id
-                            );
-                            continue;
-                        }
-                    }
-                    Arc::new(Box::new(concrete))
-                }
-                "codex" => Arc::new(Box::new(CodexRuntime::with_extra_capabilities(extra_caps))),
-                "gemini" => Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(
-                    extra_caps,
-                ))),
-                "goose" => Arc::new(Box::new(GooseRuntime::with_extra_capabilities(extra_caps))),
-                other => {
-                    tracing::warn!("Unknown runtime kind '{other}', skipping agent {}", spec.agent_id);
-                    continue;
-                }
-            };
-
-        // Ensure the agent CLI is installed and harness is rendered before spawning.
-        if let Err(e) = rt.ensure_installed().await {
-            tracing::error!(
-                "ensure_installed failed for agent {} (runtime {}): {e:#}. Skipping.",
-                spec.agent_id,
-                spec.runtime_kind
-            );
-            continue;
-        }
-
-        // Register in runtime map for attach gateway.
-        {
-            let mut map = runtime_map.lock().await;
-            map.insert(spec.agent_id.clone(), rt.clone());
-        }
-
-        supervisor
-            .spawn(
-                spec.agent_id.clone(),
-                spec.mission_id.clone(),
-                rt.clone(),
-                vec![],
-            )
-            .await?;
-
-        // Fetch the handle from supervisor to share with the task loop.
-        let handle = supervisor
-            .with_agent(&spec.agent_id, |a| a.agent_id.clone())
-            .await;
-
-        if handle.is_none() {
-            continue;
-        }
-
-        // Build a synthetic AgentHandle for the task loop.
-        let agent_handle = Arc::new(Mutex::new(mc_mesh_core::types::AgentHandle {
-            agent_id: spec.agent_id.clone(),
-            runtime_kind: rt.kind(),
-            pid: 0,
-        }));
-
-        match spec.session_mode {
-            SessionMode::Task => {
-                let jh = tokio::spawn(task_loop::run_for_agent(
-                    agent_handle,
-                    rt.clone(),
-                    client.clone(),
-                    spec.mission_id.clone(),
-                    spec.agent_id.clone(),
-                    watchdog.clone(),
-                ));
-                task_handles.push(jh);
-            }
-            SessionMode::Persistent => {
-                // Persistent agents: a session supervisor owns the live
-                // session and registers itself in the attach registry.
-                // ACP runtimes use a JSON-RPC-aware supervisor; everything
-                // else uses the byte-stream PTY supervisor. A message relay
-                // still runs so peer messages reach the session via
-                // signal_tx (registered by either supervisor).
-                let supervisor_jh = if spec.runtime_kind == "claude_agent_acp" {
-                    let opts = acp_spawn_opts.clone().expect(
-                        "acp_spawn_opts populated when runtime_kind == claude_agent_acp",
-                    );
-                    let scfg = AcpSupervisorConfig {
-                        agent_id: spec.agent_id.clone(),
-                        spawn_opts: opts,
-                        cwd: work_dir.clone(),
-                    };
-                    tokio::spawn(acp_session_supervisor::run_for_agent(
-                        scfg,
-                        attach_registry.clone(),
-                    ))
-                } else {
-                    tokio::spawn(session_supervisor::run_for_agent(
-                        spec.agent_id.clone(),
-                        rt.clone(),
-                        attach_registry.clone(),
-                    ))
-                };
-                task_handles.push(supervisor_jh);
-
-                let relay_agent = agent_handle.clone();
-                let relay_runtime = rt.clone();
-                let relay_client = client.clone();
-                let relay_agent_id = spec.agent_id.clone();
-                let relay_registry = attach_registry.clone();
-                let relay_jh = tokio::spawn(async move {
-                    task_loop::run_message_relay(
-                        relay_agent,
-                        relay_runtime,
-                        relay_client,
-                        relay_agent_id,
-                        Some(relay_registry),
-                    )
-                    .await;
-                });
-                task_handles.push(relay_jh);
-            }
-        }
-
-        tracing::info!(
-            "Started {} loop for {} agent {} in mission {}",
-            match spec.session_mode {
-                SessionMode::Task => "task",
-                SessionMode::Persistent => "persistent-session",
-            },
-            spec.runtime_kind,
-            spec.agent_id,
-            spec.mission_id
-        );
+    // Initial spawn through the same reconcile path the WS subscriber will
+    // use later — keeps both paths exercising one code branch.
+    {
+        let mut running_lock = running.lock().await;
+        let plan = reconcile::diff_specs(&agent_specs, &running_lock);
+        spawner.apply_plan(&plan, &mut running_lock).await;
     }
 
-    if task_handles.is_empty() {
+    // Phase 4d: live reassignment via WS + poll fallback. Only meaningful
+    // when this node is registered with the controlplane; without a node_id
+    // there is no /runtime/nodes/{id}/notify subscription to make.
+    if let Some(node_id) = cfg.node_id.clone() {
+        let ws_backend = cfg.backend_url.clone();
+        let ws_token = cfg.token.clone();
+        let ws_running = Arc::clone(&running);
+        let ws_client = Arc::clone(&client);
+        let ws_spawner = Arc::clone(&spawner);
+        task_handles.push(tokio::spawn(reconcile::watch_assignments_ws(
+            ws_backend,
+            ws_token,
+            node_id.clone(),
+            ws_client,
+            ws_running,
+            move |specs, running| {
+                let spawner = Arc::clone(&ws_spawner);
+                async move {
+                    let mut lock = running.lock().await;
+                    let plan = reconcile::diff_specs(&specs, &lock);
+                    if !plan.is_noop() {
+                        tracing::info!(
+                            "WS reconcile: spawn={}, restart={}, remove={}",
+                            plan.to_spawn.len(),
+                            plan.to_restart.len(),
+                            plan.to_remove.len()
+                        );
+                    }
+                    spawner.apply_plan(&plan, &mut lock).await;
+                }
+            },
+        )));
+
+        let poll_running = Arc::clone(&running);
+        let poll_client = Arc::clone(&client);
+        let poll_spawner = Arc::clone(&spawner);
+        task_handles.push(tokio::spawn(reconcile::poll_assignments(
+            poll_client,
+            node_id.clone(),
+            poll_running,
+            move |specs, running| {
+                let spawner = Arc::clone(&poll_spawner);
+                async move {
+                    let mut lock = running.lock().await;
+                    let plan = reconcile::diff_specs(&specs, &lock);
+                    if !plan.is_noop() {
+                        tracing::info!(
+                            "Poll reconcile: spawn={}, restart={}, remove={}",
+                            plan.to_spawn.len(),
+                            plan.to_restart.len(),
+                            plan.to_remove.len()
+                        );
+                    }
+                    spawner.apply_plan(&plan, &mut lock).await;
+                }
+            },
+        )));
+    }
+
+    if running.lock().await.is_empty() && task_handles.is_empty() {
         tracing::warn!(
-            "No agents configured. Add missions/agents to {} and restart.",
+            "No agents assigned. Either enroll agents to this node via \
+             `mc mesh agent enroll` (controlplane-driven) or add legacy \
+             `missions:` entries to {} (deprecated path).",
             DaemonConfig::user_config_path().display()
         );
     }
@@ -459,20 +369,247 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<()> {
     Ok(())
 }
 
+// ── Phase 4d: per-agent spawner + reconcile-driven apply ─────────────────────
+
+/// Bundles the shared deps every per-agent spawn needs. Cloned/Arc-shared
+/// across the start-time path, the WS subscriber, and the poll fallback so
+/// they all use the same spawn flow.
+pub(crate) struct Spawner {
+    pub client: Arc<BackendClient>,
+    pub watchdog: Arc<mc_mesh_work::watchdog::Watchdog>,
+    pub supervisor: Arc<Supervisor>,
+    pub runtime_map: attach_gateway::RuntimeMap,
+    pub attach_registry: Arc<AttachRegistry>,
+}
+
+impl Spawner {
+    /// Apply the diff plan against the running map: shut down removed
+    /// agents, restart changed ones, spawn new ones. Holds the running
+    /// lock for the duration so concurrent reconciles don't race; the
+    /// alternative (per-agent locking) wasn't worth the complexity for
+    /// the small fleet sizes we expect.
+    pub async fn apply_plan(
+        self: &Arc<Self>,
+        plan: &reconcile::ReconcilePlan,
+        running: &mut HashMap<String, RunningAgent>,
+    ) {
+        // 1. Shut down removed agents first (frees up runtime_map slots,
+        //    SIGKILLs child processes via supervisor's kill_on_drop).
+        for id in &plan.to_remove {
+            if let Some(ra) = running.remove(id) {
+                tracing::info!("Reconcile: shutting down agent {id}");
+                ra.shutdown().await;
+                self.runtime_map.lock().await.remove(id);
+            }
+        }
+        // 2. Restart changed agents (shutdown old, spawn new).
+        for spec in &plan.to_restart {
+            if let Some(ra) = running.remove(&spec.agent_id) {
+                tracing::info!(
+                    "Reconcile: restarting agent {} (mission={}, mode={:?})",
+                    spec.agent_id,
+                    spec.mission_id,
+                    spec.session_mode
+                );
+                ra.shutdown().await;
+                self.runtime_map.lock().await.remove(&spec.agent_id);
+            }
+            if let Some(new) = self.spawn_one(spec).await {
+                running.insert(spec.agent_id.clone(), new);
+            }
+        }
+        // 3. Spawn newly-assigned agents.
+        for spec in &plan.to_spawn {
+            if let Some(new) = self.spawn_one(spec).await {
+                running.insert(spec.agent_id.clone(), new);
+            }
+        }
+    }
+
+    /// Spawn one agent according to its spec. Returns `None` if any
+    /// pre-flight step fails (work_dir create, ensure_installed, etc.) —
+    /// the caller logs and continues. Mirrors the inline behavior the
+    /// legacy spawn loop had, just refactored for callability.
+    pub async fn spawn_one(self: &Arc<Self>, spec: &AgentSpec) -> Option<RunningAgent> {
+        let extra_caps: Vec<mc_mesh_core::types::Capability> = spec
+            .capabilities
+            .iter()
+            .map(|s| mc_mesh_core::types::Capability::new(s.clone()))
+            .collect();
+        let work_dir = paths::mc_mesh_work_dir().join(&spec.agent_id);
+
+        let mut acp_spawn_opts: Option<mc_mesh_acp::SpawnOpts> = None;
+
+        let rt: Arc<mc_mesh_core::agent_runtime::DynAgentRuntime> = match spec
+            .runtime_kind
+            .as_str()
+        {
+            "claude_code" => Arc::new(Box::new(ClaudeCodeRuntime::with_extra_capabilities(
+                extra_caps,
+            ))),
+            "claude_agent_acp" => {
+                let concrete = ClaudeAgentAcpRuntime::with_extra_capabilities(extra_caps);
+                if let Err(e) = std::fs::create_dir_all(&work_dir) {
+                    tracing::error!("failed to create work dir for {}: {e}", spec.agent_id);
+                    return None;
+                }
+                if let Err(e) = concrete.ensure_installed().await {
+                    tracing::error!(
+                        "ensure_installed failed for ACP agent {}: {e:#}. Skipping.",
+                        spec.agent_id
+                    );
+                    return None;
+                }
+                match concrete.spawn_opts(&work_dir) {
+                    Ok(opts) => acp_spawn_opts = Some(opts),
+                    Err(e) => {
+                        tracing::error!(
+                            "could not resolve ACP spawn opts for {}: {e:#}. Skipping.",
+                            spec.agent_id
+                        );
+                        return None;
+                    }
+                }
+                Arc::new(Box::new(concrete))
+            }
+            "codex" => Arc::new(Box::new(CodexRuntime::with_extra_capabilities(extra_caps))),
+            "gemini" => Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(extra_caps))),
+            "goose" => Arc::new(Box::new(GooseRuntime::with_extra_capabilities(extra_caps))),
+            other => {
+                tracing::warn!(
+                    "Unknown runtime kind '{other}', skipping agent {}",
+                    spec.agent_id
+                );
+                return None;
+            }
+        };
+
+        if let Err(e) = rt.ensure_installed().await {
+            tracing::error!(
+                "ensure_installed failed for agent {} (runtime {}): {e:#}. Skipping.",
+                spec.agent_id,
+                spec.runtime_kind
+            );
+            return None;
+        }
+
+        // Register in the attach gateway's runtime map.
+        self.runtime_map
+            .lock()
+            .await
+            .insert(spec.agent_id.clone(), rt.clone());
+
+        if let Err(e) = self
+            .supervisor
+            .spawn(
+                spec.agent_id.clone(),
+                spec.mission_id.clone(),
+                rt.clone(),
+                vec![],
+            )
+            .await
+        {
+            tracing::error!(
+                "supervisor.spawn failed for {}: {e:#}. Skipping.",
+                spec.agent_id
+            );
+            return None;
+        }
+
+        let agent_handle = Arc::new(Mutex::new(mc_mesh_core::types::AgentHandle {
+            agent_id: spec.agent_id.clone(),
+            runtime_kind: rt.kind(),
+            pid: 0,
+        }));
+
+        let mut handles: Vec<tokio::task::JoinHandle<()>> = vec![];
+
+        match spec.session_mode {
+            SessionMode::Task => {
+                let h = tokio::spawn(task_loop::run_for_agent(
+                    agent_handle,
+                    rt.clone(),
+                    self.client.clone(),
+                    spec.mission_id.clone(),
+                    spec.agent_id.clone(),
+                    self.watchdog.clone(),
+                ));
+                // task_loop returns Result<(), _>; wrap so JoinHandle<()> matches.
+                handles.push(tokio::spawn(async move {
+                    let _ = h.await;
+                }));
+            }
+            SessionMode::Persistent => {
+                let supervisor_jh = if spec.runtime_kind == "claude_agent_acp" {
+                    let opts = acp_spawn_opts
+                        .clone()
+                        .expect("acp_spawn_opts populated when runtime_kind == claude_agent_acp");
+                    let scfg = AcpSupervisorConfig {
+                        agent_id: spec.agent_id.clone(),
+                        spawn_opts: opts,
+                        cwd: work_dir.clone(),
+                    };
+                    tokio::spawn(acp_session_supervisor::run_for_agent(
+                        scfg,
+                        self.attach_registry.clone(),
+                    ))
+                } else {
+                    tokio::spawn(session_supervisor::run_for_agent(
+                        spec.agent_id.clone(),
+                        rt.clone(),
+                        self.attach_registry.clone(),
+                    ))
+                };
+                handles.push(supervisor_jh);
+
+                let relay_agent = agent_handle.clone();
+                let relay_runtime = rt.clone();
+                let relay_client = self.client.clone();
+                let relay_agent_id = spec.agent_id.clone();
+                let relay_registry = self.attach_registry.clone();
+                let relay_jh = tokio::spawn(async move {
+                    task_loop::run_message_relay(
+                        relay_agent,
+                        relay_runtime,
+                        relay_client,
+                        relay_agent_id,
+                        Some(relay_registry),
+                    )
+                    .await;
+                });
+                handles.push(relay_jh);
+            }
+        }
+
+        tracing::info!(
+            "Spawned {} loop for {} agent {} in mission {}",
+            match spec.session_mode {
+                SessionMode::Task => "task",
+                SessionMode::Persistent => "persistent-session",
+            },
+            spec.runtime_kind,
+            spec.agent_id,
+            spec.mission_id
+        );
+
+        Some(RunningAgent::new(spec.clone(), handles))
+    }
+}
+
 // ── Phase 4c: agent assignment resolution ────────────────────────────────────
 
 /// Internal flat representation of one agent the daemon should spawn.
 /// Built from either the controlplane (preferred when state.node_id is set)
 /// or yaml-defined missions (legacy fallback during the deprecation window).
 #[derive(Debug, Clone)]
-struct AgentSpec {
-    agent_id: String,
-    mission_id: String,
-    runtime_kind: String,
-    session_mode: SessionMode,
-    capabilities: Vec<String>,
+pub struct AgentSpec {
+    pub agent_id: String,
+    pub mission_id: String,
+    pub runtime_kind: String,
+    pub session_mode: SessionMode,
+    pub capabilities: Vec<String>,
     #[allow(dead_code)] // consumed by future ACP supervisor profile-loading work
-    profile_path: Option<PathBuf>,
+    pub profile_path: Option<PathBuf>,
 }
 
 /// Build the spawn list. Controlplane wins when state.node_id is set; yaml
@@ -517,7 +654,7 @@ async fn resolve_agent_specs(cfg: &DaemonConfig, client: &BackendClient) -> Vec<
     yaml_specs(cfg)
 }
 
-async fn fetch_node_agents(
+pub async fn fetch_node_agents(
     client: &BackendClient,
     node_id: &str,
 ) -> Result<Vec<AgentSpec>> {

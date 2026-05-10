@@ -8,6 +8,7 @@ mod attach_ws;
 mod config;
 mod daemon;
 mod mgmt_gateway;
+mod reconcile;
 mod secrets_gateway;
 mod session_supervisor;
 mod state;
