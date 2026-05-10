@@ -359,9 +359,11 @@ impl App {
 
     fn switch_to_secrets(&mut self) {
         self.screen = Screen::Secrets;
-        if self.secrets.tree.is_some() || self.secrets.no_profile_error.is_some() {
-            return; // already initialized
+        if self.secrets.tree.is_some() {
+            return; // tree already loaded
         }
+        // Always re-check profile on entry — user may have just added one in Config
+        self.secrets.no_profile_error = None;
 
         let profile_path = dirs::home_dir()
             .map(|h| h.join(".mc").join("infisical_profiles.json"));

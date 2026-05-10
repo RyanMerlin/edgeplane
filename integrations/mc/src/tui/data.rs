@@ -133,7 +133,7 @@ impl DataClient for FixtureDataClient {
     }
 }
 
-// ─── remote client (wraps reqwest, talks to mc-server / backend) ──────────────
+// ─── remote client (wraps reqwest, talks to mc-controlplane) ──────────────────
 
 pub struct RemoteDataClient {
     pub base_url: String,

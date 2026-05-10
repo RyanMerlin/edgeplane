@@ -696,7 +696,7 @@ fn panel_version(state: &ConfigScreenState) -> Vec<Line<'static>> {
             Span::styled(state.version.clone(), theme::accent()),
         ]),
         Line::from(vec![
-            Span::styled("  mc-server  ", theme::muted()),
+            Span::styled("  controlplane  ", theme::muted()),
             Span::styled(server_ver, match_style),
         ]),
         Line::from(""),
