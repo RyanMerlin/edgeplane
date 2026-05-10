@@ -21,7 +21,9 @@ use crate::{
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/agents", get(list_agents).post(create_agent))
-        .route("/agents/{agent_id}", get(get_agent).patch(update_agent))
+        .route("/agents/{agent_id}", get(get_agent).patch(update_agent).delete(delete_agent))
+        .route("/agents/{agent_id}/restart", post(restart_agent))
+        .route("/agents/{agent_id}/clear-context", post(clear_agent_context))
         .route("/agents/{agent_id}/sessions", get(list_sessions).post(start_session))
         .route("/agents/{agent_id}/sessions/{session_id}/end", post(end_session))
         .route("/agents/{agent_id}/message", post(send_message))
@@ -105,6 +107,80 @@ async fn get_agent(
         Ok(Some(row)) => Json(row_to_agent(&row)).into_response(),
         Ok(None) => not_found("Agent not found"),
         Err(e) => { tracing::error!("get_agent: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
+}
+
+async fn delete_agent(
+    State(state): State<Arc<AppState>>,
+    Path(agent_id): Path<i32>,
+) -> impl IntoResponse {
+    match sqlx::query("DELETE FROM agent WHERE id=$1")
+        .bind(agent_id).execute(&state.db).await {
+        Ok(r) if r.rows_affected() == 0 => not_found("Agent not found"),
+        Ok(_) => (StatusCode::NO_CONTENT, ()).into_response(),
+        Err(e) => { tracing::error!("delete_agent: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
+}
+
+/// Mark all open sessions ended with reason="restart_requested" and set the
+/// agent offline. The controlplane only signals — runtimes are responsible for
+/// observing the state change and actually restarting the agent process.
+async fn restart_agent(
+    State(state): State<Arc<AppState>>,
+    Path(agent_id): Path<i32>,
+) -> impl IntoResponse {
+    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM agent WHERE id=$1")
+        .bind(agent_id).fetch_optional(&state.db).await.unwrap_or(None);
+    if exists.is_none() { return not_found("Agent not found"); }
+
+    let now = Utc::now().naive_utc();
+    let _ = sqlx::query(
+        "UPDATE agentsession SET ended_at=$2, end_reason='restart_requested' \
+         WHERE agent_id=$1 AND ended_at IS NULL"
+    ).bind(agent_id).bind(now).execute(&state.db).await;
+
+    match sqlx::query("UPDATE agent SET status='offline', updated_at=$2 WHERE id=$1 RETURNING *")
+        .bind(agent_id).bind(now).fetch_one(&state.db).await {
+        Ok(row) => (StatusCode::OK, Json(row_to_agent(&row))).into_response(),
+        Err(e) => { tracing::error!("restart_agent: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
+}
+
+/// Stamp `metadata.last_context_clear_at` so listening runtimes can observe
+/// the request and reset their own conversation state. The controlplane is
+/// otherwise opaque to context content.
+async fn clear_agent_context(
+    State(state): State<Arc<AppState>>,
+    Path(agent_id): Path<i32>,
+) -> impl IntoResponse {
+    let existing = sqlx::query("SELECT * FROM agent WHERE id=$1")
+        .bind(agent_id).fetch_optional(&state.db).await;
+    let agent = match existing {
+        Ok(Some(r)) => row_to_agent(&r),
+        Ok(None) => return not_found("Agent not found"),
+        Err(e) => { tracing::error!("clear_agent_context fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+    };
+
+    let now = Utc::now().naive_utc();
+    let now_iso = Utc::now().to_rfc3339();
+    // metadata is text in the schema; parse-merge-serialize so we don't clobber
+    // unrelated keys other systems may have written.
+    let mut meta_obj: serde_json::Map<String, serde_json::Value> =
+        if agent.metadata.is_empty() {
+            serde_json::Map::new()
+        } else {
+            serde_json::from_str::<serde_json::Value>(&agent.metadata)
+                .ok()
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default()
+        };
+    meta_obj.insert("last_context_clear_at".into(), serde_json::Value::String(now_iso));
+    let new_metadata = serde_json::Value::Object(meta_obj).to_string();
+
+    match sqlx::query("UPDATE agent SET metadata=$2, updated_at=$3 WHERE id=$1 RETURNING *")
+        .bind(agent_id).bind(&new_metadata).bind(now).fetch_one(&state.db).await {
+        Ok(row) => (StatusCode::OK, Json(row_to_agent(&row))).into_response(),
+        Err(e) => { tracing::error!("clear_agent_context: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
 }
 
