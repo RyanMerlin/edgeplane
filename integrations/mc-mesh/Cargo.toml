@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/mc-mesh",
+    "crates/mc-mesh-acp",
     "crates/mc-mesh-core",
     "crates/mc-mesh-work",
     "crates/mc-mesh-runtimes",
