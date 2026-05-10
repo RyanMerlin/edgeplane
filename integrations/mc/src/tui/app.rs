@@ -623,6 +623,7 @@ impl App {
             ],
             Screen::Config if self.config.infisical_form.is_some() => &[
                 ("Tab", "next field"),
+                ("F2", "toggle auth mode"),
                 ("Enter", "save"),
                 ("Esc", "cancel"),
             ],

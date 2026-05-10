@@ -12,11 +12,26 @@ use crate::tui::theme;
 
 // ── Add-profile form ──────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum InfisicalAuthMode {
+    UniversalAuth,
+    ServiceToken,
+}
+
+impl Default for InfisicalAuthMode {
+    fn default() -> Self { Self::UniversalAuth }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct InfisicalAddForm {
     pub name: String,
+    pub mode: InfisicalAuthMode,
+    // Universal Auth fields
+    pub client_id: String,
+    pub client_secret: String,
+    // Service Token field
     pub token: String,
-    pub focused_field: usize, // 0 = name, 1 = token
+    pub focused_field: usize, // 0=name, 1=client_id/token, 2=client_secret (UA only)
     pub error: Option<String>,
 }
 
@@ -197,40 +212,78 @@ impl ConfigScreenState {
     fn handle_infisical_form_key(&mut self, key: crossterm::event::KeyCode) -> bool {
         use crossterm::event::KeyCode::*;
         let form = self.infisical_form.as_mut().unwrap();
+        let max_field = if form.mode == InfisicalAuthMode::UniversalAuth { 2 } else { 1 };
         match key {
-            Tab | BackTab => {
-                form.focused_field = 1 - form.focused_field;
+            // F2 / Alt-t toggles auth mode
+            F(2) => {
+                form.mode = if form.mode == InfisicalAuthMode::UniversalAuth {
+                    InfisicalAuthMode::ServiceToken
+                } else {
+                    InfisicalAuthMode::UniversalAuth
+                };
+                form.focused_field = form.focused_field.min(max_field);
+                form.error = None;
+            }
+            Tab => {
+                form.focused_field = (form.focused_field + 1) % (max_field + 1);
+            }
+            BackTab => {
+                if form.focused_field == 0 {
+                    form.focused_field = max_field;
+                } else {
+                    form.focused_field -= 1;
+                }
             }
             Backspace => {
-                if form.focused_field == 0 {
-                    form.name.pop();
-                } else {
-                    form.token.pop();
-                }
                 form.error = None;
+                match form.focused_field {
+                    0 => { form.name.pop(); }
+                    1 if form.mode == InfisicalAuthMode::UniversalAuth => { form.client_id.pop(); }
+                    1 => { form.token.pop(); }
+                    _ => { form.client_secret.pop(); }
+                }
             }
             Char(c) => {
-                if form.focused_field == 0 {
-                    form.name.push(c);
-                } else {
-                    form.token.push(c);
-                }
                 form.error = None;
+                match form.focused_field {
+                    0 => form.name.push(c),
+                    1 if form.mode == InfisicalAuthMode::UniversalAuth => form.client_id.push(c),
+                    1 => form.token.push(c),
+                    _ => form.client_secret.push(c),
+                }
             }
             Enter => {
                 let name = form.name.trim().to_string();
-                let token = form.token.trim().to_string();
                 if name.is_empty() {
                     form.error = Some("Name is required".into());
                     form.focused_field = 0;
-                } else if token.is_empty() {
-                    form.error = Some("Service token is required".into());
-                    form.focused_field = 1;
-                } else {
-                    let name = name.clone();
-                    let token = token.clone();
-                    self.infisical_form = None;
-                    self.save_infisical_profile(name, token);
+                    return true;
+                }
+                match form.mode {
+                    InfisicalAuthMode::UniversalAuth => {
+                        let id = form.client_id.trim().to_string();
+                        let secret = form.client_secret.trim().to_string();
+                        if id.is_empty() {
+                            form.error = Some("Client ID is required".into());
+                            form.focused_field = 1;
+                        } else if secret.is_empty() {
+                            form.error = Some("Client Secret is required".into());
+                            form.focused_field = 2;
+                        } else {
+                            self.infisical_form = None;
+                            self.save_infisical_ua_profile(name, id, secret);
+                        }
+                    }
+                    InfisicalAuthMode::ServiceToken => {
+                        let token = form.token.trim().to_string();
+                        if token.is_empty() {
+                            form.error = Some("Service token is required".into());
+                            form.focused_field = 1;
+                        } else {
+                            self.infisical_form = None;
+                            self.save_infisical_profile(name, token);
+                        }
+                    }
                 }
             }
             Esc => {
@@ -243,6 +296,12 @@ impl ConfigScreenState {
 
     fn save_infisical_profile(&mut self, name: String, token: String) {
         let cfg = InfisicalConfig::with_service_token("https://app.infisical.com", &token);
+        self.infisical_profiles.upsert(name, cfg);
+        self.save_infisical_map();
+    }
+
+    fn save_infisical_ua_profile(&mut self, name: String, client_id: String, client_secret: String) {
+        let cfg = InfisicalConfig::with_ua("https://app.infisical.com", client_id, client_secret);
         self.infisical_profiles.upsert(name, cfg);
         self.save_infisical_map();
     }
@@ -563,32 +622,53 @@ fn panel_infisical(state: &ConfigScreenState) -> Vec<Line<'static>> {
 }
 
 fn panel_infisical_form(form: &InfisicalAddForm) -> Vec<Line<'static>> {
-    let name_cursor = if form.focused_field == 0 { "▌" } else { "" };
-    let token_cursor = if form.focused_field == 1 { "▌" } else { "" };
+    let is_ua = form.mode == InfisicalAuthMode::UniversalAuth;
 
-    let name_style = if form.focused_field == 0 { theme::selected() } else { theme::normal() };
-    let token_style = if form.focused_field == 1 { theme::selected() } else { theme::normal() };
+    let f = |i: usize| if form.focused_field == i { theme::selected() } else { theme::normal() };
+    let c = |i: usize| if form.focused_field == i { "▌" } else { "" };
 
-    let token_masked: String = "*".repeat(form.token.len());
+    let mode_label = if is_ua { "Universal Auth (machine identity)" } else { "Service Token (legacy)" };
+    let mode_inactive = if is_ua { "  F2 switch to Service Token" } else { "  F2 switch to Universal Auth" };
 
     let mut lines = vec![
         Line::from(""),
         Line::from(Span::styled("  Add Infisical Profile", theme::accent())),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Name    ", theme::muted()),
-            Span::styled(format!("[{}{}]", form.name, name_cursor), name_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  Token   ", theme::muted()),
-            Span::styled(format!("[{}{}]", token_masked, token_cursor), token_style),
+            Span::styled("  Mode     ", theme::muted()),
+            Span::styled(mode_label, theme::accent()),
+            Span::styled(mode_inactive, theme::dim()),
         ]),
         Line::from(""),
-        Line::from(Span::styled(
-            "  Tab next field   Enter save   Esc cancel",
-            theme::dim(),
-        )),
+        Line::from(vec![
+            Span::styled("  Name     ", theme::muted()),
+            Span::styled(format!("[{}{}]", form.name, c(0)), f(0)),
+        ]),
     ];
+
+    if is_ua {
+        lines.push(Line::from(vec![
+            Span::styled("  Client ID", theme::muted()),
+            Span::styled(format!("[{}{}]", form.client_id, c(1)), f(1)),
+        ]));
+        let secret_masked: String = "*".repeat(form.client_secret.len());
+        lines.push(Line::from(vec![
+            Span::styled("  Secret   ", theme::muted()),
+            Span::styled(format!("[{}{}]", secret_masked, c(2)), f(2)),
+        ]));
+    } else {
+        let token_masked: String = "*".repeat(form.token.len());
+        lines.push(Line::from(vec![
+            Span::styled("  Token    ", theme::muted()),
+            Span::styled(format!("[{}{}]", token_masked, c(1)), f(1)),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Tab next field   Enter save   Esc cancel",
+        theme::dim(),
+    )));
 
     if let Some(err) = &form.error {
         lines.push(Line::from(""));
