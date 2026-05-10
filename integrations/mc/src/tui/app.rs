@@ -638,9 +638,10 @@ impl App {
             Screen::Config if self.config.content_focused && self.config.nav_selection == 5 => &[
                 ("↑↓", "navigate"),
                 ("Enter", "activate"),
+                ("e", "edit"),
                 ("d", "delete"),
-                ("←/Esc", "nav panel"),
                 ("n", "add"),
+                ("←/Esc", "back"),
                 ("Ctrl+Q", "quit"),
             ],
             Screen::Config => &[

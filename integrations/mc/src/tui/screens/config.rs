@@ -26,12 +26,13 @@ impl Default for InfisicalAuthMode {
 pub struct InfisicalAddForm {
     pub name: String,
     pub mode: InfisicalAuthMode,
-    // Universal Auth fields
     pub client_id: String,
     pub client_secret: String,
-    // Service Token field
     pub token: String,
-    pub focused_field: usize, // 0=name, 1=client_id/token, 2=client_secret (UA only)
+    pub project_id: String,
+    pub environment: String,
+    pub focused_field: usize, // 0=name,1=cred1,2=cred2(UA),3=project_id,4=environment
+    pub is_edit: bool,        // true = editing existing profile (name locked)
     pub error: Option<String>,
 }
 
@@ -173,9 +174,17 @@ impl ConfigScreenState {
                 }
                 true
             }
-            // n — open add-profile form (Infisical panel, any focus state)
+            // n — open add-profile form
             Char('n') if self.nav_selection == 5 => {
-                self.infisical_form = Some(InfisicalAddForm::default());
+                self.infisical_form = Some(InfisicalAddForm {
+                    environment: "prod".into(),
+                    ..InfisicalAddForm::default()
+                });
+                true
+            }
+            // e — edit selected profile
+            Char('e') if self.nav_selection == 5 && self.content_focused => {
+                self.edit_selected_infisical_profile();
                 true
             }
             // d — delete selected Infisical profile (content focused)
@@ -212,51 +221,64 @@ impl ConfigScreenState {
     fn handle_infisical_form_key(&mut self, key: crossterm::event::KeyCode) -> bool {
         use crossterm::event::KeyCode::*;
         let form = self.infisical_form.as_mut().unwrap();
-        let max_field = if form.mode == InfisicalAuthMode::UniversalAuth { 2 } else { 1 };
+        // field indices: 0=name, 1=cred1, 2=cred2(UA only), 3=project_id, 4=environment
+        let cred_fields = if form.mode == InfisicalAuthMode::UniversalAuth { 2 } else { 1 };
+        let max_field = cred_fields + 2; // + project_id + environment
+        let name_locked = form.is_edit;
         match key {
-            // F2 / Alt-t toggles auth mode
-            F(2) => {
+            F(2) if !form.is_edit => {
                 form.mode = if form.mode == InfisicalAuthMode::UniversalAuth {
                     InfisicalAuthMode::ServiceToken
                 } else {
                     InfisicalAuthMode::UniversalAuth
                 };
-                form.focused_field = form.focused_field.min(max_field);
+                form.focused_field = form.focused_field.min(cred_fields + 2);
                 form.error = None;
             }
-            Tab => {
-                form.focused_field = (form.focused_field + 1) % (max_field + 1);
-            }
+            Tab => { form.focused_field = (form.focused_field + 1) % (max_field + 1); }
             BackTab => {
-                if form.focused_field == 0 {
-                    form.focused_field = max_field;
-                } else {
-                    form.focused_field -= 1;
-                }
+                if form.focused_field == 0 { form.focused_field = max_field; }
+                else { form.focused_field -= 1; }
             }
             Backspace => {
                 form.error = None;
+                let is_ua = form.mode == InfisicalAuthMode::UniversalAuth;
                 match form.focused_field {
-                    0 => { form.name.pop(); }
-                    1 if form.mode == InfisicalAuthMode::UniversalAuth => { form.client_id.pop(); }
-                    1 => { form.token.pop(); }
-                    _ => { form.client_secret.pop(); }
+                    0 if !name_locked => { form.name.pop(); }
+                    1 if is_ua  => { form.client_id.pop(); }
+                    1           => { form.token.pop(); }
+                    2 if is_ua  => { form.client_secret.pop(); }
+                    f if f == cred_fields + 1 => { form.project_id.pop(); }
+                    _           => { form.environment.pop(); }
                 }
             }
             Char(c) => {
                 form.error = None;
+                let is_ua = form.mode == InfisicalAuthMode::UniversalAuth;
                 match form.focused_field {
-                    0 => form.name.push(c),
-                    1 if form.mode == InfisicalAuthMode::UniversalAuth => form.client_id.push(c),
-                    1 => form.token.push(c),
-                    _ => form.client_secret.push(c),
+                    0 if !name_locked => form.name.push(c),
+                    1 if is_ua  => form.client_id.push(c),
+                    1           => form.token.push(c),
+                    2 if is_ua  => form.client_secret.push(c),
+                    f if f == cred_fields + 1 => form.project_id.push(c),
+                    _           => form.environment.push(c),
                 }
             }
             Enter => {
                 let name = form.name.trim().to_string();
+                let project_id = form.project_id.trim().to_string();
+                let environment = {
+                    let e = form.environment.trim().to_string();
+                    if e.is_empty() { "prod".to_string() } else { e }
+                };
                 if name.is_empty() {
                     form.error = Some("Name is required".into());
                     form.focused_field = 0;
+                    return true;
+                }
+                if project_id.is_empty() {
+                    form.error = Some("Project ID is required — find it in Infisical project settings".into());
+                    form.focused_field = cred_fields + 1;
                     return true;
                 }
                 match form.mode {
@@ -271,7 +293,7 @@ impl ConfigScreenState {
                             form.focused_field = 2;
                         } else {
                             self.infisical_form = None;
-                            self.save_infisical_ua_profile(name, id, secret);
+                            self.save_infisical_ua_profile(name, id, secret, project_id, environment);
                         }
                     }
                     InfisicalAuthMode::ServiceToken => {
@@ -281,27 +303,29 @@ impl ConfigScreenState {
                             form.focused_field = 1;
                         } else {
                             self.infisical_form = None;
-                            self.save_infisical_profile(name, token);
+                            self.save_infisical_profile(name, token, project_id, environment);
                         }
                     }
                 }
             }
-            Esc => {
-                self.infisical_form = None;
-            }
+            Esc => { self.infisical_form = None; }
             _ => {}
         }
         true // always consume when form is active
     }
 
-    fn save_infisical_profile(&mut self, name: String, token: String) {
-        let cfg = InfisicalConfig::with_service_token("https://app.infisical.com", &token);
+    fn save_infisical_profile(&mut self, name: String, token: String, project_id: String, environment: String) {
+        let mut cfg = InfisicalConfig::with_service_token("https://app.infisical.com", &token);
+        cfg.default_project_id = Some(project_id);
+        cfg.default_environment = environment;
         self.infisical_profiles.upsert(name, cfg);
         self.save_infisical_map();
     }
 
-    fn save_infisical_ua_profile(&mut self, name: String, client_id: String, client_secret: String) {
-        let cfg = InfisicalConfig::with_ua("https://app.infisical.com", client_id, client_secret);
+    fn save_infisical_ua_profile(&mut self, name: String, client_id: String, client_secret: String, project_id: String, environment: String) {
+        let mut cfg = InfisicalConfig::with_ua("https://app.infisical.com", client_id, client_secret);
+        cfg.default_project_id = Some(project_id);
+        cfg.default_environment = environment;
         self.infisical_profiles.upsert(name, cfg);
         self.save_infisical_map();
     }
@@ -323,6 +347,29 @@ impl ConfigScreenState {
             }
             self.save_infisical_map();
         }
+    }
+
+    fn edit_selected_infisical_profile(&mut self) {
+        let names: Vec<String> = self.infisical_profiles.profiles.keys().cloned().collect();
+        let Some(name) = names.get(self.infisical_selection).cloned() else { return };
+        let Some(cfg) = self.infisical_profiles.profiles.get(&name).cloned() else { return };
+        let mode = if cfg.service_token.is_some() {
+            InfisicalAuthMode::ServiceToken
+        } else {
+            InfisicalAuthMode::UniversalAuth
+        };
+        self.infisical_form = Some(InfisicalAddForm {
+            name: name.clone(),
+            mode,
+            client_id: cfg.client_id.unwrap_or_default(),
+            client_secret: cfg.client_secret.unwrap_or_default(),
+            token: cfg.service_token.unwrap_or_default(),
+            project_id: cfg.default_project_id.unwrap_or_default(),
+            environment: cfg.default_environment,
+            is_edit: true,
+            focused_field: 1, // start on first credential field
+            error: None,
+        });
     }
 
     fn save_infisical_map(&self) {
@@ -664,9 +711,24 @@ fn panel_infisical_form(form: &InfisicalAddForm) -> Vec<Line<'static>> {
         ]));
     }
 
+    // project_id and environment always shown
+    let pid_field = if is_ua { 3 } else { 2 };
+    let env_field = pid_field + 1;
     lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Project ID", theme::muted()),
+        Span::styled(format!("[{}{}]", form.project_id, c(pid_field)), f(pid_field)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  Environment", theme::muted()),
+        Span::styled(format!("[{}{}]", form.environment, c(env_field)), f(env_field)),
+        Span::styled("  (prod/dev/staging)", theme::dim()),
+    ]));
+
+    lines.push(Line::from(""));
+    let mode_hint = if form.is_edit { "" } else { "   F2 toggle mode" };
     lines.push(Line::from(Span::styled(
-        "  Tab next field   Enter save   Esc cancel",
+        format!("  Tab next field   Enter save   Esc cancel{mode_hint}"),
         theme::dim(),
     )));
 
