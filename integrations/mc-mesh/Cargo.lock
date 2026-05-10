@@ -1479,6 +1479,7 @@ dependencies = [
  "chrono",
  "dirs",
  "futures",
+ "mc-mesh-acp",
  "mc-mesh-core",
  "portable-pty",
  "serde",

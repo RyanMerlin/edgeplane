@@ -5,7 +5,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeKind {
+    /// Stateless `claude -p` per task — task-mode only.
     ClaudeCode,
+    /// `claude-agent-acp` over JSON-RPC/stdio — supports both task-mode
+    /// (one-shot prompt per task) and persistent-mode (long-lived session
+    /// driven by the supervisor). The intended runtime for the Aria fleet.
+    ClaudeAgentAcp,
     Codex,
     Gemini,
     Custom(String),
@@ -15,6 +20,7 @@ impl std::fmt::Display for RuntimeKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RuntimeKind::ClaudeCode => write!(f, "claude_code"),
+            RuntimeKind::ClaudeAgentAcp => write!(f, "claude_agent_acp"),
             RuntimeKind::Codex => write!(f, "codex"),
             RuntimeKind::Gemini => write!(f, "gemini"),
             RuntimeKind::Custom(s) => write!(f, "{s}"),

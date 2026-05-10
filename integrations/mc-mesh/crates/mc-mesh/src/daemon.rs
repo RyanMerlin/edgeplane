@@ -6,6 +6,7 @@ use mc_mesh_core::machine::MachineInfo;
 use mc_mesh_core::paths;
 use mc_mesh_packs::{PackRegistry, PolicyBundle};
 use mc_mesh_runtimes::{
+    claude_agent_acp::ClaudeAgentAcpRuntime,
     claude_code::ClaudeCodeRuntime,
     codex::CodexRuntime,
     gemini::GeminiRuntime,
@@ -98,6 +99,9 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
                     "claude_code" => Arc::new(Box::new(ClaudeCodeRuntime::with_extra_capabilities(
                         extra_caps,
                     ))),
+                    "claude_agent_acp" => Arc::new(Box::new(
+                        ClaudeAgentAcpRuntime::with_extra_capabilities(extra_caps),
+                    )),
                     "codex" => Arc::new(Box::new(CodexRuntime::with_extra_capabilities(extra_caps))),
                     "gemini" => Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(
                         extra_caps,

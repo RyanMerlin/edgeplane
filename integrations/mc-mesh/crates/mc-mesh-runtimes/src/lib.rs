@@ -1,3 +1,4 @@
+pub mod claude_agent_acp;
 pub mod claude_code;
 pub mod codex;
 pub mod gemini;

@@ -2,10 +2,11 @@
 name = "mc-mesh-runtimes"
 version.workspace = true
 edition = "2024"
-description = "First-party AgentRuntime implementations: claude-code, codex, gemini"
+description = "First-party AgentRuntime implementations: claude-code, claude-agent-acp, codex, gemini"
 license = "Apache-2.0"
 
 [dependencies]
+mc-mesh-acp = { path = "../mc-mesh-acp" }
 mc-mesh-core = { path = "../mc-mesh-core" }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
