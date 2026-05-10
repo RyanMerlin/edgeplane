@@ -146,15 +146,15 @@ impl AgentRuntime for ClaudeAgentAcpRuntime {
         let session = AcpSession::open(opts, work_dir).await?;
 
         // Convert prompt + session into a ProgressEvent stream that closes
-        // the session when the stream is dropped or completes.
+        // the session when the stream completes.
         let stream = async_stream::stream! {
             yield ProgressEvent::phase_started("running", "claude_agent_acp session opened");
-            let mut events = session.prompt(prompt).await;
+            let mut events = session.prompt(prompt);
             while let Some(ev) = events.next().await {
                 yield ev;
             }
-            // events stream has finished; shut down the session.
-            if let Err(e) = events.into_session().shutdown().await {
+            drop(events); // release the borrow before shutdown takes ownership
+            if let Err(e) = session.shutdown().await {
                 yield ProgressEvent::error(
                     format!("acp shutdown: {e}"),
                     serde_json::json!({ "detail": e.to_string() }),
@@ -259,8 +259,9 @@ impl AgentRuntime for ClaudeAgentAcpRuntime {
 
 impl ClaudeAgentAcpRuntime {
     /// Build [`SpawnOpts`] with resolved `node` + `dist/index.js` paths and
-    /// the given working directory.
-    fn spawn_opts(&self, cwd: &std::path::Path) -> Result<SpawnOpts> {
+    /// the given working directory. `ensure_installed` must have been called
+    /// successfully first; otherwise this errors.
+    pub fn spawn_opts(&self, cwd: &std::path::Path) -> Result<SpawnOpts> {
         let node = self
             .node_path
             .get()
@@ -334,24 +335,21 @@ impl AcpSession {
         })
     }
 
-    /// Send a prompt and return a stream of [`ProgressEvent`]s plus a
-    /// reference back to this session for cleanup.
+    /// Send a prompt and return a stream of [`ProgressEvent`]s.
     ///
     /// The stream emits events as `session/update` notifications arrive,
     /// terminates with a final event derived from the prompt's stop reason,
     /// then closes. The session itself stays open after the stream closes;
     /// drop or call [`AcpSession::shutdown`] to terminate it.
-    pub async fn prompt(self, prompt_text: String) -> AcpEventStream {
+    pub fn prompt(&self, prompt_text: String) -> BoxStream<'static, ProgressEvent> {
         let agent = self.agent.clone();
         let session_id = self.session_id.clone();
-        let stream_agent = agent.clone();
-        let stream_session_id = session_id.clone();
         let mut updates = agent.subscribe_session_updates();
 
         let stream = async_stream::stream! {
-            let prompt_fut = stream_agent.prompt(schema::PromptRequest {
+            let prompt_fut = agent.prompt(schema::PromptRequest {
                 meta: None,
-                session_id: stream_session_id,
+                session_id,
                 prompt: vec![ContentBlock::text(prompt_text)],
             });
             tokio::pin!(prompt_fut);
@@ -395,13 +393,14 @@ impl AcpSession {
             }
         };
 
-        AcpEventStream {
-            inner: Box::pin(stream),
-            session: Self {
-                agent,
-                session_id,
-            },
-        }
+        Box::pin(stream)
+    }
+
+    /// Subscribe to raw `session/update` notifications. Used by the
+    /// persistent-session supervisor to fan agent output out to viewers
+    /// over the attach registry.
+    pub fn subscribe_updates(&self) -> tokio::sync::broadcast::Receiver<mc_mesh_acp::wire::SessionNotification> {
+        self.agent.subscribe_session_updates()
     }
 
     /// Cancel any in-flight prompt for this session. Fire-and-forget per the
@@ -416,32 +415,6 @@ impl AcpSession {
     pub async fn shutdown(self) -> Result<i32> {
         let code = self.agent.shutdown().await?;
         Ok(code)
-    }
-}
-
-/// Stream returned by [`AcpSession::prompt`]. Wraps the event stream and
-/// holds the session so the caller can shut it down after the stream ends.
-pub struct AcpEventStream {
-    inner: BoxStream<'static, ProgressEvent>,
-    session: AcpSession,
-}
-
-impl AcpEventStream {
-    /// Reclaim the underlying [`AcpSession`] after the stream has finished.
-    /// Useful for the AgentRuntime path that wants to shut the session down
-    /// once the stream closes.
-    pub fn into_session(self) -> AcpSession {
-        self.session
-    }
-}
-
-impl futures::Stream for AcpEventStream {
-    type Item = ProgressEvent;
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        self.inner.as_mut().poll_next(cx)
     }
 }
 

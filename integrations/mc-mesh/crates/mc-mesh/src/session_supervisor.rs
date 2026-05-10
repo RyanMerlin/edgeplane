@@ -15,7 +15,7 @@ use mc_mesh_core::agent_runtime::DynAgentRuntime;
 use mc_mesh_core::types::{AgentHandle, AgentSignal};
 use tokio::sync::{broadcast, mpsc};
 
-use crate::attach_registry::{AttachEndpoints, AttachRegistry};
+use crate::attach_registry::{AttachEndpoints, AttachRegistry, PtyAttachEndpoints};
 
 const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(60);
@@ -82,12 +82,12 @@ async fn run_one_session(
     let (stdout_broadcast, _) = broadcast::channel::<Vec<u8>>(STDOUT_BROADCAST_CAPACITY);
     let (signal_tx, mut signal_rx) = mpsc::channel::<AgentSignal>(64);
 
-    let endpoints = AttachEndpoints {
+    let endpoints = AttachEndpoints::Pty(PtyAttachEndpoints {
         stdin_tx: session.input.clone(),
         stdout_broadcast: stdout_broadcast.clone(),
         resize_tx: session.resize.clone(),
         signal_tx,
-    };
+    });
     registry.register(agent_id.to_string(), endpoints).await;
 
     let result = pump_session(&mut session, &stdout_broadcast, &mut signal_rx).await;

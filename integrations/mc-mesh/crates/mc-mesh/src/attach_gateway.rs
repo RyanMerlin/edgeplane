@@ -102,13 +102,30 @@ async fn handle_connection(
 
     // Persistent-session fast path: a session supervisor already owns a live
     // PTY for this agent. Subscribe to its broadcast and route input through
-    // the registered stdin sender.
+    // the registered stdin sender. ACP-shaped endpoints don't speak the
+    // byte-stream Unix socket protocol — surface a clean error instead of
+    // wiring half a channel.
     if let Some(endpoints) = registry.get(&agent_id).await {
+        let pty = match endpoints {
+            crate::attach_registry::AttachEndpoints::Pty(p) => p,
+            crate::attach_registry::AttachEndpoints::Acp(_) => {
+                write_half
+                    .write_all(
+                        format!(
+                            "ERR agent {agent_id} is an ACP session; \
+                             byte-stream attach not supported on this transport\n"
+                        )
+                        .as_bytes(),
+                    )
+                    .await?;
+                return Ok(());
+            }
+        };
         write_half.write_all(b"OK\n").await?;
         tracing::info!("attach session started for persistent agent {agent_id}");
 
-        let mut stdout_rx = endpoints.stdout_broadcast.subscribe();
-        let stdin_tx = endpoints.stdin_tx.clone();
+        let mut stdout_rx = pty.stdout_broadcast.subscribe();
+        let stdin_tx = pty.stdin_tx.clone();
         let agent_id_for_log = agent_id.clone();
 
         tokio::spawn(async move {

@@ -1,6 +1,7 @@
 /// mc-mesh daemon binary.
 ///
 /// Headless — users interact via `mc mesh …` in the mc CLI.
+mod acp_session_supervisor;
 mod attach_gateway;
 mod attach_registry;
 mod attach_ws;

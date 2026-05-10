@@ -1,5 +1,6 @@
 /// mc-mesh daemon — wires config, supervisor, runtimes, and task loops together.
 use anyhow::Result;
+use mc_mesh_core::agent_runtime::AgentRuntime;
 use mc_mesh_core::capability_dispatcher::CapabilityDispatcher;
 use mc_mesh_core::client::BackendClient;
 use mc_mesh_core::machine::MachineInfo;
@@ -19,6 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::acp_session_supervisor::{self, AcpSupervisorConfig};
 use crate::attach_gateway;
 use crate::attach_registry::AttachRegistry;
 use crate::attach_ws;
@@ -94,14 +96,48 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
                 .iter()
                 .map(|s| mc_mesh_core::types::Capability::new(s.clone()))
                 .collect();
+            let work_dir = paths::mc_mesh_work_dir().join(&agent_entry.agent_id);
+
+            // For ACP+persistent we need SpawnOpts to feed the ACP supervisor
+            // directly. Capture them here while the runtime is still
+            // concrete-typed; once it's behind `Box<dyn AgentRuntime>` we
+            // can't call `spawn_opts` on it.
+            let mut acp_spawn_opts: Option<mc_mesh_acp::SpawnOpts> = None;
+
             let rt: Arc<mc_mesh_core::agent_runtime::DynAgentRuntime> =
                 match agent_entry.runtime_kind.as_str() {
                     "claude_code" => Arc::new(Box::new(ClaudeCodeRuntime::with_extra_capabilities(
                         extra_caps,
                     ))),
-                    "claude_agent_acp" => Arc::new(Box::new(
-                        ClaudeAgentAcpRuntime::with_extra_capabilities(extra_caps),
-                    )),
+                    "claude_agent_acp" => {
+                        let concrete =
+                            ClaudeAgentAcpRuntime::with_extra_capabilities(extra_caps);
+                        if let Err(e) = std::fs::create_dir_all(&work_dir) {
+                            tracing::error!(
+                                "failed to create work dir for {}: {e}",
+                                agent_entry.agent_id
+                            );
+                            continue;
+                        }
+                        if let Err(e) = concrete.ensure_installed().await {
+                            tracing::error!(
+                                "ensure_installed failed for ACP agent {}: {e:#}. Skipping.",
+                                agent_entry.agent_id
+                            );
+                            continue;
+                        }
+                        match concrete.spawn_opts(&work_dir) {
+                            Ok(opts) => acp_spawn_opts = Some(opts),
+                            Err(e) => {
+                                tracing::error!(
+                                    "could not resolve ACP spawn opts for {}: {e:#}. Skipping.",
+                                    agent_entry.agent_id
+                                );
+                                continue;
+                            }
+                        }
+                        Arc::new(Box::new(concrete))
+                    }
                     "codex" => Arc::new(Box::new(CodexRuntime::with_extra_capabilities(extra_caps))),
                     "gemini" => Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(
                         extra_caps,
@@ -174,15 +210,32 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
                     task_handles.push(jh);
                 }
                 SessionMode::Persistent => {
-                    // Persistent agents: a session supervisor owns the PTY
-                    // and registers itself in the attach registry. A message
-                    // relay still runs so peer messages reach the live
-                    // session via signal_tx.
-                    let supervisor_jh = tokio::spawn(session_supervisor::run_for_agent(
-                        agent_entry.agent_id.clone(),
-                        rt.clone(),
-                        attach_registry.clone(),
-                    ));
+                    // Persistent agents: a session supervisor owns the live
+                    // session and registers itself in the attach registry.
+                    // ACP runtimes use a JSON-RPC-aware supervisor; everything
+                    // else uses the byte-stream PTY supervisor. A message
+                    // relay still runs so peer messages reach the session
+                    // via signal_tx (registered by either supervisor).
+                    let supervisor_jh = if agent_entry.runtime_kind == "claude_agent_acp" {
+                        let opts = acp_spawn_opts.clone().expect(
+                            "acp_spawn_opts populated when runtime_kind == claude_agent_acp",
+                        );
+                        let scfg = AcpSupervisorConfig {
+                            agent_id: agent_entry.agent_id.clone(),
+                            spawn_opts: opts,
+                            cwd: work_dir.clone(),
+                        };
+                        tokio::spawn(acp_session_supervisor::run_for_agent(
+                            scfg,
+                            attach_registry.clone(),
+                        ))
+                    } else {
+                        tokio::spawn(session_supervisor::run_for_agent(
+                            agent_entry.agent_id.clone(),
+                            rt.clone(),
+                            attach_registry.clone(),
+                        ))
+                    };
                     task_handles.push(supervisor_jh);
 
                     let relay_agent = agent_handle.clone();

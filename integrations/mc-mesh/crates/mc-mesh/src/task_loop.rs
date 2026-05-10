@@ -427,7 +427,7 @@ pub async fn run_message_relay(
             let mut delivered = false;
             if let Some(ref reg) = registry {
                 if let Some(endpoints) = reg.get(&agent_id).await {
-                    if let Err(e) = endpoints.signal_tx.send(signal.clone()).await {
+                    if let Err(e) = endpoints.signal_tx().send(signal.clone()).await {
                         tracing::debug!(
                             "Session supervisor not ready for {agent_id}, dropping signal: {e}"
                         );

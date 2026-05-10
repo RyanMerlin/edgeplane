@@ -10,6 +10,7 @@ name = "mc-mesh"
 path = "src/main.rs"
 
 [dependencies]
+mc-mesh-acp = { path = "../mc-mesh-acp" }
 mc-mesh-core = { path = "../mc-mesh-core" }
 mc-mesh-secrets = { path = "../mc-mesh-secrets" }
 mc-mesh-packs = { path = "../mc-mesh-packs" }

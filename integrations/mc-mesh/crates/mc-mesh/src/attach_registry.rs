@@ -1,30 +1,65 @@
-/// Process-wide registry of live persistent-session endpoints, keyed by
-/// `agent_id`. Populated by `session_supervisor` when it owns a PTY; consumed
-/// by `attach_gateway` (Unix socket) and (in Phase 2a) `attach_ws` (network
-/// WS server) so multiple viewers can attach to the same persistent agent
-/// without spawning new processes.
-///
-/// `stdout_broadcast` is fan-out — each attach calls `subscribe()`.
-/// `stdin_tx`/`resize_tx` are unicast (last-writer-wins for stdin is fine —
-/// persistent sessions are user-driven and only one human steers at a time).
-/// `signal_tx` is the in-band path for `AgentSignal` delivery from the message
-/// relay; the supervisor consumes it and writes the rendered prompt to stdin.
+//! Process-wide registry of live persistent-session endpoints, keyed by
+//! `agent_id`. Populated by the appropriate supervisor when it owns a
+//! session; consumed by the attach surfaces (Unix socket gateway, network
+//! WS server) so multiple viewers can attach to the same persistent agent
+//! without spawning new processes.
+//!
+//! Two endpoint shapes — selected at registration time by the supervisor:
+//!
+//! - [`PtyAttachEndpoints`] — byte-stream PTY (claude-code, codex, gemini,
+//!   goose). Fan-out via stdout broadcast; unicast stdin/resize; in-band
+//!   AgentSignal delivery for peer-message relay.
+//! - [`AcpAttachEndpoints`] — JSON-RPC over stdio (claude-agent-acp).
+//!   Fan-out via session/update broadcast; signal channel still carries
+//!   AgentSignal so the existing peer-message relay routes work unchanged
+//!   (the supervisor maps UserInput → session/prompt, Cancel → session/cancel).
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use mc_mesh_acp::wire::SessionNotification;
 use mc_mesh_core::types::AgentSignal;
 use tokio::sync::{Mutex, broadcast, mpsc};
 
-// stdin_tx / stdout_broadcast / resize_tx are wired up in Phase 1 by the
-// session supervisor and consumed in Phase 2a by the network attach WS server
-// (and updated attach_gateway). Suppress the dead-code warning until that lands.
-#[allow(dead_code)]
+/// PTY-shaped attach endpoints. Used by the byte-stream supervisor.
+#[allow(dead_code)] // some fields not yet consumed by every viewer surface
 #[derive(Clone)]
-pub struct AttachEndpoints {
+pub struct PtyAttachEndpoints {
     pub stdin_tx: mpsc::Sender<Vec<u8>>,
     pub stdout_broadcast: broadcast::Sender<Vec<u8>>,
     pub resize_tx: mpsc::Sender<(u16, u16)>,
     pub signal_tx: mpsc::Sender<AgentSignal>,
+}
+
+/// ACP-shaped attach endpoints. Used by the ACP persistent-session
+/// supervisor.
+#[allow(dead_code)] // updates_broadcast consumed once attach_ws speaks ACP frames
+#[derive(Clone)]
+pub struct AcpAttachEndpoints {
+    /// In-band path for [`AgentSignal`] delivery. The supervisor consumes
+    /// this and renders signals into ACP calls:
+    /// - `UserInput` / `PeerMessage` → `session/prompt`
+    /// - `Cancel` → `session/cancel`
+    pub signal_tx: mpsc::Sender<AgentSignal>,
+    /// Streaming `session/update` notifications from the agent. Fan-out
+    /// — each viewer calls `subscribe()`. Slow viewers see `Lagged`.
+    pub updates_broadcast: broadcast::Sender<SessionNotification>,
+}
+
+/// Either shape of registered endpoints.
+#[derive(Clone)]
+pub enum AttachEndpoints {
+    Pty(PtyAttachEndpoints),
+    Acp(AcpAttachEndpoints),
+}
+
+impl AttachEndpoints {
+    pub fn signal_tx(&self) -> &mpsc::Sender<AgentSignal> {
+        match self {
+            AttachEndpoints::Pty(e) => &e.signal_tx,
+            AttachEndpoints::Acp(e) => &e.signal_tx,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -37,6 +72,7 @@ impl AttachRegistry {
         Arc::new(Self::default())
     }
 
+    /// Register the endpoints for `agent_id`. Replaces any prior entry.
     pub async fn register(&self, agent_id: String, endpoints: AttachEndpoints) {
         self.inner.lock().await.insert(agent_id, endpoints);
     }

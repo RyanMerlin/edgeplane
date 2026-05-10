@@ -30,7 +30,7 @@ use tokio_tungstenite::tungstenite::handshake::server::{
 use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::attach_registry::{AttachEndpoints, AttachRegistry};
+use crate::attach_registry::{AttachEndpoints, AttachRegistry, PtyAttachEndpoints};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -107,7 +107,28 @@ async fn handle_connection(
         .ok_or_else(|| anyhow!("no live persistent session for agent {agent_id}"))?;
 
     tracing::info!("attach_ws viewer connected for agent {agent_id} from {peer}");
-    pump(ws, endpoints).await;
+    match endpoints {
+        AttachEndpoints::Pty(pty) => pump_pty(ws, pty).await,
+        AttachEndpoints::Acp(_) => {
+            // The PTY frame protocol (binary stdin/stdout + resize control)
+            // does not match ACP's JSON-RPC stream. A future layer will add
+            // a text-frame pump that relays session/update notifications and
+            // accepts {kind:"prompt"|"cancel"} envelopes from viewers.
+            tracing::warn!(
+                "attach_ws: agent {agent_id} is an ACP session; \
+                 byte-stream attach not yet supported on this endpoint"
+            );
+            // Send a one-shot text frame so the viewer sees a clear reason.
+            let mut sink = ws;
+            use futures::SinkExt;
+            let _ = sink
+                .send(Message::Text(
+                    "{\"kind\":\"error\",\"detail\":\"ACP attach over WS not yet supported\"}"
+                        .into(),
+                ))
+                .await;
+        }
+    }
     tracing::info!("attach_ws viewer disconnected for agent {agent_id} from {peer}");
     Ok(())
 }
@@ -172,9 +193,9 @@ pub fn sign_attach(secret: &str, agent_id: &str, exp: i64) -> String {
     hex::encode(mac.finalize().into_bytes())
 }
 
-async fn pump(
+async fn pump_pty(
     ws: tokio_tungstenite::WebSocketStream<TcpStream>,
-    endpoints: AttachEndpoints,
+    endpoints: PtyAttachEndpoints,
 ) {
     let (mut sink, mut stream) = ws.split();
     let mut stdout_rx = endpoints.stdout_broadcast.subscribe();

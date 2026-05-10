@@ -1378,6 +1378,7 @@ dependencies = [
  "hex",
  "hmac",
  "http",
+ "mc-mesh-acp",
  "mc-mesh-core",
  "mc-mesh-packs",
  "mc-mesh-receipts",
