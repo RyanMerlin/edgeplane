@@ -82,6 +82,25 @@ pub struct AgentSummary {
     pub current_task_title: Option<String>,
     #[serde(default)]
     pub last_seen: Option<String>,
+    /// Raw metadata JSON string from the server; derived fields are unpacked from here.
+    #[serde(default)]
+    pub metadata: Option<String>,
+}
+
+impl AgentSummary {
+    /// Unpack the `metadata` JSON string into derived fields the server doesn't expose top-level.
+    pub fn resolve_metadata(&mut self) {
+        let raw = match &self.metadata {
+            Some(s) if !s.is_empty() && s != "{}" => s.clone(),
+            _ => return,
+        };
+        let Ok(meta) = serde_json::from_str::<serde_json::Value>(&raw) else { return };
+        if self.runtime.is_none() { self.runtime = meta["runtime"].as_str().map(String::from); }
+        if self.node_id.is_none() { self.node_id = meta["node_id"].as_str().map(String::from); }
+        if self.mission_name.is_none() { self.mission_name = meta["mission_name"].as_str().map(String::from); }
+        if self.current_task_title.is_none() { self.current_task_title = meta["current_task"].as_str().map(String::from); }
+        if self.last_seen.is_none() { self.last_seen = meta["last_seen"].as_str().map(String::from); }
+    }
 }
 
 // ─── trait ───────────────────────────────────────────────────────────────────

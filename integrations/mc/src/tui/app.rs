@@ -121,7 +121,7 @@ impl App {
                     if let Some(e) = error {
                         self.agents.error = Some(e);
                     } else {
-                        self.agents.agents = agents;
+                        self.agents.agents = agents.into_iter().map(|mut a| { a.resolve_metadata(); a }).collect();
                         self.agents.agent_selection = 0;
                     }
                 }
