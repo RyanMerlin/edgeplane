@@ -396,27 +396,28 @@ impl SecretsTree {
         }
 
         let items: Vec<ListItem> = self.visible.iter().enumerate().map(|(i, row)| {
-            let indent = "  ".repeat(row.depth);
             let is_cursor = i == self.cursor;
             let is_selected = self.selected.contains(&i);
 
+            let guide = "│   ".repeat(row.depth);
             let (icon, base_style) = match row.kind {
                 NodeKind::Folder => {
                     let expanded = self.expanded.contains(&row.full_path);
                     let loading = self.pending_folders.contains_key(&row.full_path)
                         || self.pending_names.contains_key(&row.full_path);
-                    let icon = if loading { "⠸ " } else if expanded { "▾  " } else { "▸  " };
+                    let icon = if loading { "⠸ " } else if expanded { "▾ " } else { "▸ " };
                     (icon, if is_cursor { theme::selected() } else { theme::accent() })
                 }
                 NodeKind::Secret => {
-                    let icon = if is_selected { "[✓]" } else { "[ ]" };
+                    let icon = if is_selected { "[✓] " } else { "[ ] " };
                     let style = if is_cursor { theme::selected() } else if is_selected { theme::ok() } else { theme::normal() };
                     (icon, style)
                 }
             };
 
             ListItem::new(Line::from(vec![
-                Span::styled(format!("  {}{} {}", indent, icon, row.name), base_style),
+                Span::styled(format!("  {}", guide), theme::dim()),
+                Span::styled(format!("{}{}", icon, row.name), base_style),
             ]))
         }).collect();
 

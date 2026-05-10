@@ -1,12 +1,13 @@
 use ratatui::style::{Color, Modifier, Style};
 
-// GitHub dark palette (matches docs/tui mockups)
+// Dark background, rust orange accent (matches clix palette)
 pub const BG: Color = Color::Rgb(13, 17, 23);
-pub const PANEL_BORDER: Color = Color::Rgb(48, 54, 61);
+pub const PANEL_BORDER: Color = Color::Rgb(60, 60, 60);
 pub const TEXT: Color = Color::Rgb(201, 209, 217);
-pub const TEXT_DIM: Color = Color::Rgb(110, 118, 129);
-pub const TEXT_MUTED: Color = Color::Rgb(139, 148, 158);
-pub const ACCENT: Color = Color::Rgb(88, 166, 255);
+pub const TEXT_DIM: Color = Color::Rgb(120, 120, 120);
+pub const TEXT_MUTED: Color = Color::Rgb(150, 150, 150);
+pub const ACCENT: Color = Color::Rgb(231, 91, 42);   // rust orange
+pub const SELECTED_BG: Color = Color::Rgb(50, 25, 15); // dark rust tint
 pub const OK: Color = Color::Rgb(63, 185, 80);
 pub const WARN: Color = Color::Rgb(210, 153, 34);
 pub const ERR: Color = Color::Rgb(248, 81, 73);
@@ -25,13 +26,13 @@ pub fn danger() -> Style { err() }
 pub fn inactive() -> Style { muted() }
 
 pub fn panel_title() -> Style {
-    Style::default().fg(TEXT_DIM).add_modifier(Modifier::BOLD)
+    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
 }
 
 pub fn selected() -> Style {
     Style::default()
         .fg(ACCENT)
-        .bg(Color::Rgb(22, 27, 34))
+        .bg(SELECTED_BG)
         .add_modifier(Modifier::BOLD)
 }
 
