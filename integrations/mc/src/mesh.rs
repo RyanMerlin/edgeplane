@@ -86,8 +86,16 @@ pub struct RuntimeTestArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum MeshAgentCommand {
+    /// List agents. In standalone mode reads the local registry; in federated
+    /// mode queries the controlplane.
     Ls(AgentLsArgs),
+    /// Enroll a new agent. In standalone mode writes to the local registry
+    /// (~/.mc/mc-mesh.db); in federated mode calls the controlplane API.
     Enroll(AgentEnrollArgs),
+    /// Reassign an agent to a different mission.
+    Reassign(AgentReassignArgs),
+    /// Remove an agent from the registry / controlplane.
+    Unenroll(AgentUnenrollArgs),
     Attach(AgentAttachArgs),
     /// Set or update an agent's profile (role, instructions, scope, constraints).
     Profile(AgentProfileArgs),
@@ -107,11 +115,27 @@ pub struct AgentEnrollArgs {
     pub mission: String,
     #[arg(long)]
     pub runtime: String,
+    /// Task (default) or persistent supervision mode.
+    #[arg(long, default_value = "task")]
+    pub supervision: String,
     #[arg(long)]
     pub node: Option<String>,
     /// Path to a YAML or JSON profile file for this agent.
     #[arg(long)]
     pub profile: Option<std::path::PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct AgentReassignArgs {
+    pub agent_id: String,
+    /// New mission ID.
+    #[arg(long)]
+    pub mission: String,
+}
+
+#[derive(Args, Debug)]
+pub struct AgentUnenrollArgs {
+    pub agent_id: String,
 }
 
 #[derive(Args, Debug)]
@@ -650,69 +674,143 @@ fn handle_runtime(cmd: MeshRuntimeCommand) -> Result<()> {
 async fn handle_agent(cmd: MeshAgentCommand, client: &MissionControlClient) -> Result<()> {
     match cmd {
         MeshAgentCommand::Ls(a) => {
-            let mission_id = a.mission.as_deref().unwrap_or_default();
-            if mission_id.is_empty() {
-                anyhow::bail!("--mission is required");
-            }
-            let path = format!("/work/missions/{mission_id}/agents");
-            let agents = client.get_json(&path).await?;
-            print_agents(&agents);
-            Ok(())
-        }
-        MeshAgentCommand::Enroll(a) => {
-            // Auto-detect machine info.
-            let machine = detect_machine_info();
-
-            // Load optional profile from file.
-            let profile: Option<Value> = match &a.profile {
-                Some(path) => {
-                    let raw = std::fs::read_to_string(path)
-                        .with_context(|| format!("reading profile file {}", path.display()))?;
-                    let v: Value = if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                        serde_json::from_str(&raw)?
-                    } else {
-                        serde_yaml::from_str(&raw).context("parsing profile as YAML")?
-                    };
-                    Some(v)
+            if crate::local_db::is_federated() {
+                // Federated: query controlplane.
+                let mission_id = a.mission.as_deref().unwrap_or_default();
+                if mission_id.is_empty() {
+                    anyhow::bail!("--mission is required in federated mode");
                 }
-                None => None,
-            };
-
-            let mut body = json!({
-                "runtime_kind": a.runtime.replace('-', "_"),
-                "capabilities": default_capabilities_for(&a.runtime),
-                "labels": {},
-                "node_id": a.node,
-                "machine": machine,
-            });
-            if let Some(p) = profile {
-                body["profile"] = p;
+                let path = format!("/work/missions/{mission_id}/agents");
+                let agents = client.get_json(&path).await?;
+                print_agents(&agents);
+            } else {
+                // Standalone: read local registry.
+                let agents = crate::local_db::list(a.mission.as_deref())
+                    .context("reading local registry")?;
+                if agents.is_empty() {
+                    println!("No agents enrolled. Use `mc mesh agent enroll` to add one.");
+                } else {
+                    println!(
+                        "{:<38} {:<14} {:<12} {:<14} {}",
+                        "ID", "RUNTIME", "SUPERVISION", "MISSION", "ENROLLED"
+                    );
+                    println!("{}", "-".repeat(95));
+                    for ag in &agents {
+                        println!(
+                            "{:<38} {:<14} {:<12} {:<14} {}",
+                            ag.id,
+                            ag.runtime_kind,
+                            ag.supervision_mode,
+                            ag.mission_id,
+                            &ag.enrolled_at[..10], // date only
+                        );
+                    }
+                }
             }
-
-            let path = format!("/work/missions/{}/agents/enroll", a.mission);
-            let result = client.post_json(&path, &body).await?;
-            let agent_id = result.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-            println!(
-                "Enrolled agent {agent_id} ({} in mission {})",
-                a.runtime, a.mission
-            );
-
-            // Offer to save to the local daemon config.
-            let cfg_path = mc_mesh_config_path();
-            println!(
-                "\nAdd to {} to have the daemon manage this agent:",
-                cfg_path.display()
-            );
-            println!(
-                "  missions:\n    - mission_id: {}\n      agents:\n        - agent_id: {agent_id}\n          runtime_kind: {}",
-                a.mission,
-                a.runtime.replace('-', "_")
-            );
-            println!(
-                "\nSet a profile: mc mesh agent profile {agent_id} --role \"...\" --name \"...\""
-            );
             Ok(())
         }
+
+        MeshAgentCommand::Enroll(a) => {
+            if crate::local_db::is_federated() {
+                // Federated: call controlplane API (existing path).
+                let machine = detect_machine_info();
+                let profile: Option<Value> = match &a.profile {
+                    Some(path) => {
+                        let raw = std::fs::read_to_string(path)
+                            .with_context(|| format!("reading profile file {}", path.display()))?;
+                        let v: Value =
+                            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                                serde_json::from_str(&raw)?
+                            } else {
+                                serde_yaml::from_str(&raw).context("parsing profile as YAML")?
+                            };
+                        Some(v)
+                    }
+                    None => None,
+                };
+                let mut body = json!({
+                    "runtime_kind": a.runtime.replace('-', "_"),
+                    "capabilities": default_capabilities_for(&a.runtime),
+                    "labels": {},
+                    "node_id": a.node,
+                    "machine": machine,
+                });
+                if let Some(p) = profile {
+                    body["profile"] = p;
+                }
+                let path = format!("/work/missions/{}/agents/enroll", a.mission);
+                let result = client.post_json(&path, &body).await?;
+                let agent_id = result.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                println!("Enrolled agent {agent_id} ({} in mission {})", a.runtime, a.mission);
+                println!("\nSet a profile: mc mesh agent profile {agent_id} --role \"...\" --name \"...\"");
+            } else {
+                // Standalone: write directly to local SQLite registry.
+                let supervision = match a.supervision.as_str() {
+                    "persistent" => "persistent",
+                    _ => "task",
+                };
+                let caps: Vec<String> = default_capabilities_for(&a.runtime)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                let profile_str = a.profile.as_ref().map(|p| p.to_string_lossy().into_owned());
+                let agent_id = crate::local_db::enroll(
+                    &a.mission,
+                    &a.runtime.replace('-', "_"),
+                    supervision,
+                    &caps,
+                    profile_str.as_deref(),
+                )
+                .context("enrolling agent in local registry")?;
+                println!("Enrolled agent {agent_id} ({} in mission {}) [standalone]", a.runtime, a.mission);
+                println!("The mc-mesh daemon will pick this up on its next reconcile tick.");
+            }
+            Ok(())
+        }
+
+        MeshAgentCommand::Reassign(a) => {
+            if crate::local_db::is_federated() {
+                // Federated: PATCH on controlplane.
+                let path = format!("/work/agents/{}/reassign", a.agent_id);
+                let body = json!({ "mission_id": a.mission });
+                client.post_json(&path, &body).await
+                    .with_context(|| format!("reassigning {} to {}", a.agent_id, a.mission))?;
+                println!("Reassigned {} → {}", a.agent_id, a.mission);
+            } else {
+                // Standalone: update local registry.
+                let found = crate::local_db::reassign(&a.agent_id, &a.mission)
+                    .context("updating local registry")?;
+                if found {
+                    println!("Reassigned {} → {} [standalone]", a.agent_id, a.mission);
+                    println!("The mc-mesh daemon will pick this up on its next reconcile tick.");
+                } else {
+                    anyhow::bail!("agent {} not found in local registry", a.agent_id);
+                }
+            }
+            Ok(())
+        }
+
+        MeshAgentCommand::Unenroll(a) => {
+            if crate::local_db::is_federated() {
+                // Federated: DELETE on controlplane.
+                let path = format!("/work/agents/{}", a.agent_id);
+                client.delete(&path).await
+                    .with_context(|| format!("unenrolling {}", a.agent_id))?;
+                println!("Unenrolled {}", a.agent_id);
+            } else {
+                // Standalone: delete from local registry.
+                let found = crate::local_db::unenroll(&a.agent_id)
+                    .context("deleting from local registry")?;
+                if found {
+                    println!("Unenrolled {} [standalone]", a.agent_id);
+                    println!("The mc-mesh daemon will pick this up on its next reconcile tick.");
+                } else {
+                    anyhow::bail!("agent {} not found in local registry", a.agent_id);
+                }
+            }
+            Ok(())
+        }
+
         MeshAgentCommand::Attach(a) => {
             handle_attach(MeshAttachArgs { target: a.agent_id }, client).await
         }

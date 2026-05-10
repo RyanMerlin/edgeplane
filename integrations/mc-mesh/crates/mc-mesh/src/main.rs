@@ -7,6 +7,7 @@ mod attach_registry;
 mod attach_ws;
 mod config;
 mod daemon;
+mod local_registry;
 mod mgmt_gateway;
 mod reconcile;
 mod secrets_gateway;

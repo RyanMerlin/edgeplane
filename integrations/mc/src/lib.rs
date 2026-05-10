@@ -19,6 +19,7 @@ pub mod gemini;
 pub mod goose;
 pub mod governance;
 pub mod launch;
+pub mod local_db;
 pub mod maintenance;
 pub mod mcp_server;
 pub mod mcp_stdio;

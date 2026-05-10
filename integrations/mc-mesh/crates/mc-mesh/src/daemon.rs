@@ -25,6 +25,7 @@ use crate::attach_gateway;
 use crate::attach_registry::AttachRegistry;
 use crate::attach_ws;
 use crate::config::{DaemonConfig, SessionMode};
+use crate::local_registry::{LocalRegistry, SOURCE_LOCAL};
 use crate::mgmt_gateway::MgmtGateway;
 use crate::reconcile::{self, RunningAgent, RunningAgents};
 use crate::secrets_gateway::SecretsGateway;
@@ -72,6 +73,24 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
 
     std::fs::create_dir_all(&cfg.work_dir)?;
 
+    // Phase 5a: open (or create) the local SQLite registry. Used in both
+    // standalone mode (source of truth) and federated mode (synced cache).
+    // On failure: log and continue — federated still works, standalone falls
+    // back to legacy yaml missions.
+    let registry: Option<LocalRegistry> = LocalRegistry::default_path()
+        .and_then(|p| {
+            tracing::info!("local registry: {}", p.display());
+            LocalRegistry::open(&p)
+        })
+        .map_err(|e| {
+            tracing::warn!(
+                "Could not open local registry: {e:#}. \
+                 Standalone mode will fall back to yaml missions."
+            );
+            e
+        })
+        .ok();
+
     let client = Arc::new(BackendClient::new(&cfg.backend_url, &cfg.token));
 
     let policy = match cfg.offline_policy.as_str() {
@@ -112,12 +131,9 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         attach_registry: Arc::clone(&attach_registry),
     });
 
-    // Phase 4c: build the flat list of agents to spawn from the controlplane
-    // first (state.node_id present → GET /runtime/nodes/{id}/agents), falling
-    // back to legacy yaml-defined missions only when no node identity is
-    // registered. The yaml path is logged with a deprecation warning when
-    // both sources are populated.
-    let agent_specs = resolve_agent_specs(&cfg, &client).await;
+    // Phase 4c/5a: build the flat list of agents to spawn.
+    // Priority: controlplane (federated) > SQLite local registry > yaml legacy.
+    let agent_specs = resolve_agent_specs(&cfg, &client, registry.as_ref()).await;
 
     // Initial spawn through the same reconcile path the WS subscriber will
     // use later — keeps both paths exercising one code branch.
@@ -612,10 +628,17 @@ pub struct AgentSpec {
     pub profile_path: Option<PathBuf>,
 }
 
-/// Build the spawn list. Controlplane wins when state.node_id is set; yaml
-/// is the fallback for unregistered nodes. If both populate (legacy yaml
-/// during migration), warn and prefer the controlplane.
-async fn resolve_agent_specs(cfg: &DaemonConfig, client: &BackendClient) -> Vec<AgentSpec> {
+/// Build the initial spawn list.
+///
+/// Priority order:
+/// 1. Controlplane GET (federated — when `cfg.node_id` is set).
+/// 2. Local SQLite registry (`source = 'local'`) — standalone mode.
+/// 3. Legacy yaml `missions:` — deprecated fallback for pre-Phase-4 configs.
+async fn resolve_agent_specs(
+    cfg: &DaemonConfig,
+    client: &BackendClient,
+    registry: Option<&LocalRegistry>,
+) -> Vec<AgentSpec> {
     if let Some(node_id) = cfg.node_id.as_deref() {
         match fetch_node_agents(client, node_id).await {
             Ok(specs) => {
@@ -623,15 +646,15 @@ async fn resolve_agent_specs(cfg: &DaemonConfig, client: &BackendClient) -> Vec<
                     let yaml_missions: Vec<&str> =
                         cfg.missions.iter().map(|m| m.mission_id.as_str()).collect();
                     tracing::warn!(
-                        "yaml carries `missions:` ({:?}) but node {} is registered with the controlplane; \
-                         using controlplane assignment list and ignoring yaml. \
-                         Remove `missions:` from your mc-mesh.yaml — a future release will hard-fail on it.",
+                        "yaml carries `missions:` ({:?}) but node {} is registered with the \
+                         controlplane; using controlplane assignment list. \
+                         Remove `missions:` from mc-mesh.yaml.",
                         yaml_missions,
                         node_id
                     );
                 }
                 tracing::info!(
-                    "Resolved {} agent assignment(s) from controlplane for node {}",
+                    "Resolved {} agent(s) from controlplane for node {}",
                     specs.len(),
                     node_id
                 );
@@ -640,17 +663,41 @@ async fn resolve_agent_specs(cfg: &DaemonConfig, client: &BackendClient) -> Vec<
             Err(e) => {
                 tracing::error!(
                     "GET /runtime/nodes/{node_id}/agents failed: {e:#}. \
-                     Falling back to yaml-defined missions for this start; \
-                     rebalance will retry once the controlplane is reachable."
+                     Falling back to local registry / yaml for this start."
                 );
+            }
+        }
+    }
+
+    // Standalone mode — read from local SQLite registry first.
+    if let Some(reg) = registry {
+        match reg.list_specs_by_source(SOURCE_LOCAL) {
+            Ok(specs) if !specs.is_empty() => {
+                tracing::info!(
+                    "Standalone mode: {} agent(s) from local registry \
+                     (enroll via `mc mesh agent enroll`).",
+                    specs.len()
+                );
+                return specs;
+            }
+            Ok(_) => {
+                tracing::info!(
+                    "Standalone mode: local registry is empty. \
+                     Checking legacy yaml missions."
+                );
+            }
+            Err(e) => {
+                tracing::warn!("Could not read local registry: {e:#}. Falling back to yaml.");
             }
         }
     } else {
         tracing::info!(
-            "No node_id in state file; using yaml-defined missions. \
-             Run `mc-mesh node-register --bootstrap-token <jt_…>` to switch to controlplane-driven assignment."
+            "No node_id in state file and no local registry; falling back to legacy yaml missions. \
+             Run `mc mesh profile add` to register with a controlplane, \
+             or `mc mesh agent enroll` to add agents in standalone mode."
         );
     }
+
     yaml_specs(cfg)
 }
 

@@ -1397,6 +1397,7 @@ dependencies = [
  "mc-mesh-runtimes",
  "mc-mesh-secrets",
  "mc-mesh-work",
+ "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml",

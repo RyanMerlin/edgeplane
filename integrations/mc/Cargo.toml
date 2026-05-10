@@ -50,6 +50,7 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 portable-pty = "0.8"
 which = "6"
 libc = "0.2"
+rusqlite = { version = "0.31", features = ["bundled"] }
 mc-mesh-packs = { path = "../mc-mesh/crates/mc-mesh-packs" }
 mc-mesh-receipts = { path = "../mc-mesh/crates/mc-mesh-receipts" }
 mc-mesh-sync = { path = "../mc-mesh/crates/mc-mesh-sync" }

@@ -2393,6 +2393,7 @@ dependencies = [
  "reqwest",
  "rpassword",
  "rumqttc",
+ "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml",
