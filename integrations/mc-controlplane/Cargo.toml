@@ -12,7 +12,7 @@ name = "mc-controlplane"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "MissionControl server node — Raft-backed HTTP API + distributed state"
+description = "MissionControl server node — HTTP API + distributed task coordination"
 license.workspace = true
 
 [[bin]]
@@ -48,6 +48,7 @@ tar = "0.4"
 tokio-stream = "0.1"
 futures-util = "0.3"
 tempfile = "3.9"
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-webpki-roots", "connect"] }
 
 [dev-dependencies]
 axum-test = "20"
