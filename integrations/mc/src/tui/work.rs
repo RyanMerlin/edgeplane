@@ -46,6 +46,12 @@ pub enum WorkRequest {
     RespondApproval { job_id: JobId, approval_id: String, decision: String, note: Option<String> },
     /// Fetch the list of agents from the backend.
     ListAgents { job_id: JobId },
+    /// Delete an agent by id.
+    DeleteAgent { job_id: JobId, agent_id: String },
+    /// Restart an agent — controlplane ends sessions and signals; the runtime acts.
+    RestartAgent { job_id: JobId, agent_id: String },
+    /// Clear an agent's context — controlplane stamps metadata; the runtime acts.
+    ClearAgentContext { job_id: JobId, agent_id: String },
 }
 
 // ─── results ─────────────────────────────────────────────────────────────────
@@ -94,6 +100,10 @@ pub enum WorkResult {
     ApprovalResponded { job_id: JobId, approval_id: String, ok: bool, error: Option<String> },
     /// Agents listed from the backend.
     AgentsListed { job_id: JobId, agents: Vec<super::data::AgentSummary>, error: Option<String> },
+    /// Agent delete completed.
+    AgentDeleted { job_id: JobId, agent_id: String, ok: bool, error: Option<String> },
+    /// Agent op (restart / clear-context) completed.
+    AgentOpCompleted { job_id: JobId, agent_id: String, op: &'static str, ok: bool, error: Option<String> },
 }
 
 // ─── pool ────────────────────────────────────────────────────────────────────
@@ -249,6 +259,30 @@ impl WorkPool {
                         Ok(agents) => { let _ = tx.send(WorkResult::AgentsListed { job_id, agents, error: None }); }
                         Err(e) => { let _ = tx.send(WorkResult::AgentsListed { job_id, agents: vec![], error: Some(e.to_string()) }); }
                     }
+                }
+                WorkRequest::DeleteAgent { job_id, agent_id } => {
+                    let res = handle.block_on(client.delete_agent(&agent_id));
+                    let (ok, error) = match res {
+                        Ok(()) => (true, None),
+                        Err(e) => (false, Some(e.to_string())),
+                    };
+                    let _ = tx.send(WorkResult::AgentDeleted { job_id, agent_id, ok, error });
+                }
+                WorkRequest::RestartAgent { job_id, agent_id } => {
+                    let res = handle.block_on(client.restart_agent(&agent_id));
+                    let (ok, error) = match res {
+                        Ok(()) => (true, None),
+                        Err(e) => (false, Some(e.to_string())),
+                    };
+                    let _ = tx.send(WorkResult::AgentOpCompleted { job_id, agent_id, op: "restart", ok, error });
+                }
+                WorkRequest::ClearAgentContext { job_id, agent_id } => {
+                    let res = handle.block_on(client.clear_agent_context(&agent_id));
+                    let (ok, error) = match res {
+                        Ok(()) => (true, None),
+                        Err(e) => (false, Some(e.to_string())),
+                    };
+                    let _ = tx.send(WorkResult::AgentOpCompleted { job_id, agent_id, op: "clear-context", ok, error });
                 }
             }
         });

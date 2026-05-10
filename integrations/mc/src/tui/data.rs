@@ -1,5 +1,38 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
+
+/// Render an ISO-8601 timestamp as a coarse "X ago" string. Returns the input
+/// string unchanged if it can't be parsed, so callers don't need to fall back.
+pub fn humanize_since(iso: &str) -> String {
+    let parsed = DateTime::parse_from_rfc3339(iso)
+        .map(|d| d.with_timezone(&Utc))
+        .or_else(|_| {
+            chrono::NaiveDateTime::parse_from_str(iso, "%Y-%m-%dT%H:%M:%S%.f")
+                .map(|n| DateTime::<Utc>::from_naive_utc_and_offset(n, Utc))
+        })
+        .or_else(|_| {
+            chrono::NaiveDateTime::parse_from_str(iso, "%Y-%m-%d %H:%M:%S%.f")
+                .map(|n| DateTime::<Utc>::from_naive_utc_and_offset(n, Utc))
+        });
+    let Ok(t) = parsed else { return iso.to_string() };
+    let secs = (Utc::now() - t).num_seconds();
+    if secs < 0 {
+        // Clock skew or future timestamp — display raw.
+        return iso.to_string();
+    }
+    if secs < 5            { return "just now".to_string(); }
+    if secs < 60           { return format!("{}s ago", secs); }
+    let mins = secs / 60;
+    if mins < 60           { return format!("{}m ago", mins); }
+    let hours = mins / 60;
+    if hours < 24          { return format!("{}h ago", hours); }
+    let days = hours / 24;
+    if days < 30           { return format!("{}d ago", days); }
+    let months = days / 30;
+    if months < 12         { return format!("{}mo ago", months); }
+    format!("{}y ago", months / 12)
+}
 
 // ─── domain types ────────────────────────────────────────────────────────────
 
@@ -114,6 +147,9 @@ pub trait DataClient: Send + Sync {
     async fn list_approvals(&self, mission_id: Option<&str>) -> Result<Vec<ApprovalSummary>>;
     async fn respond_approval(&self, approval_id: &str, decision: &str, note: Option<&str>) -> Result<()>;
     async fn list_agents(&self) -> Result<Vec<AgentSummary>>;
+    async fn delete_agent(&self, agent_id: &str) -> Result<()>;
+    async fn restart_agent(&self, agent_id: &str) -> Result<()>;
+    async fn clear_agent_context(&self, agent_id: &str) -> Result<()>;
 }
 
 // ─── fixture client (test / offline use) ─────────────────────────────────────
@@ -149,6 +185,18 @@ impl DataClient for FixtureDataClient {
 
     async fn list_agents(&self) -> Result<Vec<AgentSummary>> {
         Ok(vec![])
+    }
+
+    async fn delete_agent(&self, _agent_id: &str) -> Result<()> {
+        Ok(())
+    }
+
+    async fn restart_agent(&self, _agent_id: &str) -> Result<()> {
+        Ok(())
+    }
+
+    async fn clear_agent_context(&self, _agent_id: &str) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -245,5 +293,85 @@ impl DataClient for RemoteDataClient {
             anyhow::bail!("backend returned {status} for /agents");
         }
         Ok(resp.json::<Vec<AgentSummary>>().await?)
+    }
+
+    async fn delete_agent(&self, agent_id: &str) -> Result<()> {
+        let mut req = self.client.delete(self.url(&format!("/agents/{agent_id}")));
+        if let Some(tok) = &self.token {
+            req = req.bearer_auth(tok);
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("delete_agent returned {status}: {text}");
+        }
+        Ok(())
+    }
+
+    async fn restart_agent(&self, agent_id: &str) -> Result<()> {
+        let mut req = self.client.post(self.url(&format!("/agents/{agent_id}/restart")));
+        if let Some(tok) = &self.token {
+            req = req.bearer_auth(tok);
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("restart_agent returned {status}: {text}");
+        }
+        Ok(())
+    }
+
+    async fn clear_agent_context(&self, agent_id: &str) -> Result<()> {
+        let mut req = self.client.post(self.url(&format!("/agents/{agent_id}/clear-context")));
+        if let Some(tok) = &self.token {
+            req = req.bearer_auth(tok);
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("clear_agent_context returned {status}: {text}");
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+
+    fn iso(offset: Duration) -> String {
+        (Utc::now() + offset).to_rfc3339()
+    }
+
+    #[test]
+    fn humanize_recent_seconds() {
+        assert_eq!(humanize_since(&iso(-Duration::seconds(2))), "just now");
+        assert_eq!(humanize_since(&iso(-Duration::seconds(30))), "30s ago");
+    }
+
+    #[test]
+    fn humanize_minutes_hours_days() {
+        assert_eq!(humanize_since(&iso(-Duration::minutes(5))), "5m ago");
+        assert_eq!(humanize_since(&iso(-Duration::hours(3))), "3h ago");
+        assert_eq!(humanize_since(&iso(-Duration::days(2))), "2d ago");
+    }
+
+    #[test]
+    fn humanize_unparseable_returns_input() {
+        assert_eq!(humanize_since("not a date"), "not a date");
+    }
+
+    #[test]
+    fn humanize_naive_postgres_timestamp() {
+        // Postgres often serializes timestamp without TZ as "2024-01-02T03:04:05.123"
+        // — we treat those as UTC and still produce a relative string.
+        let now = Utc::now() - Duration::minutes(2);
+        let s = now.format("%Y-%m-%dT%H:%M:%S%.3f").to_string();
+        let out = humanize_since(&s);
+        assert!(out.ends_with("ago") || out == "just now", "got {out}");
     }
 }

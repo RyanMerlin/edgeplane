@@ -37,8 +37,11 @@ pub struct ApprovalQueueState {
     pub selection: usize,
     pub loading: bool,
     pub last_error: Option<String>,
-    /// Set when y/n was pressed; cleared after dispatch.
+    /// Approve responses dispatch immediately. Cleared after dispatch.
     pub pending_response: Option<(i64, bool)>,
+    /// Deny is destructive — caller should wrap this in a confirm modal.
+    /// Stores (approval_id, action_text) so the modal can show what's being denied.
+    pub pending_deny_confirm: Option<(i64, String)>,
 }
 
 impl Default for Focus {
@@ -73,7 +76,7 @@ impl ApprovalQueueState {
             }
             Char('n') => {
                 if let Some(req) = self.pending.get(self.selection) {
-                    self.pending_response = Some((req.id, false));
+                    self.pending_deny_confirm = Some((req.id, req.action.clone()));
                 }
                 true
             }
@@ -88,6 +91,17 @@ impl ApprovalQueueState {
     /// Take and clear the pending response (called by app.rs after dispatching).
     pub fn take_pending_response(&mut self) -> Option<(i64, bool)> {
         self.pending_response.take()
+    }
+
+    /// Take and clear a deny that's awaiting confirmation. The caller wraps it
+    /// in a modal and, on confirm, calls `confirm_deny` to record the response.
+    pub fn take_pending_deny_confirm(&mut self) -> Option<(i64, String)> {
+        self.pending_deny_confirm.take()
+    }
+
+    /// Record a deny after the user has confirmed via modal.
+    pub fn confirm_deny(&mut self, approval_id: i64) {
+        self.pending_response = Some((approval_id, false));
     }
 
     pub fn selected(&self) -> Option<&ApprovalRequest> {
@@ -256,4 +270,60 @@ fn render_detail(buf: &mut Buffer, area: Rect, state: &ApprovalQueueState) {
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max { s.to_string() }
     else { format!("{}…", &s[..max.saturating_sub(1)]) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyCode;
+
+    fn req(id: i64, action: &str) -> ApprovalRequest {
+        ApprovalRequest {
+            id, mission_id: None, action: action.into(),
+            channel: None, reason: None, requested_by: None,
+            status: "pending".into(),
+        }
+    }
+
+    fn state_with(reqs: Vec<ApprovalRequest>) -> ApprovalQueueState {
+        ApprovalQueueState { pending: reqs, ..Default::default() }
+    }
+
+    #[test]
+    fn y_arms_pending_response() {
+        let mut s = state_with(vec![req(1, "deploy")]);
+        s.handle_key(KeyCode::Char('y'));
+        assert_eq!(s.take_pending_response(), Some((1, true)));
+        assert!(s.take_pending_response().is_none(), "take must clear");
+    }
+
+    #[test]
+    fn n_arms_deny_confirm_not_response() {
+        let mut s = state_with(vec![req(7, "drop_table")]);
+        s.handle_key(KeyCode::Char('n'));
+        assert!(s.take_pending_response().is_none(), "deny must not dispatch directly");
+        assert_eq!(s.take_pending_deny_confirm(), Some((7, "drop_table".into())));
+    }
+
+    #[test]
+    fn confirm_deny_sets_pending_response() {
+        let mut s = state_with(vec![req(7, "drop_table")]);
+        s.confirm_deny(7);
+        assert_eq!(s.take_pending_response(), Some((7, false)));
+    }
+
+    #[test]
+    fn down_clamps_at_last_index() {
+        let mut s = state_with(vec![req(1, "a"), req(2, "b")]);
+        s.handle_key(KeyCode::Down); // 0 -> 1
+        s.handle_key(KeyCode::Down); // would go to 2 but list only has 2
+        assert_eq!(s.selection, 1);
+    }
+
+    #[test]
+    fn y_with_empty_list_is_noop() {
+        let mut s = state_with(vec![]);
+        s.handle_key(KeyCode::Char('y'));
+        assert!(s.take_pending_response().is_none());
+    }
 }

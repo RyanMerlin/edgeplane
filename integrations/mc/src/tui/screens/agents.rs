@@ -6,8 +6,17 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Widget},
 };
 
-use crate::tui::data::AgentSummary;
+use crate::tui::data::{humanize_since, AgentSummary};
 use crate::tui::theme;
+
+/// An operation the user has requested on an agent. The app routes these to a
+/// confirmation modal, then dispatches the matching WorkRequest on confirm.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AgentOp {
+    Delete { id: String, name: String },
+    Restart { id: String, name: String },
+    ClearContext { id: String, name: String },
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentFocus {
@@ -28,6 +37,8 @@ pub struct AgentScreenState {
     pub node_selection: usize, // 0 = "All Nodes", 1+ = index into unique_nodes list
     pub agent_selection: usize,
     pub focus: AgentFocus,
+    /// Set when an op key is pressed; the app routes this to a confirmation modal.
+    pub pending_op: Option<AgentOp>,
 }
 
 impl Default for AgentScreenState {
@@ -39,6 +50,7 @@ impl Default for AgentScreenState {
             node_selection: 0,
             agent_selection: 0,
             focus: AgentFocus::Agents,
+            pending_op: None,
         }
     }
 }
@@ -87,8 +99,46 @@ impl AgentScreenState {
                 }
                 true
             }
+            Char('d') if self.focus == AgentFocus::Agents => {
+                if let Some(agent) = self.visible_agents().get(self.agent_selection) {
+                    self.pending_op = Some(AgentOp::Delete { id: agent.id.clone(), name: agent.name.clone() });
+                }
+                true
+            }
+            Char('r') if self.focus == AgentFocus::Agents => {
+                if let Some(agent) = self.visible_agents().get(self.agent_selection) {
+                    self.pending_op = Some(AgentOp::Restart { id: agent.id.clone(), name: agent.name.clone() });
+                }
+                true
+            }
+            Char('x') if self.focus == AgentFocus::Agents => {
+                if let Some(agent) = self.visible_agents().get(self.agent_selection) {
+                    self.pending_op = Some(AgentOp::ClearContext { id: agent.id.clone(), name: agent.name.clone() });
+                }
+                true
+            }
             _ => false,
         }
+    }
+
+    /// Take and clear the pending op (called by app.rs to wrap it in a modal).
+    pub fn take_pending_op(&mut self) -> Option<AgentOp> {
+        self.pending_op.take()
+    }
+
+    /// Replace the agent list while preserving selection by id when possible.
+    pub fn replace_agents(&mut self, mut agents: Vec<AgentSummary>) {
+        agents.iter_mut().for_each(|a| a.resolve_metadata());
+        let prev_id = self.visible_agents().get(self.agent_selection).map(|a| a.id.clone());
+        self.agents = agents;
+        if let Some(id) = prev_id {
+            if let Some(idx) = self.visible_agents().iter().position(|a| a.id == id) {
+                self.agent_selection = idx;
+                return;
+            }
+        }
+        let max = self.visible_agents().len().saturating_sub(1);
+        if self.agent_selection > max { self.agent_selection = max; }
     }
 
     pub fn unique_nodes(&self) -> Vec<String> {
@@ -369,7 +419,13 @@ fn render_detail_panel(buf: &mut Buffer, area: Rect, state: &AgentScreenState) {
         ]),
         Line::from(vec![
             Span::styled("Seen    ", theme::muted()),
-            Span::styled(agent.last_seen.as_deref().unwrap_or("—").to_string(), theme::dim()),
+            Span::styled(
+                agent.last_seen.as_deref()
+                    .or(agent.updated_at.as_deref())
+                    .map(humanize_since)
+                    .unwrap_or_else(|| "—".to_string()),
+                theme::dim(),
+            ),
         ]),
     ];
     Paragraph::new(identity_lines).style(theme::normal()).render(cols[0], buf);
@@ -389,13 +445,13 @@ fn render_detail_panel(buf: &mut Buffer, area: Rect, state: &AgentScreenState) {
     ];
     Paragraph::new(task_lines).style(theme::normal()).render(cols[1], buf);
 
-    // Operations column
+    // Operations column. [g] is the only stub left — wired in a later phase.
     let ops_lines: Vec<Line> = vec![
         Line::from(Span::styled("Operations", Style::default().fg(theme::TEXT_MUTED).add_modifier(Modifier::BOLD))),
         Line::from(""),
-        Line::from(Span::styled("[g Give Task]", theme::accent())),
-        Line::from(Span::styled("[r Restart]", theme::muted())),
-        Line::from(Span::styled("[x Clear Ctx]", theme::muted())),
+        Line::from(Span::styled("[g Give Task]", theme::dim())),
+        Line::from(Span::styled("[r Restart]", theme::accent())),
+        Line::from(Span::styled("[x Clear Ctx]", theme::accent())),
         Line::from(Span::styled("[d Remove]", theme::err())),
     ];
     Paragraph::new(ops_lines).style(theme::normal()).render(cols[2], buf);
@@ -434,5 +490,103 @@ fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         format!("{}…", &s[..max.saturating_sub(1)])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyCode;
+
+    fn agent(id: &str, name: &str, node: Option<&str>) -> AgentSummary {
+        AgentSummary {
+            id: id.into(),
+            name: name.into(),
+            status: "online".into(),
+            capabilities: None,
+            updated_at: None,
+            runtime: None,
+            node_id: node.map(String::from),
+            mission_id: None,
+            mission_name: None,
+            current_task_title: None,
+            last_seen: None,
+            metadata: None,
+        }
+    }
+
+    fn state_with(agents: Vec<AgentSummary>) -> AgentScreenState {
+        AgentScreenState { agents, loading: false, ..Default::default() }
+    }
+
+    #[test]
+    fn replace_agents_preserves_selection_by_id() {
+        let mut s = state_with(vec![agent("1", "a", None), agent("2", "b", None), agent("3", "c", None)]);
+        s.agent_selection = 2; // pointing at "c"
+        // List shrinks but "c" still present; selection should follow it.
+        s.replace_agents(vec![agent("3", "c", None), agent("1", "a", None)]);
+        assert_eq!(s.visible_agents().get(s.agent_selection).map(|a| a.id.as_str()), Some("3"));
+    }
+
+    #[test]
+    fn replace_agents_clamps_when_id_gone() {
+        let mut s = state_with(vec![agent("1", "a", None), agent("2", "b", None), agent("3", "c", None)]);
+        s.agent_selection = 2;
+        s.replace_agents(vec![agent("1", "a", None)]); // c removed, list now length 1
+        assert_eq!(s.agent_selection, 0);
+    }
+
+    #[test]
+    fn d_emits_delete_op() {
+        let mut s = state_with(vec![agent("1", "ghost", None)]);
+        s.handle_key(KeyCode::Char('d'));
+        assert_eq!(
+            s.take_pending_op(),
+            Some(AgentOp::Delete { id: "1".into(), name: "ghost".into() })
+        );
+    }
+
+    #[test]
+    fn r_emits_restart_op() {
+        let mut s = state_with(vec![agent("7", "claude-code", None)]);
+        s.handle_key(KeyCode::Char('r'));
+        assert_eq!(
+            s.take_pending_op(),
+            Some(AgentOp::Restart { id: "7".into(), name: "claude-code".into() })
+        );
+    }
+
+    #[test]
+    fn x_emits_clear_context_op() {
+        let mut s = state_with(vec![agent("3", "goose", None)]);
+        s.handle_key(KeyCode::Char('x'));
+        assert_eq!(
+            s.take_pending_op(),
+            Some(AgentOp::ClearContext { id: "3".into(), name: "goose".into() })
+        );
+    }
+
+    #[test]
+    fn op_keys_are_noop_when_focus_is_nodes() {
+        let mut s = state_with(vec![agent("1", "ghost", None)]);
+        s.focus = AgentFocus::Nodes;
+        s.handle_key(KeyCode::Char('d'));
+        assert!(s.take_pending_op().is_none(), "'d' on Nodes pane must not arm an op");
+    }
+
+    #[test]
+    fn node_filter_isolates_agents() {
+        let mut s = state_with(vec![
+            agent("1", "a", Some("node-a")),
+            agent("2", "b", Some("node-b")),
+            agent("3", "c", Some("node-a")),
+        ]);
+        // Select "node-a" (index 1 of nodes after sort: node-a, node-b -> node-a is index 0+1)
+        s.node_selection = 1;
+        let nodes = s.unique_nodes();
+        assert_eq!(nodes, vec!["node-a", "node-b"]);
+        let visible = s.visible_agents();
+        assert_eq!(visible.len(), 2);
+        assert!(visible.iter().all(|a| a.node_id.as_deref() == Some("node-a")));
     }
 }

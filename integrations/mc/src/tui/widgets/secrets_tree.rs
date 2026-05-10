@@ -206,6 +206,24 @@ impl SecretsTree {
     // ── key handling ─────────────────────────────────────────────────────────
 
     pub fn handle_key(&mut self, code: KeyCode, next_id: &mut dyn FnMut() -> JobId) -> SecretsTreeAction {
+        // When the tree is in an error state, only Esc (cancel) and 'r' (retry root) are honored.
+        if self.error.is_some() {
+            match code {
+                KeyCode::Esc => return SecretsTreeAction::Cancelled,
+                KeyCode::Char('r') => {
+                    self.error = None;
+                    let root_state = self.paths.entry("/".to_string()).or_default();
+                    root_state.loaded = false;
+                    let (fid, nid) = self.request_load("/", next_id);
+                    return SecretsTreeAction::NeedsLoad {
+                        path: "/".to_string(),
+                        folders_job: fid,
+                        names_job: nid,
+                    };
+                }
+                _ => return SecretsTreeAction::None,
+            }
+        }
         match code {
             KeyCode::Esc => return SecretsTreeAction::Cancelled,
 
@@ -367,10 +385,12 @@ impl SecretsTree {
 
     fn render_tree(&self, f: &mut Frame, area: Rect) {
         if let Some(err) = &self.error {
-            f.render_widget(
-                Paragraph::new(Span::styled(err.as_str(), theme::danger())),
-                area,
-            );
+            let lines = vec![
+                Line::from(Span::styled(err.as_str(), theme::danger())),
+                Line::from(""),
+                Line::from(Span::styled("press r to retry · esc to close", theme::muted())),
+            ];
+            f.render_widget(Paragraph::new(lines), area);
             return;
         }
 
@@ -450,4 +470,49 @@ pub enum SecretsTreeAction {
     NeedsLoad { path: String, folders_job: JobId, names_job: JobId },
     Selected(InfisicalRef),
     SelectedMany(Vec<InfisicalRef>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyCode;
+
+    fn next_id_factory() -> impl FnMut() -> JobId {
+        let mut n: JobId = 100;
+        move || { n += 1; n }
+    }
+
+    #[test]
+    fn deliver_folders_with_stale_job_id_is_noop() {
+        let mut tree = SecretsTree::new("p", "prod", TreeMode::Browse);
+        tree.initial_load_ids(1, 2);
+        // Stale id (never registered) — should not crash, should not mutate state.
+        let accepted = tree.deliver_folders(9999, vec!["unexpected".into()], None);
+        assert!(!accepted);
+        assert!(tree.paths.get("/").map(|s| s.folders.is_empty()).unwrap_or(true));
+    }
+
+    #[test]
+    fn retry_after_error_clears_state_and_requests_load() {
+        let mut tree = SecretsTree::new("p", "prod", TreeMode::Browse);
+        tree.error = Some("boom".into());
+        let mut next = next_id_factory();
+        let action = tree.handle_key(KeyCode::Char('r'), &mut next);
+        assert!(tree.error.is_none(), "error must be cleared on retry");
+        match action {
+            SecretsTreeAction::NeedsLoad { path, .. } => assert_eq!(path, "/"),
+            _ => panic!("retry must request a fresh root load"),
+        }
+    }
+
+    #[test]
+    fn keys_other_than_esc_and_r_are_ignored_when_errored() {
+        let mut tree = SecretsTree::new("p", "prod", TreeMode::Browse);
+        tree.error = Some("err".into());
+        let mut next = next_id_factory();
+        // Down arrow must not move cursor or panic.
+        let _ = tree.handle_key(KeyCode::Down, &mut next);
+        assert_eq!(tree.cursor, 0);
+        assert!(tree.error.is_some(), "error stays until cleared by 'r' or Esc");
+    }
 }

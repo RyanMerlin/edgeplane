@@ -31,11 +31,13 @@ impl Widget for StatusBar {
         let accent = Color::Rgb(88, 166, 255);
         let sep = Color::Rgb(48, 54, 61);
 
-        // Clear the row with dark bg
+        // Clear the row with dark bg. cell_mut returns None when (x, y) lies
+        // outside the buffer (e.g. on a 0-width terminal); skip silently then.
         for x in area.left()..area.right() {
-            let cell = buf.cell_mut((x, area.top())).unwrap();
-            cell.set_char(' ');
-            cell.set_bg(bg);
+            if let Some(cell) = buf.cell_mut((x, area.top())) {
+                cell.set_char(' ');
+                cell.set_bg(bg);
+            }
         }
 
         let mut spans: Vec<Span> = vec![
