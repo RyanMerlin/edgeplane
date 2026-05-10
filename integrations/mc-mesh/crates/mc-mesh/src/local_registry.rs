@@ -149,6 +149,51 @@ impl LocalRegistry {
         let rows = self.list_by_source(source)?;
         Ok(rows.into_iter().map(AgentRecord::into_spec).collect())
     }
+
+    /// Atomically replace all agent records for `source` with `specs`.
+    ///
+    /// Opens a fresh connection and uses a transaction, making this safe to
+    /// call from `tokio::task::spawn_blocking`. WAL mode allows concurrent
+    /// reads from the daemon's long-lived connection while this write runs.
+    pub fn replace_source(path: &Path, source: &str, specs: &[AgentSpec]) -> Result<()> {
+        let mut conn = Connection::open(path)
+            .with_context(|| format!("opening registry for replace_source: {}", path.display()))?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        Self::migrate(&conn)?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM agent WHERE source = ?1", params![source])?;
+        for spec in specs {
+            let caps = serde_json::to_string(&spec.capabilities).unwrap_or_else(|_| "[]".into());
+            let profile = spec
+                .profile_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned());
+            let supervision = match spec.session_mode {
+                SessionMode::Task => "task",
+                SessionMode::Persistent => "persistent",
+            };
+            tx.execute(
+                "INSERT INTO agent
+                    (id, source, mission_id, runtime_kind, supervision_mode,
+                     capabilities_json, profile_path, enrolled_at, last_synced_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    spec.agent_id,
+                    source,
+                    spec.mission_id,
+                    spec.runtime_kind,
+                    supervision,
+                    caps,
+                    profile,
+                    now,
+                    now,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 // ---------- AgentRecord ----------
@@ -348,5 +393,48 @@ mod tests {
         .unwrap();
         let specs = reg.list_specs_by_source(SOURCE_LOCAL).unwrap();
         assert!(matches!(specs[0].session_mode, SessionMode::Persistent));
+    }
+
+    #[test]
+    fn replace_source_atomic_swap() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("mc-mesh.db");
+        let src = source_cp("homelab");
+
+        // Seed two agents.
+        LocalRegistry::replace_source(&path, &src, &[
+            spec("a-1", "m-1", SessionMode::Task),
+            spec("a-2", "m-1", SessionMode::Task),
+        ])
+        .unwrap();
+
+        let reg = LocalRegistry::open(&path).unwrap();
+        assert_eq!(reg.list_specs_by_source(&src).unwrap().len(), 2);
+
+        // Replace with a single new spec — old records for source are gone.
+        LocalRegistry::replace_source(&path, &src, &[spec("a-3", "m-2", SessionMode::Task)])
+            .unwrap();
+        let after = reg.list_specs_by_source(&src).unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].agent_id, "a-3");
+    }
+
+    #[test]
+    fn replace_source_does_not_touch_other_sources() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("mc-mesh.db");
+        let src_a = source_cp("profile-a");
+        let src_b = source_cp("profile-b");
+
+        LocalRegistry::replace_source(&path, &src_a, &[spec("a-1", "m-1", SessionMode::Task)])
+            .unwrap();
+        LocalRegistry::replace_source(&path, &src_b, &[spec("b-1", "m-1", SessionMode::Task)])
+            .unwrap();
+
+        // Replacing src_a should not remove src_b rows.
+        LocalRegistry::replace_source(&path, &src_a, &[]).unwrap();
+        let reg = LocalRegistry::open(&path).unwrap();
+        assert!(reg.list_specs_by_source(&src_a).unwrap().is_empty());
+        assert_eq!(reg.list_specs_by_source(&src_b).unwrap().len(), 1);
     }
 }

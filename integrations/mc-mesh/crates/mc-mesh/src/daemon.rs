@@ -25,7 +25,7 @@ use crate::attach_gateway;
 use crate::attach_registry::AttachRegistry;
 use crate::attach_ws;
 use crate::config::{DaemonConfig, SessionMode};
-use crate::local_registry::{LocalRegistry, SOURCE_LOCAL};
+use crate::local_registry::{LocalRegistry, SOURCE_LOCAL, source_cp};
 use crate::mgmt_gateway::MgmtGateway;
 use crate::reconcile::{self, RunningAgent, RunningAgents};
 use crate::secrets_gateway::SecretsGateway;
@@ -45,11 +45,16 @@ pub struct CliOverrides {
 pub async fn run(cli: CliOverrides) -> Result<()> {
     let mut cfg = DaemonConfig::load_or_default();
 
-    // Phase 5b: state file is the source of truth for node identity + active
+    // Phase 5b/d: state file is the source of truth for node identity + active
     // controlplane profile. Priority: yaml → state file → CLI args (applied below).
-    if let Err(e) = merge_state_file(&mut cfg).await {
-        tracing::warn!("state file load failed: {e:#}. Continuing with yaml-only fields.");
-    }
+    // Returns the active profile name for use as the SQLite source tag.
+    let active_profile_name = match merge_state_file(&mut cfg).await {
+        Ok(name) => name,
+        Err(e) => {
+            tracing::warn!("state file load failed: {e:#}. Continuing with yaml-only fields.");
+            None
+        }
+    };
 
     // CLI args win over state file and yaml.
     if !cli.backend_url.is_empty() {
@@ -141,7 +146,11 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         spawner.apply_plan(&plan, &mut running_lock).await;
     }
 
-    // Phase 4d: live reassignment via WS + poll fallback. Only meaningful
+    // Phase 5d: compute the SQLite source tag for the active controlplane profile.
+    // WS/poll loops write fetched specs here; the reconciler always reads from SQLite.
+    let cp_source: Option<String> = active_profile_name.as_deref().map(source_cp);
+
+    // Phase 4d/5d: live reassignment via WS + poll fallback. Only meaningful
     // when this node is registered with the controlplane; without a node_id
     // there is no /runtime/nodes/{id}/notify subscription to make.
     if let Some(node_id) = cfg.node_id.clone() {
@@ -150,6 +159,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         let ws_running = Arc::clone(&running);
         let ws_client = Arc::clone(&client);
         let ws_spawner = Arc::clone(&spawner);
+        let ws_cp_source = cp_source.clone();
         task_handles.push(tokio::spawn(reconcile::watch_assignments_ws(
             ws_backend,
             ws_token,
@@ -158,9 +168,11 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
             ws_running,
             move |specs, running| {
                 let spawner = Arc::clone(&ws_spawner);
+                let source = ws_cp_source.clone();
                 async move {
+                    let resolved = persist_and_resolve_specs(specs, source.as_deref()).await;
                     let mut lock = running.lock().await;
-                    let plan = reconcile::diff_specs(&specs, &lock);
+                    let plan = reconcile::diff_specs(&resolved, &lock);
                     if !plan.is_noop() {
                         tracing::info!(
                             "WS reconcile: spawn={}, restart={}, remove={}",
@@ -177,15 +189,18 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         let poll_running = Arc::clone(&running);
         let poll_client = Arc::clone(&client);
         let poll_spawner = Arc::clone(&spawner);
+        let poll_cp_source = cp_source.clone();
         task_handles.push(tokio::spawn(reconcile::poll_assignments(
             poll_client,
             node_id.clone(),
             poll_running,
             move |specs, running| {
                 let spawner = Arc::clone(&poll_spawner);
+                let source = poll_cp_source.clone();
                 async move {
+                    let resolved = persist_and_resolve_specs(specs, source.as_deref()).await;
                     let mut lock = running.lock().await;
-                    let plan = reconcile::diff_specs(&specs, &lock);
+                    let plan = reconcile::diff_specs(&resolved, &lock);
                     if !plan.is_noop() {
                         tracing::info!(
                             "Poll reconcile: spawn={}, restart={}, remove={}",
@@ -322,17 +337,20 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
 /// `cfg`. Priority: yaml → state file. CLI args are applied by the caller
 /// after this returns so they always win.
 ///
+/// Returns the active profile name so the caller can compute the SQLite
+/// source tag (`"controlplane:<name>"`).
+///
 /// On first run with a yaml that carries legacy `node_id`/`attach_secret`,
-/// we migrate those fields into a "default" profile and write it back so
+/// migrates those fields into a "default" profile and writes it back so
 /// the next start uses the v2 state file directly.
-async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<()> {
+async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<Option<String>> {
     let path = state::DaemonState::default_path()?;
     let existing = state::DaemonState::read(&path)?;
 
     match existing {
         Some(s) => {
             match s.active() {
-                Some((_name, profile)) => {
+                Some((name, profile)) => {
                     // Active profile wins over yaml for all identity fields.
                     if let Some(yaml_node_id) = cfg.node_id.as_ref() {
                         if yaml_node_id != &profile.node_id {
@@ -355,6 +373,7 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<()> {
                     if !profile.auth.token.is_empty() {
                         cfg.token = profile.auth.token.clone();
                     }
+                    return Ok(Some(name.to_owned()));
                 }
                 None => {
                     // Profiles map exists but no active profile → standalone mode.
@@ -396,6 +415,7 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<()> {
                         "Could not write migrated state file: {e:#}. Will re-migrate next start."
                     );
                 }
+                return Ok(Some("default".to_owned()));
             } else {
                 tracing::info!(
                     "No state file at {} and no node_id in yaml; daemon running in standalone mode. \
@@ -406,7 +426,60 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<()> {
             }
         }
     }
-    Ok(())
+    Ok(None)
+}
+
+// ── Phase 5d: SQLite-backed reconciler input ─────────────────────────────────
+
+/// Write controlplane-fetched `specs` to SQLite (source = `cp_source`), then
+/// read them back so the reconciler always reads from the local registry.
+///
+/// On any SQLite error the function falls back to `specs` directly — the WS/
+/// poll loops degrade gracefully rather than stopping reconciliation entirely.
+async fn persist_and_resolve_specs(
+    specs: Vec<AgentSpec>,
+    cp_source: Option<&str>,
+) -> Vec<AgentSpec> {
+    let source = match cp_source {
+        Some(s) => s.to_owned(),
+        None => return specs, // no active profile — pass through unchanged
+    };
+    let db_path = match LocalRegistry::default_path() {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("persist_and_resolve: registry path unavailable: {e:#}. Using in-memory specs.");
+            return specs;
+        }
+    };
+
+    let source_w = source.clone();
+    let specs_w = specs.clone();
+    let db_path_w = db_path.clone();
+    if let Err(e) = tokio::task::spawn_blocking(move || {
+        LocalRegistry::replace_source(&db_path_w, &source_w, &specs_w)
+    })
+    .await
+    .unwrap_or_else(|e| Err(anyhow::anyhow!("spawn_blocking panicked: {e}")))
+    {
+        tracing::warn!("persist_and_resolve: write failed: {e:#}. Using in-memory specs.");
+        return specs;
+    }
+
+    match tokio::task::spawn_blocking(move || {
+        LocalRegistry::open(&db_path)?.list_specs_by_source(&source)
+    })
+    .await
+    {
+        Ok(Ok(db_specs)) => db_specs,
+        Ok(Err(e)) => {
+            tracing::warn!("persist_and_resolve: read back failed: {e:#}. Using in-memory specs.");
+            specs
+        }
+        Err(e) => {
+            tracing::warn!("persist_and_resolve: read task panicked: {e:#}. Using in-memory specs.");
+            specs
+        }
+    }
 }
 
 // ── Phase 4d: per-agent spawner + reconcile-driven apply ─────────────────────
