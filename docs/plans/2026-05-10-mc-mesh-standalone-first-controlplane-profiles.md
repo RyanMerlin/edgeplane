@@ -429,15 +429,30 @@ path; Phase 5 lifts SQLite up as the universal substrate underneath.
 
 ---
 
-## Sign-off needed
+## Sign-off: DONE (2026-05-10)
 
-Reviewer should confirm:
+All 5 open questions resolved. Phase 5a shipped (commit aaf10d1).
+5b → 5c → 5d in progress.
 
-1. The framing: standalone = first-class, controlplane = optional federation.
-2. State.json v2 shape (profiles map + active_profile).
-3. SQLite schema sketch above (or propose changes).
-4. Phase ordering (5a → 5b → 5c → 5d, with 5e deferred).
-5. The 5 open questions.
+---
 
-Once signed off: pick up with Phase 5a (local SQLite — entirely
-contained inside mc-mesh, no controlplane work) and proceed in order.
+## Roadmap: Self-heal / doctor capabilities
+
+Track separately. Before considering any phase "production-ready", verify:
+
+- **`mc mesh health`** (exists, shallow) — extend to cover local registry
+  integrity: can open SQLite, schema version matches, all enrolled agents
+  still have valid runtime binaries on PATH.
+- **`mc doctor`** — new top-level command (or `mc mesh doctor`). Checks:
+  1. State file readable + schema_version understood
+  2. Local registry accessible + not corrupt
+  3. Active profile reachable (ping controlplane if federated)
+  4. mc-mesh daemon running + responding to mgmt socket
+  5. All enrolled agents have their runtime binary available
+  6. No orphaned PIDs / stale sockets in `~/.mc/`
+- **Self-heal on startup**: daemon logs actionable errors for each check;
+  `--repair` flag that can delete corrupt DB, reset stale sockets, etc.
+- Tie to `mc mesh status` output so health problems surface without extra commands.
+
+Assign to a phase after 5e (TUI). Implementation is straightforward once
+the full profile + registry stack lands.

@@ -45,7 +45,13 @@ pub struct CliOverrides {
 pub async fn run(cli: CliOverrides) -> Result<()> {
     let mut cfg = DaemonConfig::load_or_default();
 
-    // CLI args win over file.
+    // Phase 5b: state file is the source of truth for node identity + active
+    // controlplane profile. Priority: yaml → state file → CLI args (applied below).
+    if let Err(e) = merge_state_file(&mut cfg).await {
+        tracing::warn!("state file load failed: {e:#}. Continuing with yaml-only fields.");
+    }
+
+    // CLI args win over state file and yaml.
     if !cli.backend_url.is_empty() {
         cfg.backend_url = cli.backend_url;
     }
@@ -54,14 +60,6 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     }
     cfg.work_dir = cli.work_dir;
     cfg.offline_grace_secs = cli.offline_grace_secs;
-
-    // Phase 4b: state file is the source of truth for node identity. yaml
-    // fields are accepted for one release as a deprecation path; if they're
-    // present and state is empty we migrate, then warn-and-strip on next
-    // save. The plan: docs/plans/2026-05-10-mc-mesh-controlplane-driven-enrollment.md
-    if let Err(e) = merge_state_file(&mut cfg).await {
-        tracing::warn!("state file load failed: {e:#}. Continuing with yaml-only fields.");
-    }
 
     tracing::info!("mc-mesh daemon starting");
     tracing::info!("backend: {}", cfg.backend_url);
@@ -320,63 +318,89 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     Ok(())
 }
 
-/// Merge `~/.mc/mc-mesh.state.json` into `cfg`. State wins over yaml (the
-/// new model: state is daemon-managed, yaml is config). If yaml had values
-/// and state did not, migrate them and warn loudly so the operator removes
-/// them from the yaml.
+/// Merge `~/.mc/mc-mesh.state.json` (v2: profiles map + active_profile) into
+/// `cfg`. Priority: yaml → state file. CLI args are applied by the caller
+/// after this returns so they always win.
+///
+/// On first run with a yaml that carries legacy `node_id`/`attach_secret`,
+/// we migrate those fields into a "default" profile and write it back so
+/// the next start uses the v2 state file directly.
 async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<()> {
-    let path = state::NodeState::default_path()?;
-    let existing = state::NodeState::read(&path)?;
+    let path = state::DaemonState::default_path()?;
+    let existing = state::DaemonState::read(&path)?;
 
     match existing {
         Some(s) => {
-            // Source of truth — state always wins. If yaml carries stale
-            // duplicates, warn so they get cleaned up.
-            if let Some(yaml_node_id) = cfg.node_id.as_ref() {
-                if yaml_node_id != &s.node_id {
-                    tracing::warn!(
-                        "yaml has node_id={yaml_node_id} but state file has {}; state wins. Remove node_id from yaml.",
-                        s.node_id
+            match s.active() {
+                Some((_name, profile)) => {
+                    // Active profile wins over yaml for all identity fields.
+                    if let Some(yaml_node_id) = cfg.node_id.as_ref() {
+                        if yaml_node_id != &profile.node_id {
+                            tracing::warn!(
+                                "yaml has node_id={yaml_node_id} but active state profile has {}; \
+                                 state wins. Remove node_id from yaml.",
+                                profile.node_id
+                            );
+                        }
+                    }
+                    if cfg.attach_secret.is_some() {
+                        tracing::warn!(
+                            "yaml carries an `attach_secret`; state file is the source of truth — \
+                             remove from yaml. (Daemon does not log secret values.)"
+                        );
+                    }
+                    cfg.node_id = Some(profile.node_id.clone());
+                    cfg.attach_secret = Some(profile.attach_secret.clone());
+                    cfg.backend_url = profile.url.clone();
+                    if !profile.auth.token.is_empty() {
+                        cfg.token = profile.auth.token.clone();
+                    }
+                }
+                None => {
+                    // Profiles map exists but no active profile → standalone mode.
+                    tracing::info!(
+                        "State file has no active profile; daemon running in standalone mode. \
+                         Use `mc mesh use <profile>` to select a controlplane."
                     );
                 }
             }
-            if cfg.attach_secret.is_some() {
-                tracing::warn!(
-                    "yaml carries an `attach_secret`; state file is the source of truth — remove from yaml. \
-                     (Daemon does not log secret values.)"
-                );
-            }
-            cfg.node_id = Some(s.node_id);
-            cfg.attach_secret = Some(s.attach_secret);
         }
         None => {
-            // No state file yet. If yaml carries the legacy values, migrate
-            // them so the next start uses the new path. The yaml fields are
-            // left in place this release; a future release will hard-fail
-            // on them.
+            // No state file. If yaml carries legacy identity fields, migrate them
+            // so the next start uses the v2 state file directly.
             if let (Some(node_id), Some(secret)) = (cfg.node_id.clone(), cfg.attach_secret.clone()) {
                 tracing::warn!(
                     "Migrating node_id + attach_secret from yaml to state file at {}. \
                      Remove these fields from your mc-mesh.yaml — a future release will hard-fail on them.",
                     path.display()
                 );
-                let migrated = state::NodeState {
+                let mut profiles = std::collections::HashMap::new();
+                profiles.insert(
+                    "default".into(),
+                    state::ProfileEntry {
+                        url: cfg.backend_url.clone(),
+                        auth: state::ProfileAuth::token(""),
+                        node_id,
+                        attach_secret: secret,
+                        registered_at: chrono::Utc::now().to_rfc3339(),
+                        tailscale_fqdn: None,
+                    },
+                );
+                let migrated = state::DaemonState {
                     schema_version: state::STATE_SCHEMA_VERSION,
-                    node_id,
-                    attach_secret: secret,
-                    registered_at: chrono::Utc::now().to_rfc3339(),
-                    controlplane_url: cfg.backend_url.clone(),
+                    active_profile: Some("default".into()),
+                    profiles,
                 };
-                migrated.write_atomic(&path)?;
+                if let Err(e) = migrated.write_atomic(&path) {
+                    tracing::warn!(
+                        "Could not write migrated state file: {e:#}. Will re-migrate next start."
+                    );
+                }
             } else {
-                // No state, no yaml values. Daemon runs without registered
-                // identity — heartbeat + attach_ws are no-ops. The operator
-                // is expected to run `mc-mesh node-register` first; we
-                // surface that explicitly in Phase 4c when GET /agents
-                // becomes the only source of agent assignment.
                 tracing::info!(
-                    "No state file at {} and no node_id in yaml; daemon will run without a registered identity. \
-                     Run `mc-mesh node-register --bootstrap-token <jt_…>` to register this node.",
+                    "No state file at {} and no node_id in yaml; daemon running in standalone mode. \
+                     Run `mc mesh profile add` to register with a controlplane, \
+                     or `mc mesh agent enroll` to add agents in standalone mode.",
                     path.display()
                 );
             }

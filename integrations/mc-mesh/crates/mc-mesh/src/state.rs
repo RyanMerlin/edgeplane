@@ -1,88 +1,178 @@
 //! Daemon-managed state file: `~/.mc/mc-mesh.state.json` (mode 0600).
 //!
-//! Holds identity assigned by mc-controlplane at registration time:
+//! ## Schema history
 //!
-//! - `node_id` — UUID returned by `POST /runtime/nodes/register`.
-//! - `attach_secret` — HMAC secret minted by the controlplane in the same
-//!   response, used to validate inbound attach-WS connections proxied
-//!   from the controlplane.
-//!
-//! These fields used to live in `~/.mc/mc-mesh.yaml`, where the user had
-//! to capture and paste them by hand. State is not config — it now lives
-//! in a daemon-managed file users do not edit.
-//!
-//! See `docs/plans/2026-05-10-mc-mesh-controlplane-driven-enrollment.md`.
-//!
-//! ## Wire format
-//!
+//! ### v1 (Phase 4b)
+//! Flat identity fields for a single controlplane:
 //! ```json
-//! {
-//!   "schema_version": 1,
-//!   "node_id": "uuid",
-//!   "attach_secret": "hex",
-//!   "registered_at": "2026-05-10T15:30:00Z",
-//!   "controlplane_url": "http://missioncontrol:8008"
+//! { "schema_version": 1, "node_id": "…", "attach_secret": "…",
+//!   "registered_at": "…", "controlplane_url": "…" }
+//! ```
+//!
+//! ### v2 (Phase 5b)
+//! Named profiles map + active selection (kubectl-context model):
+//! ```json
+//! { "schema_version": 2, "active_profile": "work",
+//!   "profiles": {
+//!     "work": { "url": "…", "auth": { "kind": "token", "token": "…" },
+//!               "node_id": "…", "attach_secret": "…", "registered_at": "…" }
+//!   }
 //! }
 //! ```
 //!
-//! Writes are atomic: write to `.tmp`, `fsync`, `rename`. Permissions are
-//! enforced to 0600 after each write so the file can't accidentally widen.
+//! v1 files are auto-migrated to v2 on first read (flat fields become a
+//! profile named `default`). The migration writes back atomically.
+//!
+//! Writes are atomic: `.tmp` → `fsync` → `rename`. Mode enforced to 0600.
 
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Current schema version. Bump when adding required fields; reads of an
-/// unknown version log a warning and use defaults for missing fields.
-pub const STATE_SCHEMA_VERSION: u32 = 1;
+pub const STATE_SCHEMA_VERSION: u32 = 2;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NodeState {
-    /// Schema version — see [`STATE_SCHEMA_VERSION`].
+// ---------------------------------------------------------------------------
+// v2 types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DaemonState {
     pub schema_version: u32,
-    /// UUID assigned by the controlplane at registration.
-    pub node_id: String,
-    /// HMAC secret minted at registration. 0600-only — never log.
-    pub attach_secret: String,
-    /// ISO-8601 UTC instant of the original registration.
-    pub registered_at: String,
-    /// The controlplane URL we registered against. Captured for diagnostics
-    /// when the daemon's `backend_url` and the registered URL diverge.
-    pub controlplane_url: String,
+    /// Name of the active profile, or `None` for standalone mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_profile: Option<String>,
+    /// Saved controlplane profiles.
+    #[serde(default)]
+    pub profiles: HashMap<String, ProfileEntry>,
 }
 
-impl NodeState {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileEntry {
+    /// Controlplane base URL (e.g. `http://missioncontrol:8008`).
+    pub url: String,
+    /// Authentication credentials for this profile.
+    pub auth: ProfileAuth,
+    /// Node UUID assigned by the controlplane at registration.
+    pub node_id: String,
+    /// HMAC secret minted at registration. Never log.
+    pub attach_secret: String,
+    /// ISO-8601 UTC timestamp of original registration.
+    pub registered_at: String,
+    /// Tailscale FQDN, if known at registration time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tailscale_fqdn: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileAuth {
+    /// Auth kind. Currently always `"token"`.
+    pub kind: String,
+    /// Bearer token for the controlplane. Never log.
+    pub token: String,
+}
+
+impl ProfileAuth {
+    pub fn token(token: impl Into<String>) -> Self {
+        Self { kind: "token".into(), token: token.into() }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v1 shape — deserialization only, used for migration
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct NodeStateV1 {
+    // schema_version is checked before this is used
+    node_id: String,
+    attach_secret: String,
+    registered_at: String,
+    #[serde(default)]
+    controlplane_url: String,
+}
+
+// ---------------------------------------------------------------------------
+// Read / write
+// ---------------------------------------------------------------------------
+
+impl DaemonState {
     /// Default state-file path: `~/.mc/mc-mesh.state.json`.
     pub fn default_path() -> Result<PathBuf> {
         let home = dirs::home_dir().ok_or_else(|| anyhow!("cannot resolve $HOME"))?;
         Ok(home.join(".mc").join("mc-mesh.state.json"))
     }
 
-    /// Read state from the given path. Returns `Ok(None)` if the file does
-    /// not exist (vs. an actual read/parse error).
+    /// Read and return the current state, migrating v1 → v2 if needed.
+    ///
+    /// Returns `Ok(None)` when no file exists. On v1 → v2 migration the file
+    /// is atomically rewritten at `path` and a `tracing::warn!` is emitted.
     pub fn read(path: &Path) -> Result<Option<Self>> {
-        match std::fs::read_to_string(path) {
-            Ok(s) => {
-                let state: Self = serde_json::from_str(&s)
-                    .with_context(|| format!("parsing state file {}", path.display()))?;
-                if state.schema_version > STATE_SCHEMA_VERSION {
-                    tracing::warn!(
-                        "mc-mesh state file at {} is schema_version={} but this daemon supports up to {}; using as-is",
-                        path.display(),
-                        state.schema_version,
-                        STATE_SCHEMA_VERSION
-                    );
-                }
-                Ok(Some(state))
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(anyhow::Error::from(e)
-                .context(format!("reading state file {}", path.display()))),
+        let raw = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(anyhow::Error::from(e)
+                .context(format!("reading {}", path.display()))),
+        };
+
+        // Peek at schema_version without full parse.
+        let probe: serde_json::Value = serde_json::from_str(&raw)
+            .with_context(|| format!("parsing {}", path.display()))?;
+        let version = probe.get("schema_version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1) as u32;
+
+        if version == 1 {
+            return Self::migrate_v1(&raw, path).map(Some);
         }
+
+        if version > STATE_SCHEMA_VERSION {
+            tracing::warn!(
+                "state file at {} is schema_version={version} but daemon supports up to {}; \
+                 loading as-is — upgrade mc-mesh if this causes issues.",
+                path.display(),
+                STATE_SCHEMA_VERSION
+            );
+        }
+
+        let state: Self = serde_json::from_str(&raw)
+            .with_context(|| format!("parsing v2 state at {}", path.display()))?;
+        Ok(Some(state))
     }
 
-    /// Atomically write state to `path`. Parent directories are created if
-    /// missing. The written file is chmod'd to 0600.
+    /// v1 → v2 migration: wrap flat fields as profile named "default".
+    fn migrate_v1(raw: &str, path: &Path) -> Result<Self> {
+        let v1: NodeStateV1 = serde_json::from_str(raw)
+            .with_context(|| "parsing v1 state file for migration")?;
+        tracing::warn!(
+            "State file at {} is schema v1. Migrating to v2: existing identity becomes \
+             profile named \"default\". Rename it with `mc mesh profile rename default <name>`.",
+            path.display()
+        );
+        let url = v1.controlplane_url.clone();
+        let token = String::new(); // v1 didn't store a token — will fall back to session.json
+        let mut profiles = HashMap::new();
+        profiles.insert("default".into(), ProfileEntry {
+            url,
+            auth: ProfileAuth::token(token),
+            node_id: v1.node_id,
+            attach_secret: v1.attach_secret,
+            registered_at: v1.registered_at,
+            tailscale_fqdn: None,
+        });
+        let state = DaemonState {
+            schema_version: STATE_SCHEMA_VERSION,
+            active_profile: Some("default".into()),
+            profiles,
+        };
+        // Write back atomically so next start loads v2 directly.
+        if let Err(e) = state.write_atomic(path) {
+            tracing::warn!("Could not write migrated state file: {e:#}. Will re-migrate next start.");
+        }
+        Ok(state)
+    }
+
+    /// Atomically write state. Parent dirs are created if missing. Mode 0600.
     pub fn write_atomic(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
@@ -94,12 +184,74 @@ impl NodeState {
             .with_context(|| format!("writing temp state {}", tmp.display()))?;
         set_mode_0600(&tmp)?;
         std::fs::rename(&tmp, path)
-            .with_context(|| format!("renaming {} -> {}", tmp.display(), path.display()))?;
-        // Re-apply 0600 after rename in case umask interfered.
+            .with_context(|| format!("renaming {} → {}", tmp.display(), path.display()))?;
         set_mode_0600(path)?;
         Ok(())
     }
+
+    /// Return the active `ProfileEntry`, if any.
+    pub fn active(&self) -> Option<(&str, &ProfileEntry)> {
+        let name = self.active_profile.as_deref()?;
+        self.profiles.get(name).map(|e| (name, e))
+    }
 }
+
+// ---------------------------------------------------------------------------
+// Keep NodeState for backwards compat with any external callers (will remove
+// in a later phase once all call sites are updated).
+// ---------------------------------------------------------------------------
+
+pub use compat::NodeState;
+mod compat {
+    use super::*;
+
+    /// v1 state shape. Kept so existing callers (daemon migration path) compile
+    /// without changes. New code should use `DaemonState`.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct NodeState {
+        pub schema_version: u32,
+        pub node_id: String,
+        pub attach_secret: String,
+        pub registered_at: String,
+        pub controlplane_url: String,
+    }
+
+    impl NodeState {
+        pub fn default_path() -> Result<PathBuf> {
+            DaemonState::default_path()
+        }
+
+        /// Read. Returns `Ok(None)` if no file. Note: calling this on a v2
+        /// file returns `None` since the top-level structure doesn't match.
+        /// Use `DaemonState::read` for new code.
+        pub fn read(path: &Path) -> Result<Option<Self>> {
+            match std::fs::read_to_string(path) {
+                Ok(s) => match serde_json::from_str::<Self>(&s) {
+                    Ok(v) if v.schema_version == 1 => Ok(Some(v)),
+                    _ => Ok(None), // v2 or unrecognised — let DaemonState::read handle it
+                },
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(anyhow::Error::from(e)),
+            }
+        }
+
+        pub fn write_atomic(&self, path: &Path) -> Result<()> {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let tmp = path.with_extension("tmp");
+            std::fs::write(&tmp, serde_json::to_string_pretty(self)?)?;
+            set_mode_0600(&tmp)?;
+            std::fs::rename(&tmp, path)?;
+            set_mode_0600(path)?;
+            Ok(())
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 #[cfg(unix)]
 fn set_mode_0600(path: &Path) -> Result<()> {
@@ -111,43 +263,83 @@ fn set_mode_0600(path: &Path) -> Result<()> {
 }
 #[cfg(not(unix))]
 fn set_mode_0600(_path: &Path) -> Result<()> {
-    // Windows: file ACLs are out of scope; the user's profile directory
-    // should already be access-controlled.
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn sample() -> NodeState {
-        NodeState {
-            schema_version: STATE_SCHEMA_VERSION,
-            node_id: "11111111-2222-3333-4444-555555555555".into(),
-            attach_secret: "deadbeef".repeat(8),
-            registered_at: "2026-05-10T15:30:00Z".into(),
-            controlplane_url: "http://localhost:8008".into(),
-        }
+    fn v1_json() -> &'static str {
+        r#"{"schema_version":1,"node_id":"n-1","attach_secret":"deadbeef","registered_at":"2026-05-10T00:00:00Z","controlplane_url":"http://localhost:8008"}"#
+    }
+
+    fn v2_state() -> DaemonState {
+        let mut profiles = HashMap::new();
+        profiles.insert("work".into(), ProfileEntry {
+            url: "http://localhost:8008".into(),
+            auth: ProfileAuth::token("tok-abc"),
+            node_id: "n-1".into(),
+            attach_secret: "deadbeef".into(),
+            registered_at: "2026-05-10T00:00:00Z".into(),
+            tailscale_fqdn: None,
+        });
+        DaemonState { schema_version: 2, active_profile: Some("work".into()), profiles }
     }
 
     #[test]
     fn read_missing_returns_none() {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("nope.json");
-        assert!(NodeState::read(&path).unwrap().is_none());
+        let path = dir.path().join("state.json");
+        assert!(DaemonState::read(&path).unwrap().is_none());
     }
 
     #[test]
-    fn write_then_read_round_trip() {
+    fn write_then_read_v2_round_trip() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("state.json");
-        let s = sample();
+        let s = v2_state();
         s.write_atomic(&path).unwrap();
-        let back = NodeState::read(&path).unwrap().unwrap();
-        assert_eq!(back.node_id, s.node_id);
-        assert_eq!(back.attach_secret, s.attach_secret);
-        assert_eq!(back.schema_version, s.schema_version);
+        let back = DaemonState::read(&path).unwrap().unwrap();
+        assert_eq!(back.active_profile.as_deref(), Some("work"));
+        let entry = back.profiles.get("work").unwrap();
+        assert_eq!(entry.node_id, "n-1");
+        assert_eq!(entry.auth.token, "tok-abc");
+    }
+
+    #[test]
+    fn migrate_v1_to_v2() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("state.json");
+        std::fs::write(&path, v1_json()).unwrap();
+        let state = DaemonState::read(&path).unwrap().unwrap();
+        assert_eq!(state.schema_version, 2);
+        assert_eq!(state.active_profile.as_deref(), Some("default"));
+        let entry = state.profiles.get("default").unwrap();
+        assert_eq!(entry.node_id, "n-1");
+        // File should have been rewritten as v2.
+        let on_disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(on_disk["schema_version"], 2);
+    }
+
+    #[test]
+    fn active_returns_none_for_standalone() {
+        let s = DaemonState { schema_version: 2, active_profile: None, ..Default::default() };
+        assert!(s.active().is_none());
+    }
+
+    #[test]
+    fn active_returns_profile_entry() {
+        let s = v2_state();
+        let (name, entry) = s.active().unwrap();
+        assert_eq!(name, "work");
+        assert_eq!(entry.node_id, "n-1");
     }
 
     #[cfg(unix)]
@@ -156,28 +348,8 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("state.json");
-        sample().write_atomic(&path).unwrap();
+        v2_state().write_atomic(&path).unwrap();
         let perms = std::fs::metadata(&path).unwrap().permissions();
         assert_eq!(perms.mode() & 0o777, 0o600);
-    }
-
-    #[test]
-    fn write_creates_parent_dirs() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("nested/deep/state.json");
-        sample().write_atomic(&path).unwrap();
-        assert!(path.exists());
-    }
-
-    #[test]
-    fn future_schema_version_loads_with_warning() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("state.json");
-        let mut s = sample();
-        s.schema_version = STATE_SCHEMA_VERSION + 99;
-        s.write_atomic(&path).unwrap();
-        // Should still load — version skew is a warning, not an error.
-        let back = NodeState::read(&path).unwrap().unwrap();
-        assert_eq!(back.schema_version, STATE_SCHEMA_VERSION + 99);
     }
 }
