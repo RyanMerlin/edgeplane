@@ -197,59 +197,6 @@ impl DaemonState {
 }
 
 // ---------------------------------------------------------------------------
-// Keep NodeState for backwards compat with any external callers (will remove
-// in a later phase once all call sites are updated).
-// ---------------------------------------------------------------------------
-
-pub use compat::NodeState;
-mod compat {
-    use super::*;
-
-    /// v1 state shape. Kept so existing callers (daemon migration path) compile
-    /// without changes. New code should use `DaemonState`.
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct NodeState {
-        pub schema_version: u32,
-        pub node_id: String,
-        pub attach_secret: String,
-        pub registered_at: String,
-        pub controlplane_url: String,
-    }
-
-    impl NodeState {
-        pub fn default_path() -> Result<PathBuf> {
-            DaemonState::default_path()
-        }
-
-        /// Read. Returns `Ok(None)` if no file. Note: calling this on a v2
-        /// file returns `None` since the top-level structure doesn't match.
-        /// Use `DaemonState::read` for new code.
-        pub fn read(path: &Path) -> Result<Option<Self>> {
-            match std::fs::read_to_string(path) {
-                Ok(s) => match serde_json::from_str::<Self>(&s) {
-                    Ok(v) if v.schema_version == 1 => Ok(Some(v)),
-                    _ => Ok(None), // v2 or unrecognised — let DaemonState::read handle it
-                },
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-                Err(e) => Err(anyhow::Error::from(e)),
-            }
-        }
-
-        pub fn write_atomic(&self, path: &Path) -> Result<()> {
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            let tmp = path.with_extension("tmp");
-            std::fs::write(&tmp, serde_json::to_string_pretty(self)?)?;
-            set_mode_0600(&tmp)?;
-            std::fs::rename(&tmp, path)?;
-            set_mode_0600(path)?;
-            Ok(())
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

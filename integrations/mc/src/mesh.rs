@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use futures_util::StreamExt;
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::time::Duration;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
@@ -47,6 +48,11 @@ pub enum MeshCommand {
     Attach(MeshAttachArgs),
     /// Unified live feed of progress events and messages.
     Watch(MeshWatchArgs),
+    /// Manage controlplane profiles (add, list, remove, rename).
+    #[command(subcommand)]
+    Profile(MeshProfileCommand),
+    /// Select the active controlplane profile (or show the current one).
+    Use(MeshUseArgs),
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +296,78 @@ pub struct MeshWatchArgs {
 }
 
 // ---------------------------------------------------------------------------
+// Profile management args
+// ---------------------------------------------------------------------------
+
+#[derive(Subcommand, Debug)]
+pub enum MeshProfileCommand {
+    /// Add a controlplane profile. If --bootstrap-token is given, registers
+    /// this node with the controlplane and saves its identity in the profile.
+    Add(ProfileAddArgs),
+    /// List saved profiles.
+    #[command(alias = "ls")]
+    List,
+    /// Remove a profile (clears active_profile if it was the active one).
+    #[command(alias = "rm")]
+    Remove(ProfileRemoveArgs),
+    /// Rename a profile (preserves active_profile pointer if needed).
+    Rename(ProfileRenameArgs),
+    /// Show profile details (auth token is redacted).
+    Show(ProfileShowArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ProfileAddArgs {
+    /// Unique profile name (e.g. "homelab", "work").
+    pub name: String,
+    /// Controlplane base URL (e.g. http://missioncontrol:8008).
+    #[arg(long)]
+    pub url: String,
+    /// Bearer token for the controlplane.
+    #[arg(long)]
+    pub token: String,
+    /// One-time bootstrap token from `mc node join-tokens`. When supplied,
+    /// this node is registered with the controlplane and its identity
+    /// (node_id + attach_secret) is saved into the profile.
+    #[arg(long)]
+    pub bootstrap_token: Option<String>,
+    /// Display name for this node (defaults to system hostname).
+    #[arg(long)]
+    pub node_name: Option<String>,
+    /// Trust tier label sent at registration (default: "untrusted").
+    #[arg(long, default_value = "untrusted")]
+    pub trust_tier: String,
+    /// Tailscale FQDN to register (e.g. epyc.tailnet.ts.net).
+    #[arg(long)]
+    pub tailscale_fqdn: Option<String>,
+    /// Set this profile as active immediately after adding.
+    #[arg(long)]
+    pub activate: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ProfileRemoveArgs {
+    pub name: String,
+}
+
+#[derive(Args, Debug)]
+pub struct ProfileRenameArgs {
+    pub old_name: String,
+    pub new_name: String,
+}
+
+#[derive(Args, Debug)]
+pub struct ProfileShowArgs {
+    pub name: String,
+}
+
+#[derive(Args, Debug)]
+pub struct MeshUseArgs {
+    /// Profile to activate. Omit to show the currently active profile.
+    pub name: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Main dispatcher
 // ---------------------------------------------------------------------------
 
@@ -313,6 +391,8 @@ pub async fn handle(
         MeshCommand::Msg(cmd) => handle_msg(cmd, client).await,
         MeshCommand::Attach(a) => handle_attach(a, client).await,
         MeshCommand::Watch(a) => handle_watch(a, client).await,
+        MeshCommand::Profile(cmd) => handle_profile(cmd, client).await,
+        MeshCommand::Use(a) => handle_use(a),
     }
 }
 
@@ -1714,6 +1794,303 @@ fn locate_mc_mesh_workspace() -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+// ---------------------------------------------------------------------------
+// Profile management
+// ---------------------------------------------------------------------------
+
+fn state_file_path() -> PathBuf {
+    crate::config::mc_home_dir().join("mc-mesh.state.json")
+}
+
+/// Read the state file as a v2 JSON object. Returns an empty v2 structure on
+/// any error. If the file is v1 format, the v1 identity is preserved in memory
+/// as a "default" profile entry (the daemon will write back v2 on next start).
+fn read_state_v2() -> serde_json::Value {
+    let path = state_file_path();
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return json!({ "schema_version": 2, "profiles": {} }),
+    };
+    let v: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return json!({ "schema_version": 2, "profiles": {} }),
+    };
+    let version = v.get("schema_version").and_then(|s| s.as_u64()).unwrap_or(0) as u32;
+    if version >= 2 {
+        return v;
+    }
+    // v1: synthesize a v2 structure in memory only.
+    let mut profiles = serde_json::Map::new();
+    if let (Some(nid), Some(sec), Some(url)) = (
+        v.get("node_id").and_then(|s| s.as_str()),
+        v.get("attach_secret").and_then(|s| s.as_str()),
+        v.get("controlplane_url").and_then(|s| s.as_str()),
+    ) {
+        let reg = v.get("registered_at").and_then(|s| s.as_str()).unwrap_or("");
+        profiles.insert(
+            "default".into(),
+            json!({
+                "url": url,
+                "auth": { "kind": "token", "token": "" },
+                "node_id": nid,
+                "attach_secret": sec,
+                "registered_at": reg,
+            }),
+        );
+    }
+    let active = if profiles.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::String("default".into())
+    };
+    json!({ "schema_version": 2, "active_profile": active, "profiles": serde_json::Value::Object(profiles) })
+}
+
+/// Atomically write the state file (mode 0600).
+fn write_state(state: &serde_json::Value) -> Result<()> {
+    let path = state_file_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, serde_json::to_string_pretty(state)?)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(mut p) = std::fs::metadata(&tmp).map(|m| m.permissions()) {
+            p.set_mode(0o600);
+            let _ = std::fs::set_permissions(&tmp, p);
+        }
+    }
+    std::fs::rename(&tmp, &path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(mut p) = std::fs::metadata(&path).map(|m| m.permissions()) {
+            p.set_mode(0o600);
+            let _ = std::fs::set_permissions(&path, p);
+        }
+    }
+    Ok(())
+}
+
+async fn handle_profile(cmd: MeshProfileCommand, client: &MissionControlClient) -> Result<()> {
+    match cmd {
+        MeshProfileCommand::Add(a) => handle_profile_add(a, client).await,
+        MeshProfileCommand::List => handle_profile_list(),
+        MeshProfileCommand::Remove(a) => handle_profile_remove(a),
+        MeshProfileCommand::Rename(a) => handle_profile_rename(a),
+        MeshProfileCommand::Show(a) => handle_profile_show(a),
+    }
+}
+
+async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -> Result<()> {
+    // If a bootstrap token is provided, register this node with the controlplane.
+    let (node_id, attach_secret) = if let Some(bt) = &a.bootstrap_token {
+        let reg_client = MissionControlClient::new_with_token(&a.url, &a.token)?;
+        let node_name = a.node_name.clone().unwrap_or_else(|| {
+            std::process::Command::new("hostname")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| "unknown".into())
+        });
+        let body = json!({
+            "node_name": node_name,
+            "hostname": node_name,
+            "trust_tier": a.trust_tier,
+            "labels": {},
+            "capacity": {},
+            "capabilities": [],
+            "runtime_version": env!("CARGO_PKG_VERSION"),
+            "bootstrap_token": bt,
+            "tailscale_fqdn": a.tailscale_fqdn,
+        });
+        let resp = reg_client
+            .post_json("/runtime/nodes/register", &body)
+            .await
+            .context("calling /runtime/nodes/register")?;
+        let nid = resp
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("register response missing `id`"))?
+            .to_string();
+        let sec = resp
+            .get("attach_secret")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("register response missing `attach_secret`"))?
+            .to_string();
+        (nid, sec)
+    } else {
+        (String::new(), String::new())
+    };
+
+    let mut state = read_state_v2();
+    let profiles = state["profiles"]
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("unexpected state file structure"))?;
+
+    if profiles.contains_key(&a.name) {
+        anyhow::bail!(
+            "profile '{}' already exists. Remove it first: mc mesh profile rm {}",
+            a.name,
+            a.name
+        );
+    }
+
+    let is_first = profiles.is_empty();
+    let registered_at = chrono::Utc::now().to_rfc3339();
+    let mut entry = json!({
+        "url": a.url,
+        "auth": { "kind": "token", "token": a.token },
+        "node_id": node_id,
+        "attach_secret": attach_secret,
+        "registered_at": registered_at,
+    });
+    if let Some(fqdn) = &a.tailscale_fqdn {
+        entry["tailscale_fqdn"] = serde_json::Value::String(fqdn.clone());
+    }
+    profiles.insert(a.name.clone(), entry);
+    // profiles borrow ends here.
+
+    if a.activate || is_first {
+        state["active_profile"] = serde_json::Value::String(a.name.clone());
+    }
+
+    write_state(&state)?;
+
+    if !node_id.is_empty() {
+        println!("Registered node {} and saved as profile '{}'.", node_id, a.name);
+    } else {
+        println!("Saved profile '{}' (url: {}).", a.name, a.url);
+    }
+    if state["active_profile"].as_str() == Some(&a.name) {
+        println!("Active profile: '{}'.", a.name);
+    } else {
+        println!("Run `mc mesh use {}` to activate this profile.", a.name);
+    }
+    Ok(())
+}
+
+fn handle_profile_list() -> Result<()> {
+    let state = read_state_v2();
+    let active = state["active_profile"].as_str().unwrap_or("");
+    let profiles = match state["profiles"].as_object() {
+        Some(p) => p,
+        None => {
+            println!("No profiles saved.");
+            return Ok(());
+        }
+    };
+    if profiles.is_empty() {
+        println!("No profiles saved. Add one: mc mesh profile add <name> --url <url> --token <tok>");
+        return Ok(());
+    }
+    println!("{:<4} {:<20} {:<40} {}", "  ", "NAME", "URL", "NODE_ID");
+    println!("{}", "-".repeat(80));
+    for (name, entry) in profiles {
+        let marker = if name == active { "* " } else { "  " };
+        let url = entry["url"].as_str().unwrap_or("-");
+        let nid = entry["node_id"].as_str().unwrap_or("-");
+        let nid_short = if nid.len() > 12 { &nid[..12] } else { nid };
+        println!("{}{:<20} {:<40} {}", marker, name, url, nid_short);
+    }
+    Ok(())
+}
+
+fn handle_profile_remove(a: ProfileRemoveArgs) -> Result<()> {
+    let mut state = read_state_v2();
+    let profiles = state["profiles"]
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("unexpected state file structure"))?;
+    if !profiles.contains_key(&a.name) {
+        anyhow::bail!("profile '{}' not found", a.name);
+    }
+    profiles.remove(&a.name);
+    // profiles borrow ends here.
+
+    // Clear active_profile if it pointed at the removed profile.
+    if state["active_profile"].as_str() == Some(&a.name) {
+        state["active_profile"] = serde_json::Value::Null;
+    }
+    write_state(&state)?;
+    println!("Removed profile '{}'.", a.name);
+    Ok(())
+}
+
+fn handle_profile_rename(a: ProfileRenameArgs) -> Result<()> {
+    let mut state = read_state_v2();
+    let profiles = state["profiles"]
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("unexpected state file structure"))?;
+    if !profiles.contains_key(&a.old_name) {
+        anyhow::bail!("profile '{}' not found", a.old_name);
+    }
+    if profiles.contains_key(&a.new_name) {
+        anyhow::bail!("profile '{}' already exists", a.new_name);
+    }
+    let entry = profiles.remove(&a.old_name).expect("checked above");
+    profiles.insert(a.new_name.clone(), entry);
+    // profiles borrow ends here.
+
+    if state["active_profile"].as_str() == Some(a.old_name.as_str()) {
+        state["active_profile"] = serde_json::Value::String(a.new_name.clone());
+    }
+    write_state(&state)?;
+    println!("Renamed '{}' → '{}'.", a.old_name, a.new_name);
+    Ok(())
+}
+
+fn handle_profile_show(a: ProfileShowArgs) -> Result<()> {
+    let state = read_state_v2();
+    let profiles = state["profiles"]
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("unexpected state file structure"))?;
+    let entry = profiles
+        .get(&a.name)
+        .ok_or_else(|| anyhow::anyhow!("profile '{}' not found", a.name))?;
+    let active = state["active_profile"].as_str().unwrap_or("");
+    println!("Profile: {} {}", a.name, if a.name == active { "(active)" } else { "" });
+    println!("  url:           {}", entry["url"].as_str().unwrap_or("-"));
+    println!("  node_id:       {}", entry["node_id"].as_str().unwrap_or("-"));
+    println!("  registered_at: {}", entry["registered_at"].as_str().unwrap_or("-"));
+    println!("  auth.kind:     {}", entry["auth"]["kind"].as_str().unwrap_or("-"));
+    println!("  auth.token:    <redacted>");
+    if let Some(fqdn) = entry["tailscale_fqdn"].as_str() {
+        println!("  tailscale_fqdn: {fqdn}");
+    }
+    Ok(())
+}
+
+fn handle_use(a: MeshUseArgs) -> Result<()> {
+    let mut state = read_state_v2();
+
+    match &a.name {
+        None => {
+            // Show current active profile.
+            let active = state["active_profile"].as_str().unwrap_or("<none>");
+            println!("Active profile: {active}");
+        }
+        Some(name) => {
+            let exists = state["profiles"]
+                .as_object()
+                .is_some_and(|p| p.contains_key(name));
+            if !exists {
+                anyhow::bail!(
+                    "profile '{}' not found. List profiles with `mc mesh profile list`.",
+                    name
+                );
+            }
+            state["active_profile"] = serde_json::Value::String(name.clone());
+            write_state(&state)?;
+            println!("Switched to profile '{name}'.");
+            println!("Restart mc-mesh for the change to take effect: mc mesh down && mc mesh up");
+        }
+    }
+    Ok(())
 }
 
 fn prompt_yes_no(prompt: &str) -> bool {
