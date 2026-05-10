@@ -1,14 +1,16 @@
-# mc-controlplane local dev stack — Postgres + mc-controlplane
+# mc-controlplane local dev stack — Postgres + mc-controlplane + web
 #
 # Usage:
 #   docker compose -f docker-compose.mc-dev.yml up --build
 #
 # Ports:
+#   5173 — SvelteKit dev server (proxies API calls to mc-controlplane)
 #   8008 — mc-controlplane API
 #   5432 — Postgres (exposed for psql / pgAdmin)
 #
 # Quick test:
 #   curl http://localhost:8008/health
+#   open http://localhost:5173/
 
 services:
   postgres:
@@ -49,3 +51,23 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+
+  web:
+    image: node:20-alpine
+    container_name: missioncontrol-web-dev
+    working_dir: /app
+    command: sh -c "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173"
+    environment:
+      MC_DEV_API: http://mc-controlplane:8008
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+    depends_on:
+      mc-controlplane:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  web-node-modules:
