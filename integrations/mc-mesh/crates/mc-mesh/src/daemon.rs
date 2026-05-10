@@ -19,9 +19,12 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::attach_gateway;
-use crate::config::DaemonConfig;
+use crate::attach_registry::AttachRegistry;
+use crate::attach_ws;
+use crate::config::{DaemonConfig, SessionMode};
 use crate::mgmt_gateway::MgmtGateway;
 use crate::secrets_gateway::SecretsGateway;
+use crate::session_supervisor;
 use crate::supervisor::Supervisor;
 use crate::task_loop;
 
@@ -75,17 +78,31 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     let runtime_map: attach_gateway::RuntimeMap =
         Arc::new(Mutex::new(HashMap::new()));
 
+    // Process-wide registry of live persistent-session endpoints.
+    // Populated by `session_supervisor`; consumed by attach gateway and the
+    // network attach WS server (Phase 2a).
+    let attach_registry = AttachRegistry::new();
+
     let mut task_handles = vec![];
 
     // For each mission → each enrolled agent, spawn the runtime and start a task loop.
     for mission in &cfg.missions {
         for agent_entry in &mission.agents {
+            let extra_caps: Vec<mc_mesh_core::types::Capability> = agent_entry
+                .capabilities
+                .iter()
+                .map(|s| mc_mesh_core::types::Capability::new(s.clone()))
+                .collect();
             let rt: Arc<mc_mesh_core::agent_runtime::DynAgentRuntime> =
                 match agent_entry.runtime_kind.as_str() {
-                    "claude_code" => Arc::new(Box::new(ClaudeCodeRuntime::new())),
-                    "codex" => Arc::new(Box::new(CodexRuntime::new())),
-                    "gemini" => Arc::new(Box::new(GeminiRuntime::new())),
-                    "goose" => Arc::new(Box::new(GooseRuntime::new())),
+                    "claude_code" => Arc::new(Box::new(ClaudeCodeRuntime::with_extra_capabilities(
+                        extra_caps,
+                    ))),
+                    "codex" => Arc::new(Box::new(CodexRuntime::with_extra_capabilities(extra_caps))),
+                    "gemini" => Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(
+                        extra_caps,
+                    ))),
+                    "goose" => Arc::new(Box::new(GooseRuntime::with_extra_capabilities(extra_caps))),
                     other => {
                         tracing::warn!("Unknown runtime kind '{other}', skipping agent {}", agent_entry.agent_id);
                         continue;
@@ -140,18 +157,55 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
                 pid: 0,
             }));
 
-            let jh = tokio::spawn(task_loop::run_for_agent(
-                agent_handle,
-                rt,
-                client.clone(),
-                mission.mission_id.clone(),
-                agent_entry.agent_id.clone(),
-                watchdog.clone(),
-            ));
-            task_handles.push(jh);
+            match agent_entry.session_mode {
+                SessionMode::Task => {
+                    let jh = tokio::spawn(task_loop::run_for_agent(
+                        agent_handle,
+                        rt.clone(),
+                        client.clone(),
+                        mission.mission_id.clone(),
+                        agent_entry.agent_id.clone(),
+                        watchdog.clone(),
+                    ));
+                    task_handles.push(jh);
+                }
+                SessionMode::Persistent => {
+                    // Persistent agents: a session supervisor owns the PTY
+                    // and registers itself in the attach registry. A message
+                    // relay still runs so peer messages reach the live
+                    // session via signal_tx.
+                    let supervisor_jh = tokio::spawn(session_supervisor::run_for_agent(
+                        agent_entry.agent_id.clone(),
+                        rt.clone(),
+                        attach_registry.clone(),
+                    ));
+                    task_handles.push(supervisor_jh);
+
+                    let relay_agent = agent_handle.clone();
+                    let relay_runtime = rt.clone();
+                    let relay_client = client.clone();
+                    let relay_agent_id = agent_entry.agent_id.clone();
+                    let relay_registry = attach_registry.clone();
+                    let relay_jh = tokio::spawn(async move {
+                        task_loop::run_message_relay(
+                            relay_agent,
+                            relay_runtime,
+                            relay_client,
+                            relay_agent_id,
+                            Some(relay_registry),
+                        )
+                        .await;
+                    });
+                    task_handles.push(relay_jh);
+                }
+            }
 
             tracing::info!(
-                "Started task loop for {} agent {} in mission {}",
+                "Started {} loop for {} agent {} in mission {}",
+                match agent_entry.session_mode {
+                    SessionMode::Task => "task",
+                    SessionMode::Persistent => "persistent-session",
+                },
                 agent_entry.runtime_kind,
                 agent_entry.agent_id,
                 mission.mission_id
@@ -195,11 +249,26 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
 
     // Start the attach gateway in the background.
     let gw_map = Arc::clone(&runtime_map);
+    let gw_registry = Arc::clone(&attach_registry);
     tokio::spawn(async move {
-        if let Err(e) = attach_gateway::run(gw_map).await {
+        if let Err(e) = attach_gateway::run(gw_map, gw_registry).await {
             tracing::warn!("attach gateway exited: {e}");
         }
     });
+
+    // Network-facing attach WS server. Bound to the Tailscale interface in
+    // production via `attach_bind_addr`. The controlplane proxies browser
+    // attach upgrades here over Tailscale (Phase 2b).
+    {
+        let ws_registry = Arc::clone(&attach_registry);
+        let ws_addr = cfg.attach_bind_addr.clone();
+        let ws_secret = cfg.attach_secret.clone();
+        tokio::spawn(async move {
+            if let Err(e) = attach_ws::serve(ws_addr, ws_secret, ws_registry).await {
+                tracing::warn!("attach_ws server exited: {e:#}");
+            }
+        });
+    }
 
     // Create the session store shared between the secrets gateway and the dispatcher.
     let session_store = Arc::new(mc_mesh_secrets::SessionStore::new());

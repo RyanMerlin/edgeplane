@@ -2,10 +2,13 @@
 ///
 /// Headless — users interact via `mc mesh …` in the mc CLI.
 mod attach_gateway;
+mod attach_registry;
+mod attach_ws;
 mod config;
 mod daemon;
 mod mgmt_gateway;
 mod secrets_gateway;
+mod session_supervisor;
 mod supervisor;
 mod task_loop;
 

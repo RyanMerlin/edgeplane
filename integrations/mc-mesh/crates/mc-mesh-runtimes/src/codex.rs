@@ -13,7 +13,8 @@ use mc_mesh_core::types::{
     AgentHandle, AgentSignal, Capability, LaunchContext, PtySession, RuntimeKind, TaskResult,
     TaskSpec,
 };
-use std::io::{Read, Write};
+
+use crate::shared::merge_capabilities;
 use std::sync::OnceLock;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -26,14 +27,19 @@ pub struct CodexRuntime {
 
 impl CodexRuntime {
     pub fn new() -> Self {
+        Self::with_extra_capabilities(Vec::new())
+    }
+
+    pub fn with_extra_capabilities(extra: Vec<Capability>) -> Self {
+        let builtins = vec![
+            Capability::new("codex"),
+            Capability::new("code.read"),
+            Capability::new("code.edit"),
+            Capability::new("code.refactor"),
+            Capability::new("test.write"),
+        ];
         CodexRuntime {
-            capabilities: vec![
-                Capability::new("codex"),
-                Capability::new("code.read"),
-                Capability::new("code.edit"),
-                Capability::new("code.refactor"),
-                Capability::new("test.write"),
-            ],
+            capabilities: merge_capabilities(builtins, extra),
             version: detect_version(),
             install_done: OnceLock::new(),
         }
@@ -300,45 +306,11 @@ impl AgentRuntime for CodexRuntime {
     }
 
     async fn attach_pty(&self, handle: &AgentHandle) -> Result<PtySession> {
-        use portable_pty::{CommandBuilder, PtySize, native_pty_system};
-
         let work_dir = paths::mc_mesh_work_dir().join(&handle.agent_id);
         std::fs::create_dir_all(&work_dir)?;
-
-        let pty_system = native_pty_system();
-        let pair = pty_system.openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })?;
-
-        let mut cmd = CommandBuilder::new("codex");
-        cmd.cwd(&work_dir);
-        let _child = pair.slave.spawn_command(cmd)?;
-        drop(pair.slave);
-
-        let mut master_reader = pair.master.try_clone_reader()?;
-        let mut master_writer = pair.master.take_writer()?;
-
-        let (out_tx, out_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
-        let (in_tx, mut in_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
-
-        tokio::task::spawn_blocking(move || {
-            let mut buf = [0u8; 4096];
-            loop {
-                match master_reader.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => { if out_tx.blocking_send(buf[..n].to_vec()).is_err() { break; } }
-                }
-            }
-        });
-        tokio::task::spawn_blocking(move || {
-            loop {
-                match in_rx.blocking_recv() {
-                    None => break,
-                    Some(bytes) => { if master_writer.write_all(&bytes).is_err() { break; } }
-                }
-            }
-        });
-
+        let session = crate::shared::spawn_interactive_pty("codex", &work_dir, 24, 80)?;
         tracing::info!("PTY session opened for codex agent {}", handle.agent_id);
-        Ok(PtySession { output: out_rx, input: in_tx, rows: 24, cols: 80 })
+        Ok(session)
     }
 
     async fn shutdown(&self, handle: AgentHandle) -> Result<()> {

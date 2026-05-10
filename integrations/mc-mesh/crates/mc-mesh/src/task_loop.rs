@@ -25,6 +25,8 @@ use mc_mesh_work::watchdog::{ConnectivityState, OfflinePolicy};
 use mc_mesh_work::{claim, task};
 use mc_mesh_work::task::TaskError;
 
+use crate::attach_registry::AttachRegistry;
+
 const POLL_INTERVAL_MIN: Duration = Duration::from_secs(5);
 const POLL_INTERVAL_MAX: Duration = Duration::from_secs(30);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
@@ -49,7 +51,7 @@ pub async fn run_for_agent(
         let relay_client = Arc::clone(&client);
         let relay_agent_id = agent_id.clone();
         tokio::spawn(async move {
-            run_message_relay(relay_agent, relay_runtime, relay_client, relay_agent_id).await;
+            run_message_relay(relay_agent, relay_runtime, relay_client, relay_agent_id, None).await;
         });
     }
 
@@ -207,6 +209,15 @@ pub async fn run_for_agent(
             })
             .collect::<Vec<_>>();
 
+        // Fetch terminal summaries from upstream dependencies, if any. This
+        // gets spliced into the prompt as `[DEPENDENCY RESULTS]` by the
+        // shared `build_prompt`. Best-effort — failures don't block inject.
+        let dependency_results = if task_record.depends_on.is_empty() {
+            Vec::new()
+        } else {
+            task::fetch_dependency_results(&client, &task_record.depends_on).await
+        };
+
         // Build the TaskSpec.
         let task_spec = TaskSpec {
             id: task_record.id.clone(),
@@ -220,6 +231,7 @@ pub async fn run_for_agent(
             consumes: task_record.consumes.clone(),
             agent_profile,
             mission_roster,
+            dependency_results,
         };
 
         // Inject and stream progress.
@@ -343,16 +355,20 @@ async fn set_agent_idle(client: &BackendClient, agent_id: &str) {
         .await;
 }
 
-/// Poll inbound messages for this agent and deliver them to the runtime.
+/// Poll inbound messages for this agent and deliver them.
 ///
-/// Runs forever alongside the task claim loop.  Messages directed at this
-/// agent (or broadcast messages in any of the agent's active klusters) are
-/// fetched every MESSAGE_POLL_INTERVAL and forwarded via `AgentRuntime::signal()`.
-async fn run_message_relay(
+/// For task-mode agents (`registry: None`), messages are delivered via
+/// `AgentRuntime::signal()` — the existing path. For persistent-mode agents
+/// (`registry: Some(...)`), if the session supervisor has registered a signal
+/// channel, the message is routed there; the runtime's `signal()` is bypassed.
+/// If the persistent agent isn't registered yet (e.g. PTY restarting), we
+/// silently drop the message — the supervisor will re-register on relaunch.
+pub async fn run_message_relay(
     agent: Arc<tokio::sync::Mutex<AgentHandle>>,
     runtime: Arc<mc_mesh_core::agent_runtime::DynAgentRuntime>,
     client: Arc<BackendClient>,
     agent_id: String,
+    registry: Option<Arc<AttachRegistry>>,
 ) {
     // We poll the agent-scoped message inbox: GET /work/agents/{id}/messages
     // which returns messages where to_agent_id = agent_id or to_agent_id IS NULL.
@@ -404,9 +420,27 @@ async fn run_message_relay(
                 body,
             };
 
-            let handle = agent.lock().await;
-            if let Err(e) = runtime.signal(&handle, signal).await {
-                tracing::warn!("signal() delivery failed for agent {agent_id}: {e}");
+            // Persistent agents: route to the registered session supervisor.
+            // Task agents (or persistent agents with no live session): fall
+            // back to runtime.signal() — task runtimes log; persistent
+            // runtimes log because the supervisor is restarting.
+            let mut delivered = false;
+            if let Some(ref reg) = registry {
+                if let Some(endpoints) = reg.get(&agent_id).await {
+                    if let Err(e) = endpoints.signal_tx.send(signal.clone()).await {
+                        tracing::debug!(
+                            "Session supervisor not ready for {agent_id}, dropping signal: {e}"
+                        );
+                    } else {
+                        delivered = true;
+                    }
+                }
+            }
+            if !delivered {
+                let handle = agent.lock().await;
+                if let Err(e) = runtime.signal(&handle, signal).await {
+                    tracing::warn!("signal() delivery failed for agent {agent_id}: {e}");
+                }
             }
         }
     }

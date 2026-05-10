@@ -50,6 +50,21 @@ pub struct TaskSpec {
     /// Concise roster of other agents in this mission.
     /// Each entry: {id, name, role, description, scope, capabilities, status, hostname}.
     pub mission_roster: Vec<serde_json::Value>,
+    /// Last `phase_finished` summary from each upstream dependency, fetched
+    /// by the task loop before inject. Empty when the task has no
+    /// dependencies or none have produced a phase_finished event yet.
+    #[serde(default)]
+    pub dependency_results: Vec<DependencyResult>,
+}
+
+/// One upstream dependency's terminal summary, ready to splice into the
+/// downstream task's prompt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DependencyResult {
+    pub task_id: String,
+    pub title: String,
+    pub summary: String,
+    pub finished_at: String,
 }
 
 /// Context passed to `AgentRuntime::launch`.
@@ -115,9 +130,11 @@ pub struct TaskResult {
 ///
 /// `output` receives bytes from the PTY master (terminal output to display).
 /// `input`  sends bytes to  the PTY master (keystrokes from the user).
+/// `resize` requests a TTY size change; bounded — drop on full to coalesce.
 pub struct PtySession {
     pub output: tokio::sync::mpsc::Receiver<Vec<u8>>,
     pub input: tokio::sync::mpsc::Sender<Vec<u8>>,
+    pub resize: tokio::sync::mpsc::Sender<(u16, u16)>,
     pub rows: u16,
     pub cols: u16,
 }

@@ -1,5 +1,5 @@
 use mc_mesh_core::client::BackendClient;
-use mc_mesh_core::types::MeshTaskRecord;
+use mc_mesh_core::types::{DependencyResult, MeshTaskRecord};
 use anyhow::{anyhow, Result};
 
 /// Result of a successful task claim.
@@ -145,6 +145,59 @@ pub async fn complete_task(
     }
     resp.error_for_status().map_err(|e| TaskError::Other(anyhow!(e)))?;
     Ok(())
+}
+
+/// Fetch the most recent `phase_finished` summary for each upstream
+/// dependency, ready to inline as `[DEPENDENCY RESULTS]` in the downstream
+/// task's prompt.
+///
+/// Best-effort: per-dep failures are logged and skipped — a missing
+/// dependency result must never block injection of the downstream task.
+pub async fn fetch_dependency_results(
+    client: &BackendClient,
+    depends_on: &[String],
+) -> Vec<DependencyResult> {
+    let mut out = Vec::with_capacity(depends_on.len());
+    for dep_id in depends_on {
+        match client
+            .get::<Vec<serde_json::Value>>(&format!("/work/tasks/{dep_id}/progress?since_seq=0"))
+            .await
+        {
+            Ok(events) => {
+                let last_phase_finished = events.iter().rev().find(|e| {
+                    e.get("event_type").and_then(|v| v.as_str()) == Some("phase_finished")
+                });
+                let Some(ev) = last_phase_finished else {
+                    tracing::debug!(
+                        "fetch_dependency_results: dep {dep_id} has no phase_finished event yet"
+                    );
+                    continue;
+                };
+                let summary = ev
+                    .get("summary")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let finished_at = ev
+                    .get("occurred_at")
+                    .map(|v| match v {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    })
+                    .unwrap_or_default();
+                out.push(DependencyResult {
+                    task_id: dep_id.clone(),
+                    title: dep_id.clone(),
+                    summary,
+                    finished_at,
+                });
+            }
+            Err(e) => {
+                tracing::debug!("fetch_dependency_results: dep {dep_id}: {e}");
+            }
+        }
+    }
+    out
 }
 
 /// Mark a task failed.

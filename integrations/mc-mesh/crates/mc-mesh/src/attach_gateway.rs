@@ -7,6 +7,11 @@
 ///   client → socket → PTY master input
 ///   PTY master output → socket → client
 ///
+/// For persistent-mode agents, attach connects to the live session via the
+/// `AttachRegistry` (multiple viewers share one PTY). For task-mode agents
+/// or when no live session is registered, falls back to spawning a fresh
+/// `runtime.attach_pty()` — the original behavior.
+///
 /// This keeps the attachment path entirely local — no backend round-trip.
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -23,6 +28,9 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
 
+#[cfg(unix)]
+use crate::attach_registry::AttachRegistry;
+
 /// Return the path to the local control socket.
 pub fn socket_path() -> PathBuf {
     paths::attach_socket_path()
@@ -33,7 +41,7 @@ pub type RuntimeMap = Arc<Mutex<HashMap<String, Arc<DynAgentRuntime>>>>;
 
 /// Start the attach gateway.  Runs until the process is killed.
 #[cfg(unix)]
-pub async fn run(runtimes: RuntimeMap) -> Result<()> {
+pub async fn run(runtimes: RuntimeMap, registry: Arc<AttachRegistry>) -> Result<()> {
     let path = socket_path();
     // Create parent dir if needed.
     if let Some(parent) = path.parent() {
@@ -51,8 +59,9 @@ pub async fn run(runtimes: RuntimeMap) -> Result<()> {
         match listener.accept().await {
             Ok((stream, _)) => {
                 let rt_map = Arc::clone(&runtimes);
+                let reg = Arc::clone(&registry);
                 tokio::spawn(async move {
-                    if let Err(e) = handle_connection(stream, rt_map).await {
+                    if let Err(e) = handle_connection(stream, rt_map, reg).await {
                         tracing::debug!("attach session ended: {e}");
                     }
                 });
@@ -65,7 +74,7 @@ pub async fn run(runtimes: RuntimeMap) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-pub async fn run(_runtimes: RuntimeMap) -> Result<()> {
+pub async fn run(_runtimes: RuntimeMap, _registry: Arc<crate::attach_registry::AttachRegistry>) -> Result<()> {
     tracing::warn!("attach gateway is only supported on Unix-like hosts");
     futures::future::pending::<()>().await;
     #[allow(unreachable_code)]
@@ -76,6 +85,7 @@ pub async fn run(_runtimes: RuntimeMap) -> Result<()> {
 async fn handle_connection(
     stream: tokio::net::UnixStream,
     runtimes: RuntimeMap,
+    registry: Arc<AttachRegistry>,
 ) -> Result<()> {
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
@@ -90,7 +100,54 @@ async fn handle_connection(
         return Ok(());
     }
 
-    // Look up the runtime.
+    // Persistent-session fast path: a session supervisor already owns a live
+    // PTY for this agent. Subscribe to its broadcast and route input through
+    // the registered stdin sender.
+    if let Some(endpoints) = registry.get(&agent_id).await {
+        write_half.write_all(b"OK\n").await?;
+        tracing::info!("attach session started for persistent agent {agent_id}");
+
+        let mut stdout_rx = endpoints.stdout_broadcast.subscribe();
+        let stdin_tx = endpoints.stdin_tx.clone();
+        let agent_id_for_log = agent_id.clone();
+
+        tokio::spawn(async move {
+            loop {
+                match stdout_rx.recv().await {
+                    Ok(bytes) => {
+                        if write_half.write_all(&bytes).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(
+                            "attach viewer for {agent_id_for_log} lagged {n} chunks"
+                        );
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+
+        let mut read_raw = reader.into_inner();
+        let mut buf = vec![0u8; 4096];
+        loop {
+            match read_raw.read(&mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if stdin_tx.send(buf[..n].to_vec()).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        tracing::info!("attach session ended for persistent agent {agent_id}");
+        return Ok(());
+    }
+
+    // Fallback: spawn a fresh PTY via the runtime. Used for task-mode agents
+    // and as a debug aid when no live session is registered.
     let runtime = {
         let map = runtimes.lock().await;
         map.get(&agent_id).cloned()
@@ -102,7 +159,6 @@ async fn handle_connection(
         return Ok(());
     };
 
-    // Open PTY session.
     let handle = AgentHandle {
         agent_id: agent_id.clone(),
         runtime_kind: runtime.kind(),
@@ -119,12 +175,11 @@ async fn handle_connection(
     };
 
     write_half.write_all(b"OK\n").await?;
-    tracing::info!("attach session started for agent {agent_id}");
+    tracing::info!("attach session started for agent {agent_id} (fresh PTY)");
 
     let mut pty_output = session.output;
     let pty_input = session.input;
 
-    // PTY output → socket  (spawned task)
     tokio::spawn(async move {
         while let Some(bytes) = pty_output.recv().await {
             if write_half.write_all(&bytes).await.is_err() {
@@ -133,7 +188,6 @@ async fn handle_connection(
         }
     });
 
-    // Socket → PTY input  (this task)
     let mut read_raw = reader.into_inner();
     let mut buf = vec![0u8; 4096];
     loop {

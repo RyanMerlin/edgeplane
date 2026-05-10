@@ -36,6 +36,21 @@ pub struct DaemonConfig {
     /// When set, the daemon sends periodic node heartbeats (including Tailscale info).
     #[serde(default)]
     pub node_id: Option<String>,
+    /// HMAC secret shared with mc-controlplane, used to validate inbound
+    /// attach-WS connections proxied from the controlplane (Phase 2a/2b).
+    /// If `None`, the attach WS server still binds but rejects every
+    /// connection — default-deny when no secret is configured.
+    #[serde(default)]
+    pub attach_secret: Option<String>,
+    /// Address the attach-WS server binds to. Default `0.0.0.0:8009`.
+    /// Reachable on the Tailscale interface; the controlplane dials this
+    /// address using `tailscale_fqdn` from node registration.
+    #[serde(default = "default_attach_bind")]
+    pub attach_bind_addr: String,
+}
+
+fn default_attach_bind() -> String {
+    "0.0.0.0:8009".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,12 +61,36 @@ pub struct MissionEntry {
     pub agents: Vec<AgentEntry>,
 }
 
+/// Whether an agent runs in short-lived task mode (`claude -p` per task) or
+/// as a long-running interactive session managed by `session_supervisor`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionMode {
+    #[default]
+    Task,
+    Persistent,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentEntry {
     /// The MeshAgent id as assigned by the backend.
     pub agent_id: String,
     /// Runtime kind: claude_code | codex | gemini
     pub runtime_kind: String,
+    /// Whether this agent is a short-lived task worker (default) or a
+    /// long-running interactive session managed by `session_supervisor`.
+    #[serde(default)]
+    pub session_mode: SessionMode,
+    /// Extra capabilities to expose for task-claim matching, in addition to the
+    /// runtime's built-in capability list. Strings are matched against
+    /// `TaskSpec.required_capabilities` verbatim.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    /// Optional path to a profile directory used by persistent-session agents
+    /// (CLAUDE.md / launch context). Read by future session-supervisor work; no
+    /// effect on task-mode agents today.
+    #[serde(default)]
+    pub profile_path: Option<std::path::PathBuf>,
 }
 
 /// Shared session fields written by `mc auth login`.
@@ -106,6 +145,8 @@ impl DaemonConfig {
             offline_policy: default_policy(),
             control_socket: default_socket(),
             node_id: None,
+            attach_secret: None,
+            attach_bind_addr: default_attach_bind(),
         });
         cfg.resolve_credentials();
         cfg

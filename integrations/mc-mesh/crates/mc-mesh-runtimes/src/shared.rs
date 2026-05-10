@@ -1,8 +1,113 @@
 /// Utilities shared across all AgentRuntime implementations.
 use anyhow::Result;
-use mc_mesh_core::types::TaskSpec;
+use mc_mesh_core::types::{Capability, PtySession, TaskSpec};
 use std::path::Path;
 use tokio::process::Child;
+
+/// Spawn an interactive PTY session for `binary` in `work_dir` and return
+/// channels for stdio plus a resize control sender. The PTY is owned by the
+/// returned task graph and lives until either end of the channels closes.
+///
+/// Used by all runtimes that support `attach_pty`.
+pub fn spawn_interactive_pty(
+    binary: &str,
+    work_dir: &Path,
+    rows: u16,
+    cols: u16,
+) -> Result<PtySession> {
+    use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+    use std::io::{Read, Write};
+
+    let pty_system = native_pty_system();
+    let pair = pty_system.openpty(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    })?;
+
+    let mut cmd = CommandBuilder::new(binary);
+    cmd.cwd(work_dir);
+    let _child = pair.slave.spawn_command(cmd)?;
+    drop(pair.slave);
+
+    let mut master_reader = pair.master.try_clone_reader()?;
+    let mut master_writer = pair.master.take_writer()?;
+
+    let (out_tx, out_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
+    let (in_tx, mut in_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
+    // Bounded; drop newer resize events on full so we don't pile up under
+    // rapid window-drag resizes. Last-writer-wins is fine for TTY size.
+    let (resize_tx, mut resize_rx) = tokio::sync::mpsc::channel::<(u16, u16)>(8);
+
+    // PTY output → channel.
+    tokio::task::spawn_blocking(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match master_reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if out_tx.blocking_send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    // Channel → PTY input.
+    tokio::task::spawn_blocking(move || {
+        loop {
+            match in_rx.blocking_recv() {
+                None => break,
+                Some(bytes) => {
+                    if master_writer.write_all(&bytes).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    // Resize loop holds the master alive for the lifetime of the session.
+    // When the resize channel closes (PtySession dropped) the master drops,
+    // which closes the slave and reaps the child.
+    let master = pair.master;
+    tokio::task::spawn_blocking(move || {
+        while let Some((rows, cols)) = resize_rx.blocking_recv() {
+            let _ = master.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            });
+        }
+        // Drop the master here, which closes the PTY.
+        drop(master);
+    });
+
+    Ok(PtySession {
+        output: out_rx,
+        input: in_tx,
+        resize: resize_tx,
+        rows,
+        cols,
+    })
+}
+
+/// Merge a runtime's built-in capabilities with extras from per-agent config.
+/// Built-ins come first; extras are appended in order. Duplicates (by inner
+/// string) are dropped on a first-wins basis.
+pub fn merge_capabilities(builtins: Vec<Capability>, extra: Vec<Capability>) -> Vec<Capability> {
+    let mut out = Vec::with_capacity(builtins.len() + extra.len());
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for c in builtins.into_iter().chain(extra.into_iter()) {
+        if seen.insert(c.0.clone()) {
+            out.push(c);
+        }
+    }
+    out
+}
 
 /// Spawn a CLI binary as a supervised child.  Returns the child handle.
 pub async fn spawn_cli(
@@ -85,6 +190,33 @@ pub fn build_prompt(task: &TaskSpec) -> String {
         }
 
         parts.push(ctx.join("\n"));
+    }
+
+    // --- Dependency results ---
+    // Surfaces the terminal `phase_finished` summary from each upstream
+    // dependency so the downstream agent can act on prior work without
+    // having to re-read raw progress streams.
+    if !task.dependency_results.is_empty() {
+        let mut deps = vec!["[DEPENDENCY RESULTS]".to_string()];
+        for dep in &task.dependency_results {
+            let header = if dep.finished_at.is_empty() {
+                format!("- {} (task {}):", dep.title, dep.task_id)
+            } else {
+                format!(
+                    "- {} (task {}, finished {}):",
+                    dep.title, dep.task_id, dep.finished_at
+                )
+            };
+            deps.push(header);
+            if dep.summary.is_empty() {
+                deps.push("  (no summary recorded)".to_string());
+            } else {
+                for line in dep.summary.lines() {
+                    deps.push(format!("  {line}"));
+                }
+            }
+        }
+        parts.push(deps.join("\n"));
     }
 
     // --- Mission roster ---
@@ -259,6 +391,86 @@ mod tests {
     fn prepend_to_path_empty_current_returns_dir() {
         let result = prepend_to_path("/tmp/testbin", "");
         assert_eq!(result, "/tmp/testbin");
+    }
+
+    #[test]
+    fn build_prompt_renders_dependency_results_between_roster_and_task() {
+        use mc_mesh_core::types::{DependencyResult, TaskSpec};
+        let task = TaskSpec {
+            id: "t-2".into(),
+            kluster_id: "k-1".into(),
+            mission_id: "m-1".into(),
+            title: "Write report".into(),
+            description: "Summarize findings.".into(),
+            input_json: "{}".into(),
+            required_capabilities: vec![],
+            produces: serde_json::json!({}),
+            consumes: serde_json::json!({}),
+            agent_profile: None,
+            mission_roster: vec![],
+            dependency_results: vec![
+                DependencyResult {
+                    task_id: "t-1a".into(),
+                    title: "t-1a".into(),
+                    summary: "Found 3 issues.\nDetails attached.".into(),
+                    finished_at: "2026-05-10T12:00:00Z".into(),
+                },
+                DependencyResult {
+                    task_id: "t-1b".into(),
+                    title: "t-1b".into(),
+                    summary: "".into(),
+                    finished_at: "".into(),
+                },
+            ],
+        };
+        let prompt = build_prompt(&task);
+        assert!(prompt.contains("[DEPENDENCY RESULTS]"));
+        assert!(prompt.contains("- t-1a (task t-1a, finished 2026-05-10T12:00:00Z):"));
+        assert!(prompt.contains("  Found 3 issues."));
+        assert!(prompt.contains("  Details attached."));
+        assert!(prompt.contains("- t-1b (task t-1b):"));
+        assert!(prompt.contains("  (no summary recorded)"));
+        // Dep section appears before [TASK].
+        let dep_pos = prompt.find("[DEPENDENCY RESULTS]").unwrap();
+        let task_pos = prompt.find("[TASK]").unwrap();
+        assert!(dep_pos < task_pos);
+    }
+
+    #[test]
+    fn build_prompt_omits_dependency_section_when_empty() {
+        use mc_mesh_core::types::TaskSpec;
+        let task = TaskSpec {
+            id: "t-1".into(),
+            kluster_id: "k-1".into(),
+            mission_id: "m-1".into(),
+            title: "Solo task".into(),
+            description: "no deps.".into(),
+            input_json: "{}".into(),
+            required_capabilities: vec![],
+            produces: serde_json::json!({}),
+            consumes: serde_json::json!({}),
+            agent_profile: None,
+            mission_roster: vec![],
+            dependency_results: vec![],
+        };
+        let prompt = build_prompt(&task);
+        assert!(!prompt.contains("[DEPENDENCY RESULTS]"));
+    }
+
+    #[test]
+    fn merge_capabilities_dedupes_and_preserves_order() {
+        let builtins = vec![
+            Capability::new("claude_code"),
+            Capability::new("code.read"),
+        ];
+        let extra = vec![
+            Capability::new("research"),
+            Capability::new("code.read"), // duplicate of a built-in
+            Capability::new("orchestration"),
+        ];
+        let merged = merge_capabilities(builtins, extra);
+        let names: Vec<&str> = merged.iter().map(|c| c.0.as_str()).collect();
+        assert_eq!(names, vec!["claude_code", "code.read", "research", "orchestration"]);
     }
 
     #[test]
