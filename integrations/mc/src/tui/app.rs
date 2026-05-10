@@ -359,8 +359,11 @@ impl App {
 
     fn switch_to_secrets(&mut self) {
         self.screen = Screen::Secrets;
-        if self.secrets.tree.is_some() {
-            return; // tree already loaded
+        // If tree is loaded and healthy, nothing to do
+        if let Some(tree) = &self.secrets.tree {
+            if tree.error.is_none() { return; }
+            // Tree has an error — reset so we reinitialize on re-entry
+            self.secrets.tree = None;
         }
         // Always re-check profile on entry — user may have just added one in Config
         self.secrets.no_profile_error = None;

@@ -175,6 +175,8 @@ impl WorkPool {
                     }
                 }
                 WorkRequest::LoadSecretFolders { job_id, project_id, environment, path, cfg } => {
+                    // Infisical API requires no trailing slash except for root "/"
+                    let api_path = if path == "/" { path.clone() } else { path.trim_end_matches('/').to_string() };
                     let infisical = mc_mesh_secrets::InfisicalClient::new(&cfg);
                     match infisical {
                         Err(e) => {
@@ -183,7 +185,7 @@ impl WorkPool {
                             });
                         }
                         Ok(c) => {
-                            match handle.block_on(c.list_folders(&project_id, &environment, &path)) {
+                            match handle.block_on(c.list_folders(&project_id, &environment, &api_path)) {
                                 Ok(folders) => {
                                     let _ = tx.send(WorkResult::SecretFoldersLoaded { job_id, folders, error: None });
                                 }
@@ -197,6 +199,8 @@ impl WorkPool {
                     }
                 }
                 WorkRequest::LoadSecretNames { job_id, project_id, environment, path, cfg } => {
+                    // Infisical API requires no trailing slash except for root "/"
+                    let api_path = if path == "/" { path.clone() } else { path.trim_end_matches('/').to_string() };
                     let infisical = mc_mesh_secrets::InfisicalClient::new(&cfg);
                     match infisical {
                         Err(e) => {
@@ -205,7 +209,7 @@ impl WorkPool {
                             });
                         }
                         Ok(c) => {
-                            match handle.block_on(c.list_secrets(&project_id, &environment, &path)) {
+                            match handle.block_on(c.list_secrets(&project_id, &environment, &api_path)) {
                                 Ok(names) => {
                                     let _ = tx.send(WorkResult::SecretNamesLoaded { job_id, names, error: None });
                                 }

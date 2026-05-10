@@ -83,6 +83,13 @@ impl SecretsState {
                     },
                 ]
             }
+            SecretsTreeAction::Cancelled => {
+                // Esc in browse mode: clear any error so user can retry navigation
+                if let Some(t) = &mut self.tree {
+                    t.error = None;
+                }
+                vec![]
+            }
             _ => vec![],
         }
     }
