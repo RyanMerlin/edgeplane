@@ -1,8 +1,8 @@
-use axum::{Router, extract::State, http::StatusCode, response::IntoResponse};
+use axum::{Router, extract::State, http::StatusCode, middleware, response::IntoResponse};
 use sqlx::PgPool;
 use std::sync::Arc;
 
-use crate::{routes, state::{AppState, NodeInfo}};
+use crate::{auth, routes, state::{AppState, NodeInfo}};
 
 #[derive(Default, Clone)]
 pub struct AppConfig {
@@ -25,7 +25,18 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
         api_proxy: config.api_proxy.clone(),
     });
 
-    routes::build_router()
+    // Phase 1.6: a single auth layer at the app boundary, applied only to
+    // the controlplane's own routes. The layer consults
+    // `auth::is_public_path` for the documented allowlist (health, OIDC
+    // bootstrap, webhook receivers) and 401s everything else without a
+    // valid credential. The proxy fallback sits OUTSIDE the layer so
+    // requests for unknown paths (which the legacy backend handles with
+    // its own auth) flow through unmolested.
+    let authed = routes::build_router()
+        .layer(middleware::from_fn_with_state(state.clone(), auth::require_auth));
+
+    Router::new()
+        .merge(authed)
         .fallback(proxy_fallback)
         .with_state(state)
 }

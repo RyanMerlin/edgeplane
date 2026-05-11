@@ -13,6 +13,13 @@ use std::sync::Arc;
 use crate::{auth::Principal, routes::agents::is_reserved_agent_name, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
+    // Public surface (intentional, no `Principal` extraction):
+    //   * GET /mcp/tools   — static tool catalogue (no state mutation).
+    //   * GET /mcp/health  — health check for monitoring.
+    // Authenticated:
+    //   * POST /mcp/call   — dispatches real work scoped to the caller; the
+    //     handler extracts `Principal` and per-tool authorisation logic
+    //     reads `principal.subject` for owner filtering.
     Router::new()
         .route("/mcp/tools", get(list_tools))
         .route("/mcp/health", get(mcp_health))

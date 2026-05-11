@@ -15,12 +15,14 @@ use crate::state::AppState;
 /// Caller identity extracted from request headers.
 ///
 /// Note: `auth_type` is one of `"static"`, `"session"`, or `"service_account"`.
-/// The historical `"anonymous"` synthetic principal was removed in Phase 1.5
-/// (see docs/plans/mc-tui-auth-spec.md). Routes that need to permit
-/// unauthenticated callers — health, OIDC bootstrap, and similar — either
-/// don't extract `Principal` at all or extract `Option<Principal>`. Every
-/// route that extracts `Principal` directly will receive a 401 from the
-/// extractor if no valid credential is present.
+/// The historical `"anonymous"` synthetic principal was removed in Phase 1.5;
+/// Phase 1.6 (this change) adds the `require_auth` middleware that gates
+/// every route except the documented `is_public_path` allowlist. The
+/// extractor reads from request extensions (where the middleware caches
+/// the resolved Principal) before falling back to a full lookup, so
+/// handlers can still take `principal: Principal` without paying for a
+/// second DB round-trip per request.
+#[derive(Clone)]
 pub struct Principal {
     pub subject: String,
     pub is_admin: bool,
@@ -54,6 +56,14 @@ impl FromRequestParts<Arc<AppState>> for Principal {
     type Rejection = AuthRejection;
 
     async fn from_request_parts(parts: &mut Parts, state: &Arc<AppState>) -> Result<Self, Self::Rejection> {
+        // Phase 1.6: the `require_auth` middleware resolves the principal
+        // once per request and stashes it in extensions. Handlers that
+        // extract `Principal` read it from there rather than re-running the
+        // DB lookup. Fall back to the full lookup only when this extractor
+        // is invoked outside the middleware path (tests, niche call sites).
+        if let Some(p) = parts.extensions.get::<Principal>() {
+            return Ok(p.clone());
+        }
         let admin_token = env::var("MC_TOKEN").ok();
         let bearer = parts
             .headers
@@ -174,4 +184,124 @@ pub fn make_token(prefix: &str) -> String {
     let mut bytes = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut bytes);
     format!("{}{}", prefix, URL_SAFE_NO_PAD.encode(bytes))
+}
+
+// ── Auth middleware (Phase 1.6) ────────────────────────────────────────────────
+
+/// Routes that bypass the global authentication middleware. Adding a path
+/// here makes it publicly callable — audit on every code review.
+///
+/// Each entry is documented inline so future readers know *why* it's public:
+///   * `/health`, `/mcp/health`, `/mcp/tools` — meta endpoints; no state mutation.
+///   * `/auth/oidc/*` — OIDC bootstrap; the only path to acquire a credential
+///     before authentication exists.
+///   * `/webhooks/tailscale`, `/integrations/.../events|commands|interactions` —
+///     webhook receivers that verify their own per-event signatures
+///     (signing secret check inside the handler).
+///   * `/raft/status` — cluster status; intentionally observable.
+///   * `/agent-onboarding.json`, `/schema-pack` — public manifests/docs.
+pub fn is_public_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/health"
+            | "/mcp/health"
+            | "/mcp/tools"
+            | "/raft/status"
+            | "/agent-onboarding.json"
+            | "/schema-pack"
+            | "/webhooks/tailscale"
+            | "/integrations/slack/events"
+            | "/integrations/slack/commands"
+            | "/integrations/slack/interactions"
+            | "/integrations/teams/events"
+            | "/integrations/google-chat/events"
+    ) || path.starts_with("/auth/oidc/")
+}
+
+/// Tower middleware that gates the entire app on authentication.
+///
+/// Behaviour:
+///   * Path matches `is_public_path` → pass through, no auth performed.
+///   * Otherwise → resolve `Principal`; on success, insert it into request
+///     extensions so downstream handlers can read it via the `Principal`
+///     extractor without re-doing the DB lookup. On failure return 401.
+///
+/// This is the single centralised auth boundary for the controlplane.
+/// Per-handler `principal: Principal` extractions are still useful (and
+/// cheap, since they read from extensions), because they double as inline
+/// documentation that a route consults the caller's identity.
+pub async fn require_auth(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = req.uri().path().to_string();
+    if is_public_path(&path) {
+        return next.run(req).await;
+    }
+
+    let (mut parts, body) = req.into_parts();
+    match Principal::from_request_parts(&mut parts, &state).await {
+        Ok(principal) => {
+            parts.extensions.insert(principal);
+            let req = axum::extract::Request::from_parts(parts, body);
+            next.run(req).await
+        }
+        Err(rejection) => rejection.into_response(),
+    }
+}
+
+#[cfg(test)]
+mod public_path_tests {
+    use super::is_public_path;
+
+    #[test]
+    fn meta_endpoints_are_public() {
+        for p in &["/health", "/mcp/health", "/mcp/tools", "/raft/status"] {
+            assert!(is_public_path(p), "{p} should be public");
+        }
+    }
+
+    #[test]
+    fn oidc_bootstrap_is_public() {
+        for p in &[
+            "/auth/oidc/cli-initiate",
+            "/auth/oidc/cli-poll/abc123",
+            "/auth/oidc/exchange",
+            "/auth/oidc/callback",
+        ] {
+            assert!(is_public_path(p), "{p} should be public");
+        }
+    }
+
+    #[test]
+    fn webhook_receivers_are_public() {
+        for p in &[
+            "/webhooks/tailscale",
+            "/integrations/slack/events",
+            "/integrations/slack/commands",
+            "/integrations/slack/interactions",
+            "/integrations/teams/events",
+            "/integrations/google-chat/events",
+        ] {
+            assert!(is_public_path(p), "{p} should be public");
+        }
+    }
+
+    #[test]
+    fn private_paths_are_not_public() {
+        for p in &[
+            "/agents",
+            "/agents/4",
+            "/agents/aria-work-e88c006e",
+            "/missions",
+            "/mcp/call",
+            "/auth/me",
+            "/auth/sessions",
+            "/integrations/slack/channels", // admin path, not the webhook
+            "/work/missions/m/agents/enroll",
+        ] {
+            assert!(!is_public_path(p), "{p} should NOT be public");
+        }
+    }
 }

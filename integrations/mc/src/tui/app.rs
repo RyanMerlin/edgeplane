@@ -11,7 +11,7 @@ use ratatui::{
     Frame, Terminal,
 };
 
-use super::data::{is_auth_error, DataClient};
+use super::data::{is_auth_error, DataClient, RemoteDataClient};
 use super::screens::agent_feed::{AgentFeed, AgentFeedState};
 use super::screens::agents::{AgentOp, AgentScreen, AgentScreenState};
 use super::screens::approval_queue::{ApprovalQueue, ApprovalQueueState};
@@ -120,6 +120,11 @@ pub struct App {
     pub agents_last_refresh: Option<Instant>,
     pub approvals_last_refresh: Option<Instant>,
     pub missions_last_refresh: Option<Instant>,
+
+    /// Last time we polled `~/.missioncontrol/session.json` looking for a
+    /// fresh session (the user running `mc auth login` in another shell).
+    /// Throttled to a couple of seconds — see `try_reauth_from_disk`.
+    pub auth_last_check: Option<Instant>,
 
     /// Active modal overlay, if any. Modals consume input first.
     pub modal: Option<AppModal>,
@@ -236,11 +241,73 @@ impl App {
             agents_last_refresh: None,
             approvals_last_refresh: None,
             missions_last_refresh: None,
+            auth_last_check: None,
             modal: None,
             help_open: false,
             client,
             pool,
         }
+    }
+
+    /// Poll the on-disk session file and, if a fresh valid session has
+    /// appeared since we last checked, swap the data client to use the new
+    /// token and trigger a refresh of the current panel. This is how the
+    /// TUI auto-recovers when the operator runs `mc auth login` in another
+    /// shell — they come back to the TUI and within a couple of seconds it
+    /// reloads.
+    ///
+    /// `force` makes the check run regardless of the throttle window — used
+    /// by the explicit `R` keybind so the user gets an immediate response.
+    /// Returns `true` if the auth state actually changed.
+    pub fn try_reauth_from_disk(&mut self, force: bool) -> bool {
+        const POLL_INTERVAL: Duration = Duration::from_secs(2);
+        let now = Instant::now();
+        if !force {
+            if let Some(last) = self.auth_last_check {
+                if now.duration_since(last) < POLL_INTERVAL {
+                    return false;
+                }
+            }
+        }
+        self.auth_last_check = Some(now);
+
+        // Only useful when we're NOT currently authenticated — there's no
+        // reason to swap a working session. (An explicit `R` press still
+        // refreshes data via the caller; this method just gates the auth
+        // swap.)
+        if self.auth_state.is_authenticated() {
+            return false;
+        }
+
+        let Some(saved) = crate::auth::load_saved_session(&self.base_url) else {
+            return false;
+        };
+
+        let new_state = AuthState::SessionValid {
+            subject: saved.subject.clone(),
+            email: saved.email.clone(),
+            expires_at: saved.expires_at.clone(),
+        };
+        let Ok(new_client) = RemoteDataClient::new(self.base_url.clone(), Some(saved.token.clone())) else {
+            return false;
+        };
+        self.token = Some(saved.token);
+        self.auth_state = new_state;
+        self.client = std::sync::Arc::new(new_client);
+
+        // Clear stale auth-error messages so the next render shows the
+        // refreshed panel instead of the old "Not signed in" copy.
+        self.agents.error = None;
+        self.matrix.error = None;
+        self.approval_queue.last_error = None;
+        // Reset per-screen refresh stamps so `auto_refresh` immediately
+        // re-fetches with the new credentials rather than waiting out the
+        // interval against the pre-auth `now`.
+        self.agents_last_refresh = None;
+        self.approvals_last_refresh = None;
+        self.missions_last_refresh = None;
+
+        true
     }
 
     /// Translate raw error text from a backend call into a more useful surface.
@@ -286,14 +353,14 @@ impl App {
                 "".to_string(),
                 "Run in another terminal:".to_string(),
                 "  mc auth login".to_string(),
-                "Then return here and press R on any panel to retry.".to_string(),
+                "Then return here. The TUI auto-detects the new session within 2 seconds; press R to retry immediately.".to_string(),
             ],
             AuthState::Anonymous => vec![
                 "You're not signed in.".to_string(),
                 "".to_string(),
                 "Run in another terminal:".to_string(),
                 "  mc auth login".to_string(),
-                "Then return here and press R on any panel to retry.".to_string(),
+                "Then return here. The TUI auto-detects the new session within 2 seconds; press R to retry immediately.".to_string(),
             ],
         };
         let title = match &self.auth_state {
@@ -477,6 +544,11 @@ impl App {
     /// last refresh is older than the per-screen interval. Hidden screens are
     /// untouched — switching to them triggers a fresh load via switch_to_*.
     fn auto_refresh(&mut self) {
+        // Quietly notice if the operator ran `mc auth login` in another
+        // shell and now has a fresh session on disk. No-op when we're
+        // already authenticated.
+        self.try_reauth_from_disk(false);
+
         let now = Instant::now();
         let stale = |last: Option<Instant>, interval: Duration| {
             last.map(|t| now.duration_since(t) >= interval).unwrap_or(false)
@@ -533,6 +605,32 @@ impl App {
         // shifted form is the unambiguous binding.
         if key.code == KeyCode::Char('L') {
             self.open_signin_modal();
+            return;
+        }
+
+        // Global: 'R' force-refreshes from disk. If the operator just ran
+        // `mc auth login` in another shell, this picks up the new session
+        // immediately rather than waiting for the next auto-refresh tick.
+        // Always re-dispatches a fetch for the current panel so a manual
+        // refresh works even when authenticated already.
+        if key.code == KeyCode::Char('R') {
+            self.try_reauth_from_disk(true);
+            self.agents_last_refresh = None;
+            self.approvals_last_refresh = None;
+            self.missions_last_refresh = None;
+            // Force an immediate refetch of the current panel.
+            match &self.screen {
+                Screen::Agents => {
+                    self.pool.dispatch(self.client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
+                }
+                Screen::Missions => {
+                    self.pool.dispatch(self.client.clone(), WorkRequest::ListMissions { job_id: next_job_id() });
+                }
+                Screen::Approvals => {
+                    self.pool.dispatch(self.client.clone(), WorkRequest::FetchApprovals { job_id: next_job_id(), mission_id: None });
+                }
+                Screen::Feed | Screen::Secrets | Screen::Config => {}
+            }
             return;
         }
 
