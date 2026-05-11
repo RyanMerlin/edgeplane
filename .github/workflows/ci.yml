@@ -91,8 +91,7 @@ jobs:
           EOF
           chmod +x .ci-bin/claude .ci-bin/codex
           export PATH="$PWD/.ci-bin:$PATH"
-          cargo run -- system compat matrix run --providers claude,codex --mode smoke
-          cargo run -- system compat matrix report-latest > /tmp/compat-latest.json
+          cargo run -- system compat matrix run --providers claude,codex --mode smoke > /tmp/compat-latest.json
           jq -e '.summary.overall_status == "compatible"' /tmp/compat-latest.json >/dev/null
       - name: Compatibility gate skipped
         if: steps.changes.outputs.mc != 'true'
