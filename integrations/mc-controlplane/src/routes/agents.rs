@@ -62,6 +62,46 @@ fn generate_public_id(name: &str) -> String {
     format!("{name}-{suffix}")
 }
 
+/// Upsert an agent row by name and return its `public_id`. Used by every
+/// meshagent enrollment path to link a topology row to a persistent agent
+/// identity: see `docs/plans/2026-05-11-agent-public-id-mc-mesh-fix.md`.
+///
+/// Semantics mirror `create_agent`: re-upsertting refreshes `capabilities`
+/// and `updated_at`, un-archives the row, and preserves `public_id` (so the
+/// wire identifier mc-mesh stores stays stable across re-enrollments).
+/// Rejects reserved names (anonymous, system:*) and surfaces the row's
+/// status as `offline` on first creation — runtimes flip it to `online`
+/// when they actually start.
+pub async fn upsert_agent_by_name(
+    db: &sqlx::PgPool,
+    name: &str,
+    capabilities: &str,
+) -> anyhow::Result<String> {
+    if is_reserved_agent_name(name) {
+        anyhow::bail!("reserved agent name");
+    }
+    let now = chrono::Utc::now().naive_utc();
+    let public_id = generate_public_id(name);
+    let row = sqlx::query(
+        "INSERT INTO agent \
+            (name, capabilities, status, metadata, created_at, updated_at, last_seen_at, public_id) \
+         VALUES ($1,$2,'offline','{}',$3,$3,$3,$4) \
+         ON CONFLICT (name) DO UPDATE SET \
+            capabilities = EXCLUDED.capabilities, \
+            updated_at   = EXCLUDED.updated_at, \
+            last_seen_at = EXCLUDED.last_seen_at, \
+            archived_at  = NULL \
+         RETURNING public_id",
+    )
+    .bind(name)
+    .bind(capabilities)
+    .bind(now)
+    .bind(&public_id)
+    .fetch_one(db)
+    .await?;
+    Ok(row.get::<String, _>("public_id"))
+}
+
 fn not_found(msg: &str) -> axum::response::Response {
     (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
 }

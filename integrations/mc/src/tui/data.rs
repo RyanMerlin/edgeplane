@@ -97,6 +97,12 @@ fn id_to_string<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<String, 
 pub struct AgentSummary {
     #[serde(deserialize_with = "id_to_string")]
     pub id: String,
+    /// Stable wire identifier — `{name}-{8 hex}`. Preferred over `id` for
+    /// any caller-facing surface; falls back to `id` when the server has
+    /// not yet populated it. Introduced by the agent-public-id migration
+    /// (`docs/plans/2026-05-11-agent-public-id-mc-mesh-fix.md`).
+    #[serde(default)]
+    pub public_id: Option<String>,
     pub name: String,
     pub status: String,
     #[serde(default)]

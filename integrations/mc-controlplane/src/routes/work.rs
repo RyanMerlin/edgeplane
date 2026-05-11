@@ -163,17 +163,21 @@ pub fn row_to_agent(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or(serde_json::json!([]));
     let meshagent_id: String = row.get::<String, _>("id");
+    // `public_id` is the wire identifier mc-mesh uses for the poll loop
+    // (`/agents/{public_id}/messages`) and that the mc CLI passes via
+    // `--to-agent-id`. Prefer the linked `agent.public_id` when this
+    // meshagent points at a persistent agent identity (Step 5 of the
+    // public_id plan); fall back to the meshagent's own UUID when no
+    // linkage was supplied at enrollment so older rows keep working.
+    let agent_public_id: Option<String> = row
+        .try_get::<Option<String>, _>("agent_public_id")
+        .ok()
+        .flatten();
+    let public_id = agent_public_id.clone().unwrap_or_else(|| meshagent_id.clone());
     serde_json::json!({
         "id": &meshagent_id,
-        // `public_id` is the wire identifier used by mc-mesh's poll loop
-        // (`/agents/{public_id}/messages`) and by the mc CLI's
-        // `--to-agent-id`. Today meshagent doesn't have a dedicated column
-        // so we alias the existing UUID id — string shape is identical and
-        // mc-mesh's reader prefers `public_id` over `id`. A future migration
-        // (`meshagent.public_id` linked to `agent.public_id`) will make this
-        // the canonical agent-identity reference; alias keeps the wire
-        // contract stable through that migration.
-        "public_id": &meshagent_id,
+        "public_id": public_id,
+        "agent_public_id": agent_public_id,
         "mission_id": row.get::<String, _>("mission_id"),
         "node_id": row.get::<Option<String>, _>("node_id"),
         "runtime_kind": row.get::<String, _>("runtime_kind"),
@@ -315,6 +319,14 @@ struct AgentEnroll {
     profile: Option<serde_json::Value>,
     machine: Option<serde_json::Value>,
     runtime: Option<serde_json::Value>,
+    /// Optional canonical name for the persistent agent identity this
+    /// enrollment represents (e.g. `aria-work`). When set, the controlplane
+    /// upserts the matching `agent` row and stores its `public_id` on this
+    /// meshagent. mc-mesh then receives the public_id as the wire identifier
+    /// and uses it to poll `/agents/{public_id}/messages`. See
+    /// `docs/plans/2026-05-11-agent-public-id-mc-mesh-fix.md`.
+    #[serde(default)]
+    agent_name: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1641,12 +1653,34 @@ async fn enroll_agent(
         .as_ref()
         .and_then(|v| serde_json::to_string(v).ok());
 
+    // Resolve the persistent agent identity link, if the caller asked for
+    // one. Failures bubble up — a reserved name or DB error should fail the
+    // enrollment cleanly rather than orphan a meshagent row.
+    let agent_public_id = match &body.agent_name {
+        Some(n) if !n.trim().is_empty() => {
+            match crate::routes::agents::upsert_agent_by_name(&state.db, n.trim(), &caps_json)
+                .await
+            {
+                Ok(pid) => Some(pid),
+                Err(e) => {
+                    tracing::error!("enroll_agent agent link: {e}");
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({"detail": e.to_string()})),
+                    )
+                        .into_response();
+                }
+            }
+        }
+        _ => None,
+    };
+
     let row = sqlx::query(
         "INSERT INTO meshagent (id, mission_id, node_id, runtime_kind, runtime_version, \
          capabilities, labels, status, current_task_id, enrolled_by_subject, enrolled_at, \
          last_heartbeat_at, runtime_node_id, profile_json, machine_json, runtime_json, \
-         supervision_mode) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'online',NULL,$8,$9,NULL,$10,$11,$12,$13,NULL) RETURNING *",
+         supervision_mode, agent_public_id) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'online',NULL,$8,$9,NULL,$10,$11,$12,$13,NULL,$14) RETURNING *",
     )
     .bind(&agent_id)
     .bind(&mission_id)
@@ -1661,6 +1695,7 @@ async fn enroll_agent(
     .bind(&profile_json)
     .bind(&machine_json)
     .bind(&runtime_json)
+    .bind(&agent_public_id)
     .fetch_one(&state.db)
     .await;
 
