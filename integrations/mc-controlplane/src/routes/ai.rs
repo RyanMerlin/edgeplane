@@ -32,24 +32,12 @@ pub fn router() -> Router<Arc<AppState>> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn unauthorized() -> Response {
-    (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"detail": "Authentication required"}))).into_response()
-}
-
 fn not_found(msg: &str) -> Response {
     (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
 }
 
 fn unprocessable(msg: &str) -> Response {
     (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({"detail": msg}))).into_response()
-}
-
-fn require_auth(principal: &Principal) -> Option<Response> {
-    if principal.auth_type == "anonymous" {
-        Some(unauthorized())
-    } else {
-        None
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -188,8 +176,7 @@ async fn serialize_session(
 // GET /ai/runtime-capabilities
 // ---------------------------------------------------------------------------
 
-async fn runtime_capabilities(principal: Principal) -> Response {
-    if let Some(r) = require_auth(&principal) { return r; }
+async fn runtime_capabilities(_principal: Principal) -> Response {
     Json(serde_json::json!([
         {
             "runtime_kind": "claude_code",
@@ -232,7 +219,6 @@ async fn create_session(
     principal: Principal,
     Json(body): Json<CreateSessionBody>,
 ) -> Response {
-    if let Some(r) = require_auth(&principal) { return r; }
 
     let session_id = format!(
         "ais_{}",
@@ -288,7 +274,6 @@ async fn list_sessions(
     principal: Principal,
     Query(q): Query<ListSessionsQuery>,
 ) -> Response {
-    if let Some(r) = require_auth(&principal) { return r; }
 
     let limit = q.limit.unwrap_or(20).min(100);
     let rows = sqlx::query(
@@ -346,7 +331,6 @@ async fn get_session(
     principal: Principal,
     Path(id): Path<String>,
 ) -> Response {
-    if let Some(r) = require_auth(&principal) { return r; }
 
     let row = sqlx::query(
         "SELECT id, owner_subject, title, status, runtime_kind, runtime_session_id, \
@@ -386,7 +370,6 @@ async fn create_turn(
     Path(id): Path<String>,
     Json(body): Json<CreateTurnBody>,
 ) -> Response {
-    if let Some(r) = require_auth(&principal) { return r; }
 
     let message = body.message.unwrap_or_default();
     if message.trim().is_empty() {
@@ -484,7 +467,6 @@ async fn approve_action(
     principal: Principal,
     Path((id, action_id)): Path<(String, String)>,
 ) -> Response {
-    if let Some(r) = require_auth(&principal) { return r; }
 
     // Verify session ownership
     let session_exists: Option<i32> = sqlx::query_scalar(
@@ -588,7 +570,6 @@ async fn reject_action(
     Path((id, action_id)): Path<(String, String)>,
     Json(body): Json<RejectBody>,
 ) -> Response {
-    if let Some(r) = require_auth(&principal) { return r; }
 
     // Verify session ownership
     let session_exists: Option<i32> = sqlx::query_scalar(
@@ -694,7 +675,6 @@ async fn stream_events(
     Path(id): Path<String>,
     Query(q): Query<StreamQuery>,
 ) -> Response {
-    if let Some(r) = require_auth(&principal) { return r; }
 
     // Verify session ownership
     let session_exists: Option<i32> = sqlx::query_scalar(

@@ -55,14 +55,9 @@ async fn create_session(
     principal: Principal,
     Json(payload): Json<SessionCreateRequest>,
 ) -> impl IntoResponse {
-    if principal.auth_type == "anonymous" {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"detail": "authentication required to create a session"})),
-        )
-            .into_response();
-    }
-
+    // No anonymous check here — the Principal extractor returns 401 directly
+    // when no credential is presented (Phase 1.5 of the auth spec). Any
+    // caller that reaches this body is already authenticated.
     let ttl = resolve_ttl(payload.ttl_hours);
     let token = make_token(SESSION_PREFIX);
     let token_hash = hash_token(&token);
@@ -379,17 +374,11 @@ async fn client_credentials_grant(
 
 async fn revoke_sa_token(
     State(state): State<Arc<AppState>>,
-    principal: Principal,
+    _principal: Principal,
     Json(payload): Json<RevokeTokenRequest>,
 ) -> impl IntoResponse {
-    if principal.auth_type == "anonymous" {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"detail": "authentication required"})),
-        )
-            .into_response();
-    }
-
+    // Authenticated by the Principal extractor (Phase 1.5). The body itself
+    // doesn't read identity — only the side-effect of having proved one.
     let result = if let Some(ref token) = payload.token {
         let hash = hash_token(token);
         sqlx::query(

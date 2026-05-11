@@ -35,15 +35,19 @@ async fn test_mcp_tools_returns_list() {
 }
 
 #[tokio::test]
-async fn test_mcp_call_unknown_tool() {
+async fn test_mcp_call_requires_auth() {
+    // Phase 1.5 of the auth spec: every route that extracts `Principal`
+    // returns 401 for unauthenticated callers. /mcp/call is one of them —
+    // MCP tool invocations do real work scoped to the caller, so accepting
+    // unauthenticated calls would let any HTTP client mutate state with no
+    // attribution. The previous version of this test asserted the old
+    // (anonymous-permissive) behavior; the new shape is the correct one.
     let res = server()
         .post("/mcp/call")
         .json(&serde_json::json!({"tool": "nonexistent_tool", "args": {}}))
         .await;
-    res.assert_status_ok();
-    let body: serde_json::Value = res.json();
-    // Should return an error result, not a 4xx/5xx
-    assert!(body.get("error").is_some() || body.get("content").is_some());
+    let status = res.status_code().as_u16();
+    assert_eq!(status, 401, "/mcp/call must require auth, got {status}");
 }
 
 // ── Schema-pack ───────────────────────────────────────────────────────────────

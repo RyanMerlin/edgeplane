@@ -177,6 +177,65 @@ Three distinct token classes, each with a clear purpose:
 
 ---
 
+## Phase 1.5 — remove `anonymous` as a principal (server-side)
+
+Phase 1 surfaced unauthenticated state in the TUI but left a subtle hole: the controlplane still synthesises an `anonymous` principal for callers without valid credentials and lets them through to private endpoints. The endpoints filter by `owners = principal.subject`, so anonymous gets back `[]` instead of 401 — the same silent-empty failure mode Phase 1 worked around on the client.
+
+Phase 1.5 closes the loop on the server.
+
+**Policy:**
+- The `Principal` extractor returns `AuthRejection::Unauthenticated` (renders as 401) when no valid credential is presented.
+- Every route that extracts `Principal` directly is now auth-required by construction.
+- Routes that legitimately accept unauthenticated callers — health, version, OIDC bootstrap (`cli-initiate`, `cli-poll`, `exchange`), the OIDC web callback — do not extract `Principal` at all. The set is short and audited.
+- The `"anonymous"` string is no longer a valid `auth_type` value. `auth_type` is one of `static` | `session` | `service_account`.
+
+**Consequences for clients:**
+- The TUI's 401 → SessionExpired translation (Phase 1) is now the *primary* signal, not a guess based on empty response inference. Auth state is the truth, not an inference.
+- Hooks (Claude Code session-start, tool-audit) without valid auth return 401. Operators must configure hooks with a session or service-account token. The reserved-name guard from agents Phase 1 stays as defence-in-depth.
+- The `if principal.auth_type == "anonymous"` branches in `routes/auth.rs`, `routes/ai.rs`, and `routes/missions.rs` become dead code and are removed. `ai.rs`'s `require_auth` helper goes with them.
+- Tests that asserted the old behavior (`/mcp/call` returns 200 for anon) are updated to assert 401. Tests that already asserted `!= 200` continue to pass.
+
+**Why this fits between Phase 1 and Phase 2:** Phase 2 (in-TUI login modal) needs a clean signal — "you need to sign in" — to trigger on. Phase 1's 401 translation works around the silent-empty issue at the client. Phase 1.5 makes that 401 the truth. Phase 2 then has a single, reliable trigger to open the login modal automatically.
+
+**Scope of the change:**
+- `auth.rs`: extractor returns rejection on no-auth; no synthetic anonymous
+- `routes/auth.rs`, `routes/ai.rs`, `routes/missions.rs`: dead `if anonymous` branches removed
+- `routes/agents.rs`: every handler now extracts `Principal` (was 0/16). This closes the related hole that all of `/agents/*` was wide-open — the synthetic anonymous removal alone wouldn't have helped because those handlers don't ask for a Principal at all.
+- `tests/test_routes.rs`: `test_mcp_call_unknown_tool` → `test_mcp_call_requires_auth`
+- No schema changes, no migrations
+
+**Follow-up — Phase 1.6 (broader auth-coverage audit):**
+
+An audit during Phase 1.5 surfaced a wider class of unauthenticated handlers across many route files (ingestion, slack_integrations, mcp partially, runtime partially, work partially, etc.). Each needs individual judgement — some are legitimately public (webhook receivers that verify their own signatures), others are gaps. Quick survey:
+
+| File | Auth-extracted / Total handlers |
+|------|---------------------------------|
+| ingestion.rs | 0 / 6 |
+| mcp.rs | 1 / 6 (the `/mcp/call` body — health and tools list are intentionally public) |
+| slack_integrations.rs | 3 / 8 |
+| skills.rs | 7 / 11 |
+| tasks.rs | 6 / 8 |
+| hooks.rs | 6 / 10 |
+| ops.rs | 5 / 8 |
+| search.rs | 3 / 5 |
+| explorer.rs | 2 / 3 |
+| persistence.rs | 10 / 12 |
+| runs.rs | 10 / 11 |
+| runtime.rs | 28 / 40 |
+| work.rs | 30 / 38 |
+| remotectl.rs | 11 / 12 |
+| docs.rs | 6 / 8 |
+| artifacts.rs | 8 / 10 |
+| approvals.rs | 4 / 7 |
+| governance.rs | 9 / 10 |
+| oidc_web.rs | 0 / 12 (intentional — OIDC bootstrap) |
+| health.rs | 0 / 1 (intentional) |
+| webhooks_tailscale.rs | 0 / 1 (signature-verified differently) |
+
+Phase 1.6 walks each unauthenticated handler, decides "auth required" / "publicly OK with signature verification" / "publicly OK by design," and adds Principal extraction or documents the exception. Out of scope for Phase 1.5 — that scope was contained to "kill synthetic anonymous + close the agents.rs gap that the operator already saw."
+
+---
+
 ## `MC_TOKEN` — bootstrap-only escape hatch
 
 `MC_TOKEN` as a general-purpose auth mechanism is a liability: plaintext in env, leaks through process listings, no scope or last-used tracking, indistinguishable from a fresh-issued session to the server. With service tokens introduced above, it has no remaining legitimate steady-state use. But it cannot be removed — the first admin on a fresh controlplane needs *something* before OIDC works and before any service token exists.

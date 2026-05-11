@@ -93,11 +93,10 @@ async fn session_start(
 
     let now = Utc::now().naive_utc();
 
-    // Find or create the agent row for this subject. Unauthenticated callers
-    // arrive with subject="anonymous" — we used to create a real row for that,
-    // producing the spurious `anonymous` agents the operator sees in the TUI.
-    // Now the helper returns None for reserved names and we skip persistence
-    // gracefully (still returns 200 so probes don't think the hook errored).
+    // Find or create the agent row for this subject. The Principal extractor
+    // rejects unauthenticated callers with 401 since Phase 1.5, so we never
+    // get `subject == "anonymous"` here. The reserved-name guard is kept as
+    // defence-in-depth in case the extractor's contract ever changes.
     let agent_id: i32 = match find_or_create_agent(&state, &subject, capability).await {
         Ok(Some(id)) => id,
         Ok(None) => {

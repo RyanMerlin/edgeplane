@@ -1,5 +1,8 @@
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use rand::RngCore;
@@ -10,16 +13,45 @@ use std::{env, sync::Arc};
 use crate::state::AppState;
 
 /// Caller identity extracted from request headers.
+///
+/// Note: `auth_type` is one of `"static"`, `"session"`, or `"service_account"`.
+/// The historical `"anonymous"` synthetic principal was removed in Phase 1.5
+/// (see docs/plans/mc-tui-auth-spec.md). Routes that need to permit
+/// unauthenticated callers — health, OIDC bootstrap, and similar — either
+/// don't extract `Principal` at all or extract `Option<Principal>`. Every
+/// route that extracts `Principal` directly will receive a 401 from the
+/// extractor if no valid credential is present.
 pub struct Principal {
     pub subject: String,
     pub is_admin: bool,
     pub session_id: Option<i32>,
-    /// One of: "static", "session", "service_account", "anonymous"
+    /// One of: "static", "session", "service_account"
     pub auth_type: String,
 }
 
+/// Rejection returned by the `Principal` extractor when no valid credential
+/// is presented. Renders as a 401 with a JSON `{"detail": "..."}` body so
+/// clients can distinguish auth failures from other 4xx classes.
+pub enum AuthRejection {
+    /// No bearer token, or the bearer didn't resolve to a known principal.
+    Unauthenticated,
+}
+
+impl IntoResponse for AuthRejection {
+    fn into_response(self) -> Response {
+        let detail = match self {
+            AuthRejection::Unauthenticated => "authentication required",
+        };
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"detail": detail})),
+        )
+            .into_response()
+    }
+}
+
 impl FromRequestParts<Arc<AppState>> for Principal {
-    type Rejection = std::convert::Infallible;
+    type Rejection = AuthRejection;
 
     async fn from_request_parts(parts: &mut Parts, state: &Arc<AppState>) -> Result<Self, Self::Rejection> {
         let admin_token = env::var("MC_TOKEN").ok();
@@ -36,7 +68,9 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             .and_then(|v| v.to_str().ok())
             .map(|s| s.trim().to_string());
 
-        // Static admin token
+        // Static admin token — bootstrap-only path, see the MC_TOKEN policy
+        // in docs/plans/mc-tui-auth-spec.md. Steady-state callers should use
+        // session tokens (mcs_*) or service-account tokens (mcs_sa_*).
         if let (Some(t), Some(b)) = (&admin_token, &bearer) {
             if t == b {
                 let subject = agent_id_header.clone().unwrap_or_else(|| "admin".into());
@@ -121,12 +155,10 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             }
         }
 
-        // Anonymous / unrecognized
-        let subject = agent_id_header
-            .or(bearer.clone())
-            .unwrap_or_else(|| "anonymous".into());
-
-        Ok(Principal { subject, is_admin: false, session_id: None, auth_type: "anonymous".into() })
+        // No valid credential — reject. Routes that legitimately accept
+        // unauthenticated callers either don't extract `Principal` or use
+        // `Option<Principal>` (which axum auto-derives from this rejection).
+        Err(AuthRejection::Unauthenticated)
     }
 }
 

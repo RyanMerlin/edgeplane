@@ -11,6 +11,7 @@ use sqlx::Row;
 use std::sync::Arc;
 
 use crate::{
+    auth::Principal,
     models::agent::{
         Agent, AgentCreate, AgentMessage, AgentSession, AgentUpdate, AssignmentCreate,
         AssignmentUpdate, MessageSend, SessionCreate, TaskAssignment,
@@ -76,6 +77,7 @@ struct ListQuery {
 
 async fn list_agents(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(100).min(500);
@@ -102,6 +104,7 @@ async fn list_agents(
 
 async fn create_agent(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Json(payload): Json<AgentCreate>,
 ) -> impl IntoResponse {
     if is_reserved_agent_name(&payload.name) {
@@ -142,6 +145,7 @@ async fn create_agent(
 
 async fn get_agent(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(agent_id): Path<i32>,
 ) -> impl IntoResponse {
     match sqlx::query("SELECT * FROM agent WHERE id=$1").bind(agent_id).fetch_optional(&state.db).await {
@@ -153,6 +157,7 @@ async fn get_agent(
 
 async fn delete_agent(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(agent_id): Path<i32>,
 ) -> impl IntoResponse {
     match sqlx::query("DELETE FROM agent WHERE id=$1")
@@ -168,6 +173,7 @@ async fn delete_agent(
 /// observing the state change and actually restarting the agent process.
 async fn restart_agent(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(agent_id): Path<i32>,
 ) -> impl IntoResponse {
     let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM agent WHERE id=$1")
@@ -192,6 +198,7 @@ async fn restart_agent(
 /// otherwise opaque to context content.
 async fn clear_agent_context(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(agent_id): Path<i32>,
 ) -> impl IntoResponse {
     let existing = sqlx::query("SELECT * FROM agent WHERE id=$1")
@@ -227,6 +234,7 @@ async fn clear_agent_context(
 
 async fn update_agent(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(agent_id): Path<i32>,
     Json(payload): Json<AgentUpdate>,
 ) -> impl IntoResponse {
@@ -258,6 +266,7 @@ async fn update_agent(
 
 async fn list_sessions(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(agent_id): Path<i32>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
@@ -274,6 +283,7 @@ async fn list_sessions(
 
 async fn start_session(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(agent_id): Path<i32>,
     Json(payload): Json<SessionCreate>,
 ) -> impl IntoResponse {
@@ -298,6 +308,7 @@ async fn start_session(
 
 async fn end_session(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path((agent_id, session_id)): Path<(i32, i32)>,
 ) -> impl IntoResponse {
     let agent_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM agent WHERE id=$1")
@@ -324,6 +335,7 @@ async fn end_session(
 
 async fn list_assignments(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(100).min(500);
@@ -347,6 +359,7 @@ async fn list_assignments(
 
 async fn create_assignment(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Json(payload): Json<AssignmentCreate>,
 ) -> impl IntoResponse {
     let now = Utc::now().naive_utc();
@@ -363,6 +376,7 @@ async fn create_assignment(
 
 async fn update_assignment(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(assignment_id): Path<i32>,
     Json(payload): Json<AssignmentUpdate>,
 ) -> impl IntoResponse {
@@ -389,6 +403,7 @@ async fn update_assignment(
 
 async fn send_message(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(agent_id): Path<i32>,
     Json(payload): Json<MessageSend>,
 ) -> impl IntoResponse {
@@ -441,6 +456,7 @@ mod reserved_name_tests {
 
 async fn list_messages(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(agent_id): Path<i32>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
@@ -457,6 +473,7 @@ async fn list_messages(
 
 async fn get_inbox(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(agent_id): Path<i32>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {

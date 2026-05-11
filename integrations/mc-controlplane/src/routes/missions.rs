@@ -129,7 +129,9 @@ async fn create_mission(
     if payload.name.trim().is_empty() {
         return unprocessable("name is required");
     }
-    let owners = if payload.owners.trim().is_empty() && principal.subject != "anonymous" {
+    // Principal extractor guarantees an authenticated subject (Phase 1.5);
+    // an empty payload.owners now defaults to the caller's subject.
+    let owners = if payload.owners.trim().is_empty() {
         principal.subject.clone()
     } else {
         payload.owners.clone()
