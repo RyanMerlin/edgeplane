@@ -3,7 +3,7 @@ use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     http::{header, StatusCode},
     response::IntoResponse,
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use std::collections::HashMap;
@@ -539,9 +539,14 @@ pub fn router() -> Router<Arc<AppState>> {
         // List meshagent rows assigned to this runtime node; daemons call
         // this on startup and after assignment-change notifications to pick
         // up new/removed/reassigned agents.
+        // Phase 6 adds POST (assign) + DELETE (revoke) alongside.
         .route(
             "/runtime/nodes/{node_id}/agents",
-            get(list_node_agents),
+            get(list_node_agents).post(assign_node_agent),
+        )
+        .route(
+            "/runtime/nodes/{node_id}/agents/{agent_id}",
+            delete(revoke_node_agent),
         )
         // WS — daemons subscribe here to receive `agent.assigned` /
         // `agent.unassigned` / `agent.reassigned` notifications for their
@@ -1644,6 +1649,192 @@ async fn upgrade_node(
     mutate_node_spec_state(state, node_id, principal.subject, "upgrading").await
 }
 
+// ── Node-scoped agents (Phase 6 sync-loop substrate) ──────────────────────────
+
+#[derive(serde::Deserialize)]
+struct NodeAgentAssign {
+    mission_id: String,
+    runtime_kind: String,
+    #[serde(default)]
+    runtime_version: String,
+    #[serde(default)]
+    capabilities: Vec<String>,
+    #[serde(default)]
+    labels: serde_json::Value,
+    /// `"task"` | `"persistent"`. Defaults to `"task"` when omitted.
+    #[serde(default)]
+    supervision_mode: Option<String>,
+    #[serde(default)]
+    profile: Option<serde_json::Value>,
+    #[serde(default)]
+    machine: Option<serde_json::Value>,
+    #[serde(default)]
+    runtime: Option<serde_json::Value>,
+}
+
+/// Verify the node exists and the caller owns it (or is admin). Returns the
+/// owner subject on success, or an error response.
+async fn require_node_owner(
+    state: &Arc<AppState>,
+    principal: &Principal,
+    node_id: &str,
+) -> Result<String, axum::response::Response> {
+    let row = sqlx::query("SELECT owner_subject FROM runtimenode WHERE id=$1")
+        .bind(node_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("require_node_owner: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
+
+    let owner: String = match row {
+        Some(r) => r.get("owner_subject"),
+        None => return Err(not_found("Node not found")),
+    };
+    if owner != principal.subject && !principal.is_admin {
+        return Err(StatusCode::FORBIDDEN.into_response());
+    }
+    Ok(owner)
+}
+
+/// Assign a new agent to this node in the requested mission. Mirrors
+/// `enroll_agent` (which is mission-scoped); this variant is convenient for
+/// the controlplane / orchestrator to push assignments to a specific node.
+async fn assign_node_agent(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(node_id): Path<String>,
+    Json(body): Json<NodeAgentAssign>,
+) -> impl IntoResponse {
+    if let Err(resp) = require_node_owner(&state, &principal, &node_id).await {
+        return resp;
+    }
+
+    // Verify the target mission exists.
+    let mission_ok: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
+        .bind(&body.mission_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+    if mission_ok.is_none() {
+        return not_found("Mission not found");
+    }
+
+    let agent_id = Uuid::new_v4().to_string();
+    let now = Utc::now().naive_utc();
+    let caps_json = serde_json::to_string(&body.capabilities).unwrap_or_else(|_| "[]".to_string());
+    let labels_json = serde_json::to_string(&body.labels).unwrap_or_else(|_| "{}".to_string());
+    let supervision = body.supervision_mode.as_deref().unwrap_or("task");
+    let profile_json = body
+        .profile
+        .as_ref()
+        .and_then(|v| serde_json::to_string(v).ok());
+    let machine_json = body
+        .machine
+        .as_ref()
+        .and_then(|v| serde_json::to_string(v).ok());
+    let runtime_json = body
+        .runtime
+        .as_ref()
+        .and_then(|v| serde_json::to_string(v).ok());
+
+    let row = sqlx::query(
+        "INSERT INTO meshagent \
+         (id, mission_id, node_id, runtime_kind, runtime_version, capabilities, labels, \
+          status, current_task_id, enrolled_by_subject, enrolled_at, last_heartbeat_at, \
+          runtime_node_id, profile_json, machine_json, runtime_json, supervision_mode) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'online',NULL,$8,$9,NULL,$3,$10,$11,$12,$13) \
+         RETURNING *",
+    )
+    .bind(&agent_id)
+    .bind(&body.mission_id)
+    .bind(&node_id)
+    .bind(&body.runtime_kind)
+    .bind(&body.runtime_version)
+    .bind(&caps_json)
+    .bind(&labels_json)
+    .bind(&principal.subject)
+    .bind(now)
+    .bind(&profile_json)
+    .bind(&machine_json)
+    .bind(&runtime_json)
+    .bind(supervision)
+    .fetch_one(&state.db)
+    .await;
+
+    match row {
+        Ok(r) => {
+            let agent_json = crate::routes::work::row_to_agent(&r);
+            crate::routes::work::broadcast_assignment_changed(
+                &node_id,
+                serde_json::json!({
+                    "type": "agent.assigned",
+                    "agent_id": agent_json["id"],
+                    "agent": agent_json,
+                }),
+            )
+            .await;
+            (StatusCode::CREATED, Json(agent_json)).into_response()
+        }
+        Err(e) => {
+            tracing::error!("assign_node_agent: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// Revoke an agent assignment from this node. The agent row is deleted so the
+/// daemon's sync loop will tear down the corresponding task_loop on next poll.
+async fn revoke_node_agent(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path((node_id, agent_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if let Err(resp) = require_node_owner(&state, &principal, &node_id).await {
+        return resp;
+    }
+
+    // Ensure the agent belongs to this node before deleting.
+    let owner_row = sqlx::query(
+        "SELECT mission_id FROM meshagent \
+         WHERE id=$1 AND (runtime_node_id=$2 OR node_id=$2)",
+    )
+    .bind(&agent_id)
+    .bind(&node_id)
+    .fetch_optional(&state.db)
+    .await;
+    let mission_id: String = match owner_row {
+        Ok(Some(r)) => r.get("mission_id"),
+        Ok(None) => return not_found("Agent not found on this node"),
+        Err(e) => {
+            tracing::error!("revoke_node_agent lookup: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    if let Err(e) = sqlx::query("DELETE FROM meshagent WHERE id=$1")
+        .bind(&agent_id)
+        .execute(&state.db)
+        .await
+    {
+        tracing::error!("revoke_node_agent delete: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    crate::routes::work::broadcast_assignment_changed(
+        &node_id,
+        serde_json::json!({
+            "type": "agent.revoked",
+            "agent_id": agent_id,
+            "mission_id": mission_id,
+        }),
+    )
+    .await;
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 
 async fn create_job(
@@ -2645,21 +2836,35 @@ async fn list_node_agents(
         return (StatusCode::FORBIDDEN, "node does not belong to you").into_response();
     }
 
-    // Pull meshagent rows assigned to this node.
+    // Pull meshagent rows assigned to this node (Phase 6 also matches the
+    // legacy `node_id` column so older enrollments aren't missed) and join
+    // mission for name/kind so the daemon's sync loop can identify home-mission
+    // assignments without a second round-trip.
     let rows = sqlx::query(
-        "SELECT * FROM meshagent WHERE runtime_node_id = $1 ORDER BY enrolled_at ASC",
+        "SELECT a.*, m.name AS mission_name, m.kind AS mission_kind \
+         FROM meshagent a JOIN mission m ON a.mission_id = m.id \
+         WHERE a.runtime_node_id = $1 OR a.node_id = $1 \
+         ORDER BY a.enrolled_at ASC",
     )
     .bind(&node_id)
     .fetch_all(&state.db)
     .await;
 
     match rows {
-        Ok(rs) => Json(
-            rs.iter()
-                .map(crate::routes::work::row_to_agent)
-                .collect::<Vec<_>>(),
-        )
-        .into_response(),
+        Ok(rs) => {
+            let payload: Vec<serde_json::Value> = rs
+                .iter()
+                .map(|r| {
+                    let mut v = crate::routes::work::row_to_agent(r);
+                    v["mission_name"] =
+                        serde_json::Value::String(r.get::<String, _>("mission_name"));
+                    v["mission_kind"] =
+                        serde_json::Value::String(r.get::<String, _>("mission_kind"));
+                    v
+                })
+                .collect();
+            Json(payload).into_response()
+        }
         Err(e) => {
             tracing::error!("list_node_agents fetch: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
