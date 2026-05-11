@@ -2,11 +2,20 @@
 # Auth: GitHub App "merlinlabs-automation" (App ID 3676358), bypass on target ruleset.
 name: Mirror to missioncontrol-ai
 
+# Trigger scope:
+# - `main` pushes only. Feature branches do NOT mirror on every push —
+#   they used to (`branches: ["**"]`) and that produced one mirror run
+#   per push, most of which failed when the App token's ruleset bypass
+#   didn't cover a new branch. The mirror finishes when feature branches
+#   are merged to main.
+# - Tag pushes mirror via `git push --mirror` automatically on the next
+#   main push, OR run `workflow_dispatch` if you need the tag mirrored
+#   immediately.
+# - `create`/`delete` removed for the same reason — they double-fired
+#   with `push` and added noise.
 on:
   push:
-    branches: ["**"]
-  create:
-  delete:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
