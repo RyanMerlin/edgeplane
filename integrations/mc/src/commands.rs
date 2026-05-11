@@ -209,6 +209,9 @@ pub enum AgentCommand {
     Node(runtime::NodeAgentCommand),
     /// Self-improvement loop for MissionControl itself (agent-driven backlog/code evolution).
     Evolve(evolve::EvolveArgs),
+    /// Attach to a persistent ACP session — stream session/update frames
+    /// to stdout, forward stdin lines as session/prompt.
+    Attach(crate::attach::AttachArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -2060,6 +2063,7 @@ async fn handle_agent(
         AgentCommand::Remote(cmd) => remote::run(cmd, &client).await,
         AgentCommand::Node(cmd) => runtime::run_node_agent(cmd, &client).await,
         AgentCommand::Evolve(args) => evolve::run(args, &client).await,
+        AgentCommand::Attach(args) => crate::attach::run(args, &client).await,
     }
 }
 

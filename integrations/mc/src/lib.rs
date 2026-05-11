@@ -1,6 +1,7 @@
 pub mod cmd;
 pub mod agent_context;
 pub mod dispatch;
+pub mod attach;
 pub mod auth;
 pub mod booster;
 pub mod channel;
