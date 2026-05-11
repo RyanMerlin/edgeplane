@@ -20,7 +20,7 @@ use std::time::Duration;
 use anyhow::Result;
 use futures::StreamExt;
 use mc_mesh_core::client::BackendClient;
-use mc_mesh_core::types::{AgentHandle, AgentSignal, TaskSpec};
+use mc_mesh_core::types::{AgentHandle, AgentSignal, PendingPeerMessage, TaskSpec};
 use mc_mesh_work::watchdog::{ConnectivityState, OfflinePolicy};
 use mc_mesh_work::{claim, task};
 use mc_mesh_work::task::TaskError;
@@ -44,14 +44,29 @@ pub async fn run_for_agent(
     agent_id: String,
     watchdog: Arc<mc_mesh_work::watchdog::Watchdog>,
 ) {
+    // Buffer for peer messages that arrive while no task is running. The
+    // relay appends here when there's no live PTY/ACP session to deliver to;
+    // the main loop drains it into each TaskSpec before inject.
+    let pending_msgs: Arc<tokio::sync::Mutex<Vec<PendingPeerMessage>>> =
+        Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
     // Spawn the message relay as a detached background task.
     {
         let relay_agent = Arc::clone(&agent);
         let relay_runtime = Arc::clone(&runtime);
         let relay_client = Arc::clone(&client);
         let relay_agent_id = agent_id.clone();
+        let relay_buffer = Arc::clone(&pending_msgs);
         tokio::spawn(async move {
-            run_message_relay(relay_agent, relay_runtime, relay_client, relay_agent_id, None).await;
+            run_message_relay(
+                relay_agent,
+                relay_runtime,
+                relay_client,
+                relay_agent_id,
+                None,
+                Some(relay_buffer),
+            )
+            .await;
         });
     }
 
@@ -218,6 +233,14 @@ pub async fn run_for_agent(
             task::fetch_dependency_results(&client, &task_record.depends_on).await
         };
 
+        // Drain any buffered peer messages — they get spliced into the
+        // prompt as `[PENDING MESSAGES]` so single-shot runtimes can see
+        // signals that arrived while no task was running.
+        let pending_messages: Vec<PendingPeerMessage> = {
+            let mut buf = pending_msgs.lock().await;
+            std::mem::take(&mut *buf)
+        };
+
         // Build the TaskSpec.
         let task_spec = TaskSpec {
             id: task_record.id.clone(),
@@ -232,6 +255,7 @@ pub async fn run_for_agent(
             agent_profile,
             mission_roster,
             dependency_results,
+            pending_messages,
         };
 
         // Inject and stream progress.
@@ -369,9 +393,10 @@ pub async fn run_message_relay(
     client: Arc<BackendClient>,
     agent_id: String,
     registry: Option<Arc<AttachRegistry>>,
+    pending_buffer: Option<Arc<tokio::sync::Mutex<Vec<PendingPeerMessage>>>>,
 ) {
     // We poll the agent-scoped message inbox: GET /work/agents/{id}/messages
-    // which returns messages where to_agent_id = agent_id or to_agent_id IS NULL.
+    // which returns messages addressed to this agent + mission broadcasts.
     let mut last_id: i64 = 0;
 
     loop {
@@ -415,31 +440,52 @@ pub async fn run_message_relay(
             );
 
             let signal = AgentSignal::PeerMessage {
-                from_agent_id,
-                channel,
-                body,
+                from_agent_id: from_agent_id.clone(),
+                channel: channel.clone(),
+                body: body.clone(),
             };
 
-            // Persistent agents: route to the registered session supervisor.
-            // Task agents (or persistent agents with no live session): fall
-            // back to runtime.signal() — task runtimes log; persistent
-            // runtimes log because the supervisor is restarting.
+            // Persistent agents: route to the registered session supervisor
+            // for live PTY/ACP delivery.
             let mut delivered = false;
             if let Some(ref reg) = registry {
                 if let Some(endpoints) = reg.get(&agent_id).await {
                     if let Err(e) = endpoints.signal_tx().send(signal.clone()).await {
                         tracing::debug!(
-                            "Session supervisor not ready for {agent_id}, dropping signal: {e}"
+                            "Session supervisor not ready for {agent_id}, falling back: {e}"
                         );
                     } else {
                         delivered = true;
                     }
                 }
             }
+
             if !delivered {
-                let handle = agent.lock().await;
-                if let Err(e) = runtime.signal(&handle, signal).await {
-                    tracing::warn!("signal() delivery failed for agent {agent_id}: {e}");
+                // Task-mode agents: buffer for the next task inject. Single-shot
+                // runtimes have no stdin to inject into once spawned, so
+                // runtime.signal() would drop the message. The buffer is drained
+                // by the main task_loop into TaskSpec.pending_messages before
+                // the next inject_task call.
+                if let Some(ref buf) = pending_buffer {
+                    let mut guard = buf.lock().await;
+                    guard.push(PendingPeerMessage {
+                        from_agent_id,
+                        channel,
+                        body,
+                        received_at: chrono::Utc::now().to_rfc3339(),
+                    });
+                    tracing::debug!(
+                        "Buffered peer message for {agent_id} (buffer size now {})",
+                        guard.len()
+                    );
+                } else {
+                    // No buffer (persistent agent path with supervisor not yet
+                    // attached) — fall back to runtime.signal(), which is a
+                    // no-op for task runtimes but valid for ones that handle it.
+                    let handle = agent.lock().await;
+                    if let Err(e) = runtime.signal(&handle, signal).await {
+                        tracing::warn!("signal() delivery failed for agent {agent_id}: {e}");
+                    }
                 }
             }
         }

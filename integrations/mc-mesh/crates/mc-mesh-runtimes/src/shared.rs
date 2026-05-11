@@ -274,6 +274,36 @@ pub fn build_prompt(task: &TaskSpec) -> String {
         parts.push(roster.join("\n"));
     }
 
+    // --- Pending peer messages ---
+    // Single-shot runtimes can't receive mid-task signals, so the relay
+    // buffers PeerMessage signals and delivers them on the next inject.
+    if !task.pending_messages.is_empty() {
+        let mut msgs = vec!["[PENDING MESSAGES]".to_string()];
+        msgs.push(
+            "Peer messages received while you weren't running. Read these before starting the task:"
+                .to_string(),
+        );
+        for m in &task.pending_messages {
+            let body_str = match &m.body {
+                serde_json::Value::String(s) => s.clone(),
+                v => v.to_string(),
+            };
+            let header = if m.received_at.is_empty() {
+                format!("- from {} on {}:", m.from_agent_id, m.channel)
+            } else {
+                format!(
+                    "- from {} on {} (received {}):",
+                    m.from_agent_id, m.channel, m.received_at
+                )
+            };
+            msgs.push(header);
+            for line in body_str.lines() {
+                msgs.push(format!("  {line}"));
+            }
+        }
+        parts.push(msgs.join("\n"));
+    }
+
     // --- Task ---
     let mut task_section = vec!["[TASK]".to_string()];
     task_section.push(task.title.clone());
@@ -422,6 +452,7 @@ mod tests {
                     finished_at: "".into(),
                 },
             ],
+            pending_messages: vec![],
         };
         let prompt = build_prompt(&task);
         assert!(prompt.contains("[DEPENDENCY RESULTS]"));
@@ -452,9 +483,54 @@ mod tests {
             agent_profile: None,
             mission_roster: vec![],
             dependency_results: vec![],
+            pending_messages: vec![],
         };
         let prompt = build_prompt(&task);
         assert!(!prompt.contains("[DEPENDENCY RESULTS]"));
+        assert!(!prompt.contains("[PENDING MESSAGES]"));
+    }
+
+    #[test]
+    fn build_prompt_renders_pending_messages_before_task() {
+        use mc_mesh_core::types::{PendingPeerMessage, TaskSpec};
+        let task = TaskSpec {
+            id: "t-3".into(),
+            kluster_id: "k-1".into(),
+            mission_id: "m-1".into(),
+            title: "Continue work".into(),
+            description: "".into(),
+            input_json: "{}".into(),
+            required_capabilities: vec![],
+            produces: serde_json::json!({}),
+            consumes: serde_json::json!({}),
+            agent_profile: None,
+            mission_roster: vec![],
+            dependency_results: vec![],
+            pending_messages: vec![
+                PendingPeerMessage {
+                    from_agent_id: "research-1".into(),
+                    channel: "coordination".into(),
+                    body: serde_json::json!("Heads up: schema changed."),
+                    received_at: "2026-05-10T13:00:00Z".into(),
+                },
+                PendingPeerMessage {
+                    from_agent_id: "ops-1".into(),
+                    channel: "alerts".into(),
+                    body: serde_json::json!({"line1": "x"}),
+                    received_at: "".into(),
+                },
+            ],
+        };
+        let prompt = build_prompt(&task);
+        assert!(prompt.contains("[PENDING MESSAGES]"));
+        assert!(prompt.contains(
+            "- from research-1 on coordination (received 2026-05-10T13:00:00Z):"
+        ));
+        assert!(prompt.contains("  Heads up: schema changed."));
+        assert!(prompt.contains("- from ops-1 on alerts:"));
+        let msg_pos = prompt.find("[PENDING MESSAGES]").unwrap();
+        let task_pos = prompt.find("[TASK]").unwrap();
+        assert!(msg_pos < task_pos);
     }
 
     #[test]

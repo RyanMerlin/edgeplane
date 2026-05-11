@@ -694,6 +694,7 @@ impl Spawner {
                         relay_client,
                         relay_agent_id,
                         Some(relay_registry),
+                        None,
                     )
                     .await;
                 });

@@ -61,6 +61,12 @@ pub struct TaskSpec {
     /// dependencies or none have produced a phase_finished event yet.
     #[serde(default)]
     pub dependency_results: Vec<DependencyResult>,
+    /// Peer messages that arrived while no task was running. Single-shot
+    /// runtimes (claude_code -p, goose run) have no stdin to inject into
+    /// once spawned, so the relay buffers PeerMessage signals here and
+    /// splices them into the next inject's prompt as `[PENDING MESSAGES]`.
+    #[serde(default)]
+    pub pending_messages: Vec<PendingPeerMessage>,
 }
 
 /// One upstream dependency's terminal summary, ready to splice into the
@@ -71,6 +77,16 @@ pub struct DependencyResult {
     pub title: String,
     pub summary: String,
     pub finished_at: String,
+}
+
+/// A peer message buffered for delivery on the next task inject.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingPeerMessage {
+    pub from_agent_id: String,
+    pub channel: String,
+    pub body: serde_json::Value,
+    /// RFC3339 timestamp of when the relay buffered this message.
+    pub received_at: String,
 }
 
 /// Context passed to `AgentRuntime::launch`.

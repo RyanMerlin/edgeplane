@@ -1848,30 +1848,47 @@ async fn get_agent_messages(
     Path(agent_id): Path<String>,
     Query(q): Query<AgentMessagesQuery>,
 ) -> impl IntoResponse {
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshagent WHERE id=$1")
+    // Look up the agent's mission so we can also surface mission broadcasts.
+    let mission_id: String = match sqlx::query("SELECT mission_id FROM meshagent WHERE id=$1")
         .bind(&agent_id)
         .fetch_optional(&state.db)
         .await
-        .unwrap_or(None);
-    if exists.is_none() {
-        return not_found("Agent not found");
-    }
+    {
+        Ok(Some(r)) => r.get("mission_id"),
+        Ok(None) => return not_found("Agent not found"),
+        Err(e) => {
+            tracing::error!("get_agent_messages lookup: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
+    // Direct messages addressed to this agent + mission-scoped broadcasts.
+    // since_id paging in the caller dedupes broadcasts across polls.
     match sqlx::query(
-        "SELECT * FROM meshmessage WHERE to_agent_id=$1 AND id > $2 ORDER BY id ASC",
+        "SELECT * FROM meshmessage \
+         WHERE id > $1 \
+           AND (to_agent_id = $2 \
+                OR (to_agent_id IS NULL AND mission_id = $3)) \
+         ORDER BY id ASC",
     )
-    .bind(&agent_id)
     .bind(q.since_id)
+    .bind(&agent_id)
+    .bind(&mission_id)
     .fetch_all(&state.db)
     .await
     {
         Ok(rows) => {
-            // Mark messages as read
-            let ids: Vec<i64> = rows.iter().map(|r| r.get::<i64, _>("id")).collect();
-            if !ids.is_empty() {
+            // Mark only direct messages as read — broadcasts have N recipients
+            // and would need a per-recipient read table to track properly.
+            let direct_ids: Vec<i64> = rows
+                .iter()
+                .filter(|r| r.get::<Option<String>, _>("to_agent_id").is_some())
+                .map(|r| r.get::<i64, _>("id"))
+                .collect();
+            if !direct_ids.is_empty() {
                 let now = Utc::now().naive_utc();
                 let _ = sqlx::query("UPDATE meshmessage SET read_at=$2 WHERE id = ANY($1) AND read_at IS NULL")
-                    .bind(ids.as_slice())
+                    .bind(direct_ids.as_slice())
                     .bind(now)
                     .execute(&state.db)
                     .await;
