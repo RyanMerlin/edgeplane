@@ -15,7 +15,7 @@ use super::data::{is_auth_error, DataClient, RemoteDataClient};
 use super::screens::agent_feed::{AgentFeed, AgentFeedState};
 use super::screens::agents::{AgentOp, AgentScreen, AgentScreenState};
 use super::screens::approval_queue::{ApprovalQueue, ApprovalQueueState};
-use super::screens::config::{ConfigScreen, ConfigScreenState};
+use super::screens::config::{ConfigScreen, ConfigScreenState, DoctorCheckRow, DoctorStatus};
 use super::screens::mission_matrix::{Focus as MatrixFocus, MissionMatrix, MissionMatrixState};
 use super::screens::secrets::{SecretsScreen, SecretsState, render_tree_overlay};
 use super::theme;
@@ -538,6 +538,110 @@ impl App {
         }
 
         self.auto_refresh();
+        self.refresh_doctor_snapshot();
+    }
+
+    /// Recompute the Doctor panel snapshot from current app state. Cheap —
+    /// reads existing fields, builds a small Vec. Called every tick so the
+    /// panel reflects auth/connection/fetch state immediately rather than
+    /// waiting for an explicit refresh.
+    fn refresh_doctor_snapshot(&mut self) {
+        let mut checks: Vec<DoctorCheckRow> = Vec::with_capacity(6);
+
+        // Controlplane reachability — comes from the periodic ping.
+        let (cp_status, cp_detail) = if self.config.connected {
+            let lat = self
+                .config
+                .latency_ms
+                .map(|ms| format!("{ms}ms"))
+                .unwrap_or_else(|| "—".to_string());
+            (DoctorStatus::Ok, format!("connected · {lat} · {}", self.base_url))
+        } else {
+            (DoctorStatus::Err, format!("unreachable at {}", self.base_url))
+        };
+        checks.push(DoctorCheckRow {
+            name: "Controlplane",
+            status: cp_status,
+            detail: cp_detail,
+            hint: if matches!(cp_status, DoctorStatus::Err) {
+                Some("Check MC_BASE_URL and that the controlplane is running.".to_string())
+            } else {
+                None
+            },
+        });
+
+        // Server version match.
+        let (v_status, v_detail) = match self.config.server_version.as_deref() {
+            Some(sv) if sv == self.version.as_str() => (
+                DoctorStatus::Ok,
+                format!("client {} · server {}", self.version, sv),
+            ),
+            Some(sv) => (
+                DoctorStatus::Warn,
+                format!("client {} · server {} (mismatch)", self.version, sv),
+            ),
+            None => (DoctorStatus::Unknown, format!("client {}", self.version)),
+        };
+        checks.push(DoctorCheckRow {
+            name: "Version",
+            status: v_status,
+            detail: v_detail,
+            hint: if matches!(v_status, DoctorStatus::Warn) {
+                Some("`mc update` to align with the controlplane.".to_string())
+            } else {
+                None
+            },
+        });
+
+        // Auth.
+        let (a_status, a_detail, a_hint) = match &self.auth_state {
+            AuthState::SessionValid {
+                subject,
+                email,
+                expires_at,
+            } => {
+                let who = email.as_deref().unwrap_or(subject.as_str());
+                (
+                    DoctorStatus::Ok,
+                    format!("session · {who} · expires {expires_at}"),
+                    None,
+                )
+            }
+            AuthState::SessionFromFlag => (
+                DoctorStatus::Ok,
+                "explicit token (--token / MC_TOKEN)".to_string(),
+                None,
+            ),
+            AuthState::SessionExpired => (
+                DoctorStatus::Err,
+                "session expired".to_string(),
+                Some(
+                    "Run `mc auth login` in another shell — TUI auto-recovers within 2s.".to_string(),
+                ),
+            ),
+            AuthState::Anonymous => (
+                DoctorStatus::Warn,
+                "not signed in".to_string(),
+                Some("Press L for sign-in instructions.".to_string()),
+            ),
+        };
+        checks.push(DoctorCheckRow {
+            name: "Auth",
+            status: a_status,
+            detail: a_detail,
+            hint: a_hint,
+        });
+
+        // Agents fetch.
+        checks.push(error_to_check("Agents fetch", &self.agents.error));
+
+        // Missions fetch.
+        checks.push(error_to_check("Missions fetch", &self.matrix.error));
+
+        // Approvals fetch.
+        checks.push(error_to_check("Approvals fetch", &self.approval_queue.last_error));
+
+        self.config.doctor = checks;
     }
 
     /// Re-dispatch list-fetch work for the currently visible screen if its
@@ -1240,5 +1344,35 @@ impl App {
             Paragraph::new(Line::from(spans)).style(theme::dim()),
             area,
         );
+    }
+}
+
+/// Translate a panel's optional error string into a [`DoctorCheckRow`]. The
+/// classifier from `tick()` has already rewritten auth errors into a
+/// friendly "Not signed in — press L…" message, so the row distinguishes
+/// auth-class failures (mapped to `Warn`, with a remediation hint) from
+/// other backend failures (`Err`).
+fn error_to_check(name: &'static str, err: &Option<String>) -> DoctorCheckRow {
+    match err {
+        None => DoctorCheckRow {
+            name,
+            status: DoctorStatus::Ok,
+            detail: "OK".to_string(),
+            hint: None,
+        },
+        Some(msg) if msg.starts_with("Not signed in") => DoctorCheckRow {
+            name,
+            status: DoctorStatus::Warn,
+            detail: msg.clone(),
+            hint: Some(
+                "Auto-recovers after `mc auth login`; press R to retry now.".to_string(),
+            ),
+        },
+        Some(msg) => DoctorCheckRow {
+            name,
+            status: DoctorStatus::Err,
+            detail: msg.clone(),
+            hint: None,
+        },
     }
 }
