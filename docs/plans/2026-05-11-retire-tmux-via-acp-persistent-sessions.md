@@ -2,9 +2,25 @@
 
 **Date:** 2026-05-11
 **Author:** aria-operator (drafted at Merlin's request)
-**Owner:** mc-engineer (to execute once `2026-05-11-agent-public-id-mc-mesh-fix.md` lands)
-**Status:** Plan — awaiting execution
-**Depends on:** `mc-mesh-persistent-session-architecture.md` (the umbrella architecture), `2026-05-11-agent-public-id-mc-mesh-fix.md` (must merge first)
+**Owner:** mc-engineer
+**Status:** Code-side complete for Phases 1, 2, B, C, D.1. Phase A validation, D.2-3, and E are operational (require running mc-mesh against the fleet) and remain to do.
+**Depends on:** `mc-mesh-persistent-session-architecture.md` (the umbrella architecture), `2026-05-11-agent-public-id-mc-mesh-fix.md` (merged in `feat/agent-public-id`)
+
+---
+
+## Status (2026-05-11, post `feat/agent-public-id`)
+
+| Phase | Status | Notes |
+|---|---|---|
+| 1 — Persistent session runtime in mc-mesh | ✅ Complete | `acp_session_supervisor`, `AcpSession`, daemon wiring all in. |
+| 2 — Remote ACP relay | ✅ Complete | `agent_attach_proxy` (controlplane), `attach_ws` + `pump_acp` (mc-mesh). |
+| A — Validate Phase 1 with operator-acp-test | 🟡 Ready | Code is in; needs operational setup. The CLI viewer + web viewer + `mc signal` all exist as test surfaces. |
+| B — `mc agent attach` CLI | ✅ Complete | `mc agent attach <id> [--json]`. URL builder unit-tested; integration covered by Phase A walkthrough. |
+| C — Web conversation pane | ✅ Complete (scaffold + history replay) | `/agents/<id>/` route, `AgentConversation.svelte`, typed `AcpAttach` client. History-replay on reconnect ships in the same commit as the supervisor's `ReplayBroadcast`. Permission-request UI deferred until the supervisor surfaces those frames. |
+| D.1 — `mc signal` verb | ✅ Complete | `mc signal <to-id> --content "…"`; auto-creates `mc-signal-<host>` sender; `--dry-run` for systemd validation. |
+| D.2 — systemd unit migration | 🟡 To do | Operational change. `mc signal` is ready to drop into ExecStart lines. |
+| D.3 — Dual-write soak | 🟡 To do | Depends on D.2. |
+| E — Per-profile cutover + tmux retire | 🟡 To do | Depends on A and D running clean. |
 
 ---
 

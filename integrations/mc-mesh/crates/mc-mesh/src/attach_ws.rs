@@ -284,7 +284,6 @@ async fn pump_acp(
 ) {
     let (sink, mut stream) = ws.split();
     let sink = std::sync::Arc::new(tokio::sync::Mutex::new(sink));
-    let mut updates_rx = endpoints.updates_broadcast.subscribe();
     let signal_tx = endpoints.signal_tx.clone();
 
     // Hello frame so the viewer sees confirmation that the pump is live
@@ -300,7 +299,29 @@ async fn pump_acp(
         }
     }
 
-    // Agent → viewer.
+    // Replay snapshot + live subscription. ReplayBroadcast linearises
+    // these so a notification is in `snapshot` OR comes down `updates_rx`,
+    // never both — see replay_broadcast.rs for the locking story. A
+    // viewer arriving mid-conversation sees the recent backscroll first,
+    // then live frames stream in continuously.
+    let (snapshot, mut updates_rx) = endpoints.updates_broadcast.subscribe_with_replay();
+    {
+        let mut s = sink.lock().await;
+        for notif in snapshot {
+            let text = match serde_json::to_string(&notif) {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!("attach_ws acp: serialise replay notification: {e}");
+                    continue;
+                }
+            };
+            if s.send(Message::Text(text.into())).await.is_err() {
+                return;
+            }
+        }
+    }
+
+    // Agent → viewer (live).
     let outbound_sink = sink.clone();
     let outbound = tokio::spawn(async move {
         loop {
