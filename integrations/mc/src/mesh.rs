@@ -1888,7 +1888,7 @@ async fn handle_profile(cmd: MeshProfileCommand, client: &MissionControlClient) 
 
 async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -> Result<()> {
     // If a bootstrap token is provided, register this node with the controlplane.
-    let (node_id, attach_secret) = if let Some(bt) = &a.bootstrap_token {
+    let (node_id, attach_secret, resolved_fqdn, home_info) = if let Some(bt) = &a.bootstrap_token {
         let reg_client = MissionControlClient::new_with_token(&a.url, &a.token)?;
         let node_name = a.node_name.clone().unwrap_or_else(|| {
             std::process::Command::new("hostname")
@@ -1898,6 +1898,15 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
                 .map(|s| s.trim().to_string())
                 .unwrap_or_else(|| "unknown".into())
         });
+
+        // Auto-detect Tailscale FQDN if the user didn't supply one. The home
+        // mission slug is derived from this (FQDN leaf > hostname > node_name)
+        // on the server side, so a real FQDN gives the nicest naming.
+        let tailscale_fqdn = a
+            .tailscale_fqdn
+            .clone()
+            .or_else(detect_tailscale_fqdn);
+
         let body = json!({
             "node_name": node_name,
             "hostname": node_name,
@@ -1907,7 +1916,7 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
             "capabilities": [],
             "runtime_version": env!("CARGO_PKG_VERSION"),
             "bootstrap_token": bt,
-            "tailscale_fqdn": a.tailscale_fqdn,
+            "tailscale_fqdn": tailscale_fqdn,
         });
         let resp = reg_client
             .post_json("/runtime/nodes/register", &body)
@@ -1923,9 +1932,12 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("register response missing `attach_secret`"))?
             .to_string();
-        (nid, sec)
+        // Phase 6: register_node returns `home: {mission_id, agent_id}` when
+        // home-mission auto-provisioning succeeded.
+        let home = resp.get("home").cloned();
+        (nid, sec, tailscale_fqdn, home)
     } else {
-        (String::new(), String::new())
+        (String::new(), String::new(), a.tailscale_fqdn.clone(), None)
     };
 
     let mut state = read_state_v2();
@@ -1950,7 +1962,7 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
         "attach_secret": attach_secret,
         "registered_at": registered_at,
     });
-    if let Some(fqdn) = &a.tailscale_fqdn {
+    if let Some(fqdn) = &resolved_fqdn {
         entry["tailscale_fqdn"] = serde_json::Value::String(fqdn.clone());
     }
     profiles.insert(a.name.clone(), entry);
@@ -1964,6 +1976,15 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
 
     if !node_id.is_empty() {
         println!("Registered node {} and saved as profile '{}'.", node_id, a.name);
+        if let Some(fqdn) = &resolved_fqdn {
+            if a.tailscale_fqdn.is_none() {
+                println!("  detected Tailscale FQDN: {fqdn}");
+            }
+        }
+        if let Some(home) = &home_info {
+            let mid = home.get("mission_id").and_then(|v| v.as_str()).unwrap_or("?");
+            println!("  home mission: {mid}");
+        }
     } else {
         println!("Saved profile '{}' (url: {}).", a.name, a.url);
     }
@@ -1973,6 +1994,23 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
         println!("Run `mc mesh use {}` to activate this profile.", a.name);
     }
     Ok(())
+}
+
+/// Best-effort Tailscale FQDN detection via `tailscale status --json`.
+/// Returns the FQDN with the trailing dot stripped, or None if Tailscale is
+/// not installed / not running / produces unexpected output.
+fn detect_tailscale_fqdn() -> Option<String> {
+    let out = std::process::Command::new("tailscale")
+        .args(["status", "--json"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    let dns_name = v.get("Self")?.get("DNSName")?.as_str()?;
+    let trimmed = dns_name.trim_end_matches('.');
+    if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }
 
 fn handle_profile_list() -> Result<()> {
