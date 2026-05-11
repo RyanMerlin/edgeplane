@@ -28,7 +28,6 @@ jobs:
           app-id: ${{ vars.MERLINLABS_AUTOMATION_APP_ID }}
           private-key: ${{ secrets.MERLINLABS_AUTOMATION_PRIVATE_KEY }}
           owner: missioncontrol-ai
-          repositories: missioncontrol
 
       - name: Push mirror to missioncontrol-ai
         run: |
