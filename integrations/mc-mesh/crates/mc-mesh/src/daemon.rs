@@ -894,6 +894,19 @@ fn yaml_specs(cfg: &DaemonConfig) -> Vec<AgentSpec> {
             });
         }
     }
+    if !out.is_empty() {
+        // Phase 6: yaml is the legacy bootstrap path. New deployments should
+        // federate via `mc mesh profile add` or run standalone via
+        // `mc mesh agent enroll-home`. The yaml path keeps working but won't
+        // see future ergonomic improvements (auto-provisioning, sync loop, …).
+        tracing::warn!(
+            "Loaded {} agent(s) from legacy ~/.mc/mc-mesh.yaml. \
+             yaml-only configuration is deprecated. Migrate by running \
+             `mc mesh profile add` (federated) or `mc mesh agent enroll-home` \
+             (standalone) — see docs/plans/2026-05-10-mc-mesh-phase6-home-mission-sync.md.",
+            out.len()
+        );
+    }
     out
 }
 

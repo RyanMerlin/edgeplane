@@ -1,7 +1,7 @@
 # mc-mesh Phase 6: Home Mission, Sync Loop, Goose-as-Router
 
 **Date:** 2026-05-10
-**Status:** Design — pending sign-off
+**Status:** Shipped (2026-05-10) — see commits `bde0cf4` (step 1), `113d48b` (step 2), `edc0169` (step 6), `7d1813f` (step 5). Step 4 was already in via Phase 4d/5d.
 **Builds on:** Phase 5 (standalone-first + controlplane profiles, local SQLite registry)
 **Prereqs landed:** broadcast delivery fix + task-mode pending-message buffer (commit `dc76952`)
 
@@ -205,19 +205,17 @@ No forced migration. Existing yaml users keep working.
 
 ---
 
-## Order of implementation
+## Order of implementation — as built
 
-1. **Backend: `mission.kind` column + `provision_home_for_node` helper**
-   Migration `0006_mission_kind.sql` + helper fn. No new routes yet.
-2. **Backend: `GET/POST/DELETE /runtime/nodes/{node_id}/agents`**
-   List + add + remove enrollments. Backed by existing `meshagent` table with `node_id` filter.
-3. **Backend: extend `/runtime/nodes/register` to provision home when `tailscale_hostname` is present.**
-4. **mc-mesh: `sync_loop.rs`** — startup pull + periodic reconcile + WS push handler.
-5. **mc CLI: `enroll-home` + extended `status`.**
-6. **mc CLI: `profile add` passes `tailscale_hostname` to register call.**
-7. **Documentation + deprecation warning for yaml path.**
+1. ✅ **Backend: `mission.kind` column + `provision_home_for_node` helper** — `bde0cf4`. Migration `0006_mission_kind.sql`, `slug_hostname` helper with 8 unit tests, register_node calls provisioning inline (collapsed step 3 into this).
+2. ✅ **Backend: `POST` + `DELETE /runtime/nodes/{node_id}/agents`** — `113d48b`. GET was already in from Phase 4a; my POST adds `agent.assigned` broadcast, DELETE adds `agent.revoked`. Existing GET enhanced to join on mission for `mission_name`/`mission_kind`.
+3. ✅ Folded into (1) — `register_node` now invokes `provision_home_for_node` directly.
+4. ✅ **mc-mesh sync_loop** — *already shipped* in Phase 4d/5d. `resolve_agent_specs` does the initial controlplane pull, `Spawner::apply_plan` handles spawn/restart/shutdown, `watch_assignments_ws` + `poll_assignments` keep state converged. No new code needed; verified end-to-end wiring.
+5. ✅ **mc CLI: `enroll-home` + extended `status`** — `7d1813f`. `mc mesh agent enroll-home` for standalone-mode home-mission setup. Status now shows mode/profile/agents and uses mgmt-socket probe so it correctly reports `running` for the systemd-managed daemon.
+6. ✅ **mc CLI: `profile add` Tailscale auto-detection** — `edc0169`. Reads `tailscale status --json` when `--tailscale-fqdn` not given, surfaces home-mission info from the register response.
+7. ✅ **Deprecation warning + plan-doc update** — this commit. yaml_specs now emits a tracing::warn when used, pointing users at `profile add` (federated) or `agent enroll-home` (standalone). MC-MESH.md is stale and should be rewritten separately.
 
-Each step ships independently. After (1)–(3) the backend is ready; (4)–(7) deliver the daemon and CLI side. After all six, a clean `mc mesh profile add ...` on a fresh node yields a fully-bootstrapped node with a home-Goose agent ready to receive routing tasks.
+A clean `mc mesh profile add ...` on a fresh node now yields a fully-bootstrapped node with a home-Goose agent ready to receive routing tasks.
 
 ---
 
