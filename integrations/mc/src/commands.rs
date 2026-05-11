@@ -35,6 +35,8 @@ pub enum McCommand {
     Status(StatusArgs),
     /// Shortcut for `mc system doctor`.
     Doctor(maintenance::DoctorArgs),
+    /// Send a one-shot prompt to a persistent ACP agent.
+    Signal(crate::signal::SignalArgs),
     /// Lightweight backend readiness check.
     Health(HealthArgs),
     /// Show binary + backend version details.
@@ -807,6 +809,7 @@ pub async fn run(
     match command {
         McCommand::Status(args) => handle_status(args, client, &config, output_mode).await,
         McCommand::Doctor(args) => maintenance::run_doctor_command(&client, &config, &args).await,
+        McCommand::Signal(args) => crate::signal::run(args, &client).await,
         McCommand::Health(_args) => handle_health(client, output_mode).await,
         McCommand::Version(_args) => handle_version(client, &config, output_mode).await,
         McCommand::Config(_args) => handle_config(&config, output_mode),

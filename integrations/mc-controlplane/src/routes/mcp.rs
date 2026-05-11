@@ -528,25 +528,38 @@ async fn dispatch(
         "register_agent" => {
             let name = str_arg(args, "name");
             if name.is_empty() { return err_result("name is required"); }
-            if is_reserved_agent_name(&name) { return err_result("reserved agent name"); }
             let capabilities = args.get("capabilities").and_then(|v| v.as_str()).unwrap_or("[]");
-            // Upsert by name — same semantics as the REST POST /agents path.
-            // Re-registering refreshes capabilities and un-archives the row.
-            match sqlx::query(
-                "INSERT INTO agent (name, capabilities, status, metadata, created_at, updated_at, last_seen_at) \
-                 VALUES ($1,$2,'offline','{}',NOW(),NOW(),NOW()) \
-                 ON CONFLICT (name) DO UPDATE SET \
-                    capabilities = EXCLUDED.capabilities, \
-                    updated_at   = EXCLUDED.updated_at, \
-                    last_seen_at = EXCLUDED.last_seen_at, \
-                    archived_at  = NULL \
-                 RETURNING id"
-            )
-            .bind(&name).bind(capabilities)
-            .fetch_one(&state.db).await
-            {
-                Ok(r) => ok_result(json!({"id": r.get::<i32,_>("id"), "name": name, "status": "offline"})),
-                Err(e) => { tracing::error!("mcp register_agent: {e}"); err_result("database_error") }
+            // Delegates to the shared upsert helper so name validation,
+            // public_id generation, and ON CONFLICT semantics stay aligned
+            // with the REST `POST /agents` path. Returning the resolved
+            // public_id alongside the numeric id lets callers (e.g.
+            // `mc signal`) skip a follow-up GET /agents/{name} round-trip.
+            match crate::routes::agents::upsert_agent_by_name(&state.db, &name, capabilities).await {
+                Ok(public_id) => {
+                    // Look up the integer id once we have the row — the
+                    // helper returns only the public_id today. Cheap and
+                    // keeps the response shape backward-compatible.
+                    let id_row = sqlx::query_scalar::<_, i32>("SELECT id FROM agent WHERE name = $1")
+                        .bind(&name)
+                        .fetch_one(&state.db)
+                        .await;
+                    match id_row {
+                        Ok(id) => ok_result(json!({
+                            "id": id,
+                            "public_id": public_id,
+                            "name": name,
+                            "status": "offline",
+                        })),
+                        Err(e) => {
+                            tracing::error!("mcp register_agent id lookup: {e}");
+                            err_result("database_error")
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("mcp register_agent: {e:#}");
+                    err_result(&e.to_string())
+                }
             }
         }
 

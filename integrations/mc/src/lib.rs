@@ -3,6 +3,7 @@ pub mod agent_context;
 pub mod dispatch;
 pub mod attach;
 pub mod auth;
+pub mod signal;
 pub mod booster;
 pub mod channel;
 pub mod claude;
