@@ -5,6 +5,7 @@ on:
     branches: ["**"]
   create:
   delete:
+  workflow_dispatch:
 
 permissions:
   contents: read
