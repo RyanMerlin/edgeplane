@@ -9,7 +9,7 @@ use chrono::Utc;
 use sqlx::Row;
 use std::sync::Arc;
 
-use crate::{auth::Principal, state::AppState};
+use crate::{auth::Principal, routes::agents::is_reserved_agent_name, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -93,9 +93,26 @@ async fn session_start(
 
     let now = Utc::now().naive_utc();
 
-    // Find or create the agent row for this subject
+    // Find or create the agent row for this subject. Unauthenticated callers
+    // arrive with subject="anonymous" — we used to create a real row for that,
+    // producing the spurious `anonymous` agents the operator sees in the TUI.
+    // Now the helper returns None for reserved names and we skip persistence
+    // gracefully (still returns 200 so probes don't think the hook errored).
     let agent_id: i32 = match find_or_create_agent(&state, &subject, capability).await {
-        Ok(id) => id,
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            tracing::debug!(
+                subject = %subject,
+                "session_start: skipping agent persistence for reserved name"
+            );
+            // Best-effort surface — emit a body so the caller still gets the
+            // descriptor, but no DB row is created.
+            let body = format!(
+                "[MC Session — {session_id}]\nAgent: {subject} (reserved, not persisted)\nCapabilities: {capability}",
+                session_id = if session_id.is_empty() { "unknown".to_string() } else { session_id.clone() },
+            );
+            return ([(header::CONTENT_TYPE, "text/plain")], body).into_response();
+        }
         Err(e) => {
             tracing::error!("session_start find_or_create_agent: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
@@ -156,7 +173,7 @@ async fn session_end(
         .to_string();
     let now = Utc::now().naive_utc();
 
-    if let Ok(agent_id) = find_or_create_agent(&state, &subject, "").await {
+    if let Ok(Some(agent_id)) = find_or_create_agent(&state, &subject, "").await {
         if !session_id.is_empty() {
             let result = sqlx::query(
                 "UPDATE agentsession SET ended_at=$3, end_reason=$4 \
@@ -202,7 +219,7 @@ async fn tool_audit(
     });
     let entry_line = format!("{}\n", serde_json::to_string(&entry).unwrap_or_default());
 
-    if let Ok(agent_id) = find_or_create_agent(&state, &subject, "").await {
+    if let Ok(Some(agent_id)) = find_or_create_agent(&state, &subject, "").await {
         if !session_id.is_empty() {
             let _ = sqlx::query(
                 "UPDATE agentsession SET audit_log = COALESCE(audit_log,'') || $3 \
@@ -220,19 +237,27 @@ async fn tool_audit(
 }
 
 /// Return the id of the agent with this subject name, creating it if absent.
-async fn find_or_create_agent(state: &Arc<AppState>, subject: &str, capability: &str) -> Result<i32, sqlx::Error> {
+///
+/// Returns `Ok(None)` when the subject is a reserved name (e.g. `anonymous`
+/// for unauthenticated callers, or anything under the `system:` prefix). The
+/// caller is expected to skip persistence in that case — see Phase 1 of
+/// docs/plans/mc-agents-identity-spec.md for why.
+async fn find_or_create_agent(state: &Arc<AppState>, subject: &str, capability: &str) -> Result<Option<i32>, sqlx::Error> {
+    if is_reserved_agent_name(subject) {
+        return Ok(None);
+    }
     if let Some(row) =
         sqlx::query("SELECT id FROM agent WHERE name=$1")
             .bind(subject)
             .fetch_optional(&state.db)
             .await?
     {
-        return Ok(row.get("id"));
+        return Ok(Some(row.get("id")));
     }
     let now = Utc::now().naive_utc();
     let id: i32 = sqlx::query_scalar(
-        "INSERT INTO agent (name, capabilities, status, metadata, created_at, updated_at) \
-         VALUES ($1,$2,'offline','{}', $3,$3) \
+        "INSERT INTO agent (name, capabilities, status, metadata, created_at, updated_at, last_seen_at) \
+         VALUES ($1,$2,'offline','{}', $3,$3,$3) \
          ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id",
     )
     .bind(subject)
@@ -240,5 +265,5 @@ async fn find_or_create_agent(state: &Arc<AppState>, subject: &str, capability: 
     .bind(now)
     .fetch_one(&state.db)
     .await?;
-    Ok(id)
+    Ok(Some(id))
 }

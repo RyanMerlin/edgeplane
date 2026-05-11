@@ -49,12 +49,27 @@ fn not_found(msg: &str) -> axum::response::Response {
     (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
 }
 
+/// Reserved agent names that callers may not register. `anonymous` was the
+/// historical sink for unauthenticated hook callers (see routes/hooks.rs);
+/// the `system:` prefix is held for future controlplane-internal agents.
+pub fn is_reserved_agent_name(name: &str) -> bool {
+    let trimmed = name.trim();
+    trimmed.eq_ignore_ascii_case("anonymous")
+        || trimmed.starts_with("system:")
+        || trimmed.starts_with("system/")
+}
+
 #[derive(Deserialize)]
 struct ListQuery {
     status: Option<String>,
     limit: Option<i64>,
     agent_id: Option<i32>,
     task_id: Option<i32>,
+    /// When true, list_agents returns archived rows alongside live ones. Off
+    /// by default so the steady-state TUI/CLI views stay focused. Phase 1 of
+    /// the agent-identity spec.
+    #[serde(default)]
+    include_archived: bool,
 }
 
 // ── Agents ────────────────────────────────────────────────────────────────────
@@ -64,12 +79,20 @@ async fn list_agents(
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(100).min(500);
+    // Archived agents are filtered out by default — callers must opt in. This
+    // keeps every existing TUI/CLI view focused on live identities without
+    // requiring a code change at each call site.
+    let archived_clause = if q.include_archived { "" } else { " AND archived_at IS NULL" };
     let rows = if let Some(s) = &q.status {
-        sqlx::query("SELECT * FROM agent WHERE status=$1 ORDER BY updated_at DESC LIMIT $2")
-            .bind(s).bind(limit).fetch_all(&state.db).await
+        let sql = format!(
+            "SELECT * FROM agent WHERE status=$1{archived_clause} ORDER BY updated_at DESC LIMIT $2"
+        );
+        sqlx::query(&sql).bind(s).bind(limit).fetch_all(&state.db).await
     } else {
-        sqlx::query("SELECT * FROM agent ORDER BY updated_at DESC LIMIT $1")
-            .bind(limit).fetch_all(&state.db).await
+        let sql = format!(
+            "SELECT * FROM agent WHERE 1=1{archived_clause} ORDER BY updated_at DESC LIMIT $1"
+        );
+        sqlx::query(&sql).bind(limit).fetch_all(&state.db).await
     };
     match rows {
         Ok(rows) => Json(rows.iter().map(row_to_agent).collect::<Vec<_>>()).into_response(),
@@ -81,10 +104,31 @@ async fn create_agent(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<AgentCreate>,
 ) -> impl IntoResponse {
+    if is_reserved_agent_name(&payload.name) {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"detail": "Reserved agent name"})),
+        )
+            .into_response();
+    }
+
     let now = Utc::now().naive_utc();
+    // Upsert by name. Re-registering an existing agent refreshes capabilities,
+    // status, metadata, last_seen_at, and un-archives the row — but preserves
+    // the original `created_at` so cumulative-lifetime queries remain accurate.
+    // See docs/plans/mc-agents-identity-spec.md Phase 1.
     let result = sqlx::query(
-        "INSERT INTO agent (name, capabilities, status, metadata, created_at, updated_at) \
-         VALUES ($1,$2,$3,$4,$5,$5) RETURNING *"
+        "INSERT INTO agent \
+            (name, capabilities, status, metadata, created_at, updated_at, last_seen_at) \
+         VALUES ($1,$2,$3,$4,$5,$5,$5) \
+         ON CONFLICT (name) DO UPDATE SET \
+            capabilities = EXCLUDED.capabilities, \
+            status       = EXCLUDED.status, \
+            metadata     = EXCLUDED.metadata, \
+            updated_at   = EXCLUDED.updated_at, \
+            last_seen_at = EXCLUDED.last_seen_at, \
+            archived_at  = NULL \
+         RETURNING *"
     )
     .bind(&payload.name).bind(&payload.capabilities).bind(&payload.status)
     .bind(&payload.metadata).bind(now)
@@ -92,9 +136,6 @@ async fn create_agent(
 
     match result {
         Ok(row) => (StatusCode::OK, Json(row_to_agent(&row))).into_response(),
-        Err(e) if e.to_string().contains("unique") || e.to_string().contains("duplicate") => {
-            (StatusCode::CONFLICT, Json(serde_json::json!({"detail": "Agent name already exists"}))).into_response()
-        }
         Err(e) => { tracing::error!("create_agent: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
 }
@@ -368,6 +409,33 @@ async fn send_message(
     .fetch_one(&state.db).await {
         Ok(m) => (StatusCode::OK, Json(m)).into_response(),
         Err(e) => { tracing::error!("send_message: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
+}
+
+#[cfg(test)]
+mod reserved_name_tests {
+    use super::is_reserved_agent_name;
+
+    #[test]
+    fn anonymous_is_reserved_any_case() {
+        assert!(is_reserved_agent_name("anonymous"));
+        assert!(is_reserved_agent_name("ANONYMOUS"));
+        assert!(is_reserved_agent_name("Anonymous"));
+        assert!(is_reserved_agent_name("  anonymous  "));
+    }
+
+    #[test]
+    fn system_prefixes_are_reserved() {
+        assert!(is_reserved_agent_name("system:reaper"));
+        assert!(is_reserved_agent_name("system/heartbeat"));
+    }
+
+    #[test]
+    fn ordinary_names_are_not_reserved() {
+        assert!(!is_reserved_agent_name("aria-operator"));
+        assert!(!is_reserved_agent_name("aria-mc-engineer"));
+        assert!(!is_reserved_agent_name("anonymouslab"));
+        assert!(!is_reserved_agent_name("system-agent"));
     }
 }
 

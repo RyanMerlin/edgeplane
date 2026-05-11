@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use sqlx::Row;
 use std::sync::Arc;
 
-use crate::{auth::Principal, state::AppState};
+use crate::{auth::Principal, routes::agents::is_reserved_agent_name, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -521,10 +521,19 @@ async fn dispatch(
         "register_agent" => {
             let name = str_arg(args, "name");
             if name.is_empty() { return err_result("name is required"); }
+            if is_reserved_agent_name(&name) { return err_result("reserved agent name"); }
             let capabilities = args.get("capabilities").and_then(|v| v.as_str()).unwrap_or("[]");
+            // Upsert by name — same semantics as the REST POST /agents path.
+            // Re-registering refreshes capabilities and un-archives the row.
             match sqlx::query(
-                "INSERT INTO agent (name, capabilities, status, metadata, created_at, updated_at) \
-                 VALUES ($1,$2,'offline','{}',NOW(),NOW()) RETURNING id"
+                "INSERT INTO agent (name, capabilities, status, metadata, created_at, updated_at, last_seen_at) \
+                 VALUES ($1,$2,'offline','{}',NOW(),NOW(),NOW()) \
+                 ON CONFLICT (name) DO UPDATE SET \
+                    capabilities = EXCLUDED.capabilities, \
+                    updated_at   = EXCLUDED.updated_at, \
+                    last_seen_at = EXCLUDED.last_seen_at, \
+                    archived_at  = NULL \
+                 RETURNING id"
             )
             .bind(&name).bind(capabilities)
             .fetch_one(&state.db).await
@@ -535,7 +544,13 @@ async fn dispatch(
         }
 
         "list_agents" => {
-            match sqlx::query("SELECT id, name, status, capabilities, created_at FROM agent ORDER BY created_at DESC LIMIT 100")
+            // Archived agents are excluded by default — matches the REST
+            // /agents endpoint default. No opt-in flag here yet; the MCP
+            // tool surface is the operator's view, not an admin tool.
+            match sqlx::query(
+                "SELECT id, name, status, capabilities, created_at FROM agent \
+                 WHERE archived_at IS NULL ORDER BY created_at DESC LIMIT 100"
+            )
                 .fetch_all(&state.db).await
             {
                 Ok(rows) => ok_result(Value::Array(rows.iter().map(|r| json!({
