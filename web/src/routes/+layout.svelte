@@ -121,6 +121,7 @@
 
     {#if isLoggedIn}
       <nav class="tabs">
+        <a href="/agents/" class={navClass('/agents')}>Agents</a>
         <a href="/ai/" class={navClass('/ai')}>AI Console</a>
         <a href="/matrix/" class={navClass('/matrix')}>Matrix</a>
         <a href="/explorer/" class={navClass('/explorer')}>Explorer</a>
