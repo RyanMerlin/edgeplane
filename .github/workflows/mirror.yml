@@ -1,3 +1,5 @@
+# Mirrors RyanMerlin/missioncontrol → missioncontrol-ai/missioncontrol
+# Auth: GitHub App "merlinlabs-automation" (App ID 3676358), bypass on target ruleset.
 name: Mirror to missioncontrol-ai
 
 on:
