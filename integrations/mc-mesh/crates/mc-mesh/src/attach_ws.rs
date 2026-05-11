@@ -30,7 +30,8 @@ use tokio_tungstenite::tungstenite::handshake::server::{
 use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::attach_registry::{AttachEndpoints, AttachRegistry, PtyAttachEndpoints};
+use crate::attach_registry::{AcpAttachEndpoints, AttachEndpoints, AttachRegistry, PtyAttachEndpoints};
+use mc_mesh_core::types::AgentSignal;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -109,25 +110,7 @@ async fn handle_connection(
     tracing::info!("attach_ws viewer connected for agent {agent_id} from {peer}");
     match endpoints {
         AttachEndpoints::Pty(pty) => pump_pty(ws, pty).await,
-        AttachEndpoints::Acp(_) => {
-            // The PTY frame protocol (binary stdin/stdout + resize control)
-            // does not match ACP's JSON-RPC stream. A future layer will add
-            // a text-frame pump that relays session/update notifications and
-            // accepts {kind:"prompt"|"cancel"} envelopes from viewers.
-            tracing::warn!(
-                "attach_ws: agent {agent_id} is an ACP session; \
-                 byte-stream attach not yet supported on this endpoint"
-            );
-            // Send a one-shot text frame so the viewer sees a clear reason.
-            let mut sink = ws;
-            use futures::SinkExt;
-            let _ = sink
-                .send(Message::Text(
-                    "{\"kind\":\"error\",\"detail\":\"ACP attach over WS not yet supported\"}"
-                        .into(),
-                ))
-                .await;
-        }
+        AttachEndpoints::Acp(acp) => pump_acp(ws, acp).await,
     }
     tracing::info!("attach_ws viewer disconnected for agent {agent_id} from {peer}");
     Ok(())
@@ -266,6 +249,126 @@ async fn pump_pty(
     outbound.abort();
 }
 
+// ── ACP frame pump ───────────────────────────────────────────────────────────
+//
+// Wire framing for ACP attach (parallel to the PTY pump above):
+//
+// Outbound (agent → viewer): text frames, each a serialised
+//   `mc_mesh_acp::wire::SessionNotification` (the same shape the agent emits
+//   on its `session/update` channel). Viewers render these as a chat-style
+//   stream of assistant turns, tool calls, plans, etc.
+//
+// Inbound (viewer → agent): text frames with a `kind`-tagged envelope:
+//   * `{"kind":"prompt","text":"…"}` → `AgentSignal::UserInput { text }`
+//   * `{"kind":"cancel"}`            → `AgentSignal::Cancel`
+//   Anything else is logged at debug and ignored — this is the contract
+//   between viewers and the supervisor; new variants are additive.
+//
+// On connect we send a one-shot `{"kind":"hello", … }` so viewers know the
+// pump is alive and can confirm protocol shape before sending input.
+
+/// Tagged envelope a viewer sends to the agent. Today: prompt or cancel.
+/// New variants are additive; viewers must tolerate unknown `kind` in
+/// outbound frames (we don't reject unknowns — log + ignore is friendlier
+/// to forward-compatible clients).
+#[derive(Debug, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum ViewerEnvelope {
+    Prompt { text: String },
+    Cancel,
+}
+
+async fn pump_acp(
+    ws: tokio_tungstenite::WebSocketStream<TcpStream>,
+    endpoints: AcpAttachEndpoints,
+) {
+    let (sink, mut stream) = ws.split();
+    let sink = std::sync::Arc::new(tokio::sync::Mutex::new(sink));
+    let mut updates_rx = endpoints.updates_broadcast.subscribe();
+    let signal_tx = endpoints.signal_tx.clone();
+
+    // Hello frame so the viewer sees confirmation that the pump is live
+    // and ACP-shaped (helpful for early bringup; cheap to send).
+    {
+        let mut s = sink.lock().await;
+        let hello = serde_json::json!({
+            "kind": "hello",
+            "protocol": "acp/1",
+        });
+        if s.send(Message::Text(hello.to_string().into())).await.is_err() {
+            return;
+        }
+    }
+
+    // Agent → viewer.
+    let outbound_sink = sink.clone();
+    let outbound = tokio::spawn(async move {
+        loop {
+            match updates_rx.recv().await {
+                Ok(notif) => {
+                    let text = match serde_json::to_string(&notif) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            tracing::warn!("attach_ws acp: serialise notification: {e}");
+                            continue;
+                        }
+                    };
+                    let mut s = outbound_sink.lock().await;
+                    if s.send(Message::Text(text.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!("attach_ws acp viewer lagged {n} updates");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+
+    // Viewer → agent.
+    while let Some(msg) = stream.next().await {
+        let msg = match msg {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::debug!("attach_ws acp stream error: {e}");
+                break;
+            }
+        };
+        match msg {
+            Message::Text(txt) => match serde_json::from_str::<ViewerEnvelope>(&txt) {
+                Ok(ViewerEnvelope::Prompt { text }) => {
+                    if signal_tx
+                        .send(AgentSignal::UserInput { text })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(ViewerEnvelope::Cancel) => {
+                    if signal_tx.send(AgentSignal::Cancel).await.is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("attach_ws acp bad envelope: {e}");
+                }
+            },
+            Message::Binary(_) => {
+                tracing::debug!(
+                    "attach_ws acp: ignored binary frame (use text/JSON envelopes)"
+                );
+            }
+            Message::Close(_) => break,
+            // Ping/Pong handled by tungstenite; nothing to do here.
+            _ => {}
+        }
+    }
+
+    outbound.abort();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,5 +383,40 @@ mod tests {
         assert_ne!(sig, sign_attach("s3cret", "agent-1", 9999999998));
         // Different secret → different sig.
         assert_ne!(sig, sign_attach("other", "agent-1", 9999999999));
+    }
+
+    // ── Viewer envelope parsing ───────────────────────────────────────────
+
+    #[test]
+    fn envelope_prompt_parses() {
+        let env: ViewerEnvelope =
+            serde_json::from_str(r#"{"kind":"prompt","text":"hello world"}"#).unwrap();
+        match env {
+            ViewerEnvelope::Prompt { text } => assert_eq!(text, "hello world"),
+            _ => panic!("expected Prompt"),
+        }
+    }
+
+    #[test]
+    fn envelope_cancel_parses() {
+        let env: ViewerEnvelope =
+            serde_json::from_str(r#"{"kind":"cancel"}"#).unwrap();
+        assert!(matches!(env, ViewerEnvelope::Cancel));
+    }
+
+    #[test]
+    fn envelope_unknown_kind_rejected() {
+        // Unknown `kind` must NOT silently parse as one of the known variants;
+        // the pump logs + ignores at the call site. The parse itself errors.
+        let res: Result<ViewerEnvelope, _> =
+            serde_json::from_str(r#"{"kind":"future","data":42}"#);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn envelope_prompt_missing_text_rejected() {
+        let res: Result<ViewerEnvelope, _> =
+            serde_json::from_str(r#"{"kind":"prompt"}"#);
+        assert!(res.is_err());
     }
 }
