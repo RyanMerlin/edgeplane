@@ -698,6 +698,7 @@ async fn handle_status(client: &MissionControlClient) -> Result<()> {
 
     // Phase 6: show what mode the daemon is in and what agents it manages.
     let state = read_state_v2();
+    let mut node_id_for_query: Option<String> = None;
     if let Some(profile_name) = state["active_profile"].as_str() {
         println!("mode:            federated");
         println!("active profile:  {profile_name}");
@@ -706,6 +707,7 @@ async fn handle_status(client: &MissionControlClient) -> Result<()> {
                 if !node.is_empty() {
                     let short = if node.len() > 12 { &node[..12] } else { node };
                     println!("node_id:         {short}");
+                    node_id_for_query = Some(node.to_string());
                 }
             }
         }
@@ -713,34 +715,83 @@ async fn handle_status(client: &MissionControlClient) -> Result<()> {
         println!("mode:            standalone");
     }
 
-    // Summarize locally-enrolled agents (always reflects what the daemon sees
-    // via LocalRegistry, whether populated by enroll or by the sync loop).
-    match crate::local_db::list(None) {
-        Ok(rows) if !rows.is_empty() => {
-            let mut by_mission: std::collections::BTreeMap<String, Vec<&crate::local_db::LocalAgent>> =
-                std::collections::BTreeMap::new();
-            for a in &rows {
-                by_mission.entry(a.mission_id.clone()).or_default().push(a);
-            }
-            println!("agents:          {} across {} mission(s)", rows.len(), by_mission.len());
-            for (mid, agents) in &by_mission {
-                let label = if mid.starts_with("home-") {
-                    format!("{mid} (home)")
-                } else {
-                    mid.clone()
-                };
-                let runtimes: Vec<&str> = agents.iter().map(|a| a.runtime_kind.as_str()).collect();
-                println!("  - {label}: {}", runtimes.join(", "));
-            }
+    // Federated: pull authoritative agent list from the controlplane.
+    // Standalone: read the local SQLite registry.
+    if let Some(node_id) = node_id_for_query {
+        let path = format!("/runtime/nodes/{node_id}/agents");
+        match client.get_json(&path).await {
+            Ok(v) => print_federated_agents(&v),
+            Err(e) => println!("agents:          (controlplane query failed: {e})"),
         }
-        Ok(_) => {
-            println!("agents:          none enrolled");
-        }
-        Err(e) => {
-            println!("agents:          (could not read local registry: {e})");
+    } else {
+        match crate::local_db::list(None) {
+            Ok(rows) if !rows.is_empty() => print_local_agents(&rows),
+            Ok(_) => println!("agents:          none enrolled"),
+            Err(e) => println!("agents:          (could not read local registry: {e})"),
         }
     }
     Ok(())
+}
+
+fn print_local_agents(rows: &[crate::local_db::LocalAgent]) {
+    let mut by_mission: std::collections::BTreeMap<&str, Vec<&crate::local_db::LocalAgent>> =
+        std::collections::BTreeMap::new();
+    for a in rows {
+        by_mission.entry(a.mission_id.as_str()).or_default().push(a);
+    }
+    println!(
+        "agents:          {} across {} mission(s)",
+        rows.len(),
+        by_mission.len()
+    );
+    for (mid, agents) in &by_mission {
+        let label = if mid.starts_with("home-") {
+            format!("{mid} (home)")
+        } else {
+            (*mid).to_string()
+        };
+        let runtimes: Vec<&str> = agents.iter().map(|a| a.runtime_kind.as_str()).collect();
+        println!("  - {label}: {}", runtimes.join(", "));
+    }
+}
+
+fn print_federated_agents(v: &Value) {
+    // The Phase 6 GET returns a JSON array of agents.
+    let Some(arr) = v.as_array() else {
+        println!("agents:          (unexpected response shape)");
+        return;
+    };
+    if arr.is_empty() {
+        println!("agents:          none enrolled");
+        return;
+    }
+    let mut by_mission: std::collections::BTreeMap<&str, Vec<&Value>> =
+        std::collections::BTreeMap::new();
+    for a in arr {
+        let mid = a.get("mission_id").and_then(|v| v.as_str()).unwrap_or("?");
+        by_mission.entry(mid).or_default().push(a);
+    }
+    println!(
+        "agents:          {} across {} mission(s)",
+        arr.len(),
+        by_mission.len()
+    );
+    for (mid, agents) in &by_mission {
+        let kind = agents
+            .iter()
+            .find_map(|a| a.get("mission_kind").and_then(|v| v.as_str()))
+            .unwrap_or("");
+        let label = if kind == "home" {
+            format!("{mid} (home)")
+        } else {
+            (*mid).to_string()
+        };
+        let runtimes: Vec<&str> = agents
+            .iter()
+            .filter_map(|a| a.get("runtime_kind").and_then(|v| v.as_str()))
+            .collect();
+        println!("  - {label}: {}", runtimes.join(", "));
+    }
 }
 
 async fn handle_health(client: &MissionControlClient) -> Result<()> {
