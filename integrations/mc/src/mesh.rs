@@ -98,6 +98,10 @@ pub enum MeshAgentCommand {
     /// Enroll a new agent. In standalone mode writes to the local registry
     /// (~/.mc/mc-mesh.db); in federated mode calls the controlplane API.
     Enroll(AgentEnrollArgs),
+    /// Provision the per-node home mission and enroll a default Goose agent
+    /// in it. Standalone mirror of the controlplane's auto-provisioning at
+    /// node-register time. Idempotent.
+    EnrollHome(AgentEnrollHomeArgs),
     /// Reassign an agent to a different mission.
     Reassign(AgentReassignArgs),
     /// Remove an agent from the registry / controlplane.
@@ -129,6 +133,19 @@ pub struct AgentEnrollArgs {
     /// Path to a YAML or JSON profile file for this agent.
     #[arg(long)]
     pub profile: Option<std::path::PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct AgentEnrollHomeArgs {
+    /// Hostname used to form the home mission slug `home-{slug(hostname)}`.
+    /// Defaults to the Tailscale FQDN leaf (when Tailscale is running) or
+    /// the system hostname.
+    #[arg(long)]
+    pub hostname: Option<String>,
+    /// Runtime kind for the default home-mission agent. Goose is the
+    /// recommended default — cheap local inference for routing/triage.
+    #[arg(long, default_value = "goose")]
+    pub runtime: String,
 }
 
 #[derive(Args, Debug)]
@@ -674,9 +691,53 @@ async fn handle_status(client: &MissionControlClient) -> Result<()> {
     );
 
     if daemon_ok {
-        // Print PID if available.
         if let Ok(pid) = std::fs::read_to_string(pid_file_path()) {
             println!("pid:             {}", pid.trim());
+        }
+    }
+
+    // Phase 6: show what mode the daemon is in and what agents it manages.
+    let state = read_state_v2();
+    if let Some(profile_name) = state["active_profile"].as_str() {
+        println!("mode:            federated");
+        println!("active profile:  {profile_name}");
+        if let Some(entry) = state["profiles"].get(profile_name) {
+            if let Some(node) = entry["node_id"].as_str() {
+                if !node.is_empty() {
+                    let short = if node.len() > 12 { &node[..12] } else { node };
+                    println!("node_id:         {short}");
+                }
+            }
+        }
+    } else {
+        println!("mode:            standalone");
+    }
+
+    // Summarize locally-enrolled agents (always reflects what the daemon sees
+    // via LocalRegistry, whether populated by enroll or by the sync loop).
+    match crate::local_db::list(None) {
+        Ok(rows) if !rows.is_empty() => {
+            let mut by_mission: std::collections::BTreeMap<String, Vec<&crate::local_db::LocalAgent>> =
+                std::collections::BTreeMap::new();
+            for a in &rows {
+                by_mission.entry(a.mission_id.clone()).or_default().push(a);
+            }
+            println!("agents:          {} across {} mission(s)", rows.len(), by_mission.len());
+            for (mid, agents) in &by_mission {
+                let label = if mid.starts_with("home-") {
+                    format!("{mid} (home)")
+                } else {
+                    mid.clone()
+                };
+                let runtimes: Vec<&str> = agents.iter().map(|a| a.runtime_kind.as_str()).collect();
+                println!("  - {label}: {}", runtimes.join(", "));
+            }
+        }
+        Ok(_) => {
+            println!("agents:          none enrolled");
+        }
+        Err(e) => {
+            println!("agents:          (could not read local registry: {e})");
         }
     }
     Ok(())
@@ -845,6 +906,75 @@ async fn handle_agent(cmd: MeshAgentCommand, client: &MissionControlClient) -> R
                 println!("Enrolled agent {agent_id} ({} in mission {}) [standalone]", a.runtime, a.mission);
                 println!("The mc-mesh daemon will pick this up on its next reconcile tick.");
             }
+            Ok(())
+        }
+
+        MeshAgentCommand::EnrollHome(a) => {
+            if crate::local_db::is_federated() {
+                println!(
+                    "Federated mode — the home mission is auto-provisioned at \
+                     `mc mesh profile add` time. Use `mc mesh agent ls` to inspect."
+                );
+                return Ok(());
+            }
+            // Pick hostname: explicit > Tailscale FQDN leaf > system hostname.
+            let hostname_raw = a.hostname.clone()
+                .or_else(|| detect_tailscale_fqdn().and_then(|f| {
+                    f.split('.').next().filter(|s| !s.is_empty()).map(str::to_string)
+                }))
+                .or_else(|| {
+                    std::process::Command::new("hostname")
+                        .output()
+                        .ok()
+                        .and_then(|o| String::from_utf8(o.stdout).ok())
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                });
+            let hostname = hostname_raw.ok_or_else(|| {
+                anyhow::anyhow!("could not determine hostname; pass --hostname")
+            })?;
+            let slug = slug_hostname(&hostname);
+            if slug.is_empty() {
+                anyhow::bail!("hostname {hostname:?} produced an empty slug");
+            }
+            let mission_id = format!("home-{slug}");
+            let runtime = a.runtime.replace('-', "_");
+
+            // Idempotency: bail if a matching home agent already exists.
+            let existing = crate::local_db::list(Some(&mission_id))
+                .context("checking local registry for existing home agent")?;
+            if let Some(found) = existing.iter().find(|x| x.runtime_kind == runtime) {
+                println!(
+                    "Home mission {} already has a {} agent ({}). Nothing to do.",
+                    mission_id, runtime, found.id
+                );
+                return Ok(());
+            }
+
+            // Persistent supervision so the home agent stays attached for live
+            // messages and routing decisions.
+            let caps: Vec<String> = [
+                "routing",
+                "triage",
+                "dispatch",
+                "overlap_check",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect();
+
+            let agent_id = crate::local_db::enroll(
+                &mission_id,
+                &runtime,
+                "persistent",
+                &caps,
+                None,
+            )
+            .context("enrolling home agent in local registry")?;
+
+            println!("Provisioned home mission {} [standalone]", mission_id);
+            println!("  agent: {agent_id} ({runtime}, persistent)");
+            println!("The mc-mesh daemon will pick this up on its next reconcile tick.");
             Ok(())
         }
 
@@ -1673,6 +1803,28 @@ fn attach_socket_path() -> std::path::PathBuf {
     crate::config::mc_home_dir().join("mc-mesh.sock")
 }
 
+fn mgmt_socket_path() -> std::path::PathBuf {
+    crate::config::mc_home_dir().join("mc-mesh-mgmt.sock")
+}
+
+/// Connect-probe the daemon's mgmt socket. Returns true only if the socket
+/// exists AND accepts a connection — covers the systemd-managed daemon that
+/// doesn't write /tmp/mc-mesh.pid.
+fn mgmt_socket_responsive() -> bool {
+    #[cfg(unix)]
+    {
+        let path = mgmt_socket_path();
+        if !path.exists() {
+            return false;
+        }
+        std::os::unix::net::UnixStream::connect(&path).is_ok()
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Upgrade
 // ---------------------------------------------------------------------------
@@ -1719,24 +1871,27 @@ fn mc_mesh_config_path() -> std::path::PathBuf {
 }
 
 fn is_daemon_running() -> bool {
+    // 1. Try the PID file written by `mc mesh start` (foreground / detached
+    //    launch from the CLI).
     let pid_path = pid_file_path();
     if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
         if let Ok(pid) = pid_str.trim().parse::<u32>() {
             #[cfg(unix)]
             {
-                // Check if process is alive.
-                unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+                if unsafe { libc::kill(pid as libc::pid_t, 0) == 0 } {
+                    return true;
+                }
             }
             #[cfg(not(unix))]
             {
-                true
+                return true;
             }
-        } else {
-            false
         }
-    } else {
-        false
     }
+    // 2. Fall back to probing the mgmt socket. The systemd-managed daemon
+    //    (mc-mesh.service) doesn't touch /tmp/mc-mesh.pid, so a responsive
+    //    socket is the authoritative liveness signal.
+    mgmt_socket_responsive()
 }
 
 fn start_daemon_background(backend_url: &str, token: &str) -> Result<()> {
@@ -1996,6 +2151,34 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
     Ok(())
 }
 
+/// Slug-safe form of a hostname for use in stable mission IDs. Mirrors the
+/// controlplane's `slug_hostname` so federated and standalone provisioning
+/// produce identical names for the same node.
+fn slug_hostname(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut prev_dash = false;
+    for c in input.chars() {
+        let mapped = if c.is_ascii_alphanumeric() {
+            c.to_ascii_lowercase()
+        } else {
+            '-'
+        };
+        if mapped == '-' {
+            if !prev_dash && !out.is_empty() {
+                out.push('-');
+            }
+            prev_dash = true;
+        } else {
+            out.push(mapped);
+            prev_dash = false;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    out
+}
+
 /// Best-effort Tailscale FQDN detection via `tailscale status --json`.
 /// Returns the FQDN with the trailing dot stripped, or None if Tailscale is
 /// not installed / not running / produces unexpected output.
@@ -2138,4 +2321,57 @@ fn prompt_yes_no(prompt: &str) -> bool {
     let mut input = String::new();
     let _ = std::io::stdin().read_line(&mut input);
     matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slug_hostname;
+
+    // Mirror of mc-controlplane's slug_hostname tests — the two implementations
+    // must produce identical output so federated and standalone provisioning
+    // converge on the same mission IDs for a given hostname.
+
+    #[test]
+    fn plain_hostname_unchanged() {
+        assert_eq!(slug_hostname("excalibur"), "excalibur");
+    }
+
+    #[test]
+    fn uppercase_is_lowered() {
+        assert_eq!(slug_hostname("Excalibur"), "excalibur");
+    }
+
+    #[test]
+    fn dots_become_dashes() {
+        assert_eq!(slug_hostname("node.tailnet.ts.net"), "node-tailnet-ts-net");
+    }
+
+    #[test]
+    fn collapses_repeated_dashes() {
+        assert_eq!(slug_hostname("node...local"), "node-local");
+        assert_eq!(slug_hostname("a__b__c"), "a-b-c");
+    }
+
+    #[test]
+    fn trims_trailing_dashes() {
+        assert_eq!(slug_hostname("hostname---"), "hostname");
+        assert_eq!(slug_hostname("node."), "node");
+    }
+
+    #[test]
+    fn leading_invalid_chars_dropped() {
+        assert_eq!(slug_hostname("...foo"), "foo");
+    }
+
+    #[test]
+    fn empty_input_yields_empty() {
+        assert_eq!(slug_hostname(""), "");
+        assert_eq!(slug_hostname("..."), "");
+    }
+
+    #[test]
+    fn alphanumeric_mix_preserved() {
+        assert_eq!(slug_hostname("node-01"), "node-01");
+        assert_eq!(slug_hostname("cloud0"), "cloud0");
+    }
 }
