@@ -16,7 +16,7 @@ pub async fn send_kluster_message(
         "body_json": body.to_string(),
     });
     client
-        .post(&format!("/work/klusters/{kluster_id}/messages"), &payload)
+        .post(&format!("/klusters/{kluster_id}/messages"), &payload)
         .await
 }
 
@@ -27,8 +27,8 @@ pub async fn poll_messages(
     since_id: Option<i64>,
 ) -> Result<Vec<serde_json::Value>> {
     let path = match since_id {
-        Some(id) => format!("/work/klusters/{kluster_id}/messages?since_id={id}"),
-        None => format!("/work/klusters/{kluster_id}/messages"),
+        Some(id) => format!("/klusters/{kluster_id}/messages?since_id={id}"),
+        None => format!("/klusters/{kluster_id}/messages"),
     };
     client.get(&path).await
 }

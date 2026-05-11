@@ -269,7 +269,7 @@ pub fn build_prompt(task: &TaskSpec) -> String {
             }
         }
         roster.push(
-            "To delegate: POST /work/klusters/{kluster_id}/tasks with claim_policy=assigned and claimed_by_agent_id set, or send a message via POST /work/klusters/{kluster_id}/messages.".to_string()
+            "To delegate: POST /klusters/{kluster_id}/tasks with claim_policy=assigned and claimed_by_agent_id set, or send a message via POST /klusters/{kluster_id}/messages.".to_string()
         );
         parts.push(roster.join("\n"));
     }

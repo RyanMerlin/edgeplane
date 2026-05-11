@@ -40,13 +40,13 @@ pub async fn poll_ready_tasks(
     _capabilities: &[mc_mesh_core::types::Capability],
 ) -> Result<Vec<MeshTaskRecord>> {
     let mut ready: Vec<MeshTaskRecord> = client
-        .get(&format!("/work/klusters/{kluster_id}/tasks?status=ready"))
+        .get(&format!("/klusters/{kluster_id}/tasks?status=ready"))
         .await
         .unwrap_or_default();
 
     // Also fetch broadcast tasks that are already running so every agent joins.
     let broadcast_running: Vec<MeshTaskRecord> = client
-        .get(&format!("/work/klusters/{kluster_id}/tasks?status=running"))
+        .get(&format!("/klusters/{kluster_id}/tasks?status=running"))
         .await
         .unwrap_or_default();
 
@@ -63,7 +63,7 @@ pub async fn poll_ready_tasks(
 /// status set to "claimed") and the `claim_lease_id` returned by the backend.
 pub async fn claim_task(client: &BackendClient, task_id: &str) -> Result<ClaimResult> {
     let resp: serde_json::Value = client
-        .post_empty(&format!("/work/tasks/{task_id}/claim"))
+        .post_empty(&format!("/tasks/{task_id}/claim"))
         .await?;
 
     let claim_lease_id = resp
@@ -91,7 +91,7 @@ pub async fn heartbeat_task(
         body["claim_lease_id"] = serde_json::Value::String(lid.to_string());
     }
     let resp = client
-        .raw_post_no_throw(&format!("/work/tasks/{task_id}/heartbeat"), &body)
+        .raw_post_no_throw(&format!("/tasks/{task_id}/heartbeat"), &body)
         .await
         .map_err(|e| TaskError::Other(e))?;
 
@@ -117,7 +117,7 @@ pub async fn post_progress(
         "payload_json": event.payload.to_string(),
     });
     client
-        .raw_post(&format!("/work/tasks/{task_id}/progress"), &body)
+        .raw_post(&format!("/tasks/{task_id}/progress"), &body)
         .await?;
     Ok(())
 }
@@ -136,7 +136,7 @@ pub async fn complete_task(
         body["claim_lease_id"] = serde_json::Value::String(lid.to_string());
     }
     let resp = client
-        .raw_post_no_throw(&format!("/work/tasks/{task_id}/complete"), &body)
+        .raw_post_no_throw(&format!("/tasks/{task_id}/complete"), &body)
         .await
         .map_err(|e| TaskError::Other(e))?;
 
@@ -160,7 +160,7 @@ pub async fn fetch_dependency_results(
     let mut out = Vec::with_capacity(depends_on.len());
     for dep_id in depends_on {
         match client
-            .get::<Vec<serde_json::Value>>(&format!("/work/tasks/{dep_id}/progress?since_seq=0"))
+            .get::<Vec<serde_json::Value>>(&format!("/tasks/{dep_id}/progress?since_seq=0"))
             .await
         {
             Ok(events) => {
@@ -214,7 +214,7 @@ pub async fn fail_task(
         body["claim_lease_id"] = serde_json::Value::String(lid.to_string());
     }
     let resp = client
-        .raw_post_no_throw(&format!("/work/tasks/{task_id}/fail"), &body)
+        .raw_post_no_throw(&format!("/tasks/{task_id}/fail"), &body)
         .await
         .map_err(|e| TaskError::Other(e))?;
 

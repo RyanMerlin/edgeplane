@@ -212,6 +212,12 @@ pub struct AgentRecord {
 }
 
 impl AgentRecord {
+    /// Build an `AgentRecord` from an in-memory `AgentSpec`. `spec.agent_id`
+    /// is now the controlplane-provided `public_id` (post `agent_public_id`
+    /// migration; falls back to the legacy mesh UUID if a pre-migration
+    /// controlplane is on the other end). This row therefore stores the
+    /// stable wire identifier — what mc-mesh uses to poll
+    /// `/agents/{id}/messages` and what `mc` CLI passes via `--to-agent-id`.
     pub fn from_spec(spec: &AgentSpec, source: &str) -> Self {
         Self {
             id: spec.agent_id.clone(),

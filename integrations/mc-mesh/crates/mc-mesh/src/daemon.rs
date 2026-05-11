@@ -826,10 +826,18 @@ pub async fn fetch_node_agents(
 
 fn agent_spec_from_json(v: &serde_json::Value) -> Result<AgentSpec> {
     use anyhow::{Context, anyhow};
+    // Wire identifier precedence:
+    // 1. `public_id` (preferred — new shape, set by controlplane after the
+    //    agent-public-id migration; matches the format used by the persistent
+    //    agent registry and the `/agents/{public_id}/messages` route).
+    // 2. `id` (fallback — pre-public_id controlplanes still emit only `id`).
+    // Storing the resolved value as `AgentSpec.agent_id` keeps the local
+    // registry, attach gateway, and message-poll URLs aligned.
     let agent_id = v
-        .get("id")
+        .get("public_id")
         .and_then(|s| s.as_str())
-        .ok_or_else(|| anyhow!("agent record missing `id`"))?
+        .or_else(|| v.get("id").and_then(|s| s.as_str()))
+        .ok_or_else(|| anyhow!("agent record missing `public_id` (and `id` fallback)"))?
         .to_string();
     let mission_id = v
         .get("mission_id")

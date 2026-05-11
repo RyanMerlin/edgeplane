@@ -162,8 +162,18 @@ pub fn row_to_agent(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         .flatten()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or(serde_json::json!([]));
+    let meshagent_id: String = row.get::<String, _>("id");
     serde_json::json!({
-        "id": row.get::<String, _>("id"),
+        "id": &meshagent_id,
+        // `public_id` is the wire identifier used by mc-mesh's poll loop
+        // (`/agents/{public_id}/messages`) and by the mc CLI's
+        // `--to-agent-id`. Today meshagent doesn't have a dedicated column
+        // so we alias the existing UUID id — string shape is identical and
+        // mc-mesh's reader prefers `public_id` over `id`. A future migration
+        // (`meshagent.public_id` linked to `agent.public_id`) will make this
+        // the canonical agent-identity reference; alias keeps the wire
+        // contract stable through that migration.
+        "public_id": &meshagent_id,
         "mission_id": row.get::<String, _>("mission_id"),
         "node_id": row.get::<Option<String>, _>("node_id"),
         "runtime_kind": row.get::<String, _>("runtime_kind"),
