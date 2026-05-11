@@ -11,7 +11,7 @@ use ratatui::{
     Frame, Terminal,
 };
 
-use super::data::DataClient;
+use super::data::{is_auth_error, DataClient};
 use super::screens::agent_feed::{AgentFeed, AgentFeedState};
 use super::screens::agents::{AgentOp, AgentScreen, AgentScreenState};
 use super::screens::approval_queue::{ApprovalQueue, ApprovalQueueState};
@@ -20,8 +20,43 @@ use super::screens::mission_matrix::{Focus as MatrixFocus, MissionMatrix, Missio
 use super::screens::secrets::{SecretsScreen, SecretsState, render_tree_overlay};
 use super::theme;
 use super::widgets::help::{HelpEntry, HelpOverlay, GLOBAL_HELP};
-use super::widgets::modal::{ConfirmModal, ModalAction};
+use super::widgets::modal::{ConfirmModal, InfoModal, ModalAction};
 use super::work::{WorkPool, WorkRequest, WorkResult, next_job_id};
+
+/// Identity / session state used to drive the badge in the tab bar and to
+/// decide whether to surface a "you're not signed in" prompt in panels that
+/// require auth. This is the Phase 1 surface from `mc-tui-auth-spec.md` —
+/// it detects and reports state but does not yet drive an in-TUI login flow.
+#[derive(Debug, Clone)]
+pub enum AuthState {
+    /// No session file on disk, no explicit token. First-launch state.
+    Anonymous,
+    /// A valid saved session was loaded from `~/.missioncontrol/`.
+    SessionValid {
+        subject: String,
+        email: Option<String>,
+        expires_at: String,
+    },
+    /// A session file exists but is expired or URL-mismatched. The badge
+    /// flags this so the operator knows the silent-empty panels aren't a
+    /// real outage.
+    SessionExpired,
+    /// Token came from `--token` / `MC_TOKEN`. We don't know its expiry, so
+    /// the badge labels it explicitly rather than guessing.
+    SessionFromFlag,
+}
+
+impl AuthState {
+    /// True when API calls should be expected to return private data. False
+    /// when panels that require auth should render the unauthenticated prompt
+    /// instead of pretending the empty result is the truth.
+    pub fn is_authenticated(&self) -> bool {
+        matches!(
+            self,
+            AuthState::SessionValid { .. } | AuthState::SessionFromFlag
+        )
+    }
+}
 
 /// What action a confirm modal should trigger when the user accepts.
 #[derive(Debug, Clone)]
@@ -36,12 +71,14 @@ pub enum PendingAction {
 /// add new dialogs (task picker, etc.) without sprinkling overlays across screens.
 pub enum AppModal {
     Confirm { modal: ConfirmModal, action: PendingAction },
+    Info { modal: InfoModal },
 }
 
 impl AppModal {
     fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer) {
         match self {
             AppModal::Confirm { modal, .. } => modal.render(area, buf),
+            AppModal::Info { modal } => modal.render(area, buf),
         }
     }
 }
@@ -63,6 +100,11 @@ pub struct App {
     pub version: String,
     pub context_name: String,
     pub should_quit: bool,
+
+    /// Identity / session state. Mutated by `tick()` when 401 responses are
+    /// observed; rendered in the tab-bar identity badge and consulted by the
+    /// "you're not signed in" prompt in panels that require auth.
+    pub auth_state: AuthState,
 
     // Per-screen state
     pub agents: AgentScreenState,
@@ -145,6 +187,7 @@ impl App {
         version: String,
         initial_mission: Option<String>,
         context_name: String,
+        auth_state: AuthState,
         client: std::sync::Arc<dyn DataClient>,
     ) -> Self {
         let mut matrix = MissionMatrixState::default();
@@ -183,6 +226,7 @@ impl App {
             version,
             context_name,
             should_quit: false,
+            auth_state,
             agents: AgentScreenState::default(),
             matrix,
             agent_feed: AgentFeedState::new(),
@@ -199,6 +243,68 @@ impl App {
         }
     }
 
+    /// Translate raw error text from a backend call into a more useful surface.
+    /// 401s flip `auth_state` to `SessionExpired` and rewrite the error string
+    /// so panels show a sign-in prompt instead of a cryptic "backend returned
+    /// 401" line. Non-auth errors pass through unchanged.
+    ///
+    /// Returns the (possibly rewritten) error string. Always Some — call sites
+    /// were already setting `Some(e)`, this keeps that shape.
+    fn classify_error(&mut self, raw: String) -> Option<String> {
+        if is_auth_error(&raw) {
+            // Don't overwrite SessionFromFlag — a bad explicit token is still
+            // a user-provided credential, label it as such.
+            if !matches!(self.auth_state, AuthState::SessionFromFlag) {
+                self.auth_state = AuthState::SessionExpired;
+            }
+            return Some(
+                "Not signed in — press L to see how to authenticate.".to_string(),
+            );
+        }
+        Some(raw)
+    }
+
+    /// Open a modal explaining how to sign in. Phase 1 directs the operator
+    /// to run `mc auth login` in another terminal; Phase 2 will replace this
+    /// with an in-TUI login flow.
+    pub fn open_signin_modal(&mut self) {
+        let lines = match &self.auth_state {
+            AuthState::SessionFromFlag => vec![
+                "You're signed in via --token / MC_TOKEN.".to_string(),
+                "".to_string(),
+                "If calls are failing, the explicit token is invalid.".to_string(),
+                "Clear it and run `mc auth login` to use a session.".to_string(),
+            ],
+            AuthState::SessionValid { subject, expires_at, .. } => vec![
+                format!("Signed in as {subject}."),
+                format!("Token expires {expires_at}."),
+                "".to_string(),
+                "Use `mc auth logout` to clear the session.".to_string(),
+            ],
+            AuthState::SessionExpired => vec![
+                "Your session has expired.".to_string(),
+                "".to_string(),
+                "Run in another terminal:".to_string(),
+                "  mc auth login".to_string(),
+                "Then return here and press R on any panel to retry.".to_string(),
+            ],
+            AuthState::Anonymous => vec![
+                "You're not signed in.".to_string(),
+                "".to_string(),
+                "Run in another terminal:".to_string(),
+                "  mc auth login".to_string(),
+                "Then return here and press R on any panel to retry.".to_string(),
+            ],
+        };
+        let title = match &self.auth_state {
+            AuthState::SessionValid { .. } => "Identity",
+            _ => "Sign in to MissionControl",
+        };
+        self.modal = Some(AppModal::Info {
+            modal: InfoModal { title: title.to_string(), lines },
+        });
+    }
+
     /// Drain any pending work results and update state.
     pub fn tick(&mut self) {
         while let Ok(result) = self.pool.result_rx.try_recv() {
@@ -213,7 +319,7 @@ impl App {
                 WorkResult::AgentsListed { agents, error, .. } => {
                     self.agents.loading = false;
                     if let Some(e) = error {
-                        self.agents.error = Some(e);
+                        self.agents.error = self.classify_error(e);
                     } else {
                         self.agents.error = None;
                         self.agents.replace_agents(agents);
@@ -241,7 +347,12 @@ impl App {
                 }
                 WorkResult::MissionsListed { missions, error, .. } => {
                     if let Some(e) = error {
-                        self.matrix.error = Some(format!("missions error: {e}"));
+                        let classified = self.classify_error(e).unwrap_or_default();
+                        self.matrix.error = Some(if is_auth_error(&classified) || classified.starts_with("Not signed in") {
+                            classified
+                        } else {
+                            format!("missions error: {classified}")
+                        });
                     } else {
                         self.matrix.error = None;
                         self.matrix.loading_missions = false;
@@ -313,7 +424,7 @@ impl App {
                 WorkResult::ApprovalsListed { approvals, error, .. } => {
                     self.approval_queue.loading = false;
                     if let Some(e) = error {
-                        self.approval_queue.last_error = Some(e);
+                        self.approval_queue.last_error = self.classify_error(e);
                     } else {
                         self.approval_queue.last_error = None;
                         let prev_id = self.approval_queue.pending.get(self.approval_queue.selection).map(|r| r.id);
@@ -417,6 +528,14 @@ impl App {
             return;
         }
 
+        // Global: 'L' opens the identity / sign-in modal from anywhere.
+        // Lowercase 'l' is reserved by other screens' nav patterns, so the
+        // shifted form is the unambiguous binding.
+        if key.code == KeyCode::Char('L') {
+            self.open_signin_modal();
+            return;
+        }
+
         // Screen-level key routing — each screen gets first crack at nav keys
         let consumed = match &self.screen {
             Screen::Agents => {
@@ -506,6 +625,7 @@ impl App {
         let Some(m) = &self.modal else { return };
         let action = match m {
             AppModal::Confirm { modal, .. } => modal.handle_key(code),
+            AppModal::Info { modal } => modal.handle_key(code),
         };
         match action {
             ModalAction::Confirmed => {
@@ -874,20 +994,44 @@ impl App {
             spans.push(Span::styled(" │ ", Style::default().fg(theme::PANEL_BORDER).bg(panel_bg)));
         }
 
-        // Right side: "<context> ● connected" or "<context> ● offline"
+        // Right side: identity badge · context · connection status.
         let (dot, dot_style, status_str) = if self.config.connected {
             ("●", Style::default().fg(theme::OK).bg(panel_bg), "connected")
         } else {
             ("●", Style::default().fg(theme::ERR).bg(panel_bg), "offline")
         };
 
-        let right_part = format!("  {}  {} {}  ", self.context_name, dot, status_str);
+        // Identity badge — see AuthState for the four possible shapes. The
+        // colour signals state at a glance; the text gives the operator
+        // enough to know whether to press L.
+        let (badge_text, badge_color) = match &self.auth_state {
+            AuthState::SessionValid { subject, email, .. } => {
+                let who = email.as_deref().unwrap_or(subject.as_str());
+                (format!("{who}"), theme::OK)
+            }
+            AuthState::SessionFromFlag => ("--token".to_string(), theme::ACCENT),
+            AuthState::SessionExpired => ("session expired · press L".to_string(), theme::ERR),
+            AuthState::Anonymous => ("not signed in · press L".to_string(), theme::WARN),
+        };
+
+        let right_part = format!(
+            "  {}  ·  {}  {} {}  ",
+            badge_text, self.context_name, dot, status_str
+        );
         let left_width: usize = spans.iter().map(|s| s.content.len()).sum();
         let pad = (area.width as usize).saturating_sub(left_width + right_part.len());
 
         spans.push(Span::styled(" ".repeat(pad), panel_style));
         spans.push(Span::styled(
-            format!("  {}  ", self.context_name),
+            format!("  {}  ", badge_text),
+            Style::default().fg(badge_color).bg(panel_bg).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            "·  ".to_string(),
+            Style::default().fg(theme::PANEL_BORDER).bg(panel_bg),
+        ));
+        spans.push(Span::styled(
+            format!("{}  ", self.context_name),
             Style::default().fg(theme::TEXT_MUTED).bg(panel_bg),
         ));
         spans.push(Span::styled(format!("{} ", dot), dot_style));

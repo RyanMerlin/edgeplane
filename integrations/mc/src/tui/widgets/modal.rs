@@ -86,6 +86,64 @@ impl ConfirmModal {
     }
 }
 
+/// A single-button informational dialog. Used for things like "you're not
+/// signed in — here's how to fix it" where there's no choice to make, only
+/// an acknowledgement.
+#[derive(Debug, Clone)]
+pub struct InfoModal {
+    pub title: String,
+    pub lines: Vec<String>,
+}
+
+impl InfoModal {
+    pub fn handle_key(&self, key: KeyCode) -> ModalAction {
+        match key {
+            KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(' ') => {
+                ModalAction::Cancelled
+            }
+            _ => ModalAction::Handled,
+        }
+    }
+
+    pub fn render(&self, area: Rect, buf: &mut Buffer) {
+        let widest = self.lines.iter().map(|l| l.len()).max().unwrap_or(40);
+        let want_w = (widest as u16 + 8).max(48);
+        let width = want_w.min(area.width.saturating_sub(4)).max(24);
+        let height: u16 = (self.lines.len() as u16) + 4;
+        let x = area.x + area.width.saturating_sub(width) / 2;
+        let y = area.y + area.height.saturating_sub(height) / 2;
+        let dialog = Rect { x, y, width, height };
+
+        Clear.render(dialog, buf);
+
+        let border_color = theme::ACCENT;
+        let title_style = Style::default().fg(border_color).add_modifier(Modifier::BOLD);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color))
+            .title(Span::styled(format!(" {} ", self.title), title_style))
+            .style(theme::normal());
+        let inner = block.inner(dialog);
+        block.render(dialog, buf);
+
+        let mut lines: Vec<Line<'static>> = self
+            .lines
+            .iter()
+            .map(|s| Line::from(Span::styled(s.clone(), theme::normal())))
+            .collect();
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  Enter/Esc ", theme::accent()),
+            Span::styled("close", theme::dim()),
+        ]));
+        Paragraph::new(lines)
+            .alignment(Alignment::Center)
+            .style(theme::normal())
+            .render(inner, buf);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

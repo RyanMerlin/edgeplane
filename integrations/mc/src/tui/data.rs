@@ -202,6 +202,17 @@ impl DataClient for FixtureDataClient {
 
 // ─── remote client (wraps reqwest, talks to mc-controlplane) ──────────────────
 
+/// Sentinel prefix used in error messages when the controlplane returns 401.
+/// `tick()` matches on this to switch the app into the SessionExpired state
+/// without each callsite having to plumb a typed error all the way up.
+pub const AUTH_ERROR_PREFIX: &str = "unauthorized";
+
+/// True iff the error string was produced by a 401 response. Cheap and
+/// allocation-free; safe to call on every poll.
+pub fn is_auth_error(msg: &str) -> bool {
+    msg.starts_with(AUTH_ERROR_PREFIX)
+}
+
 pub struct RemoteDataClient {
     pub base_url: String,
     pub token: Option<String>,
@@ -227,6 +238,9 @@ impl RemoteDataClient {
         }
         let resp = req.send().await?;
         let status = resp.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            anyhow::bail!("{AUTH_ERROR_PREFIX}: session missing or expired ({path})");
+        }
         if !status.is_success() {
             anyhow::bail!("backend returned {status} for {path}");
         }
@@ -288,6 +302,9 @@ impl DataClient for RemoteDataClient {
         let status = resp.status();
         if status == reqwest::StatusCode::NOT_FOUND {
             return Ok(vec![]);
+        }
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            anyhow::bail!("{AUTH_ERROR_PREFIX}: session missing or expired (/agents)");
         }
         if !status.is_success() {
             anyhow::bail!("backend returned {status} for /agents");

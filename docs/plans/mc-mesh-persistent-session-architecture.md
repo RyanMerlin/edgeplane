@@ -4,13 +4,15 @@
 **Status:** Design — in-progress (mc-engineer session implementing)
 **Context:** Evaluated current mc-mesh implementation against intended long-running agent session model.
 
+> **Architectural update — 2026-05-11:** PTY and xterm.js are dropped from this design. ACP (Agent Client Protocol, via `claude-code-acp`) is the only transport for persistent agent sessions. The web UI and TUI render structured ACP messages, not terminal output. See "Transport: ACP-only" below for the consolidated decision and the consequences for each gap.
+
 ---
 
 ## Vision
 
 mc-mesh is the node daemon — analogous to RKE2/kubelet, not a job runner. It runs on every physical or virtual node, registers with mc-controlplane, and manages all agents on that node. Agents are long-running, persistent Claude sessions — not disposable one-shot processes.
 
-**Primary use case:** You're in Boulder. An agent is running in Vail. You open the web UI, find the Vail node, open the agent session, watch the live output in an xterm terminal, and type a steering prompt. The agent responds. You close the tab. The session keeps running.
+**Primary use case:** You're in Boulder. An agent is running in Vail. You open the web UI, find the Vail node, open the agent session, watch the live conversation as structured ACP messages — assistant turns, tool calls, tool results — and type a steering prompt. The agent responds. You close the tab. The session keeps running.
 
 **Secondary use case:** Discrete short tasks (Goose, Codex, Gemini) — headless, one-shot, result returned. This already works.
 
@@ -21,7 +23,7 @@ mc-mesh is the node daemon — analogous to RKE2/kubelet, not a job runner. It r
 ### What works today
 
 - **Headless task execution** — `ClaudeCodeRuntime.inject_task()` spawns `claude -p "<prompt>" --output-format stream-json`, streams `ProgressEvent`s back to the task loop, marks the task complete. Correct for short tasks.
-- **Local PTY attach** — `attach_gateway` binds a Unix socket at `~/.missioncontrol/mc-mesh.sock`. `mc mesh attach <agent-id>` connects locally, negotiates agent ID, then becomes a raw PTY proxy. Works for same-machine access.
+- **Local PTY attach (deprecated by ACP-only decision)** — `attach_gateway` binds a Unix socket at `~/.missioncontrol/mc-mesh.sock`. `mc mesh attach <agent-id>` connects locally, negotiates agent ID, then becomes a raw PTY proxy. This path is retained until ACP local attach lands; it does not factor into the persistent-session implementation plan below.
 - **Task loop with WS notify** — `task_loop::run_for_agent()` polls for tasks, claims them, injects via `inject_task()`, forwards progress. WebSocket notify listener (`run_notify_ws`) wakes the loop immediately on `task_available` push — no idle polling.
 - **Supervisor** — tracks launched `AgentHandle`s by `agent_id`. Owns the runtime reference.
 - **Message relay** — `run_message_relay()` polls inbound peer messages and delivers via `signal()`. `signal()` is currently a no-op stub.
@@ -42,19 +44,19 @@ There is no runtime loop that:
 
 The `launch.sh` files in each Aria profile are doing this job today, outside mc-mesh entirely. mc-mesh needs to own this.
 
-#### Gap 2 — No remote PTY relay in controlplane
+#### Gap 2 — No remote ACP relay in controlplane
 
-`attach_gateway` only accepts local Unix socket connections. For remote access (Vail agent, Boulder viewer):
+For remote access (Vail agent, Boulder viewer), ACP messages must flow over a network transport:
 
-- mc-mesh needs to expose the PTY stream over a network-capable transport (WebSocket)
-- mc-controlplane needs a proxy route: `GET /runtime/nodes/{node_id}/agents/{agent_id}/attach` → upgrades to WS → forwards to the mc-mesh node
-- mc-mesh nodes connect to controlplane on startup (for task loop) — the controlplane can use this existing connection as the back-channel, or mc-mesh can accept an inbound WS on a dedicated port
+- mc-mesh exposes a WebSocket endpoint per persistent agent that proxies the agent's ACP stream (JSON-RPC over stdio) bidirectionally
+- mc-controlplane provides the proxy route: `GET /runtime/nodes/{node_id}/agents/{agent_id}/attach` → upgrades to WS → forwards JSON-RPC frames to the mc-mesh node over Tailscale
+- mc-mesh nodes already maintain an outbound connection to controlplane for task loop; that channel is suitable as the back-channel, or mc-mesh accepts inbound WS on a dedicated port (chosen at implementation time)
 
-The controlplane currently has no such route. `test_proxy.rs` exists but covers a different proxy path.
+Because ACP is JSON-RPC over text frames — not a binary terminal stream — the relay is a straightforward message forwarder. No SIGWINCH, no terminal geometry, no escape-sequence handling. The controlplane currently has no such route.
 
-#### Gap 3 — No web UI terminal component
+#### Gap 3 — No web UI conversation pane
 
-The web UI (mc-engineer frontend session) needs an xterm.js terminal wired to the WS attach stream from the controlplane. This is a new component — not in the current web UI build.
+The web UI (mc-engineer frontend session) needs a structured conversation component — assistant turns, tool calls, tool results, permission prompts — wired to the WS ACP stream from the controlplane. This is a normal chat UI, not a terminal emulator. xterm.js is explicitly **not** used.
 
 #### Gap 4 — No session lifecycle in mc-mesh config
 
@@ -95,41 +97,56 @@ pub struct AgentEntry {
 }
 ```
 
+### Transport: ACP-only
+
+The persistent-session transport is ACP (Agent Client Protocol) end-to-end. mc-mesh spawns `claude-code-acp` as the agent child process; messages flow as JSON-RPC over stdio inside the node, and as JSON-RPC over WebSocket between nodes / to clients.
+
+What this buys:
+- **Structured surface.** Every assistant turn, tool call, tool result, and permission request is a typed event — not bytes to parse. The web UI and TUI render this directly.
+- **Trivial relay.** Forwarding ACP between mc-mesh ↔ controlplane ↔ client is a JSON-RPC frame pump. No SIGWINCH, no terminal geometry, no escape sequences.
+- **Native cancel + permission.** `session/cancel` and `session/request_permission` are first-class — no need to parse prompt text or trap signals.
+- **Process supervision is normal.** `claude-code-acp` is a regular child process. Crash-and-restart works the same way as any supervised service; no PTY allocation, no terminal session leadership.
+
+Runtime gotchas to honor (see `feedback_acp_runtime_gotchas.md`):
+- Strip `CLAUDECODE` and `CLAUDE_CODE_*` from the child env before spawning, otherwise the child auto-detects and misbehaves.
+- The agent ignores stdin close; shutdown requires `SIGTERM`.
+
 ### Persistent session runtime loop
 
 For `session_mode: persistent`, the daemon runs a **session supervisor loop** instead of the task loop:
 
 ```
 loop {
-    launch Claude in interactive PTY mode (no -p)
-    register PTY channels in attach_gateway
-    monitor stdout → forward to session log / progress stream
-    on stdin signal (from signal() call) → write to PTY stdin
-    on process exit → wait backoff → restart
+    spawn claude-code-acp (stdio JSON-RPC, env scrubbed)
+    register ACP client handle in attach_gateway (by agent_id)
+    issue session/new → record session_id
+    on session/update events → forward to log + progress stream + attached clients
+    on signal() call → translate to session/prompt
+    on process exit / SIGCHLD → wait backoff → restart, with session reload
 }
 ```
 
-This replaces what `launch.sh` does today. The `signal()` method becomes the injection point — write the prompt to the PTY stdin, same as what `aria-trigger.sh` does via `tmux send-keys`.
+The `signal()` method becomes the prompt injection point — it dispatches `session/prompt` over the ACP channel, replacing the `tmux send-keys` approach used by today's `aria-trigger.sh`.
 
-### Remote PTY relay
+### Remote ACP relay
 
 ```
 Web UI (Boulder)
-  xterm.js terminal
-       ↕ WebSocket
+  ACP chat pane (structured rendering)
+       ↕ WebSocket (JSON-RPC frames)
 mc-controlplane
   GET /runtime/nodes/{node_id}/agents/{agent_id}/attach
   → upgrades to WS
-  → proxies to mc-mesh node via back-channel
+  → forwards JSON-RPC frames to the mc-mesh node
        ↕ WS or multiplexed stream
 mc-mesh (Vail node)
-  session supervisor holds PTY channels
-  → pipes PTY output to relay
-  → writes relay input to PTY stdin
+  session supervisor holds ACP client handle
+  → fans out session/update events to attached relays
+  → injects session/prompt from relay input
 ```
 
-The controlplane→mc-mesh back-channel can be:
-- **Option A**: mc-mesh exposes a WS server on a local port; controlplane dials in when a web UI attaches. Simpler but requires mc-mesh to be network-reachable from controlplane (Tailscale handles this).
+Back-channel between controlplane and mc-mesh:
+- **Option A**: mc-mesh exposes a WS server on a local port; controlplane dials in when a client attaches. Simpler; relies on Tailscale for reachability.
 - **Option B**: mc-mesh opens a persistent multiplexed connection to controlplane at startup; attach streams are multiplexed over it. More complex but works even without direct reachability.
 
 Tailscale is present on all nodes — Option A is the right call.
@@ -197,26 +214,26 @@ No conflict with any in-flight work. Can be done independently.
 
 Implement `session_mode: persistent` in `ClaudeCodeRuntime`:
 - Add `SessionMode` enum to config
-- Add `session_supervisor_loop()` in `claude_code.rs` — launch interactive Claude, restart on exit, pipe stdin/stdout
-- Wire `signal()` to write to PTY stdin
-- Register PTY with attach_gateway on launch
+- Add `session_supervisor_loop()` in `claude_code.rs` — spawn `claude-code-acp`, scrub `CLAUDECODE`/`CLAUDE_CODE_*` env, restart on exit, drive ACP `session/new` → fan out `session/update` events
+- Wire `signal()` to dispatch `session/prompt` over the ACP channel
+- Register the ACP client handle with attach_gateway on launch (keyed by `agent_id`)
 - Add `session_mode` branch in `daemon.rs` startup: persistent agents get session supervisor, task agents get task loop
 
-**Gate:** This makes `launch.sh` redundant. Don't retire `launch.sh` until a persistent agent is validated end-to-end.
+**Gate:** This makes `launch.sh` redundant. Don't retire `launch.sh` until a persistent agent is validated end-to-end via ACP.
 
-### Phase 2 — Remote PTY relay (controlplane + mc-mesh)
+### Phase 2 — Remote ACP relay (controlplane + mc-mesh)
 
-- mc-mesh: add WS server on a local port (e.g. `127.0.0.1:8009`) that accepts attach connections identified by `agent_id`. Each connection proxies to the PTY channels registered by the session supervisor.
-- mc-controlplane: add route `GET /runtime/nodes/{node_id}/agents/{agent_id}/attach` — resolves node Tailscale address, dials mc-mesh WS, upgrades caller to WS, proxies bidirectionally.
+- mc-mesh: add WS server on a local port (e.g. `127.0.0.1:8009`) that accepts attach connections identified by `agent_id`. Each connection becomes a JSON-RPC frame pump between the caller and the agent's ACP client handle held by the session supervisor.
+- mc-controlplane: add route `GET /runtime/nodes/{node_id}/agents/{agent_id}/attach` — resolves node Tailscale address, dials mc-mesh WS, upgrades caller to WS, forwards JSON-RPC frames bidirectionally.
 
-**Gate:** Requires Phase 1 (PTY channels must exist to relay).
+**Gate:** Requires Phase 1 (ACP client handles must exist to relay).
 
-### Phase 3 — Web UI terminal (mc-engineer frontend)
+### Phase 3 — Web UI conversation pane (mc-engineer frontend)
 
-- xterm.js terminal component in web UI
-- Connects to controlplane attach route via WS
-- Resize events forwarded (SIGWINCH)
-- Rendered in the agent detail panel
+- Structured chat component in web UI: renders assistant turns, tool calls, tool results, and permission prompts from `session/update` events
+- Permission prompts surface as inline approve/deny affordances (no terminal modal hacks)
+- Sends `session/prompt` for user input and `session/cancel` for interrupts
+- Rendered in the agent detail panel — no terminal emulator dependency
 
 **Gate:** Requires Phase 2 (relay must exist to connect to).
 
@@ -243,6 +260,7 @@ This is the operator→research delegation result delivery path. No new routes n
 
 1. **Attach route design** — should controlplane proxy via Tailscale hostname (Option A) or multiplex over existing mc-mesh→controlplane connection (Option B)?
 2. **Session mode field name** — `session_mode: persistent` or a separate runtime kind like `claude_code_session`?
-3. **Web UI terminal placement** — agent detail panel drawer, full-screen overlay, or tabbed panel alongside task progress?
-4. **Resize handling** — xterm.js sends resize events; WS relay needs to forward SIGWINCH to the PTY
+3. **Conversation pane placement** — agent detail panel drawer, full-screen overlay, or tabbed panel alongside task progress?
+4. **Multi-client attach** — when two viewers (web UI + TUI) attach to the same agent, does each get its own ACP fan-out of `session/update`, or do they share a single subscription? Implication for input ownership.
 5. **Auth on the attach WS** — same bearer token as the rest of the controlplane API, or a short-lived signed URL?
+6. **Session history on attach** — when a new viewer attaches mid-session, do they get the conversation so far? ACP supports session load; need to confirm `claude-code-acp` exposes it cleanly.

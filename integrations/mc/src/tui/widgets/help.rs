@@ -75,6 +75,7 @@ fn entry_line(keys: &str, desc: &str) -> Line<'static> {
 pub const GLOBAL_HELP: &[HelpEntry] = &[
     HelpEntry { keys: "Tab/S+Tab", desc: "next/prev tab" },
     HelpEntry { keys: "a m f p s c", desc: "jump to Agents/Missions/Feed/Approvals/Secrets/Config" },
+    HelpEntry { keys: "L", desc: "identity / sign-in instructions" },
     HelpEntry { keys: "?", desc: "toggle this help" },
     HelpEntry { keys: "Ctrl+Q / Ctrl+C", desc: "quit" },
 ];
