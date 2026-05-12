@@ -11,7 +11,7 @@ COPY integrations/mc-controlplane ./integrations/mc-controlplane
 RUN touch integrations/mc-controlplane/src/main.rs integrations/mc-controlplane/src/lib.rs && \
     cargo build --release --manifest-path integrations/mc-controlplane/Cargo.toml
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS prod
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*

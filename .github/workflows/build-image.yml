@@ -45,7 +45,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: backend/Dockerfile
+          file: integrations/mc-controlplane/Dockerfile
           target: prod
           push: true
           tags: |
