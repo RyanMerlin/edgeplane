@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: missioncontrol
-          image: ghcr.io/missioncontrol-ai/missioncontrol:latest
+          image: ghcr.io/ryanmerlin/missioncontrol:latest
           envFrom:
             - configMapRef:
                 name: missioncontrol-config
