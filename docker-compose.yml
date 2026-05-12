@@ -64,41 +64,25 @@ services:
     cpus: 1.5
 
   rustfs-init:
-    image: python:3.11-slim
+    image: amazon/aws-cli:latest
     container_name: missioncontrol-rustfs-init
     depends_on:
       rustfs:
         condition: service_healthy
     environment:
-      MC_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
-      MC_OBJECT_STORAGE_REGION: us-east-1
-      MC_OBJECT_STORAGE_BUCKET: ${MC_OBJECT_STORAGE_BUCKET:-missioncontrol}
-      MC_OBJECT_STORAGE_ACCESS_KEY: ${MC_OBJECT_STORAGE_ACCESS_KEY:?set MC_OBJECT_STORAGE_ACCESS_KEY}
-      MC_OBJECT_STORAGE_ACCESS_SECRET: ${MC_OBJECT_STORAGE_ACCESS_SECRET:?set MC_OBJECT_STORAGE_ACCESS_SECRET}
+      AWS_ACCESS_KEY_ID: ${MC_OBJECT_STORAGE_ACCESS_KEY:?set MC_OBJECT_STORAGE_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MC_OBJECT_STORAGE_ACCESS_SECRET:?set MC_OBJECT_STORAGE_ACCESS_SECRET}
+      AWS_DEFAULT_REGION: ${MC_OBJECT_STORAGE_REGION:-us-east-1}
+      MC_ENDPOINT: http://rustfs:9000
+      MC_BUCKET: ${MC_OBJECT_STORAGE_BUCKET:-missioncontrol}
     entrypoint:
       - /bin/sh
-      - -lc
+      - -c
       - |
-        pip install --no-cache-dir boto3 >/tmp/rustfs-init-pip.log
-        python - <<'PY'
-        import os, boto3
-        from botocore.exceptions import ClientError
-        c = boto3.client("s3",
-            endpoint_url=os.environ["MC_OBJECT_STORAGE_ENDPOINT"],
-            aws_access_key_id=os.environ["MC_OBJECT_STORAGE_ACCESS_KEY"],
-            aws_secret_access_key=os.environ["MC_OBJECT_STORAGE_ACCESS_SECRET"],
-            region_name=os.environ["MC_OBJECT_STORAGE_REGION"])
-        bucket = os.environ["MC_OBJECT_STORAGE_BUCKET"]
-        try:
-            c.head_bucket(Bucket=bucket)
-            print(f"bucket exists: {bucket}")
-        except ClientError as e:
-            if e.response["Error"]["Code"] in ("404", "NoSuchBucket", "NotFound"):
-                c.create_bucket(Bucket=bucket)
-                print(f"bucket created: {bucket}")
-            else:
-                raise
-        PY
+        aws --endpoint-url $$MC_ENDPOINT s3api head-bucket --bucket $$MC_BUCKET 2>/dev/null \
+          && echo "bucket exists: $$MC_BUCKET" \
+          || (aws --endpoint-url $$MC_ENDPOINT s3api create-bucket --bucket $$MC_BUCKET \
+              && echo "bucket created: $$MC_BUCKET")
     restart: "no"
 
   opencode:
