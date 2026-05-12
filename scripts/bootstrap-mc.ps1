@@ -12,7 +12,7 @@
 #>
 param(
     [string]$InstallDir = "$env:USERPROFILE\.local\bin",
-    [string]$BaseUrl = "https://github.com/missioncontrol-ai/missioncontrol/releases/latest/download"
+    [string]$BaseUrl = "https://github.com/RyanMerlin/missioncontrol/releases/latest/download"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +29,7 @@ if ($installScript -and (Test-Path $installScript)) {
     exit $LASTEXITCODE
 }
 
-$rawInstallUrl = "https://raw.githubusercontent.com/missioncontrol-ai/missioncontrol/main/scripts/install-mc.ps1"
+$rawInstallUrl = "https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/install-mc.ps1"
 $tempInstallScript = Join-Path ([System.IO.Path]::GetTempPath()) ("install-mc-" + [System.Guid]::NewGuid().ToString("N") + ".ps1")
 
 try {

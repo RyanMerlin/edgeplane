@@ -1,5 +1,7 @@
 # Development environment: hot-reload API + Vite frontend + dev-safe backing services.
 #
+# DEV ONLY — DO NOT use these defaults in production. See SECURITY.md.
+#
 # Usage:
 #   cp .env.dev.example .env.dev   # first time only
 #   docker compose -f docker-compose.dev.yml up --build

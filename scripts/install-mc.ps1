@@ -13,7 +13,7 @@
 #>
 param(
     [string]$InstallDir = "$env:USERPROFILE\.local\bin",
-    [string]$BaseUrl = "https://github.com/missioncontrol-ai/missioncontrol/releases/latest/download"
+    [string]$BaseUrl = "https://github.com/RyanMerlin/missioncontrol/releases/latest/download"
 )
 
 $ErrorActionPreference = 'Stop'

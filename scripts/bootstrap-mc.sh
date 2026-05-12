@@ -5,7 +5,7 @@ PREFIX="${MC_INSTALL_PREFIX:-$HOME/.local/bin}"
 TARGET="${MC_INSTALL_TARGET:-$PREFIX/mc}"
 ENV_FILE="${MC_ENV_FILE:-$HOME/.missioncontrol-agent.env}"
 AUTO_SHELL_HOOK="${MC_INSTALL_SHELL_HOOK:-1}"
-BASE_URL="${MC_RELEASE_BASE_URL:-https://github.com/missioncontrol-ai/missioncontrol/releases/latest/download}"
+BASE_URL="${MC_RELEASE_BASE_URL:-https://github.com/RyanMerlin/missioncontrol/releases/latest/download}"
 
 append_shell_hook() {
   local rc_file="$1"
@@ -120,7 +120,7 @@ if [[ "$AUTO_SHELL_HOOK" == "1" ]]; then
   echo "auto env loading enabled from $ENV_FILE"
 else
   echo "Optional: enable auto env loading into new shells"
-  echo "  MC_INSTALL_SHELL_HOOK=1 MC_ENV_FILE=$ENV_FILE bash <(curl -fsSL https://raw.githubusercontent.com/missioncontrol-ai/missioncontrol/main/scripts/bootstrap-mc.sh)"
+  echo "  MC_INSTALL_SHELL_HOOK=1 MC_ENV_FILE=$ENV_FILE bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.sh)"
 fi
 
 echo ""

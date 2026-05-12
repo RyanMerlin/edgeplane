@@ -77,7 +77,7 @@ MissionControl solves the coordination problem. It is a control plane for AI age
 |---|---|
 | Docker full stack (default) | `bash scripts/dev-up.sh` |
 | Install mc CLI | `bash scripts/install-mc.sh` or `powershell -ExecutionPolicy Bypass -File .\scripts\install-mc.ps1` |
-| Curl bootstrap mc | `bash <(curl -fsSL https://raw.githubusercontent.com/missioncontrol-ai/missioncontrol/main/scripts/bootstrap-mc.sh)` (Linux/macOS) or `irm https://raw.githubusercontent.com/missioncontrol-ai/missioncontrol/main/scripts/bootstrap-mc.ps1 | iex` (PowerShell) |
+| Curl bootstrap mc | `bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.sh)` (Linux/macOS) or `irm https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.ps1 | iex` (PowerShell) |
 | Bootstrap remote node | `curl -fsSL "$BASE_URL/runtime/nodes/$NODE_ID/install-script" | sh` |
 | Philosophy & vision | [MISSIONCONTROL_PHILOSOPHY.md](MISSIONCONTROL_PHILOSOPHY.md) |
 | API reference | `/api/docs` (Swagger UI, when running locally) |
@@ -276,12 +276,12 @@ Install `mc`:
 
 Linux / macOS:
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/missioncontrol-ai/missioncontrol/main/scripts/bootstrap-mc.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.sh)
 ```
 
 Windows PowerShell:
 ```powershell
-irm https://raw.githubusercontent.com/missioncontrol-ai/missioncontrol/main/scripts/bootstrap-mc.ps1 | iex
+irm https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.ps1 | iex
 ```
 
 Then launch:

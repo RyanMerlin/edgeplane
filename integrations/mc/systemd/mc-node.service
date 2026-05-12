@@ -1,6 +1,6 @@
 [Unit]
 Description=MissionControl Node Agent
-Documentation=https://github.com/missioncontrol-ai/missioncontrol
+Documentation=https://github.com/RyanMerlin/missioncontrol
 Wants=network-online.target
 After=network-online.target
 

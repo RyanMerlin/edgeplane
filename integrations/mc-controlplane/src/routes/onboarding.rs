@@ -103,7 +103,7 @@ fn build_manifest(base: &str) -> serde_json::Value {
         },
         "bootstrap": {
             "remote_script": format!(
-                "bash <(curl -fsSL https://raw.githubusercontent.com/missioncontrol-ai/mc-integration/main/install.sh) --endpoint {} --token ${{MC_TOKEN}} --agent both",
+                "bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/mc-integration/main/install.sh) --endpoint {} --token ${{MC_TOKEN}} --agent both",
                 base
             ),
             "local_script": format!(
@@ -113,7 +113,7 @@ fn build_manifest(base: &str) -> serde_json::Value {
         },
         "automation": {
             "config_generator_script": format!(
-                "git clone https://github.com/missioncontrol-ai/mc-integration.git && cd mc-integration && bash install.sh --endpoint {} --token ${{MC_TOKEN}} --agent both",
+                "git clone https://github.com/RyanMerlin/mc-integration.git && cd mc-integration && bash install.sh --endpoint {} --token ${{MC_TOKEN}} --agent both",
                 base
             )
         },
@@ -121,7 +121,7 @@ fn build_manifest(base: &str) -> serde_json::Value {
             "Run `mc auth login` once to authenticate; mc serve reads the session token from disk.",
             "All agents now use `mc serve` (Rust-native MCP server) — no Python missioncontrol-mcp required.",
             "Set the activation endpoint to your MissionControl instance before copying configs.",
-            "Public distribution repo: https://github.com/missioncontrol-ai/mc-integration",
+            "Public distribution repo: https://github.com/RyanMerlin/mc-integration",
             "Use missioncontrol-explorer for inline terminal tree views.",
             "`mc daemon` is optional and only needed for event streaming / Matrix integration."
         ]
