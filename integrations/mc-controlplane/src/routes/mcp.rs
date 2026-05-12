@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use sqlx::Row;
 use std::sync::Arc;
 
-use crate::{auth::Principal, routes::agents::is_reserved_agent_name, state::AppState};
+use crate::{auth::Principal, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     // Public surface (intentional, no `Principal` extraction):

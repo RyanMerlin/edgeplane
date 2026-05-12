@@ -1,17 +1,21 @@
 services:
-  mosquitto:
-    image: eclipse-mosquitto:2
-    container_name: missioncontrol-mosquitto
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg18
+    container_name: missioncontrol-postgres
     restart: unless-stopped
+    environment:
+      POSTGRES_DB: missioncontrol
+      POSTGRES_USER: missioncontrol
+      POSTGRES_PASSWORD: missioncontrol
     volumes:
-      - ./docker/mosquitto/mosquitto.dev.conf:/mosquitto/config/mosquitto.conf:ro
+      - missioncontrol-postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -C 1 -t '$$SYS/broker/version' -i healthcheck >/dev/null 2>&1 || exit 1"]
-      interval: 15s
+      test: ["CMD-SHELL", "pg_isready -U missioncontrol -d missioncontrol || exit 1"]
+      interval: 5s
       timeout: 5s
-      retries: 8
+      retries: 10
       start_period: 20s
-    mem_limit: 256m
+    mem_limit: 1g
     cpus: 1.0
 
   rustfs:
@@ -54,38 +58,20 @@ services:
       - |
         pip install --no-cache-dir boto3 >/tmp/rustfs-init-pip.log
         python - <<'PY'
-        import os
-        import boto3
+        import os, boto3
         from botocore.exceptions import ClientError
-
-        endpoint = os.environ["MC_OBJECT_STORAGE_ENDPOINT"]
-        region = os.environ["MC_OBJECT_STORAGE_REGION"]
-        access_key = os.environ["MC_OBJECT_STORAGE_ACCESS_KEY"]
-        secret_key = os.environ["MC_OBJECT_STORAGE_ACCESS_SECRET"]
+        c = boto3.client("s3",
+            endpoint_url=os.environ["MC_OBJECT_STORAGE_ENDPOINT"],
+            aws_access_key_id=os.environ["MC_OBJECT_STORAGE_ACCESS_KEY"],
+            aws_secret_access_key=os.environ["MC_OBJECT_STORAGE_ACCESS_SECRET"],
+            region_name=os.environ["MC_OBJECT_STORAGE_REGION"])
         bucket = os.environ["MC_OBJECT_STORAGE_BUCKET"]
-        secure = os.environ.get("MC_OBJECT_STORAGE_SECURE", "false").lower() == "true"
-
-        if endpoint.startswith("http://") or endpoint.startswith("https://"):
-            endpoint_url = endpoint
-        else:
-            scheme = "https" if secure else "http"
-            endpoint_url = f"{scheme}://{endpoint}"
-
-        client = boto3.client(
-            "s3",
-            endpoint_url=endpoint_url,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            region_name=region,
-        )
-
         try:
-            client.head_bucket(Bucket=bucket)
+            c.head_bucket(Bucket=bucket)
             print(f"bucket exists: {bucket}")
-        except ClientError as exc:
-            error_code = exc.response.get("Error", {}).get("Code", "")
-            if error_code in {"404", "NoSuchBucket", "NotFound"}:
-                client.create_bucket(Bucket=bucket)
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("404", "NoSuchBucket", "NotFound"):
+                c.create_bucket(Bucket=bucket)
                 print(f"bucket created: {bucket}")
             else:
                 raise
@@ -95,24 +81,17 @@ services:
   api:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: integrations/mc-controlplane/Dockerfile
     container_name: missioncontrol-api
     depends_on:
-      mosquitto:
+      postgres:
         condition: service_healthy
       rustfs-init:
         condition: service_completed_successfully
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
-      DATABASE_URL: sqlite:////data/taskman.db
-      VECTOR_STORE_BACKEND: chroma
-      MC_DB_RUNTIME_MIGRATIONS: "true"
-      MQTT_HOST: mosquitto
-      MQTT_PORT: "1883"
-      MQTT_USERNAME: ""
-      MQTT_PASSWORD: ""
+      DATABASE_URL: postgres://missioncontrol:missioncontrol@postgres:5432/missioncontrol
+      MC_TOKEN: ${MC_TOKEN:-}
       MC_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
       MC_OBJECT_STORAGE_REGION: us-east-1
       MC_OBJECT_STORAGE_BUCKET: missioncontrol
@@ -121,11 +100,8 @@ services:
       MC_OBJECT_STORAGE_ACCESS_SECRET: missioncontrol-secret
     ports:
       - "8008:8008"
-    volumes:
-      - ./backend/chroma:/app/chroma
-      - ./backend/dev-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('127.0.0.1',8008), 2); s.close()\" || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8008/health > /dev/null || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 8
@@ -160,4 +136,5 @@ services:
     cpus: 1.0
 
 volumes:
+  missioncontrol-postgres-data:
   missioncontrol-rustfs-data:

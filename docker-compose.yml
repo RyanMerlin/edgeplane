@@ -64,7 +64,7 @@ services:
     cpus: 1.5
 
   rustfs-init:
-    image: missioncontrol-api
+    image: python:3.11-slim
     container_name: missioncontrol-rustfs-init
     depends_on:
       rustfs:
@@ -76,47 +76,29 @@ services:
       MC_OBJECT_STORAGE_ACCESS_KEY: ${MC_OBJECT_STORAGE_ACCESS_KEY:?set MC_OBJECT_STORAGE_ACCESS_KEY}
       MC_OBJECT_STORAGE_ACCESS_SECRET: ${MC_OBJECT_STORAGE_ACCESS_SECRET:?set MC_OBJECT_STORAGE_ACCESS_SECRET}
     entrypoint:
-      - python
-      - -c
+      - /bin/sh
+      - -lc
       - |
-          import os
-          import sys
-          import time
-          import boto3
-          from botocore.exceptions import ClientError
-
-          endpoint = os.environ["MC_OBJECT_STORAGE_ENDPOINT"]
-          region = os.environ.get("MC_OBJECT_STORAGE_REGION", "us-east-1")
-          bucket = os.environ["MC_OBJECT_STORAGE_BUCKET"]
-          access = os.environ["MC_OBJECT_STORAGE_ACCESS_KEY"]
-          secret = os.environ["MC_OBJECT_STORAGE_ACCESS_SECRET"]
-
-          client = boto3.client(
-              "s3",
-              endpoint_url=endpoint,
-              region_name=region,
-              aws_access_key_id=access,
-              aws_secret_access_key=secret,
-              use_ssl=False,
-          )
-
-          for attempt in range(1, 31):
-              try:
-                  client.create_bucket(Bucket=bucket)
-                  print(f"bucket created: {bucket}")
-                  sys.exit(0)
-              except ClientError as exc:
-                  code = (exc.response.get("Error") or {}).get("Code", "")
-                  if code in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
-                      print(f"bucket exists: {bucket}")
-                      sys.exit(0)
-                  if attempt == 30:
-                      raise
-                  time.sleep(1.0)
-              except Exception:
-                  if attempt == 30:
-                      raise
-                  time.sleep(1.0)
+        pip install --no-cache-dir boto3 >/tmp/rustfs-init-pip.log
+        python - <<'PY'
+        import os, boto3
+        from botocore.exceptions import ClientError
+        c = boto3.client("s3",
+            endpoint_url=os.environ["MC_OBJECT_STORAGE_ENDPOINT"],
+            aws_access_key_id=os.environ["MC_OBJECT_STORAGE_ACCESS_KEY"],
+            aws_secret_access_key=os.environ["MC_OBJECT_STORAGE_ACCESS_SECRET"],
+            region_name=os.environ["MC_OBJECT_STORAGE_REGION"])
+        bucket = os.environ["MC_OBJECT_STORAGE_BUCKET"]
+        try:
+            c.head_bucket(Bucket=bucket)
+            print(f"bucket exists: {bucket}")
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("404", "NoSuchBucket", "NotFound"):
+                c.create_bucket(Bucket=bucket)
+                print(f"bucket created: {bucket}")
+            else:
+                raise
+        PY
     restart: "no"
 
   opencode:
@@ -158,12 +140,10 @@ services:
   api:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: integrations/mc-controlplane/Dockerfile
     container_name: missioncontrol-api
     depends_on:
       postgres:
-        condition: service_healthy
-      mosquitto:
         condition: service_healthy
       rustfs-init:
         condition: service_completed_successfully
@@ -171,42 +151,17 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-missioncontrol}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-missioncontrol}
-      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
-      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
-      DB_POOL_PRE_PING: ${DB_POOL_PRE_PING:-true}
-      DB_POOL_RECYCLE_SECONDS: ${DB_POOL_RECYCLE_SECONDS:-3600}
-      MC_DB_AUTO_CREATE: "true"
-      MC_DB_RUNTIME_MIGRATIONS: "true"
-      MQTT_HOST: mosquitto
-      MQTT_PORT: "1883"
-      MQTT_USERNAME: ${MQTT_USERNAME:-missioncontrol}
-      MQTT_PASSWORD: ${MQTT_PASSWORD}
-      MC_REQUEST_TIMEOUT_SECONDS: ${MC_REQUEST_TIMEOUT_SECONDS:-30}
+      DATABASE_URL: postgres://${POSTGRES_USER:-missioncontrol}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-missioncontrol}
       MC_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
       MC_OBJECT_STORAGE_REGION: us-east-1
       MC_OBJECT_STORAGE_BUCKET: ${MC_OBJECT_STORAGE_BUCKET:-missioncontrol}
       MC_OBJECT_STORAGE_SECURE: "false"
       MC_OBJECT_STORAGE_ACCESS_KEY: ${MC_OBJECT_STORAGE_ACCESS_KEY}
       MC_OBJECT_STORAGE_ACCESS_SECRET: ${MC_OBJECT_STORAGE_ACCESS_SECRET}
-      # AI Console runtime layer
-      MC_CENTRAL_RUNTIME_DEFAULT: ${MC_CENTRAL_RUNTIME_DEFAULT:-claude_code}
-      MC_CLAUDE_MODEL: ${MC_CLAUDE_MODEL:-claude-sonnet-4-5}
-      MC_CLAUDE_MAX_TOKENS: ${MC_CLAUDE_MAX_TOKENS:-4096}
-      MC_CLAUDE_TIMEOUT_SECONDS: ${MC_CLAUDE_TIMEOUT_SECONDS:-120}
-      MC_OPENCODE_URL: ${MC_OPENCODE_URL:-http://opencode:4096}
-      MC_OPENCODE_TIMEOUT_SECONDS: ${MC_OPENCODE_TIMEOUT_SECONDS:-120}
-      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
-      # Goose runtime
-      MC_LITELLM_HOST: ${MC_LITELLM_HOST:-http://litellm:4000}
-      MC_LITELLM_API_KEY: ${MC_LITELLM_API_KEY:-}
-      MC_GOOSE_MODEL: ${MC_GOOSE_MODEL:-litellm/local-agent}
     ports:
       - "8008:8008"
-    volumes:
-      - ./backend/chroma:/app/chroma
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8008/readyz', timeout=3).status == 200 else 1)\""]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8008/health > /dev/null || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 8

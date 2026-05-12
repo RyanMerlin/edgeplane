@@ -20,7 +20,7 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:0.8.2-pg18
     container_name: missioncontrol-postgres-dev
     restart: unless-stopped
     environment:
@@ -59,7 +59,7 @@ services:
       start_period: 5s
 
   web:
-    image: node:20-alpine
+    image: node:24-alpine
     container_name: missioncontrol-web-dev
     working_dir: /app
     command: sh -c "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173"
