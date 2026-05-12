@@ -1,9 +1,31 @@
 name: Release mc
 
+# What ships by default on a tag push (5 builds + publish = 6 jobs):
+#   mc-linux-x86_64        — CLI for x86 Linux nodes (most common)
+#   mc-linux-aarch64       — CLI for ARM Linux (Pi, ARM cloud)
+#   mc-macos-aarch64       — CLI for Apple Silicon dev machines
+#   mc-mesh-linux-x86_64   — node daemon, the per-host service that
+#                            supervises agents (every end-user needs this
+#                            to run agents)
+#   mc-mesh-linux-aarch64  — node daemon for ARM Linux nodes
+#
+# `mc-controlplane` is NOT in this matrix — it ships as a Docker image
+# via `build-image.yml`; end users don't install it locally.
+#
+# Extras (macOS x86_64, Windows mc, etc.) are gated behind
+# `workflow_dispatch` with `include_extras=true`. They run with
+# `continue-on-error: true` and the release does NOT wait on them, so
+# a Windows toolchain hiccup never blocks the core publish.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      include_extras:
+        description: 'Also build macOS x86_64, Windows, and other rarely-used targets'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -16,32 +38,49 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          # mc CLI — covers nodes and dev machines.
+          - bin: mc
+            crate_path: integrations/mc
+            target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: mc-linux-x86_64
             use_cross: false
-          - target: aarch64-unknown-linux-gnu
+            features: '--features tui'
+          - bin: mc
+            crate_path: integrations/mc
+            target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: mc-linux-aarch64
             use_cross: true
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            artifact: mc-macos-x86_64
-            use_cross: false
-          - target: aarch64-apple-darwin
+            features: '--features tui'
+          - bin: mc
+            crate_path: integrations/mc
+            target: aarch64-apple-darwin
             os: macos-latest
             artifact: mc-macos-aarch64
             use_cross: false
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            artifact: mc-windows-x86_64.exe
+            features: '--features tui'
+
+          # mc-mesh — per-node daemon, ships alongside the CLI.
+          - bin: mc-mesh
+            crate_path: integrations/mc-mesh
+            target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: mc-mesh-linux-x86_64
             use_cross: false
+            features: ''
+          - bin: mc-mesh
+            crate_path: integrations/mc-mesh
+            target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: mc-mesh-linux-aarch64
+            use_cross: true
+            features: ''
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
@@ -55,146 +94,86 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('integrations/mc/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
+          key: ${{ runner.os }}-${{ matrix.target }}-${{ matrix.bin }}-cargo-${{ hashFiles(format('{0}/Cargo.lock', matrix.crate_path)) }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-${{ matrix.bin }}-cargo-
 
       - name: Build (cross)
         if: matrix.use_cross
-        run: cross build --release --features tui --target ${{ matrix.target }} --manifest-path integrations/mc/Cargo.toml
+        run: cross build --release ${{ matrix.features }} --target ${{ matrix.target }} --manifest-path ${{ matrix.crate_path }}/Cargo.toml
 
       - name: Build (native)
         if: '!matrix.use_cross'
-        working-directory: integrations/mc
-        run: cargo build --release --features tui --target ${{ matrix.target }}
+        working-directory: ${{ matrix.crate_path }}
+        run: cargo build --release ${{ matrix.features }} --target ${{ matrix.target }}
+
+      - name: Rename artifact
+        run: |
+          BIN=$(find ${{ matrix.crate_path }}/target/${{ matrix.target }}/release target/${{ matrix.target }}/release -maxdepth 1 -name ${{ matrix.bin }} -type f 2>/dev/null | head -1)
+          cp "$BIN" ${{ matrix.artifact }}
+          chmod +x ${{ matrix.artifact }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 1
+
+  # Optional targets — only run on `workflow_dispatch` with include_extras=true.
+  # Failures here do NOT block the release.
+  build-extras:
+    name: Build ${{ matrix.artifact }}
+    if: github.event_name == 'workflow_dispatch' && inputs.include_extras
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - bin: mc
+            crate_path: integrations/mc
+            target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: mc-macos-x86_64
+            features: '--features tui'
+          - bin: mc
+            crate_path: integrations/mc
+            target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact: mc-windows-x86_64.exe
+            features: '--features tui'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-${{ matrix.target }}-${{ matrix.bin }}-cargo-${{ hashFiles(format('{0}/Cargo.lock', matrix.crate_path)) }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-${{ matrix.bin }}-cargo-
+
+      - name: Build
+        working-directory: ${{ matrix.crate_path }}
+        run: cargo build --release ${{ matrix.features }} --target ${{ matrix.target }}
 
       - name: Rename artifact (Unix)
         if: runner.os != 'Windows'
         run: |
-          BIN=$(find integrations/mc/target/${{ matrix.target }}/release target/${{ matrix.target }}/release -maxdepth 1 -name mc -type f 2>/dev/null | head -1)
+          BIN=$(find ${{ matrix.crate_path }}/target/${{ matrix.target }}/release target/${{ matrix.target }}/release -maxdepth 1 -name ${{ matrix.bin }} -type f 2>/dev/null | head -1)
           cp "$BIN" ${{ matrix.artifact }}
           chmod +x ${{ matrix.artifact }}
 
       - name: Rename artifact (Windows)
         if: runner.os == 'Windows'
-        run: copy integrations\mc\target\${{ matrix.target }}\release\mc.exe ${{ matrix.artifact }}
+        run: copy ${{ matrix.crate_path }}\target\${{ matrix.target }}\release\${{ matrix.bin }}.exe ${{ matrix.artifact }}
         shell: cmd
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
-          retention-days: 1
-
-  build-mc-mesh:
-    name: Build ${{ matrix.artifact }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            artifact: mc-mesh-linux-x86_64
-            use_cross: false
-          - target: aarch64-unknown-linux-gnu
-            artifact: mc-mesh-linux-aarch64
-            use_cross: true
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Install cross
-        if: matrix.use_cross
-        run: cargo install cross --locked
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-${{ matrix.target }}-mc-mesh-cargo-${{ hashFiles('integrations/mc-mesh/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-${{ matrix.target }}-mc-mesh-cargo-
-
-      - name: Build (cross)
-        if: matrix.use_cross
-        run: cross build --release --target ${{ matrix.target }} --manifest-path integrations/mc-mesh/Cargo.toml
-
-      - name: Build (native)
-        if: '!matrix.use_cross'
-        working-directory: integrations/mc-mesh
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Rename artifact
-        run: |
-          BIN=$(find integrations/mc-mesh/target/${{ matrix.target }}/release target/${{ matrix.target }}/release -maxdepth 1 -name mc-mesh -type f 2>/dev/null | head -1)
-          cp "$BIN" ${{ matrix.artifact }}
-          chmod +x ${{ matrix.artifact }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
-          retention-days: 1
-
-  build-mc-controlplane:
-    name: Build ${{ matrix.artifact }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            artifact: mc-controlplane-linux-x86_64
-            use_cross: false
-          - target: aarch64-unknown-linux-gnu
-            artifact: mc-controlplane-linux-aarch64
-            use_cross: true
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Install cross
-        if: matrix.use_cross
-        run: cargo install cross --locked
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-${{ matrix.target }}-mc-controlplane-cargo-${{ hashFiles('integrations/mc-controlplane/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-${{ matrix.target }}-mc-controlplane-cargo-
-
-      - name: Build (cross)
-        if: matrix.use_cross
-        run: cross build --release --target ${{ matrix.target }} --manifest-path integrations/mc-controlplane/Cargo.toml
-
-      - name: Build (native)
-        if: '!matrix.use_cross'
-        working-directory: integrations/mc-controlplane
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Rename artifact
-        run: |
-          BIN=$(find integrations/mc-controlplane/target/${{ matrix.target }}/release target/${{ matrix.target }}/release -maxdepth 1 -name mc-controlplane -type f 2>/dev/null | head -1)
-          cp "$BIN" ${{ matrix.artifact }}
-          chmod +x ${{ matrix.artifact }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -202,12 +181,11 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [build, build-mc-mesh, build-mc-controlplane]
-    if: always()
+    needs: [build]
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
@@ -218,8 +196,7 @@ jobs:
           sha256sum $(ls) > checksums.txt
           cat checksums.txt
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
           generate_release_notes: true
