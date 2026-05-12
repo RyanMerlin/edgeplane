@@ -14,7 +14,7 @@
 COMPOSE_DEV  := docker compose -f docker-compose.dev.yml
 COMPOSE_PROD := docker compose
 
-IMAGE   ?= ghcr.io/missioncontrol-ai/missioncontrol
+IMAGE   ?= ghcr.io/ryanmerlin/missioncontrol
 TAG     ?= $(shell git rev-parse --short HEAD)
 VENV    ?= $(PWD)/.venv
 
