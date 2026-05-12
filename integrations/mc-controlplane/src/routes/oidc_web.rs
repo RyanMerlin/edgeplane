@@ -1236,6 +1236,7 @@ async fn exchange_grant(
          WHERE id=$1 AND used_at IS NULL AND expires_at > $2",
     )
     .bind(&body.grant_id)
+    .bind(now)
     .fetch_optional(&state.db)
     .await;
 
