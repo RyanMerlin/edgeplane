@@ -715,16 +715,8 @@ struct CliPollPathParams {
 async fn cli_poll(
     State(state): State<Arc<AppState>>,
     Path(params): Path<CliPollPathParams>,
-    headers: axum::http::HeaderMap,
 ) -> Response {
     let now = Utc::now().naive_utc();
-    let cfg = OidcConfig::from_env();
-
-    let ua = headers
-        .get(header::USER_AGENT)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
 
     // Find an OidcLoginGrant linked to this cli_nonce.
     let grant = sqlx::query(
@@ -766,30 +758,12 @@ async fn cli_poll(
     };
 
     let grant_id: String = grant.get("id");
-    let subject: String = grant.get("subject");
 
-    let (token, _session_id, expires_at) =
-        match issue_session_token(&state.db, &subject, &ua, cfg.session_ttl_hours).await {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!("cli_poll: issue_session: {e}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
-
-    // Mark grant used.
-    let _ = sqlx::query("UPDATE oidclogingrant SET used_at=$1 WHERE id=$2")
-        .bind(now)
-        .bind(&grant_id)
-        .execute(&state.db)
-        .await;
-
+    // Return the grant_id so the CLI can exchange it for a token via /auth/oidc/exchange.
+    // Do NOT issue a token or mark the grant used here — exchange_grant does that.
     Json(serde_json::json!({
-        "status": "complete",
-        "access_token": token,
-        "token_type": "Bearer",
-        "subject": subject,
-        "expires_at": expires_at,
+        "status": "ready",
+        "grant_id": grant_id,
     }))
     .into_response()
 }
