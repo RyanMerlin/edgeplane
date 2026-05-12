@@ -45,21 +45,21 @@ jobs:
             os: ubuntu-latest
             artifact: mc-linux-x86_64
             use_cross: false
-            features: '--features tui'
+            features: ''
           - bin: mc
             crate_path: integrations/mc
             target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: mc-linux-aarch64
             use_cross: true
-            features: '--features tui'
+            features: ''
           - bin: mc
             crate_path: integrations/mc
             target: aarch64-apple-darwin
             os: macos-latest
             artifact: mc-macos-aarch64
             use_cross: false
-            features: '--features tui'
+            features: ''
 
           # mc-mesh — per-node daemon, ships alongside the CLI.
           - bin: mc-mesh
@@ -134,13 +134,13 @@ jobs:
             target: x86_64-apple-darwin
             os: macos-latest
             artifact: mc-macos-x86_64
-            features: '--features tui'
+            features: ''
           - bin: mc
             crate_path: integrations/mc
             target: x86_64-pc-windows-msvc
             os: windows-latest
             artifact: mc-windows-x86_64.exe
-            features: '--features tui'
+            features: ''
 
     steps:
       - uses: actions/checkout@v5
@@ -170,7 +170,7 @@ jobs:
 
       - name: Rename artifact (Windows)
         if: runner.os == 'Windows'
-        run: copy ${{ matrix.crate_path }}\target\${{ matrix.target }}\release\${{ matrix.bin }}.exe ${{ matrix.artifact }}
+        run: copy ${{ matrix.crate_path }}	arget\${{ matrix.target }}elease\${{ matrix.bin }}.exe ${{ matrix.artifact }}
         shell: cmd
 
       - uses: actions/upload-artifact@v4
