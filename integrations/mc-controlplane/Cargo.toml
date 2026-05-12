@@ -49,6 +49,7 @@ tokio-stream = "0.1"
 futures-util = "0.3"
 tempfile = "3.9"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-webpki-roots", "connect"] }
+rust-s3 = { version = "0.35", default-features = false, features = ["with-tokio", "tokio-rustls-tls", "fail-on-err"] }
 
 [dev-dependencies]
 axum-test = "20"

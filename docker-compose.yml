@@ -21,27 +21,6 @@ services:
     mem_limit: 2g
     cpus: 2.0
 
-  mosquitto:
-    image: eclipse-mosquitto:2
-    container_name: missioncontrol-mosquitto
-    restart: unless-stopped
-    environment:
-      MQTT_USERNAME: ${MQTT_USERNAME:-missioncontrol}
-      MQTT_PASSWORD: ${MQTT_PASSWORD:?set MQTT_PASSWORD}
-    ports:
-      - "1884:1883"
-    volumes:
-      - ./docker/mosquitto/mosquitto.prod.conf:/mosquitto/config/mosquitto.conf:ro
-      - ${MQTT_PASSWORD_FILE:-./docker/mosquitto/passwords/passwords}:/mosquitto/config/passwords/passwords:ro
-    healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -C 1 -t '$$SYS/broker/version' -i healthcheck -u \"$$MQTT_USERNAME\" -P \"$$MQTT_PASSWORD\" >/dev/null 2>&1 || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 8
-      start_period: 20s
-    mem_limit: 512m
-    cpus: 1.0
-
   rustfs:
     image: rustfs/rustfs:latest
     container_name: missioncontrol-rustfs
@@ -64,25 +43,20 @@ services:
     cpus: 1.5
 
   rustfs-init:
-    image: amazon/aws-cli:latest
+    build:
+      context: .
+      dockerfile: integrations/mc-controlplane/Dockerfile
     container_name: missioncontrol-rustfs-init
     depends_on:
       rustfs:
         condition: service_healthy
     environment:
-      AWS_ACCESS_KEY_ID: ${MC_OBJECT_STORAGE_ACCESS_KEY:?set MC_OBJECT_STORAGE_ACCESS_KEY}
-      AWS_SECRET_ACCESS_KEY: ${MC_OBJECT_STORAGE_ACCESS_SECRET:?set MC_OBJECT_STORAGE_ACCESS_SECRET}
-      AWS_DEFAULT_REGION: ${MC_OBJECT_STORAGE_REGION:-us-east-1}
-      MC_ENDPOINT: http://rustfs:9000
-      MC_BUCKET: ${MC_OBJECT_STORAGE_BUCKET:-missioncontrol}
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        aws --endpoint-url $$MC_ENDPOINT s3api head-bucket --bucket $$MC_BUCKET 2>/dev/null \
-          && echo "bucket exists: $$MC_BUCKET" \
-          || (aws --endpoint-url $$MC_ENDPOINT s3api create-bucket --bucket $$MC_BUCKET \
-              && echo "bucket created: $$MC_BUCKET")
+      MC_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      MC_OBJECT_STORAGE_REGION: ${MC_OBJECT_STORAGE_REGION:-us-east-1}
+      MC_OBJECT_STORAGE_BUCKET: ${MC_OBJECT_STORAGE_BUCKET:-missioncontrol}
+      MC_OBJECT_STORAGE_ACCESS_KEY: ${MC_OBJECT_STORAGE_ACCESS_KEY:?set MC_OBJECT_STORAGE_ACCESS_KEY}
+      MC_OBJECT_STORAGE_ACCESS_SECRET: ${MC_OBJECT_STORAGE_ACCESS_SECRET:?set MC_OBJECT_STORAGE_ACCESS_SECRET}
+    entrypoint: ["mc-controlplane", "bucket-init"]
     restart: "no"
 
   opencode:

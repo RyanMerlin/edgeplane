@@ -40,25 +40,20 @@ services:
     cpus: 1.0
 
   rustfs-init:
-    image: amazon/aws-cli:latest
+    build:
+      context: .
+      dockerfile: integrations/mc-controlplane/Dockerfile
     container_name: missioncontrol-rustfs-init
     depends_on:
       rustfs:
         condition: service_healthy
     environment:
-      AWS_ACCESS_KEY_ID: missioncontrol
-      AWS_SECRET_ACCESS_KEY: missioncontrol-secret
-      AWS_DEFAULT_REGION: us-east-1
-      MC_ENDPOINT: http://rustfs:9000
-      MC_BUCKET: missioncontrol
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        aws --endpoint-url $$MC_ENDPOINT s3api head-bucket --bucket $$MC_BUCKET 2>/dev/null \
-          && echo "bucket exists: $$MC_BUCKET" \
-          || (aws --endpoint-url $$MC_ENDPOINT s3api create-bucket --bucket $$MC_BUCKET \
-              && echo "bucket created: $$MC_BUCKET")
+      MC_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      MC_OBJECT_STORAGE_REGION: us-east-1
+      MC_OBJECT_STORAGE_BUCKET: missioncontrol
+      MC_OBJECT_STORAGE_ACCESS_KEY: missioncontrol
+      MC_OBJECT_STORAGE_ACCESS_SECRET: missioncontrol-secret
+    entrypoint: ["mc-controlplane", "bucket-init"]
     restart: "no"
 
   api:
