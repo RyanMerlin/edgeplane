@@ -100,6 +100,32 @@ impl OidcConfig {
     }
 }
 
+// ── URL helpers ───────────────────────────────────────────────────────────────
+
+/// Extract the scheme+host+port origin from a URL string.
+/// e.g. "http://authentik.svc.local/foo/bar" → "http://authentik.svc.local"
+fn url_origin(url: &str) -> String {
+    match url.split_once("://") {
+        None => String::new(),
+        Some((scheme, rest)) => {
+            let host = rest.split('/').next().unwrap_or("");
+            format!("{scheme}://{host}")
+        }
+    }
+}
+
+/// Replace the internal OIDC origin with the public one in an endpoint URL.
+/// We replace only the scheme+host portion because the authorization_endpoint
+/// path (/o/authorize/) differs from the issuer path (/o/missioncontrol/).
+fn public_endpoint(endpoint: &str, internal_issuer: &str, public_issuer: &str) -> String {
+    let internal_origin = url_origin(internal_issuer);
+    let public_origin = url_origin(public_issuer);
+    if internal_origin.is_empty() || public_origin.is_empty() || internal_origin == public_origin {
+        return endpoint.to_string();
+    }
+    endpoint.replacen(&internal_origin, &public_origin, 1)
+}
+
 // ── PKCE helpers ──────────────────────────────────────────────────────────────
 
 fn generate_verifier() -> String {
@@ -385,10 +411,7 @@ async fn device_verify(
     );
 
     // Use the public issuer for the browser redirect.
-    let public_auth_endpoint = authorization_endpoint.replace(
-        cfg.issuer_internal.trim_end_matches('/'),
-        cfg.issuer_public.trim_end_matches('/'),
-    );
+    let public_auth_endpoint = public_endpoint(&authorization_endpoint, &cfg.issuer_internal, &cfg.issuer_public);
     let public_authorize_url = format!(
         "{public_auth_endpoint}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}&nonce={}&code_challenge={}&code_challenge_method=S256",
         urlencoded(&cfg.client_id),
@@ -660,10 +683,7 @@ async fn cli_initiate(
         .unwrap_or_else(|| "/auth/oidc/callback".to_string());
 
     // Replace internal issuer with public one for the browser URL.
-    let public_auth_endpoint = auth_endpoint.replace(
-        cfg.issuer_internal.trim_end_matches('/'),
-        cfg.issuer_public.trim_end_matches('/'),
-    );
+    let public_auth_endpoint = public_endpoint(&auth_endpoint, &cfg.issuer_internal, &cfg.issuer_public);
 
     let authorize_url = format!(
         "{public_auth_endpoint}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}&nonce={}&code_challenge={}&code_challenge_method=S256",
@@ -838,10 +858,7 @@ async fn oidc_start(
         .redirect_uri_override
         .unwrap_or_else(|| "/auth/oidc/callback".to_string());
 
-    let public_auth_endpoint = auth_endpoint.replace(
-        cfg.issuer_internal.trim_end_matches('/'),
-        cfg.issuer_public.trim_end_matches('/'),
-    );
+    let public_auth_endpoint = public_endpoint(&auth_endpoint, &cfg.issuer_internal, &cfg.issuer_public);
 
     let authorize_url = format!(
         "{public_auth_endpoint}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}&nonce={}&code_challenge={}&code_challenge_method=S256",
