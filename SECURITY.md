@@ -26,3 +26,31 @@ Include:
 ## Disclosure
 We follow coordinated disclosure. Public disclosure happens after a fix is
 available or mitigations are documented.
+
+## Production deployment — change the defaults
+
+The dev `docker-compose.*.yml` files ship with **insecure defaults** suitable
+only for a developer's local machine:
+
+- `POSTGRES_PASSWORD: missioncontrol` (literal)
+- `MC_TOKEN: dev-token` (literal)
+- `MQTT_PASSWORD: ""` (empty)
+- CORS allow-list points at `localhost`
+
+Before exposing any deployment outside a personal workstation, you MUST:
+
+1. Replace every literal credential with a value sourced from a secret manager
+   (Infisical, Vault, sealed secrets, etc.) — never commit the production
+   values.
+2. Set `MC_TOKEN` to a random ≥32-byte token, or migrate to OIDC and remove
+   the static token entirely. The `MC_TOKEN` policy is documented in
+   `docs/plans/mc-tui-auth-spec.md` as a bootstrap-only escape hatch;
+   steady-state callers should use session tokens (`mcs_*`) or
+   service-account tokens (`mcs_sa_*`).
+3. Configure `MC_CORS_ALLOW_ORIGINS` to your real frontend origin(s).
+4. Run behind TLS (reverse proxy or otherwise; do NOT set
+   `MC_ALLOW_INSECURE=true`).
+5. Rotate any credential that has appeared in a screen-share, log, or
+   chat — treat it as compromised. The dev defaults above are public; a
+   deployment reachable from the internet that uses them is open by
+   construction.

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 MCP_PYPI_SPEC="${MCP_PYPI_SPEC:-missioncontrol-mcp}"
-MCP_GITHUB_SPEC="${MCP_GITHUB_SPEC:-git+https://github.com/missioncontrol-ai/missioncontrol.git#subdirectory=distribution/missioncontrol-mcp}"
-DOCS_URL="${DOCS_URL:-https://github.com/missioncontrol-ai/missioncontrol#readme}"
+MCP_GITHUB_SPEC="${MCP_GITHUB_SPEC:-git+https://github.com/RyanMerlin/missioncontrol.git#subdirectory=distribution/missioncontrol-mcp}"
+DOCS_URL="${DOCS_URL:-https://github.com/RyanMerlin/missioncontrol#readme}"
 DEFAULT_LOCAL_ENDPOINT="http://localhost:8008"
 
 ENDPOINT=""

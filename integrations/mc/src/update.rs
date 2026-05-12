@@ -18,7 +18,7 @@ pub struct SelfUpdateArgs {
     #[arg(
         long,
         env = "MC_UPDATE_MANIFEST_URL",
-        default_value = "https://missioncontrol-ai.github.io/mc/releases/latest.json"
+        default_value = "https://github.com/RyanMerlin/missioncontrol/releases/latest/download/latest.json"
     )]
     pub manifest_url: String,
     /// Skip checksum verification.

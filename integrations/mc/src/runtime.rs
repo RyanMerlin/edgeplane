@@ -523,7 +523,7 @@ async fn run_node_run(args: NodeAgentRunArgs, client: &MissionControlClient) -> 
     //   mc mesh agent enroll --mission <id> --runtime claude-code
     //   mc mesh task run <kluster-id> --title "my task"
     //
-    // See: https://github.com/missioncontrol-ai/missioncontrol/tree/main/integrations/mc-mesh
+    // See: https://github.com/RyanMerlin/missioncontrol/tree/main/integrations/mc-mesh
     // ─────────────────────────────────────────────────────────────────────────
     eprintln!(
         "⚠  mc node run is deprecated. Use `mc mesh up` instead.\n\

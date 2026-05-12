@@ -1,5 +1,11 @@
 # mc-controlplane local dev stack — Postgres + mc-controlplane + web
 #
+# DEV ONLY — DO NOT use these defaults in production.
+# Hardcoded passwords (POSTGRES_PASSWORD, MC_TOKEN) are public values
+# baked into a checked-in compose file; any deployment reachable from
+# the internet that uses this file is open. Production deployments
+# must source credentials from a secret manager. See SECURITY.md.
+#
 # Usage:
 #   docker compose -f docker-compose.mc-dev.yml up --build
 #
