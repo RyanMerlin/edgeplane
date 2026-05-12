@@ -1,21 +1,21 @@
-# MissionControl -- Philosophy
+# MissionControl — Philosophy
 
-## The Coordination Layer for AI-Native Organizations
+## The Coordination Layer
 
-Software development is entering a new era.
+AI agents can write code, run tools, and reason over architecture.
+What they cannot do is coordinate.
 
-AI systems can now generate production-grade code, reason over
-architecture, refactor large systems, and execute complex workflows. But
-capability alone does not produce scalable systems. Without
-coordination, AI amplification produces chaos.
+Without a shared system of record, parallel agents duplicate effort,
+diverge on state, and collide on artifacts. There is no overlap
+detection, no structured ownership, no audit trail, no governance
+boundary. The capability compounds; the coordination doesn't.
 
-MissionControl exists to solve the coordination problem of AI-native
-development.
+MissionControl is the coordination layer. It is a control plane for AI
+agents and human collaborators operating against shared, durable,
+governed state.
 
-It is not a tool wrapper. It is not a chatbot UI. It is not a thin API.
-
-MissionControl is a control plane for AI agents and human collaborators
-operating inside a shared system of record.
+It is not a workflow runner. It is not a pipeline framework. It is not
+a chatbot UI.
 
 > Kubernetes orchestrates containers.\
 > MissionControl orchestrates agents, missions, and knowledge.
