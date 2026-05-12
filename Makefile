@@ -1,9 +1,7 @@
 ## MissionControl — developer workflow
 ##
 ## Dev loop:
-##   make env          # first time: create .env.dev from example
-##   make dev          # start API + backing services (hot-reload)
-##   make web          # optional: start Vite frontend dev server (:5173)
+##   make dev          # start mc-controlplane + postgres + web (docker-compose.mc-dev.yml)
 ##   make mc-build     # build mc Rust binary locally
 ##
 ## Prod deploy:
@@ -11,18 +9,17 @@
 ##   make push         # push to ghcr.io
 ##   (ArgoCD picks up the new image and rolls it out to K8s)
 
-COMPOSE_DEV  := docker compose -f docker-compose.dev.yml
+COMPOSE_DEV  := docker compose -f docker-compose.mc-dev.yml
 COMPOSE_PROD := docker compose
 
 IMAGE   ?= ghcr.io/ryanmerlin/missioncontrol
 TAG     ?= $(shell git rev-parse --short HEAD)
-VENV    ?= $(PWD)/.venv
 
 .DEFAULT_GOAL := help
 
-.PHONY: help env dev dev-down dev-logs dev-restart web \
+.PHONY: help dev dev-down dev-logs dev-restart web \
         test test-client test-all \
-        mc-build mc-install \
+        mc-build mc-build-release mc-install \
         build push \
         migrate lint \
         clean
@@ -31,19 +28,13 @@ help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN {FS = ":.*##"}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
-# ── Environment ───────────────────────────────────────────────────────────────
-
-env:  ## Create .env.dev from example (skips if already exists)
-	@[ -f .env.dev ] && echo ".env.dev already exists" || (cp .env.dev.example .env.dev && echo "Created .env.dev — edit it to add real API keys")
-
 # ── Dev environment ───────────────────────────────────────────────────────────
 
-dev: env  ## Start dev API + backing services with hot-reload
+dev:  ## Start dev stack (mc-controlplane + postgres + web)
 	$(COMPOSE_DEV) up --build -d
 	@echo ""
 	@echo "  API:      http://localhost:8008"
-	@echo "  RustFS:   http://localhost:9000  (key: missioncontrol / missioncontrol-secret)"
-	@echo "  Frontend: run 'make web' in a separate terminal"
+	@echo "  Frontend: http://localhost:5173"
 	@echo ""
 	@echo "Logs: make dev-logs"
 
@@ -53,18 +44,18 @@ dev-down:  ## Stop dev environment
 dev-logs:  ## Follow dev logs
 	$(COMPOSE_DEV) logs -f
 
-dev-restart:  ## Restart dev API container (picks up Python changes without --reload missing them)
-	$(COMPOSE_DEV) restart api
+dev-restart:  ## Restart mc-controlplane container
+	$(COMPOSE_DEV) restart mc-controlplane
 
 web:  ## Start Vite frontend dev server (proxies API to localhost:8008)
 	cd web && npm install && npm run dev
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
-test:  ## Run backend unit tests
-	cd backend && UV_PROJECT_ENVIRONMENT=$(VENV) uv run python -m unittest discover -s tests -v
+test:  ## Run mc-controlplane unit tests
+	cargo test --manifest-path integrations/mc-controlplane/Cargo.toml
 
-test-client:  ## Run MCP client tests
+test-client:  ## Run MCP integration client tests
 	cd distribution/mc-integration/missioncontrol-mcp && PYTHONPATH=src python -m unittest discover -v
 
 test-all: test test-client  ## Run all tests
@@ -87,10 +78,9 @@ mc-install: mc-build-release  ## Install mc release binary to ~/.local/bin/mc
 
 build:  ## Build prod Docker image (tag: IMAGE:TAG and IMAGE:latest)
 	docker build \
-	  --target prod \
 	  -t $(IMAGE):$(TAG) \
 	  -t $(IMAGE):latest \
-	  -f backend/Dockerfile .
+	  -f integrations/mc-controlplane/Dockerfile .
 
 push: build  ## Push prod image to ghcr.io
 	docker push $(IMAGE):$(TAG)
@@ -99,13 +89,14 @@ push: build  ## Push prod image to ghcr.io
 
 # ── Database ──────────────────────────────────────────────────────────────────
 
-migrate:  ## Run Alembic migrations against DATABASE_URL
-	cd backend && UV_PROJECT_ENVIRONMENT=$(VENV) uv run alembic upgrade head
+migrate:  ## Run SQLx migrations (requires DATABASE_URL)
+	cargo sqlx migrate run --manifest-path integrations/mc-controlplane/Cargo.toml \
+	  --source integrations/mc-controlplane/migrations
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
-lint:  ## Run ruff linter on backend
-	cd backend && UV_PROJECT_ENVIRONMENT=$(VENV) uv run ruff check app tests
+lint:  ## Run cargo clippy on mc-controlplane
+	cargo clippy --manifest-path integrations/mc-controlplane/Cargo.toml -- -D warnings
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
