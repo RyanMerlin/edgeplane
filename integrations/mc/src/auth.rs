@@ -411,6 +411,7 @@ async fn login_oidc(base_url: &str, print_token: bool) -> Result<()> {
 fn finish_session_login(resp: serde_json::Value, base_url: &str, print_token: bool) -> Result<()> {
     let token = resp["token"]
         .as_str()
+        .or_else(|| resp["access_token"].as_str())
         .ok_or_else(|| anyhow!("server response missing 'token' field"))?
         .to_string();
     let subject = resp["subject"].as_str().unwrap_or("unknown").to_string();
