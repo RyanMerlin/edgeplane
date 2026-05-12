@@ -20,7 +20,7 @@ jobs:
         with:
           terraform_version: 1.5.7
       - name: Configure Azure Credentials
-        uses: azure/login@v1
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
       - name: Install Helm
