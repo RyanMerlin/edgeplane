@@ -1,7 +1,7 @@
 # mc-mesh: Persistent Session Architecture
 
 **Date:** 2026-05-09
-**Status:** Design — in-progress (mc-engineer session implementing)
+**Status:** Phases 1-3 code-complete as of 0.6.0 (`feat/agent-public-id`). The remaining work — Phase 4 (task-mode dependency-result injection), per-profile cutover, and tmux retirement — is tracked in `2026-05-11-retire-tmux-via-acp-persistent-sessions.md`.
 **Context:** Evaluated current mc-mesh implementation against intended long-running agent session model.
 
 > **Architectural update — 2026-05-11:** PTY and xterm.js are dropped from this design. ACP (Agent Client Protocol, via `claude-code-acp`) is the only transport for persistent agent sessions. The web UI and TUI render structured ACP messages, not terminal output. See "Transport: ACP-only" below for the consolidated decision and the consequences for each gap.

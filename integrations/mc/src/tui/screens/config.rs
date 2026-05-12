@@ -58,6 +58,29 @@ pub struct ConfigScreenState {
     pub infisical_profiles: InfisicalProfileMap,
     pub infisical_selection: usize,
     pub infisical_form: Option<InfisicalAddForm>,
+
+    /// Doctor panel snapshot — populated by `App::tick` from live state so
+    /// the panel renderer doesn't need to reach into the rest of the app.
+    pub doctor: Vec<DoctorCheckRow>,
+}
+
+/// Single check displayed in the Doctor panel.
+#[derive(Debug, Clone)]
+pub struct DoctorCheckRow {
+    pub name: &'static str,
+    pub status: DoctorStatus,
+    pub detail: String,
+    /// Short remediation hint shown under failing rows. Empty when not
+    /// applicable (status is `Ok`) or when the failure is self-explanatory.
+    pub hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DoctorStatus {
+    Ok,
+    Warn,
+    Err,
+    Unknown,
 }
 
 impl Default for ConfigScreenState {
@@ -78,6 +101,7 @@ impl Default for ConfigScreenState {
             infisical_profiles: InfisicalProfileMap::default(),
             infisical_selection: 0,
             infisical_form: None,
+            doctor: Vec::new(),
         }
     }
 }
@@ -397,6 +421,7 @@ static NAV_ITEMS: &[(&str, &str)] = &[
     ("Display", "Layout"),
     ("Display", "Refresh"),
     ("About", "Version"),
+    ("Diagnostics", "Doctor"),
 ];
 
 // ── Widget ────────────────────────────────────────────────────────────────────
@@ -488,6 +513,7 @@ fn render_content(buf: &mut Buffer, area: Rect, state: &ConfigScreenState) {
         6 => panel_placeholder("Layout preferences are not yet implemented."),
         7 => panel_placeholder("Refresh interval preferences are not yet implemented."),
         8 => panel_version(state),
+        9 => panel_doctor(state),
         _ => vec![],
     };
 
@@ -765,6 +791,82 @@ fn panel_version(state: &ConfigScreenState) -> Vec<Line<'static>> {
         Line::from(Span::styled("  To update:", theme::muted())),
         Line::from(Span::styled("  mc update", theme::dim())),
     ]
+}
+
+/// Render the Doctor panel from the snapshot in `state.doctor`. The snapshot
+/// is refreshed by `App::tick` on every event-loop pass — there's no extra
+/// I/O here; the panel reads what the rest of the app already knows about
+/// reachability, auth state, and per-screen fetch health.
+fn panel_doctor(state: &ConfigScreenState) -> Vec<Line<'static>> {
+    let mut lines: Vec<Line<'static>> = vec![Line::from("")];
+    if state.doctor.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  Gathering check results…",
+            theme::muted(),
+        )));
+        return lines;
+    }
+
+    // Summary: count statuses for the header line.
+    let mut ok = 0usize;
+    let mut warn = 0usize;
+    let mut err = 0usize;
+    let mut unknown = 0usize;
+    for c in &state.doctor {
+        match c.status {
+            DoctorStatus::Ok => ok += 1,
+            DoctorStatus::Warn => warn += 1,
+            DoctorStatus::Err => err += 1,
+            DoctorStatus::Unknown => unknown += 1,
+        }
+    }
+    let summary = format!(
+        "  {} OK   {} warn   {} err   {} unknown",
+        ok, warn, err, unknown
+    );
+    lines.push(Line::from(Span::styled(
+        summary,
+        Style::default()
+            .fg(if err > 0 {
+                theme::ERR
+            } else if warn > 0 {
+                theme::WARN
+            } else {
+                theme::OK
+            })
+            .add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+
+    for c in &state.doctor {
+        let (glyph, glyph_style) = match c.status {
+            DoctorStatus::Ok => ("●", Style::default().fg(theme::OK)),
+            DoctorStatus::Warn => ("●", Style::default().fg(theme::WARN)),
+            DoctorStatus::Err => ("●", Style::default().fg(theme::ERR)),
+            DoctorStatus::Unknown => ("○", Style::default().fg(theme::TEXT_DIM)),
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {glyph} "), glyph_style),
+            Span::styled(format!("{:<22}", c.name), theme::normal()),
+            Span::styled(c.detail.clone(), theme::dim()),
+        ]));
+        if let Some(hint) = c.hint.as_deref() {
+            if !hint.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("      → {hint}"),
+                    theme::muted(),
+                )));
+            }
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Press R to refresh (re-checks session on disk + refetches panels).",
+        theme::dim(),
+    )));
+
+    lines
 }
 
 fn panel_placeholder(msg: &'static str) -> Vec<Line<'static>> {

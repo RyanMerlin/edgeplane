@@ -394,13 +394,23 @@ fn render_detail_panel(buf: &mut Buffer, area: Rect, state: &AgentScreenState) {
         ])
         .split(inner);
 
-    // Identity column
+    // Identity column. `public_id` is the wire identifier the operator uses
+    // for `--to-agent-id` / mc-mesh polling; the numeric id is dimmed since
+    // it's an internal DB row id, useful for diagnostics but not addressing.
+    let pid_display = agent
+        .public_id
+        .as_deref()
+        .unwrap_or(agent.id.as_str());
     let identity_lines: Vec<Line> = vec![
         Line::from(Span::styled("Identity", Style::default().fg(theme::TEXT_MUTED).add_modifier(Modifier::BOLD))),
         Line::from(""),
         Line::from(vec![
-            Span::styled("ID      ", theme::muted()),
-            Span::styled(truncate(&agent.id, 20), theme::accent()),
+            Span::styled("Public  ", theme::muted()),
+            Span::styled(truncate(pid_display, 26), theme::accent()),
+        ]),
+        Line::from(vec![
+            Span::styled("Row id  ", theme::muted()),
+            Span::styled(truncate(&agent.id, 20), theme::dim()),
         ]),
         Line::from(vec![
             Span::styled("Status  ", theme::muted()),
@@ -501,6 +511,7 @@ mod tests {
     fn agent(id: &str, name: &str, node: Option<&str>) -> AgentSummary {
         AgentSummary {
             id: id.into(),
+            public_id: None,
             name: name.into(),
             status: "online".into(),
             capabilities: None,

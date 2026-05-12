@@ -35,6 +35,8 @@ pub enum McCommand {
     Status(StatusArgs),
     /// Shortcut for `mc system doctor`.
     Doctor(maintenance::DoctorArgs),
+    /// Send a one-shot prompt to a persistent ACP agent.
+    Signal(crate::signal::SignalArgs),
     /// Lightweight backend readiness check.
     Health(HealthArgs),
     /// Show binary + backend version details.
@@ -209,6 +211,9 @@ pub enum AgentCommand {
     Node(runtime::NodeAgentCommand),
     /// Self-improvement loop for MissionControl itself (agent-driven backlog/code evolution).
     Evolve(evolve::EvolveArgs),
+    /// Attach to a persistent ACP session — stream session/update frames
+    /// to stdout, forward stdin lines as session/prompt.
+    Attach(crate::attach::AttachArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -804,6 +809,7 @@ pub async fn run(
     match command {
         McCommand::Status(args) => handle_status(args, client, &config, output_mode).await,
         McCommand::Doctor(args) => maintenance::run_doctor_command(&client, &config, &args).await,
+        McCommand::Signal(args) => crate::signal::run(args, &client).await,
         McCommand::Health(_args) => handle_health(client, output_mode).await,
         McCommand::Version(_args) => handle_version(client, &config, output_mode).await,
         McCommand::Config(_args) => handle_config(&config, output_mode),
@@ -2060,6 +2066,7 @@ async fn handle_agent(
         AgentCommand::Remote(cmd) => remote::run(cmd, &client).await,
         AgentCommand::Node(cmd) => runtime::run_node_agent(cmd, &client).await,
         AgentCommand::Evolve(args) => evolve::run(args, &client).await,
+        AgentCommand::Attach(args) => crate::attach::run(args, &client).await,
     }
 }
 

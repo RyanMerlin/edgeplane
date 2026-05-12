@@ -42,12 +42,18 @@ use mc_mesh_runtimes::claude_agent_acp::AcpSession;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::attach_registry::{AcpAttachEndpoints, AttachEndpoints, AttachRegistry};
+use crate::replay_broadcast::ReplayBroadcast;
 
 const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(60);
 const STABLE_THRESHOLD: Duration = Duration::from_secs(30);
 const UPDATES_BROADCAST_CAPACITY: usize = 1024;
 const SIGNAL_CHANNEL_CAPACITY: usize = 64;
+/// How many recent SessionNotifications to keep for viewers attaching
+/// mid-session. Sized for a couple of minutes of typical assistant
+/// chatter at human-typing cadence. Full history (since process start)
+/// would require ACP session resume on the agent side — separate concern.
+const REPLAY_BUFFER_CAPACITY: usize = 200;
 
 /// Per-agent configuration the supervisor needs to (re)spawn the ACP
 /// session. Captured by the daemon at startup, after `ensure_installed`
@@ -102,7 +108,8 @@ async fn run_one_session(
         .context("acp session open")?;
     tracing::info!("ACP session started for agent {}", cfg.agent_id);
 
-    let (updates_broadcast, _) = broadcast::channel(UPDATES_BROADCAST_CAPACITY);
+    let updates_broadcast: ReplayBroadcast<mc_mesh_acp::wire::SessionNotification> =
+        ReplayBroadcast::new(REPLAY_BUFFER_CAPACITY, UPDATES_BROADCAST_CAPACITY);
     let (signal_tx, mut signal_rx) = mpsc::channel::<AgentSignal>(SIGNAL_CHANNEL_CAPACITY);
 
     let endpoints = AttachEndpoints::Acp(AcpAttachEndpoints {
@@ -128,20 +135,22 @@ async fn run_one_session(
 async fn pump_session(
     session: &AcpSession,
     agent_updates: &mut broadcast::Receiver<mc_mesh_acp::wire::SessionNotification>,
-    updates_broadcast: &broadcast::Sender<mc_mesh_acp::wire::SessionNotification>,
+    updates_broadcast: &ReplayBroadcast<mc_mesh_acp::wire::SessionNotification>,
     signal_rx: &mut mpsc::Receiver<AgentSignal>,
 ) -> anyhow::Result<()> {
     loop {
         tokio::select! {
             biased;
 
-            // Outbound: agent update → fan out to attached viewers.
+            // Outbound: agent update → push to replay buffer + fan out to
+            // attached viewers. ReplayBroadcast::send is atomic w.r.t.
+            // subscribe_with_replay so a viewer attaching here sees this
+            // notification exactly once (replay snapshot OR live, never
+            // both).
             recv = agent_updates.recv() => {
                 match recv {
                     Ok(notif) => {
-                        // `send` returns Err iff there are zero subscribers;
-                        // drop silently.
-                        let _ = updates_broadcast.send(notif);
+                        updates_broadcast.send(notif);
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!("ACP supervisor lagged {n} updates from agent");

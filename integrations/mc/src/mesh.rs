@@ -932,9 +932,22 @@ async fn handle_agent(cmd: MeshAgentCommand, client: &MissionControlClient) -> R
                 }
                 let path = format!("/work/missions/{}/agents/enroll", a.mission);
                 let result = client.post_json(&path, &body).await?;
-                let agent_id = result.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                println!("Enrolled agent {agent_id} ({} in mission {})", a.runtime, a.mission);
-                println!("\nSet a profile: mc mesh agent profile {agent_id} --role \"...\" --name \"...\"");
+                // Display the public_id (e.g. `aria-work-e88c006e`) — it's
+                // what `mc agent remote message --to-agent-id` accepts, and
+                // what mc-mesh uses to poll `/agents/{public_id}/messages`.
+                // Falls back to the meshagent UUID for legacy responses.
+                let display_id = result
+                    .get("public_id")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| result.get("id").and_then(|v| v.as_str()))
+                    .unwrap_or("?");
+                println!(
+                    "Enrolled agent {display_id} ({} in mission {})",
+                    a.runtime, a.mission
+                );
+                println!(
+                    "\nSet a profile: mc mesh agent profile {display_id} --role \"...\" --name \"...\""
+                );
             } else {
                 // Standalone: write directly to local SQLite registry.
                 let supervision = match a.supervision.as_str() {
@@ -1085,13 +1098,20 @@ fn print_agents(agents: &Value) {
             println!("No agents enrolled.");
             return;
         }
+        // `public_id` is the wire identifier (e.g. `aria-work-e88c006e`).
+        // Falls back to the meshagent UUID when the row predates the
+        // public_id link migration. The numeric meshagent.id column is no
+        // longer shown — too noisy at fleet scale and unused by mc CLI verbs.
         println!(
-            "{:<38} {:<14} {:<10} {:<20} {}",
-            "ID", "RUNTIME", "STATUS", "NAME / ROLE", "TASK"
+            "{:<28} {:<14} {:<10} {:<20} {}",
+            "PUBLIC_ID", "RUNTIME", "STATUS", "NAME / ROLE", "TASK"
         );
-        println!("{}", "-".repeat(95));
+        println!("{}", "-".repeat(85));
         for a in arr {
-            let id = a["id"].as_str().unwrap_or("?");
+            let pid = a["public_id"]
+                .as_str()
+                .or_else(|| a["id"].as_str())
+                .unwrap_or("?");
             let rt = a["runtime_kind"].as_str().unwrap_or("?");
             let st = a["status"].as_str().unwrap_or("?");
             let task = a["current_task_id"].as_str().unwrap_or("-");
@@ -1105,7 +1125,7 @@ fn print_agents(agents: &Value) {
                     (n, r) => format!("{n} / {r}"),
                 }
             };
-            println!("{id:<38} {rt:<14} {st:<10} {name_role:<20} {task}");
+            println!("{pid:<28} {rt:<14} {st:<10} {name_role:<20} {task}");
         }
     }
 }

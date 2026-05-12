@@ -10,7 +10,7 @@ use serde::Deserialize;
 use sqlx::Row;
 use std::sync::Arc;
 
-use crate::state::AppState;
+use crate::{auth::Principal, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -74,6 +74,7 @@ async fn create_job(
 
 async fn ingest_github(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Json(body): Json<IngestRequest>,
 ) -> impl IntoResponse {
     match create_job(&state.db, &body.kluster_id, "github", &body.config).await {
@@ -87,6 +88,7 @@ async fn ingest_github(
 
 async fn ingest_drive(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Json(body): Json<IngestRequest>,
 ) -> impl IntoResponse {
     match create_job(&state.db, &body.kluster_id, "google_drive", &body.config).await {
@@ -100,6 +102,7 @@ async fn ingest_drive(
 
 async fn ingest_slack(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Json(body): Json<IngestRequest>,
 ) -> impl IntoResponse {
     match create_job(&state.db, &body.kluster_id, "slack", &body.config).await {
@@ -113,6 +116,7 @@ async fn ingest_slack(
 
 async fn list_jobs(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
     let rows = if let Some(kluster_id) = &q.kluster_id {
@@ -139,6 +143,7 @@ async fn list_jobs(
 
 async fn get_job(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(job_id): Path<i32>,
 ) -> impl IntoResponse {
     match sqlx::query("SELECT * FROM ingestionjob WHERE id=$1")

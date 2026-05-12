@@ -243,6 +243,7 @@ async fn delete_task(
 
 async fn list_tasks_by_kluster(
     State(state): State<Arc<AppState>>,
+    _principal: Principal,
     Path(kluster_id): Path<String>,
 ) -> impl IntoResponse {
     match sqlx::query_as::<_, Task>(

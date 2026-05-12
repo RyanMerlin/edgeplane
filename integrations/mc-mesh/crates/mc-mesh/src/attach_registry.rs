@@ -21,6 +21,8 @@ use mc_mesh_acp::wire::SessionNotification;
 use mc_mesh_core::types::AgentSignal;
 use tokio::sync::{Mutex, broadcast, mpsc};
 
+use crate::replay_broadcast::ReplayBroadcast;
+
 /// PTY-shaped attach endpoints. Used by the byte-stream supervisor.
 #[allow(dead_code)] // some fields not yet consumed by every viewer surface
 #[derive(Clone)]
@@ -33,7 +35,6 @@ pub struct PtyAttachEndpoints {
 
 /// ACP-shaped attach endpoints. Used by the ACP persistent-session
 /// supervisor.
-#[allow(dead_code)] // updates_broadcast consumed once attach_ws speaks ACP frames
 #[derive(Clone)]
 pub struct AcpAttachEndpoints {
     /// In-band path for [`AgentSignal`] delivery. The supervisor consumes
@@ -41,9 +42,13 @@ pub struct AcpAttachEndpoints {
     /// - `UserInput` / `PeerMessage` → `session/prompt`
     /// - `Cancel` → `session/cancel`
     pub signal_tx: mpsc::Sender<AgentSignal>,
-    /// Streaming `session/update` notifications from the agent. Fan-out
-    /// — each viewer calls `subscribe()`. Slow viewers see `Lagged`.
-    pub updates_broadcast: broadcast::Sender<SessionNotification>,
+    /// Streaming `session/update` notifications from the agent. Fronted by
+    /// a bounded replay buffer (see `replay_broadcast`) so a viewer
+    /// attaching mid-session immediately sees the recent conversation
+    /// instead of an empty pane. New viewers call
+    /// `subscribe_with_replay()`; the snapshot drains first, then live
+    /// updates stream — with no overlap.
+    pub updates_broadcast: ReplayBroadcast<SessionNotification>,
 }
 
 /// Either shape of registered endpoints.

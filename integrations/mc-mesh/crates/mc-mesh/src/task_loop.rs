@@ -11,7 +11,7 @@
 /// A parallel message relay loop polls inbound messages and delivers them to
 /// the runtime via `AgentRuntime::signal()`.
 ///
-/// A parallel notify WS loop connects to `/work/agents/{id}/notify` and wakes
+/// A parallel notify WS loop connects to `/agents/{id}/notify` and wakes
 /// the main loop immediately when a `task_available` push arrives from the
 /// backend, reducing idle latency without changing error-path behavior.
 use std::sync::Arc;
@@ -138,7 +138,7 @@ pub async fn run_for_agent(
 
         // Heartbeat the agent itself.
         if let Err(e) = client
-            .raw_post(&format!("/work/agents/{agent_id}/heartbeat"), &serde_json::json!({}))
+            .raw_post(&format!("/agents/{agent_id}/heartbeat"), &serde_json::json!({}))
             .await
         {
             tracing::warn!("Agent heartbeat failed: {e}");
@@ -204,7 +204,7 @@ pub async fn run_for_agent(
         // Update agent status to busy.
         let _ = client
             .raw_post(
-                &format!("/work/agents/{agent_id}/status?status=busy"),
+                &format!("/agents/{agent_id}/status?status=busy"),
                 &serde_json::json!({}),
             )
             .await;
@@ -373,7 +373,7 @@ async fn get_mission_klusters(client: &BackendClient, mission_id: &str) -> Resul
 async fn set_agent_idle(client: &BackendClient, agent_id: &str) {
     let _ = client
         .raw_post(
-            &format!("/work/agents/{agent_id}/status?status=idle"),
+            &format!("/agents/{agent_id}/status?status=idle"),
             &serde_json::json!({}),
         )
         .await;
@@ -395,14 +395,14 @@ pub async fn run_message_relay(
     registry: Option<Arc<AttachRegistry>>,
     pending_buffer: Option<Arc<tokio::sync::Mutex<Vec<PendingPeerMessage>>>>,
 ) {
-    // We poll the agent-scoped message inbox: GET /work/agents/{id}/messages
+    // We poll the agent-scoped message inbox: GET /agents/{id}/messages
     // which returns messages addressed to this agent + mission broadcasts.
     let mut last_id: i64 = 0;
 
     loop {
         tokio::time::sleep(MESSAGE_POLL_INTERVAL).await;
 
-        let path = format!("/work/agents/{agent_id}/messages?since_id={last_id}");
+        let path = format!("/agents/{agent_id}/messages?since_id={last_id}");
         let msgs: Vec<serde_json::Value> = match client.get(&path).await {
             Ok(v) => v,
             Err(e) => {
@@ -492,7 +492,7 @@ pub async fn run_message_relay(
     }
 }
 
-/// Connect to `/work/agents/{id}/notify` via WebSocket and signal `wake_tx`
+/// Connect to `/agents/{id}/notify` via WebSocket and signal `wake_tx`
 /// whenever a `task_available` push arrives.  Reconnects with exponential
 /// backoff (2s → 60s) on disconnect or error.  Runs forever — drop the task
 /// to stop it.
@@ -508,7 +508,7 @@ async fn run_notify_ws(
         .trim_end_matches('/')
         .replacen("http://", "ws://", 1)
         .replacen("https://", "wss://", 1);
-    let url = format!("{ws_base}/work/agents/{agent_id}/notify");
+    let url = format!("{ws_base}/agents/{agent_id}/notify");
 
     let mut backoff = Duration::from_secs(2);
     const MAX_BACKOFF: Duration = Duration::from_secs(60);

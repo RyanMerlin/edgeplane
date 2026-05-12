@@ -824,14 +824,25 @@ pub(crate) async fn provision_home_for_node(
     ])
     .unwrap_or_else(|_| "[]".to_string());
 
+    // The home-coordinator agent gets a deterministic identity name —
+    // `home-{slug}-coordinator` — so the `agent` row and its `public_id` are
+    // stable across re-provisions. Failures here are reported as a sqlx
+    // error so the calling provisioning flow surfaces them consistently.
+    let coord_name = format!("home-{slug}-coordinator");
+    let agent_public_id =
+        crate::routes::agents::upsert_agent_by_name(db, &coord_name, &caps_json)
+            .await
+            .map_err(|e| sqlx::Error::Protocol(format!("link home agent: {e}")))?;
+
     sqlx::query(
         "INSERT INTO meshagent \
          (id, mission_id, node_id, runtime_kind, runtime_version, capabilities, labels, \
           status, current_task_id, enrolled_by_subject, enrolled_at, last_heartbeat_at, \
-          runtime_node_id, profile_json, machine_json, runtime_json, supervision_mode) \
+          runtime_node_id, profile_json, machine_json, runtime_json, supervision_mode, \
+          agent_public_id) \
          VALUES ($1,$2,$3,$4,'',$5,'{}', \
                  'online',NULL,$6,$7,NULL, \
-                 $3,NULL,NULL,NULL,'persistent')",
+                 $3,NULL,NULL,NULL,'persistent',$8)",
     )
     .bind(&agent_id)        // $1 id
     .bind(&mission_id)      // $2 mission_id
@@ -840,6 +851,7 @@ pub(crate) async fn provision_home_for_node(
     .bind(&caps_json)       // $5 capabilities (TEXT, JSON-encoded)
     .bind(owner_subject)    // $6 enrolled_by_subject
     .bind(now)              // $7 enrolled_at
+    .bind(&agent_public_id) // $8 agent_public_id link
     .execute(db)
     .await?;
 
@@ -1670,6 +1682,11 @@ struct NodeAgentAssign {
     machine: Option<serde_json::Value>,
     #[serde(default)]
     runtime: Option<serde_json::Value>,
+    /// Optional canonical name for the persistent agent identity this
+    /// assignment represents. See `AgentEnroll.agent_name` in
+    /// `routes/work.rs` for the rationale.
+    #[serde(default)]
+    agent_name: Option<String>,
 }
 
 /// Verify the node exists and the caller owns it (or is admin). Returns the
@@ -1739,12 +1756,32 @@ async fn assign_node_agent(
         .as_ref()
         .and_then(|v| serde_json::to_string(v).ok());
 
+    let agent_public_id = match &body.agent_name {
+        Some(n) if !n.trim().is_empty() => {
+            match crate::routes::agents::upsert_agent_by_name(&state.db, n.trim(), &caps_json)
+                .await
+            {
+                Ok(pid) => Some(pid),
+                Err(e) => {
+                    tracing::error!("assign_node_agent agent link: {e}");
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({"detail": e.to_string()})),
+                    )
+                        .into_response();
+                }
+            }
+        }
+        _ => None,
+    };
+
     let row = sqlx::query(
         "INSERT INTO meshagent \
          (id, mission_id, node_id, runtime_kind, runtime_version, capabilities, labels, \
           status, current_task_id, enrolled_by_subject, enrolled_at, last_heartbeat_at, \
-          runtime_node_id, profile_json, machine_json, runtime_json, supervision_mode) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'online',NULL,$8,$9,NULL,$3,$10,$11,$12,$13) \
+          runtime_node_id, profile_json, machine_json, runtime_json, supervision_mode, \
+          agent_public_id) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'online',NULL,$8,$9,NULL,$3,$10,$11,$12,$13,$14) \
          RETURNING *",
     )
     .bind(&agent_id)
@@ -1760,6 +1797,7 @@ async fn assign_node_agent(
     .bind(&machine_json)
     .bind(&runtime_json)
     .bind(supervision)
+    .bind(&agent_public_id)
     .fetch_one(&state.db)
     .await;
 

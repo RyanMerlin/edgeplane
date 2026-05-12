@@ -13,6 +13,13 @@ use std::sync::Arc;
 use crate::{auth::Principal, routes::agents::is_reserved_agent_name, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
+    // Public surface (intentional, no `Principal` extraction):
+    //   * GET /mcp/tools   — static tool catalogue (no state mutation).
+    //   * GET /mcp/health  — health check for monitoring.
+    // Authenticated:
+    //   * POST /mcp/call   — dispatches real work scoped to the caller; the
+    //     handler extracts `Principal` and per-tool authorisation logic
+    //     reads `principal.subject` for owner filtering.
     Router::new()
         .route("/mcp/tools", get(list_tools))
         .route("/mcp/health", get(mcp_health))
@@ -102,7 +109,7 @@ async fn list_tools() -> impl IntoResponse {
         tool_def("unblock_mesh_task", "Unblock a mesh task (set back to ready)", json!({"type":"object","properties":{"task_id":{"type":"string"}}})),
         tool_def("cancel_mesh_task", "Cancel a mesh task", json!({"type":"object","properties":{"task_id":{"type":"string"}}})),
         tool_def("retry_mesh_task", "Retry a failed or cancelled mesh task", json!({"type":"object","properties":{"task_id":{"type":"string"}}})),
-        tool_def("enroll_mesh_agent", "Enroll an agent in a mission (mesh work model)", json!({"type":"object","properties":{"mission_id":{"type":"string"},"agent_id":{"type":"string"},"capabilities_json":{"type":"string"}}})),
+        tool_def("enroll_mesh_agent", "Enroll an agent in a mission (mesh work model)", json!({"type":"object","properties":{"mission_id":{"type":"string"},"agent_id":{"type":"string"},"capabilities_json":{"type":"string"},"runtime_kind":{"type":"string"},"agent_name":{"type":"string","description":"Optional canonical agent identity name — links this enrollment to an agent row and exposes its public_id as the wire identifier."}}})),
         tool_def("list_mesh_agents", "List agents enrolled in a mission", json!({"type":"object","properties":{"mission_id":{"type":"string"}}})),
         tool_def("send_mesh_message", "Send a message in a kluster or mission channel", json!({"type":"object","properties":{"kluster_id":{"type":"string"},"mission_id":{"type":"string"},"content":{"type":"string"},"sender_agent_id":{"type":"string"},"recipient_agent_id":{"type":"string"}}})),
         tool_def("list_mesh_messages", "List messages for an agent inbox", json!({"type":"object","properties":{"agent_id":{"type":"string"},"kluster_id":{"type":"string"},"limit":{"type":"integer"}}})),
@@ -521,25 +528,38 @@ async fn dispatch(
         "register_agent" => {
             let name = str_arg(args, "name");
             if name.is_empty() { return err_result("name is required"); }
-            if is_reserved_agent_name(&name) { return err_result("reserved agent name"); }
             let capabilities = args.get("capabilities").and_then(|v| v.as_str()).unwrap_or("[]");
-            // Upsert by name — same semantics as the REST POST /agents path.
-            // Re-registering refreshes capabilities and un-archives the row.
-            match sqlx::query(
-                "INSERT INTO agent (name, capabilities, status, metadata, created_at, updated_at, last_seen_at) \
-                 VALUES ($1,$2,'offline','{}',NOW(),NOW(),NOW()) \
-                 ON CONFLICT (name) DO UPDATE SET \
-                    capabilities = EXCLUDED.capabilities, \
-                    updated_at   = EXCLUDED.updated_at, \
-                    last_seen_at = EXCLUDED.last_seen_at, \
-                    archived_at  = NULL \
-                 RETURNING id"
-            )
-            .bind(&name).bind(capabilities)
-            .fetch_one(&state.db).await
-            {
-                Ok(r) => ok_result(json!({"id": r.get::<i32,_>("id"), "name": name, "status": "offline"})),
-                Err(e) => { tracing::error!("mcp register_agent: {e}"); err_result("database_error") }
+            // Delegates to the shared upsert helper so name validation,
+            // public_id generation, and ON CONFLICT semantics stay aligned
+            // with the REST `POST /agents` path. Returning the resolved
+            // public_id alongside the numeric id lets callers (e.g.
+            // `mc signal`) skip a follow-up GET /agents/{name} round-trip.
+            match crate::routes::agents::upsert_agent_by_name(&state.db, &name, capabilities).await {
+                Ok(public_id) => {
+                    // Look up the integer id once we have the row — the
+                    // helper returns only the public_id today. Cheap and
+                    // keeps the response shape backward-compatible.
+                    let id_row = sqlx::query_scalar::<_, i32>("SELECT id FROM agent WHERE name = $1")
+                        .bind(&name)
+                        .fetch_one(&state.db)
+                        .await;
+                    match id_row {
+                        Ok(id) => ok_result(json!({
+                            "id": id,
+                            "public_id": public_id,
+                            "name": name,
+                            "status": "offline",
+                        })),
+                        Err(e) => {
+                            tracing::error!("mcp register_agent id lookup: {e}");
+                            err_result("database_error")
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("mcp register_agent: {e:#}");
+                    err_result(&e.to_string())
+                }
             }
         }
 
@@ -1171,16 +1191,35 @@ async fn dispatch(
             let id = if agent_id_str.is_empty() { uuid::Uuid::new_v4().to_string() } else { agent_id_str.to_string() };
             let capabilities = args.get("capabilities_json").and_then(|v| v.as_str()).unwrap_or("[]");
             let runtime_kind = str_arg_or(args, "runtime_kind", "claude_code");
+            // Optional `agent_name` links this meshagent to a persistent agent
+            // identity row; the resulting `public_id` is the wire identifier
+            // mc-mesh uses for `/agents/{public_id}/messages`.
+            let agent_name = args.get("agent_name").and_then(|v| v.as_str()).map(|s| s.trim());
+            let agent_public_id = match agent_name {
+                Some(n) if !n.is_empty() => {
+                    match crate::routes::agents::upsert_agent_by_name(&state.db, n, capabilities).await {
+                        Ok(pid) => Some(pid),
+                        Err(e) => return err_result(&format!("enroll_mesh_agent agent link: {e}")),
+                    }
+                }
+                _ => None,
+            };
             match sqlx::query(
-                "INSERT INTO meshagent (id, mission_id, runtime_kind, capabilities, status, enrolled_by_subject, enrolled_at) \
-                 VALUES ($1,$2,$3,$4,'offline',$5,NOW()) \
-                 ON CONFLICT (id) DO UPDATE SET mission_id=$2, status='offline', enrolled_at=NOW() \
-                 RETURNING id"
+                "INSERT INTO meshagent (id, mission_id, runtime_kind, capabilities, status, enrolled_by_subject, enrolled_at, agent_public_id) \
+                 VALUES ($1,$2,$3,$4,'offline',$5,NOW(),$6) \
+                 ON CONFLICT (id) DO UPDATE SET mission_id=$2, status='offline', enrolled_at=NOW(), \
+                    agent_public_id=COALESCE(EXCLUDED.agent_public_id, meshagent.agent_public_id) \
+                 RETURNING id, agent_public_id"
             )
-            .bind(&id).bind(&mission_id).bind(&runtime_kind).bind(capabilities).bind(&principal.subject)
+            .bind(&id).bind(&mission_id).bind(&runtime_kind).bind(capabilities).bind(&principal.subject).bind(&agent_public_id)
             .fetch_one(&state.db).await
             {
-                Ok(r) => ok_result(json!({"agent_id": r.get::<String,_>("id"), "mission_id": mission_id, "status": "offline"})),
+                Ok(r) => ok_result(json!({
+                    "agent_id": r.get::<String,_>("id"),
+                    "public_id": r.try_get::<Option<String>,_>("agent_public_id").ok().flatten().unwrap_or_else(|| r.get::<String,_>("id")),
+                    "mission_id": mission_id,
+                    "status": "offline",
+                })),
                 Err(e) => { tracing::error!("mcp enroll_mesh_agent: {e}"); err_result("database_error") }
             }
         }

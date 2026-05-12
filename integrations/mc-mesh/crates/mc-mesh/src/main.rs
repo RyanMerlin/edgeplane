@@ -10,6 +10,7 @@ mod daemon;
 mod local_registry;
 mod mgmt_gateway;
 mod reconcile;
+mod replay_broadcast;
 mod secrets_gateway;
 mod session_supervisor;
 mod state;

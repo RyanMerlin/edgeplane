@@ -13,7 +13,7 @@ use std::sync::Arc;
 use crate::{
     auth::Principal,
     models::agent::{
-        Agent, AgentCreate, AgentMessage, AgentSession, AgentUpdate, AssignmentCreate,
+        Agent, AgentCreate, AgentIdent, AgentMessage, AgentSession, AgentUpdate, AssignmentCreate,
         AssignmentUpdate, MessageSend, SessionCreate, TaskAssignment,
     },
     state::AppState,
@@ -37,6 +37,7 @@ pub fn router() -> Router<Arc<AppState>> {
 fn row_to_agent(row: &sqlx::postgres::PgRow) -> Agent {
     Agent {
         id: row.get("id"),
+        public_id: row.get("public_id"),
         name: row.get("name"),
         capabilities: row.get("capabilities"),
         status: row.get("status"),
@@ -46,8 +47,80 @@ fn row_to_agent(row: &sqlx::postgres::PgRow) -> Agent {
     }
 }
 
+/// Generate a fresh public_id for a new agent row. Shape is
+/// `{name}-{8-hex-chars}` — readable in CLI/TUI output, and unique enough
+/// across delete-and-recreate cycles that a re-registered `aria-work`
+/// doesn't collide with the previous one's identifier. Used only on the
+/// INSERT side of `create_agent`; the UPDATE path preserves the existing
+/// value because public_id is immutable after creation.
+fn generate_public_id(name: &str) -> String {
+    let raw = uuid::Uuid::new_v4().to_string();
+    // First 8 hex chars of the UUID, dashes stripped — matches the migration
+    // backfill shape (md5-substr 1,8) so tooling that scans for the format
+    // doesn't have to special-case provenance.
+    let suffix: String = raw.chars().filter(|c| *c != '-').take(8).collect();
+    format!("{name}-{suffix}")
+}
+
+/// Upsert an agent row by name and return its `public_id`. Used by every
+/// meshagent enrollment path to link a topology row to a persistent agent
+/// identity: see `docs/plans/2026-05-11-agent-public-id-mc-mesh-fix.md`.
+///
+/// Semantics mirror `create_agent`: re-upsertting refreshes `capabilities`
+/// and `updated_at`, un-archives the row, and preserves `public_id` (so the
+/// wire identifier mc-mesh stores stays stable across re-enrollments).
+/// Rejects reserved names (anonymous, system:*) and surfaces the row's
+/// status as `offline` on first creation — runtimes flip it to `online`
+/// when they actually start.
+pub async fn upsert_agent_by_name(
+    db: &sqlx::PgPool,
+    name: &str,
+    capabilities: &str,
+) -> anyhow::Result<String> {
+    if is_reserved_agent_name(name) {
+        anyhow::bail!("reserved agent name");
+    }
+    let now = chrono::Utc::now().naive_utc();
+    let public_id = generate_public_id(name);
+    let row = sqlx::query(
+        "INSERT INTO agent \
+            (name, capabilities, status, metadata, created_at, updated_at, last_seen_at, public_id) \
+         VALUES ($1,$2,'offline','{}',$3,$3,$3,$4) \
+         ON CONFLICT (name) DO UPDATE SET \
+            capabilities = EXCLUDED.capabilities, \
+            updated_at   = EXCLUDED.updated_at, \
+            last_seen_at = EXCLUDED.last_seen_at, \
+            archived_at  = NULL \
+         RETURNING public_id",
+    )
+    .bind(name)
+    .bind(capabilities)
+    .bind(now)
+    .bind(&public_id)
+    .fetch_one(db)
+    .await?;
+    Ok(row.get::<String, _>("public_id"))
+}
+
 fn not_found(msg: &str) -> axum::response::Response {
     (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+}
+
+/// Resolve an [`AgentIdent`] to the internal numeric row id, or return a
+/// response (404 / 500) the caller can short-circuit on. Keeps the
+/// resolve-or-render pattern out of every handler body.
+async fn resolve_agent_or_404(
+    ident: &AgentIdent,
+    db: &sqlx::PgPool,
+) -> Result<i32, axum::response::Response> {
+    match ident.resolve_id(db).await {
+        Ok(Some(id)) => Ok(id),
+        Ok(None) => Err(not_found("Agent not found")),
+        Err(e) => {
+            tracing::error!("agent ident resolve {}: {e}", ident.as_display());
+            Err(StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
+    }
 }
 
 /// Reserved agent names that callers may not register. `anonymous` was the
@@ -116,14 +189,18 @@ async fn create_agent(
     }
 
     let now = Utc::now().naive_utc();
+    let new_public_id = generate_public_id(&payload.name);
     // Upsert by name. Re-registering an existing agent refreshes capabilities,
     // status, metadata, last_seen_at, and un-archives the row — but preserves
-    // the original `created_at` so cumulative-lifetime queries remain accurate.
-    // See docs/plans/mc-agents-identity-spec.md Phase 1.
+    // the original `created_at` and `public_id` so cumulative-lifetime queries
+    // and wire identifiers stay stable. `public_id` is bound on every call but
+    // only consumed by the INSERT branch; the DO UPDATE deliberately omits it.
+    // See docs/plans/mc-agents-identity-spec.md Phase 1 and
+    // docs/plans/2026-05-11-agent-public-id-mc-mesh-fix.md.
     let result = sqlx::query(
         "INSERT INTO agent \
-            (name, capabilities, status, metadata, created_at, updated_at, last_seen_at) \
-         VALUES ($1,$2,$3,$4,$5,$5,$5) \
+            (name, capabilities, status, metadata, created_at, updated_at, last_seen_at, public_id) \
+         VALUES ($1,$2,$3,$4,$5,$5,$5,$6) \
          ON CONFLICT (name) DO UPDATE SET \
             capabilities = EXCLUDED.capabilities, \
             status       = EXCLUDED.status, \
@@ -134,7 +211,7 @@ async fn create_agent(
          RETURNING *"
     )
     .bind(&payload.name).bind(&payload.capabilities).bind(&payload.status)
-    .bind(&payload.metadata).bind(now)
+    .bind(&payload.metadata).bind(now).bind(&new_public_id)
     .fetch_one(&state.db).await;
 
     match result {
@@ -146,8 +223,12 @@ async fn create_agent(
 async fn get_agent(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(agent_id): Path<i32>,
+    Path(ident): Path<AgentIdent>,
 ) -> impl IntoResponse {
+    let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
     match sqlx::query("SELECT * FROM agent WHERE id=$1").bind(agent_id).fetch_optional(&state.db).await {
         Ok(Some(row)) => Json(row_to_agent(&row)).into_response(),
         Ok(None) => not_found("Agent not found"),
@@ -158,8 +239,12 @@ async fn get_agent(
 async fn delete_agent(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(agent_id): Path<i32>,
+    Path(ident): Path<AgentIdent>,
 ) -> impl IntoResponse {
+    let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
     match sqlx::query("DELETE FROM agent WHERE id=$1")
         .bind(agent_id).execute(&state.db).await {
         Ok(r) if r.rows_affected() == 0 => not_found("Agent not found"),
@@ -174,11 +259,12 @@ async fn delete_agent(
 async fn restart_agent(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(agent_id): Path<i32>,
+    Path(ident): Path<AgentIdent>,
 ) -> impl IntoResponse {
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM agent WHERE id=$1")
-        .bind(agent_id).fetch_optional(&state.db).await.unwrap_or(None);
-    if exists.is_none() { return not_found("Agent not found"); }
+    let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
 
     let now = Utc::now().naive_utc();
     let _ = sqlx::query(
@@ -199,8 +285,12 @@ async fn restart_agent(
 async fn clear_agent_context(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(agent_id): Path<i32>,
+    Path(ident): Path<AgentIdent>,
 ) -> impl IntoResponse {
+    let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
     let existing = sqlx::query("SELECT * FROM agent WHERE id=$1")
         .bind(agent_id).fetch_optional(&state.db).await;
     let agent = match existing {
@@ -235,9 +325,13 @@ async fn clear_agent_context(
 async fn update_agent(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(agent_id): Path<i32>,
+    Path(ident): Path<AgentIdent>,
     Json(payload): Json<AgentUpdate>,
 ) -> impl IntoResponse {
+    let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
     let existing = sqlx::query("SELECT * FROM agent WHERE id=$1")
         .bind(agent_id).fetch_optional(&state.db).await;
     let agent = match existing {
@@ -267,9 +361,13 @@ async fn update_agent(
 async fn list_sessions(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(agent_id): Path<i32>,
+    Path(ident): Path<AgentIdent>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
+    let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
     let limit = q.limit.unwrap_or(50).min(200);
     match sqlx::query_as::<_, AgentSession>(
         "SELECT id, agent_id, context, started_at, ended_at, claude_session_id, end_reason, audit_log \
@@ -284,12 +382,13 @@ async fn list_sessions(
 async fn start_session(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(agent_id): Path<i32>,
+    Path(ident): Path<AgentIdent>,
     Json(payload): Json<SessionCreate>,
 ) -> impl IntoResponse {
-    let agent_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM agent WHERE id=$1")
-        .bind(agent_id).fetch_optional(&state.db).await.unwrap_or(None);
-    if agent_exists.is_none() { return not_found("Agent not found"); }
+    let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
 
     let now = Utc::now().naive_utc();
     let _ = sqlx::query("UPDATE agent SET status='online', updated_at=$2 WHERE id=$1")
@@ -309,11 +408,12 @@ async fn start_session(
 async fn end_session(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path((agent_id, session_id)): Path<(i32, i32)>,
+    Path((ident, session_id)): Path<(AgentIdent, i32)>,
 ) -> impl IntoResponse {
-    let agent_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM agent WHERE id=$1")
-        .bind(agent_id).fetch_optional(&state.db).await.unwrap_or(None);
-    if agent_exists.is_none() { return not_found("Agent not found"); }
+    let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
 
     let now = Utc::now().naive_utc();
     let _ = sqlx::query("UPDATE agent SET status='offline', updated_at=$2 WHERE id=$1")
@@ -404,22 +504,28 @@ async fn update_assignment(
 async fn send_message(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(agent_id): Path<i32>,
+    Path(from_ident): Path<AgentIdent>,
     Json(payload): Json<MessageSend>,
 ) -> impl IntoResponse {
-    let from_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM agent WHERE id=$1")
-        .bind(agent_id).fetch_optional(&state.db).await.unwrap_or(None);
-    if from_exists.is_none() { return not_found("Agent not found"); }
-    let to_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM agent WHERE id=$1")
-        .bind(payload.to_agent_id).fetch_optional(&state.db).await.unwrap_or(None);
-    if to_exists.is_none() { return not_found("Recipient agent not found"); }
+    let from_id = match resolve_agent_or_404(&from_ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let to_id = match payload.to_agent_id.resolve_id(&state.db).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return not_found("Recipient agent not found"),
+        Err(e) => {
+            tracing::error!("send_message resolve to_agent_id: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     let now = Utc::now().naive_utc();
     match sqlx::query_as::<_, AgentMessage>(
         "INSERT INTO agentmessage (from_agent_id, to_agent_id, content, message_type, task_id, read, created_at) \
          VALUES ($1,$2,$3,$4,$5,false,$6) RETURNING *"
     )
-    .bind(agent_id).bind(payload.to_agent_id).bind(&payload.content)
+    .bind(from_id).bind(to_id).bind(&payload.content)
     .bind(&payload.message_type).bind(payload.task_id).bind(now)
     .fetch_one(&state.db).await {
         Ok(m) => (StatusCode::OK, Json(m)).into_response(),
@@ -457,9 +563,13 @@ mod reserved_name_tests {
 async fn list_messages(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(agent_id): Path<i32>,
+    Path(ident): Path<AgentIdent>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
+    let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
     let limit = q.limit.unwrap_or(50).min(200);
     match sqlx::query_as::<_, AgentMessage>(
         "SELECT * FROM agentmessage WHERE from_agent_id=$1 OR to_agent_id=$1 \
@@ -474,9 +584,13 @@ async fn list_messages(
 async fn get_inbox(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(agent_id): Path<i32>,
+    Path(ident): Path<AgentIdent>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
+    let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
     let limit = q.limit.unwrap_or(50).min(200);
     let msgs = sqlx::query_as::<_, AgentMessage>(
         "UPDATE agentmessage SET read=true \

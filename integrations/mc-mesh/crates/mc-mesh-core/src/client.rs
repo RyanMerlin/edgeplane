@@ -3,10 +3,19 @@ use reqwest::{Client, Response};
 use serde::{de::DeserializeOwned, Serialize};
 
 /// Thin HTTP client with bearer auth for the MissionControl backend.
+///
+/// `api_prefix` is prepended to every path passed into `get`/`post`/etc.
+/// Default is empty — the controlplane serves agent/mission/kluster/task
+/// routes at the root (e.g. `/agents/{id}/messages`). Earlier versions of
+/// mc-mesh hardcoded a `/work/` prefix that no longer matches the
+/// controlplane router; setting `api_prefix = "/work"` reproduces the
+/// historical behaviour for environments that still front the API behind
+/// that path. See `docs/plans/2026-05-11-agent-public-id-mc-mesh-fix.md`.
 #[derive(Clone)]
 pub struct BackendClient {
     pub base_url: String,
     pub token: String,
+    pub api_prefix: String,
     inner: Client,
 }
 
@@ -15,12 +24,25 @@ impl BackendClient {
         BackendClient {
             base_url: base_url.into(),
             token: token.into(),
+            api_prefix: String::new(),
             inner: Client::new(),
         }
     }
 
+    /// Override the API prefix that's prepended to every request path. Pass
+    /// an empty string for the default "no prefix" controlplane.
+    pub fn with_api_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.api_prefix = prefix.into();
+        self
+    }
+
     fn url(&self, path: &str) -> String {
-        format!("{}{}", self.base_url.trim_end_matches('/'), path)
+        format!(
+            "{}{}{}",
+            self.base_url.trim_end_matches('/'),
+            self.api_prefix,
+            path,
+        )
     }
 
     fn auth_header(&self) -> String {
@@ -98,12 +120,12 @@ impl BackendClient {
 
     /// Fetch the mission roster — concise agent list for prompt injection.
     pub async fn get_mission_roster(&self, mission_id: &str) -> Result<Vec<serde_json::Value>> {
-        self.get(&format!("/work/missions/{mission_id}/roster")).await
+        self.get(&format!("/missions/{mission_id}/roster")).await
     }
 
     /// Fetch a single agent's full detail (includes profile/machine/runtime).
     pub async fn get_agent(&self, agent_id: &str) -> Result<serde_json::Value> {
-        self.get(&format!("/work/agents/{agent_id}")).await
+        self.get(&format!("/agents/{agent_id}")).await
     }
 
     /// Update an agent's profile.
@@ -112,6 +134,6 @@ impl BackendClient {
         agent_id: &str,
         profile: &serde_json::Value,
     ) -> Result<serde_json::Value> {
-        self.patch(&format!("/work/agents/{agent_id}/profile"), profile).await
+        self.patch(&format!("/agents/{agent_id}/profile"), profile).await
     }
 }

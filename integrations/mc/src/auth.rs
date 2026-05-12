@@ -111,14 +111,27 @@ pub fn load_saved_session(base_url: &str) -> Option<SavedSession> {
         return None;
     }
 
-    // Expiry: parse and check
-    if let Ok(expires) = chrono::DateTime::parse_from_rfc3339(&session.expires_at) {
-        if expires <= chrono::Utc::now() {
-            return None;
-        }
+    // Expiry: parse and check.
+    //
+    // Older controlplanes wrote timezone-less timestamps like
+    // `2026-05-10T10:02:13.514815137` which fail RFC3339 parsing. The
+    // previous fallthrough quietly treated those as non-expired,
+    // resurrecting stale sessions long after they were unusable. Treat
+    // any unparseable expiry as expired (defensive: fail-closed). We
+    // try a couple of common shapes before giving up.
+    let parsed = chrono::DateTime::parse_from_rfc3339(&session.expires_at)
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .or_else(|_| {
+            chrono::NaiveDateTime::parse_from_str(
+                &session.expires_at,
+                "%Y-%m-%dT%H:%M:%S%.f",
+            )
+            .map(|n| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(n, chrono::Utc))
+        });
+    match parsed {
+        Ok(expires) if expires > chrono::Utc::now() => Some(session),
+        _ => None,
     }
-
-    Some(session)
 }
 
 pub fn save_session(session: &SavedSession) -> Result<()> {
