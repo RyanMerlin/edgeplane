@@ -10,6 +10,33 @@ use mc_mesh_secrets::{InfisicalConfig, InfisicalProfileMap};
 
 use crate::tui::theme;
 
+// ── Controlplane edit form ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct ControlplaneEditForm {
+    pub url: String,
+    pub focused_field: usize, // 0 = URL text, 1 = Test button, 2 = Apply button
+    pub test_result: Option<ControlplaneTestResult>,
+    pub context_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum ControlplaneTestResult {
+    Testing,
+    Ok { latency_ms: u64, version: Option<String> },
+    Failed { error: String },
+}
+
+// ── OIDC panel state ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub enum OidcPanelState {
+    Initiating,
+    AwaitingBrowser { authorize_url: String, started: std::time::Instant },
+    TimedOut,
+    Failed { error: String },
+}
+
 // ── Add-profile form ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,6 +89,15 @@ pub struct ConfigScreenState {
     /// Doctor panel snapshot — populated by `App::tick` from live state so
     /// the panel renderer doesn't need to reach into the rest of the app.
     pub doctor: Vec<DoctorCheckRow>,
+
+    // Controlplane panel
+    pub controlplane_edit: Option<ControlplaneEditForm>,
+    pub pending_url_test: Option<(String, String)>,   // (context_name, url)
+    pub pending_url_apply: Option<(String, String)>,  // (context_name, url)
+
+    // Auth panel
+    pub auth_oidc_state: Option<OidcPanelState>,
+    pub pending_oidc_start: bool,
 }
 
 /// Single check displayed in the Doctor panel.
@@ -102,6 +138,11 @@ impl Default for ConfigScreenState {
             infisical_selection: 0,
             infisical_form: None,
             doctor: Vec::new(),
+            controlplane_edit: None,
+            pending_url_test: None,
+            pending_url_apply: None,
+            auth_oidc_state: None,
+            pending_oidc_start: false,
         }
     }
 }
@@ -109,6 +150,38 @@ impl Default for ConfigScreenState {
 impl ConfigScreenState {
     pub fn take_pending_context_switch(&mut self) -> Option<String> {
         self.pending_context_switch.take()
+    }
+
+    pub fn take_pending_url_test(&mut self) -> Option<(String, String)> {
+        self.pending_url_test.take()
+    }
+
+    pub fn take_pending_url_apply(&mut self) -> Option<(String, String)> {
+        self.pending_url_apply.take()
+    }
+
+    pub fn take_pending_oidc_start(&mut self) -> bool {
+        let v = self.pending_oidc_start;
+        self.pending_oidc_start = false;
+        v
+    }
+
+    pub fn set_controlplane_test_result(
+        &mut self,
+        ok: bool,
+        latency_ms: u64,
+        version: Option<String>,
+        error: Option<String>,
+    ) {
+        if let Some(form) = &mut self.controlplane_edit {
+            form.test_result = Some(if ok {
+                ControlplaneTestResult::Ok { latency_ms, version }
+            } else {
+                ControlplaneTestResult::Failed {
+                    error: error.unwrap_or_else(|| "unknown error".into()),
+                }
+            });
+        }
     }
 
     pub fn reload_contexts(&mut self) {
@@ -136,13 +209,18 @@ impl ConfigScreenState {
 
     /// Panels that support content-panel focus
     fn is_interactive_panel(&self) -> bool {
-        matches!(self.nav_selection, 4 | 5)
+        matches!(self.nav_selection, 0 | 1 | 4 | 5)
     }
 
     pub fn handle_key(&mut self, key: crossterm::event::KeyCode) -> bool {
         use crossterm::event::KeyCode::*;
 
-        // Form captures all input when open
+        // Controlplane edit form captures all input when open
+        if self.controlplane_edit.is_some() {
+            return self.handle_controlplane_edit_key(key);
+        }
+
+        // Infisical form captures all input when open
         if self.infisical_form.is_some() {
             return self.handle_infisical_form_key(key);
         }
@@ -156,13 +234,14 @@ impl ConfigScreenState {
             // ← / Esc returns to the nav panel
             Left | Esc if self.content_focused => {
                 self.content_focused = false;
+                self.auth_oidc_state = None; // cancel any in-progress OIDC flow
                 true
             }
             // ↑↓ — nav panel when unfocused, content list when focused
             Up => {
                 if self.content_focused {
                     match self.nav_selection {
-                        4 => { if self.context_selection > 0 { self.context_selection -= 1; } }
+                        0 | 4 => { if self.context_selection > 0 { self.context_selection -= 1; } }
                         5 => { if self.infisical_selection > 0 { self.infisical_selection -= 1; } }
                         _ => {}
                     }
@@ -177,7 +256,7 @@ impl ConfigScreenState {
             Down => {
                 if self.content_focused {
                     match self.nav_selection {
-                        4 => {
+                        0 | 4 => {
                             if self.context_selection + 1 < self.contexts.len() {
                                 self.context_selection += 1;
                             }
@@ -206,7 +285,19 @@ impl ConfigScreenState {
                 });
                 true
             }
-            // e — edit selected profile
+            // e — edit URL of selected context (panel 0 = Controlplane)
+            Char('e') if self.nav_selection == 0 && self.content_focused => {
+                if let Some((name, entry)) = self.contexts.get(self.context_selection) {
+                    self.controlplane_edit = Some(ControlplaneEditForm {
+                        url: entry.base_url.clone(),
+                        focused_field: 0,
+                        test_result: None,
+                        context_name: name.clone(),
+                    });
+                }
+                true
+            }
+            // e — edit selected Infisical profile
             Char('e') if self.nav_selection == 5 && self.content_focused => {
                 self.edit_selected_infisical_profile();
                 true
@@ -220,6 +311,23 @@ impl ConfigScreenState {
             Enter => {
                 if self.content_focused {
                     match self.nav_selection {
+                        0 => {
+                            // Switch to selected context
+                            if let Some((name, _)) = self.contexts.get(self.context_selection) {
+                                if name != &self.context_name {
+                                    self.pending_context_switch = Some(name.clone());
+                                }
+                            }
+                            true
+                        }
+                        1 => {
+                            // Trigger OIDC sign-in (only if no flow in progress)
+                            if self.auth_oidc_state.is_none() {
+                                self.pending_oidc_start = true;
+                                self.auth_oidc_state = Some(OidcPanelState::Initiating);
+                            }
+                            true
+                        }
                         4 => {
                             if let Some((name, _)) = self.contexts.get(self.context_selection) {
                                 if name != &self.context_name {
@@ -240,6 +348,48 @@ impl ConfigScreenState {
             }
             _ => false,
         }
+    }
+
+    fn handle_controlplane_edit_key(&mut self, key: crossterm::event::KeyCode) -> bool {
+        use crossterm::event::KeyCode::*;
+        let form = self.controlplane_edit.as_mut().unwrap();
+        match key {
+            Tab => { form.focused_field = (form.focused_field + 1) % 3; }
+            BackTab => {
+                form.focused_field = if form.focused_field == 0 { 2 } else { form.focused_field - 1 };
+            }
+            Backspace if form.focused_field == 0 => {
+                form.url.pop();
+                form.test_result = None;
+            }
+            Char(c) if form.focused_field == 0 => {
+                form.url.push(c);
+                form.test_result = None;
+            }
+            Enter => {
+                match form.focused_field {
+                    0 => { form.focused_field = 1; }
+                    1 => {
+                        // Test — signal app.rs
+                        form.test_result = Some(ControlplaneTestResult::Testing);
+                        let name = form.context_name.clone();
+                        let url = form.url.clone();
+                        self.pending_url_test = Some((name, url));
+                    }
+                    2 => {
+                        // Apply — signal app.rs
+                        let name = form.context_name.clone();
+                        let url = form.url.clone();
+                        self.pending_url_apply = Some((name, url));
+                        self.controlplane_edit = None;
+                    }
+                    _ => {}
+                }
+            }
+            Esc => { self.controlplane_edit = None; }
+            _ => {}
+        }
+        true
     }
 
     fn handle_infisical_form_key(&mut self, key: crossterm::event::KeyCode) -> bool {
@@ -493,7 +643,9 @@ fn render_content(buf: &mut Buffer, area: Rect, state: &ConfigScreenState) {
     let (_, item_name) = NAV_ITEMS[state.nav_selection];
     let title = format!(" {item_name} ");
 
-    let focused = state.content_focused || state.infisical_form.is_some();
+    let focused = state.content_focused
+        || state.infisical_form.is_some()
+        || state.controlplane_edit.is_some();
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -523,6 +675,11 @@ fn render_content(buf: &mut Buffer, area: Rect, state: &ConfigScreenState) {
 // ── Panel renderers ───────────────────────────────────────────────────────────
 
 fn panel_server(state: &ConfigScreenState) -> Vec<Line<'static>> {
+    // Edit form takes over the whole panel
+    if let Some(form) = &state.controlplane_edit {
+        return panel_server_edit(form);
+    }
+
     let (conn_style, conn_text) = if state.connected {
         (Style::default().fg(theme::OK), "● connected")
     } else {
@@ -530,48 +687,252 @@ fn panel_server(state: &ConfigScreenState) -> Vec<Line<'static>> {
     };
     let latency = state.latency_ms.map(|ms| format!("  {ms}ms")).unwrap_or_default();
 
-    vec![
+    let mut lines = vec![Line::from("")];
+
+    // Context list
+    if state.contexts.is_empty() {
+        lines.push(Line::from(Span::styled("  No contexts configured.", theme::muted())));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  mc context add <name> --url <url>", theme::dim())));
+    } else {
+        for (i, (name, entry)) in state.contexts.iter().enumerate() {
+            let is_active = name == &state.context_name;
+            let is_cursor = i == state.context_selection && state.content_focused;
+
+            let bullet = if is_active { "● " } else { "○ " };
+            let row_prefix = if is_cursor { "▶ " } else { "  " };
+
+            let name_style = if is_cursor {
+                theme::selected()
+            } else if is_active {
+                Style::default().fg(theme::OK)
+            } else {
+                theme::normal()
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {row_prefix}"), name_style),
+                Span::styled(format!("{bullet}{name}  ", name = name.clone()), name_style),
+                Span::styled(entry.base_url.clone(), theme::dim()),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(""));
+
+    // Active connection details
+    lines.push(Line::from(vec![
+        Span::styled("  Status   ", theme::muted()),
+        Span::styled(conn_text, conn_style),
+        Span::styled(latency, theme::dim()),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  MC URL   ", theme::muted()),
+        Span::styled(state.base_url.clone(), theme::accent()),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  Context  ", theme::muted()),
+        Span::styled(state.context_name.clone(), theme::normal()),
+    ]));
+
+    lines.push(Line::from(""));
+    if state.content_focused {
+        lines.push(Line::from(Span::styled(
+            "  ↑↓ navigate   Enter switch   e edit URL   ← back",
+            theme::dim(),
+        )));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "  Enter to select profile  ·  e to edit MC URL",
+            theme::dim(),
+        )));
+    }
+
+    lines
+}
+
+fn panel_server_edit(form: &ControlplaneEditForm) -> Vec<Line<'static>> {
+    let f = |i: usize| if form.focused_field == i { theme::selected() } else { theme::normal() };
+    let cursor = |i: usize| if form.focused_field == i { "▌" } else { "" };
+    let btn = |i: usize, label: &'static str| -> Line<'static> {
+        if form.focused_field == i {
+            Line::from(vec![
+                Span::styled("  ", theme::normal()),
+                Span::styled(format!("[ {label} ]"), theme::selected()),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("  ", theme::normal()),
+                Span::styled(format!("  {label}  "), theme::dim()),
+            ])
+        }
+    };
+
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("  Editing: {}", form.context_name),
+            theme::accent(),
+        )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Status   ", theme::muted()),
-            Span::styled(conn_text, conn_style),
-            Span::styled(latency, theme::dim()),
-        ]),
-        Line::from(vec![
-            Span::styled("  URL      ", theme::muted()),
-            Span::styled(state.base_url.clone(), theme::accent()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Context  ", theme::muted()),
-            Span::styled(state.context_name.clone(), theme::normal()),
+            Span::styled("  MC URL   ", theme::muted()),
+            Span::styled(format!("[{}{}]", form.url, cursor(0)), f(0)),
         ]),
         Line::from(""),
-        Line::from(Span::styled("  ↑↓ to navigate, Tab/S+Tab to switch tabs", theme::dim())),
-    ]
+        btn(1, "Test Connection"),
+        btn(2, "Save & Apply"),
+        Line::from(""),
+    ];
+
+    // Test result
+    match &form.test_result {
+        None => {}
+        Some(ControlplaneTestResult::Testing) => {
+            lines.push(Line::from(Span::styled("  ○ Testing…", theme::muted())));
+        }
+        Some(ControlplaneTestResult::Ok { latency_ms, version }) => {
+            let ver = version.as_deref().unwrap_or("?");
+            lines.push(Line::from(Span::styled(
+                format!("  ● Connected — {latency_ms}ms   server v{ver}"),
+                Style::default().fg(theme::OK),
+            )));
+        }
+        Some(ControlplaneTestResult::Failed { error }) => {
+            lines.push(Line::from(Span::styled(
+                format!("  ✗ {error}"),
+                Style::default().fg(theme::ERR),
+            )));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Tab next   Enter activate   Esc cancel",
+        theme::dim(),
+    )));
+
+    lines
 }
 
 fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
-    let token_line = match &state.token_masked {
-        Some(t) => Line::from(vec![
-            Span::styled("  Token    ", theme::muted()),
-            Span::styled(t.clone(), theme::normal()),
-        ]),
-        None => Line::from(vec![
-            Span::styled("  Token    ", theme::muted()),
-            Span::styled("none (anonymous)", Style::default().fg(theme::WARN)),
-        ]),
-    };
+    let mut lines = vec![Line::from("")];
 
-    vec![
-        Line::from(""),
-        token_line,
-        Line::from(""),
-        Line::from(Span::styled("  To authenticate:", theme::muted())),
-        Line::from(Span::styled("  mc auth login --server <url>", theme::dim())),
-        Line::from(""),
-        Line::from(Span::styled("  To set a static token:", theme::muted())),
-        Line::from(Span::styled("  export MC_TOKEN=<token>", theme::dim())),
-    ]
+    match &state.auth_oidc_state {
+        None => {
+            // Show current auth status + instructions
+            let (status_style, status_text) = match &state.token_masked {
+                Some(t) => (
+                    Style::default().fg(theme::OK),
+                    format!("● signed in  (token: {t})"),
+                ),
+                None => (
+                    Style::default().fg(theme::WARN),
+                    "○ not signed in".to_string(),
+                ),
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  Status   ", theme::muted()),
+                Span::styled(status_text, status_style),
+            ]));
+            lines.push(Line::from(""));
+            if state.token_masked.is_none() {
+                if state.content_focused {
+                    lines.push(Line::from(Span::styled(
+                        "  Press Enter to sign in via browser (OIDC)",
+                        theme::accent(),
+                    )));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(Span::styled(
+                        "  Or set MC_TOKEN env var for API key auth.",
+                        theme::dim(),
+                    )));
+                } else {
+                    lines.push(Line::from(Span::styled(
+                        "  Press Enter to open auth panel",
+                        theme::dim(),
+                    )));
+                }
+            } else {
+                lines.push(Line::from(Span::styled(
+                    "  mc auth logout   to clear the session",
+                    theme::dim(),
+                )));
+            }
+        }
+        Some(OidcPanelState::Initiating) => {
+            lines.push(Line::from(Span::styled(
+                "  ○ Connecting to server…",
+                theme::muted(),
+            )));
+        }
+        Some(OidcPanelState::AwaitingBrowser { authorize_url, started }) => {
+            let elapsed = started.elapsed().as_secs();
+            lines.push(Line::from(Span::styled(
+                "  ○ Waiting for browser authentication…",
+                theme::muted(),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  Open this URL in your browser:",
+                theme::muted(),
+            )));
+            lines.push(Line::from(""));
+            // Wrap the URL across multiple lines if needed
+            let url = authorize_url.clone();
+            let max_w = 80usize;
+            if url.len() <= max_w {
+                lines.push(Line::from(Span::styled(
+                    format!("  {url}"),
+                    Style::default().fg(theme::ACCENT),
+                )));
+            } else {
+                for chunk in url.as_bytes().chunks(max_w) {
+                    let s = String::from_utf8_lossy(chunk).to_string();
+                    lines.push(Line::from(Span::styled(
+                        format!("  {s}"),
+                        Style::default().fg(theme::ACCENT),
+                    )));
+                }
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                format!("  Waiting… {elapsed}s   authentication completes automatically"),
+                theme::dim(),
+            )));
+            lines.push(Line::from(Span::styled("  ← Esc to cancel", theme::muted())));
+        }
+        Some(OidcPanelState::TimedOut) => {
+            lines.push(Line::from(Span::styled(
+                "  ✗ Browser auth timed out.",
+                Style::default().fg(theme::WARN),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  Complete sign-in in the browser, then press R to retry.",
+                theme::dim(),
+            )));
+            lines.push(Line::from(Span::styled("  ← Esc to reset", theme::muted())));
+        }
+        Some(OidcPanelState::Failed { error }) => {
+            lines.push(Line::from(Span::styled(
+                "  ✗ Authentication failed:",
+                Style::default().fg(theme::ERR),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                format!("  {error}"),
+                theme::muted(),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  ← Esc to reset   Enter to retry",
+                theme::dim(),
+            )));
+        }
+    }
+
+    lines
 }
 
 fn panel_profile(state: &ConfigScreenState) -> Vec<Line<'static>> {

@@ -15,7 +15,7 @@ use super::data::{is_auth_error, DataClient, RemoteDataClient};
 use super::screens::agent_feed::{AgentFeed, AgentFeedState};
 use super::screens::agents::{AgentOp, AgentScreen, AgentScreenState};
 use super::screens::approval_queue::{ApprovalQueue, ApprovalQueueState};
-use super::screens::config::{ConfigScreen, ConfigScreenState, DoctorCheckRow, DoctorStatus};
+use super::screens::config::{ConfigScreen, ConfigScreenState, DoctorCheckRow, DoctorStatus, OidcPanelState};
 use super::screens::mission_matrix::{Focus as MatrixFocus, MissionMatrix, MissionMatrixState};
 use super::screens::secrets::{SecretsScreen, SecretsState, render_tree_overlay};
 use super::theme;
@@ -226,7 +226,7 @@ impl App {
         config.reload_contexts();
         config.reload_infisical_from_disk();
 
-        Self {
+        let mut app = Self {
             screen: Screen::Agents,
             base_url,
             token,
@@ -248,7 +248,16 @@ impl App {
             help_open: false,
             client,
             pool,
+        };
+
+        // Auto-navigate to Config → Auth when not authenticated so the user
+        // lands on the login panel rather than an empty Agents view.
+        if !app.auth_state.is_authenticated() {
+            app.screen = Screen::Config;
+            app.config.nav_selection = 1; // Auth panel
         }
+
+        app
     }
 
     /// Poll the on-disk session file and, if a fresh valid session has
@@ -327,7 +336,7 @@ impl App {
                 self.auth_state = AuthState::SessionExpired;
             }
             return Some(
-                "Not signed in — press L to see how to authenticate.".to_string(),
+                "Not signed in — go to Config → Auth to sign in.".to_string(),
             );
         }
         Some(raw)
@@ -568,6 +577,12 @@ impl App {
                 WorkResult::OidcFlow(event) => {
                     match event {
                         OidcFlowEvent::Initiated { authorize_url, .. } => {
+                            // Update config panel state (inline flow)
+                            self.config.auth_oidc_state = Some(OidcPanelState::AwaitingBrowser {
+                                authorize_url: authorize_url.clone(),
+                                started: std::time::Instant::now(),
+                            });
+                            // Also update modal if one was open (legacy path, kept for safety)
                             if let Some(AppModal::OidcLogin { modal }) = &mut self.modal {
                                 modal.state = OidcLoginState::AwaitingBrowser {
                                     authorize_url,
@@ -586,11 +601,17 @@ impl App {
                             self.token = Some(token.clone());
                             if let Ok(new_client) = super::data::RemoteDataClient::new(
                                 self.base_url.clone(),
-                                Some(token),
+                                Some(token.clone()),
                             ) {
                                 self.client = std::sync::Arc::new(new_client);
                             }
-                            // Close the modal and schedule an immediate refresh.
+                            // Update token display in config panel
+                            let display = email.as_deref().unwrap_or(&subject);
+                            self.config.token_masked = Some(display.to_string());
+                            // Clear OIDC panel state — auth is done
+                            self.config.auth_oidc_state = None;
+                            self.config.content_focused = false;
+                            // Close any modal and schedule an immediate refresh.
                             self.modal = None;
                             self.agents_last_refresh = None;
                             self.missions_last_refresh = None;
@@ -599,18 +620,25 @@ impl App {
                             self.agents.error = None;
                             self.matrix.error = None;
                             self.approval_queue.last_error = None;
+                            // Navigate to Agents now that we're signed in
+                            self.screen = Screen::Agents;
                         }
                         OidcFlowEvent::TimedOut { .. } => {
+                            self.config.auth_oidc_state = Some(OidcPanelState::TimedOut);
                             if let Some(AppModal::OidcLogin { modal }) = &mut self.modal {
                                 modal.state = OidcLoginState::TimedOut;
                             }
                         }
                         OidcFlowEvent::Failed { error, .. } => {
+                            self.config.auth_oidc_state = Some(OidcPanelState::Failed { error: error.clone() });
                             if let Some(AppModal::OidcLogin { modal }) = &mut self.modal {
                                 modal.state = OidcLoginState::Failed { error };
                             }
                         }
                     }
+                }
+                WorkResult::UrlTested { ok, latency_ms, version, error, .. } => {
+                    self.config.set_controlplane_test_result(ok, latency_ms, version, error);
                 }
             }
         }
@@ -700,7 +728,7 @@ impl App {
             AuthState::Anonymous => (
                 DoctorStatus::Warn,
                 "not signed in".to_string(),
-                Some("Press L for sign-in instructions.".to_string()),
+                Some("Go to Config → Auth to sign in.".to_string()),
             ),
         };
         checks.push(DoctorCheckRow {
@@ -779,14 +807,6 @@ impl App {
         // Modal owns input first — it can consume, confirm, or cancel.
         if self.modal.is_some() {
             self.handle_modal_key(key.code);
-            return;
-        }
-
-        // Global: 'L' opens the identity / sign-in modal from anywhere.
-        // Lowercase 'l' is reserved by other screens' nav patterns, so the
-        // shifted form is the unambiguous binding.
-        if key.code == KeyCode::Char('L') {
-            self.open_signin_modal();
             return;
         }
 
@@ -892,6 +912,35 @@ impl App {
                 let c = self.config.handle_key(key.code);
                 if let Some(name) = self.config.take_pending_context_switch() {
                     self.switch_context(name);
+                }
+                if let Some((_ctx_name, url)) = self.config.take_pending_url_test() {
+                    let job_id = next_job_id();
+                    self.pool.dispatch(self.client.clone(), WorkRequest::PingUrl { job_id, url });
+                }
+                if let Some((ctx_name, url)) = self.config.take_pending_url_apply() {
+                    self.apply_context_url(ctx_name, url);
+                }
+                if self.config.take_pending_oidc_start() {
+                    if self.config.connected {
+                        let job_id = next_job_id();
+                        self.pool.dispatch(
+                            self.client.clone(),
+                            WorkRequest::OidcFlow {
+                                job_id,
+                                base_url: self.base_url.clone(),
+                                ttl_hours: 8,
+                            },
+                        );
+                    } else {
+                        // Server unreachable — show error in the panel
+                        let base_url = self.base_url.clone();
+                        self.config.auth_oidc_state = Some(OidcPanelState::Failed {
+                            error: format!(
+                                "Cannot reach server at {} — check Controlplane settings",
+                                base_url
+                            ),
+                        });
+                    }
                 }
                 c
             }
@@ -1153,6 +1202,25 @@ impl App {
         self.pool.dispatch(new_client, WorkRequest::ListAgents { job_id: next_job_id() });
     }
 
+    fn apply_context_url(&mut self, ctx_name: String, new_url: String) {
+        let mut ctxs = crate::context::load_contexts();
+        if let Some(entry) = ctxs.contexts.get_mut(&ctx_name) {
+            entry.base_url = new_url.clone();
+        } else {
+            ctxs.contexts.insert(
+                ctx_name.clone(),
+                crate::context::ContextEntry {
+                    base_url: new_url.clone(),
+                    description: None,
+                },
+            );
+        }
+        // Make it the active context
+        ctxs.active = ctx_name.clone();
+        let _ = crate::context::save_contexts(&ctxs);
+        self.switch_context(ctx_name);
+    }
+
     fn missions_enter(&mut self) {
         let visible = self.matrix.visible_missions();
         let Some(mission) = visible.get(self.matrix.mission_selection) else { return };
@@ -1277,22 +1345,20 @@ impl App {
 
         // Right side: identity badge · context · connection status.
         let (dot, dot_style, status_str) = if self.config.connected {
-            ("●", Style::default().fg(theme::OK).bg(panel_bg), "connected")
+            ("●", Style::default().fg(theme::OK).bg(panel_bg), "online")
         } else {
             ("●", Style::default().fg(theme::ERR).bg(panel_bg), "offline")
         };
 
-        // Identity badge — see AuthState for the four possible shapes. The
-        // colour signals state at a glance; the text gives the operator
-        // enough to know whether to press L.
+        // Identity badge — auth state only, independent of network status.
         let (badge_text, badge_color) = match &self.auth_state {
             AuthState::SessionValid { subject, email, .. } => {
                 let who = email.as_deref().unwrap_or(subject.as_str());
                 (format!("{who}"), theme::OK)
             }
             AuthState::SessionFromFlag => ("--token".to_string(), theme::ACCENT),
-            AuthState::SessionExpired => ("session expired · press L".to_string(), theme::ERR),
-            AuthState::Anonymous => ("not signed in · press L".to_string(), theme::WARN),
+            AuthState::SessionExpired => ("✗ session expired".to_string(), theme::ERR),
+            AuthState::Anonymous => ("✗ not signed in".to_string(), theme::WARN),
         };
 
         let right_part = format!(

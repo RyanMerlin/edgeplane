@@ -54,6 +54,8 @@ pub enum WorkRequest {
     ClearAgentContext { job_id: JobId, agent_id: String },
     /// Run the full OIDC browser-based login flow in-TUI.
     OidcFlow { job_id: JobId, base_url: String, ttl_hours: u64 },
+    /// Ping a URL to test connectivity (unauthenticated GET {url}/health).
+    PingUrl { job_id: JobId, url: String },
 }
 
 // ─── results ─────────────────────────────────────────────────────────────────
@@ -108,6 +110,15 @@ pub enum WorkResult {
     AgentOpCompleted { job_id: JobId, agent_id: String, op: &'static str, ok: bool, error: Option<String> },
     /// An event from the in-TUI OIDC login flow.
     OidcFlow(OidcFlowEvent),
+    /// Result of a PingUrl work item.
+    UrlTested {
+        job_id: JobId,
+        url: String,
+        ok: bool,
+        latency_ms: u64,
+        version: Option<String>,
+        error: Option<String>,
+    },
 }
 
 /// Events emitted during an in-TUI OIDC browser login flow.
@@ -302,6 +313,48 @@ impl WorkPool {
                 }
                 WorkRequest::OidcFlow { job_id, base_url, ttl_hours } => {
                     handle.block_on(oidc_flow_worker(job_id, base_url, ttl_hours, tx));
+                }
+                WorkRequest::PingUrl { job_id, url } => {
+                    let start = std::time::Instant::now();
+                    let result = handle.block_on(async {
+                        let ping_client = reqwest::Client::builder()
+                            .timeout(std::time::Duration::from_secs(5))
+                            .build()
+                            .map_err(|e| e.to_string())?;
+                        let health_url = format!("{}/health", url.trim_end_matches('/'));
+                        let resp = ping_client.get(&health_url).send().await.map_err(|e| e.to_string())?;
+                        let status = resp.status();
+                        if status.is_success() {
+                            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                            let version = body["version"].as_str().map(str::to_string);
+                            Ok(version)
+                        } else {
+                            Err(format!("server returned {status}"))
+                        }
+                    });
+                    let latency_ms = start.elapsed().as_millis() as u64;
+                    match result {
+                        Ok(version) => {
+                            let _ = tx.send(WorkResult::UrlTested {
+                                job_id,
+                                url,
+                                ok: true,
+                                latency_ms,
+                                version,
+                                error: None,
+                            });
+                        }
+                        Err(e) => {
+                            let _ = tx.send(WorkResult::UrlTested {
+                                job_id,
+                                url,
+                                ok: false,
+                                latency_ms: 0,
+                                version: None,
+                                error: Some(e),
+                            });
+                        }
+                    }
                 }
             }
         });
