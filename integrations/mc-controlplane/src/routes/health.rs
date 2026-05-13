@@ -1,6 +1,6 @@
 use axum::{
-    http::{HeaderMap, StatusCode},
-    response::{Html, IntoResponse},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    response::{Html, IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -15,7 +15,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/health", get(health_handler))
 }
 
-async fn root_handler(headers: HeaderMap) -> impl IntoResponse {
+async fn root_handler(headers: HeaderMap) -> Response {
     let wants_json = headers
         .get("accept")
         .and_then(|v| v.to_str().ok())
@@ -65,7 +65,7 @@ async fn root_handler(headers: HeaderMap) -> impl IntoResponse {
   </section>"#
     };
 
-    Html(format!(
+    let html = Html(format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -101,8 +101,15 @@ async fn root_handler(headers: HeaderMap) -> impl IntoResponse {
   <p class="hint">CLI: <code>curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.sh | bash</code></p>
 </body>
 </html>"#
-    ))
-    .into_response()
+    ));
+
+    // Prevent CDN/proxy caching — this page varies by cookie.
+    let mut resp = html.into_response();
+    resp.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, private"),
+    );
+    resp
 }
 
 async fn health_handler() -> Json<Value> {
