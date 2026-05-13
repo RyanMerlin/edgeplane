@@ -162,19 +162,28 @@ Gaps / TODOs:
 
 ### 6. Config (`c`)
 
-**Status: Mostly placeholder**
+**Status: Server + Auth panels functional; remaining panels stub**
 
 What works:
 - Tab navigates to Config screen
 - Ping latency displayed (ms roundtrip to mc-controlplane)
 - `● connected` / `✗ disconnected` indicator
 - Server URL, token presence, agent ID shown
+- **Auth panel (nav index 1) — fully implemented:**
+  - Branding header: "MissionControl Secure / Team Console"
+  - OIDC primary sign-in: Enter triggers browser PKCE flow
+  - Testing token section: Down to expand, type token masked, Enter to submit
+  - In-flight states: Initiating → AwaitingBrowser (URL display + timer) → TimedOut / Failed
+  - Signed-in state shows identity, `mc auth logout` hint
+  - Esc steps back (token input → OIDC focus → nav panel)
+- Controlplane panel (nav index 0): URL editing, latency test, apply
+- Profile panel: context switching
+- Infisical panel: add/edit/delete profiles
 
 Gaps / TODOs:
-- `NAV_ITEMS` at `config.rs:50-60` defines 9 nav entries: Server, Auth, Agent, Display, Sync, Approvals, Feed, Secrets, About — **only Server content is implemented**; all 9 nav items render the same Server panel
-- `nav_selection` field exists and is updated by Up/Down but has no effect on rendered content
-- Ping is triggered on tab entry but no periodic re-ping
-- No ability to edit any config value in-TUI; all changes require env vars or config file edits
+- Nav indices 2–8 (Agent, Display, Sync, Approvals, Feed, Secrets, About) show stub content
+- No periodic re-ping; latency only refreshes on panel entry
+- No ability to edit non-URL config values in-TUI
 
 ---
 
@@ -259,7 +268,7 @@ mc-controlplane returns `id` as `i32`; custom `id_to_string` deserializer handle
 7. **Feed reconnect is manual** — no backoff/retry on disconnect
 8. **Feed filter bar is non-functional** — Errors/Governance/Artifacts/Heartbeat labels do nothing
 9. **Agent operations not wired** — give-task, restart, clear-ctx, remove show in hints but do nothing
-10. **Config panels all show Server content** — Auth, Agent, Display, Sync, etc. are placeholders
+10. **Config panels 2–8 are stubs** — Auth panel (index 1) now fully implemented; Agent, Display, Sync, etc. remain placeholders
 
 ### P3 — Polish / deferred
 

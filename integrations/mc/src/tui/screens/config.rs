@@ -98,6 +98,10 @@ pub struct ConfigScreenState {
     // Auth panel
     pub auth_oidc_state: Option<OidcPanelState>,
     pub pending_oidc_start: bool,
+    /// 0 = OIDC button focused, 1 = token input focused
+    pub auth_focus: usize,
+    pub token_input: String,
+    pub pending_token_login: Option<String>,
 }
 
 /// Single check displayed in the Doctor panel.
@@ -143,6 +147,9 @@ impl Default for ConfigScreenState {
             pending_url_apply: None,
             auth_oidc_state: None,
             pending_oidc_start: false,
+            auth_focus: 0,
+            token_input: String::new(),
+            pending_token_login: None,
         }
     }
 }
@@ -164,6 +171,10 @@ impl ConfigScreenState {
         let v = self.pending_oidc_start;
         self.pending_oidc_start = false;
         v
+    }
+
+    pub fn take_pending_token_login(&mut self) -> Option<String> {
+        self.pending_token_login.take()
     }
 
     pub fn set_controlplane_test_result(
@@ -231,10 +242,16 @@ impl ConfigScreenState {
                 self.content_focused = true;
                 true
             }
-            // ← / Esc returns to the nav panel
+            // ← / Esc returns to the nav panel (or steps back within the auth panel)
             Left | Esc if self.content_focused => {
-                self.content_focused = false;
-                self.auth_oidc_state = None; // cancel any in-progress OIDC flow
+                if self.nav_selection == 1 && self.auth_focus == 1 {
+                    // Step back from token input to OIDC button
+                    self.auth_focus = 0;
+                } else {
+                    self.content_focused = false;
+                    self.auth_oidc_state = None;
+                    self.auth_focus = 0;
+                }
                 true
             }
             // ↑↓ — nav panel when unfocused, content list when focused
@@ -242,6 +259,7 @@ impl ConfigScreenState {
                 if self.content_focused {
                     match self.nav_selection {
                         0 | 4 => { if self.context_selection > 0 { self.context_selection -= 1; } }
+                        1 => { self.auth_focus = 0; }
                         5 => { if self.infisical_selection > 0 { self.infisical_selection -= 1; } }
                         _ => {}
                     }
@@ -259,6 +277,12 @@ impl ConfigScreenState {
                         0 | 4 => {
                             if self.context_selection + 1 < self.contexts.len() {
                                 self.context_selection += 1;
+                            }
+                        }
+                        1 => {
+                            // Move from OIDC button to token input
+                            if self.auth_focus == 0 && self.auth_oidc_state.is_none() {
+                                self.auth_focus = 1;
                             }
                         }
                         5 => {
@@ -321,10 +345,20 @@ impl ConfigScreenState {
                             true
                         }
                         1 => {
-                            // Trigger OIDC sign-in (only if no flow in progress)
                             if self.auth_oidc_state.is_none() {
-                                self.pending_oidc_start = true;
-                                self.auth_oidc_state = Some(OidcPanelState::Initiating);
+                                if self.auth_focus == 0 {
+                                    // OIDC primary sign-in
+                                    self.pending_oidc_start = true;
+                                    self.auth_oidc_state = Some(OidcPanelState::Initiating);
+                                } else {
+                                    // Submit testing token
+                                    let t = self.token_input.trim().to_string();
+                                    if !t.is_empty() {
+                                        self.pending_token_login = Some(t);
+                                        self.token_input.clear();
+                                        self.auth_focus = 0;
+                                    }
+                                }
                             }
                             true
                         }
@@ -345,6 +379,15 @@ impl ConfigScreenState {
                 } else {
                     false
                 }
+            }
+            // Token input — active when auth panel is content-focused and token row selected
+            Backspace if self.content_focused && self.nav_selection == 1 && self.auth_focus == 1 => {
+                self.token_input.pop();
+                true
+            }
+            Char(c) if self.content_focused && self.nav_selection == 1 && self.auth_focus == 1 => {
+                self.token_input.push(c);
+                true
             }
             _ => false,
         }
@@ -816,56 +859,130 @@ fn panel_server_edit(form: &ControlplaneEditForm) -> Vec<Line<'static>> {
 }
 
 fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::from("")];
+    let mut lines = vec![Line::from(""), Line::from("")];
+
+    // ── Header branding ────────────────────────────────────────────────────────
+    lines.push(Line::from(Span::styled(
+        "  MissionControl Secure",
+        theme::accent_bold(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  Team Console",
+        theme::muted(),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  ──────────────────────────────────────────",
+        theme::dim(),
+    )));
+    lines.push(Line::from(""));
 
     match &state.auth_oidc_state {
         None => {
-            // Show current auth status + instructions
-            let (status_style, status_text) = match &state.token_masked {
-                Some(t) => (
-                    Style::default().fg(theme::OK),
-                    format!("● signed in  (token: {t})"),
-                ),
-                None => (
-                    Style::default().fg(theme::WARN),
-                    "○ not signed in".to_string(),
-                ),
-            };
-            lines.push(Line::from(vec![
-                Span::styled("  Status   ", theme::muted()),
-                Span::styled(status_text, status_style),
-            ]));
-            lines.push(Line::from(""));
-            if state.token_masked.is_none() {
-                if state.content_focused {
-                    lines.push(Line::from(Span::styled(
-                        "  Press Enter to sign in via browser (OIDC)",
-                        theme::accent(),
-                    )));
-                    lines.push(Line::from(""));
-                    lines.push(Line::from(Span::styled(
-                        "  Or set MC_TOKEN env var for API key auth.",
-                        theme::dim(),
-                    )));
-                } else {
-                    lines.push(Line::from(Span::styled(
-                        "  Press Enter to open auth panel",
-                        theme::dim(),
-                    )));
-                }
-            } else {
+            if let Some(t) = &state.token_masked {
+                // ── Signed in ──────────────────────────────────────────────────
+                lines.push(Line::from(vec![
+                    Span::styled("  ● ", Style::default().fg(theme::OK)),
+                    Span::styled(format!("Signed in as {t}"), Style::default().fg(theme::OK)),
+                ]));
+                lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
                     "  mc auth logout   to clear the session",
                     theme::dim(),
                 )));
+            } else if !state.content_focused {
+                // ── Collapsed (nav focus) ──────────────────────────────────────
+                lines.push(Line::from(Span::styled(
+                    "  OIDC is the production login path. Token login is for testing.",
+                    theme::dim(),
+                )));
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "  → Enter to open",
+                    theme::muted(),
+                )));
+            } else {
+                // ── Login panel (content focused) ──────────────────────────────
+                lines.push(Line::from(Span::styled(
+                    "  OIDC is the production login path.",
+                    theme::muted(),
+                )));
+                lines.push(Line::from(Span::styled(
+                    "  Token login is for testing.",
+                    theme::dim(),
+                )));
+                lines.push(Line::from(""));
+
+                // OIDC button
+                if state.auth_focus == 0 {
+                    lines.push(Line::from(Span::styled(
+                        "  [ Sign in via OIDC → ]",
+                        theme::accent_bold(),
+                    )));
+                } else {
+                    lines.push(Line::from(Span::styled(
+                        "  Sign in via OIDC",
+                        theme::muted(),
+                    )));
+                }
+
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "  ──── Testing Token ───────────────────────",
+                    theme::dim(),
+                )));
+                lines.push(Line::from(""));
+
+                // Token input row
+                if state.auth_focus == 1 {
+                    let display = if state.token_input.is_empty() {
+                        "MC_TOKEN".to_string()
+                    } else {
+                        "*".repeat(state.token_input.len())
+                    };
+                    lines.push(Line::from(vec![
+                        Span::styled("  Token  ", theme::muted()),
+                        Span::styled(
+                            format!("[{display}▌]"),
+                            Style::default().fg(theme::ACCENT),
+                        ),
+                    ]));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(Span::styled(
+                        "  [ Continue with token → ]",
+                        theme::accent_bold(),
+                    )));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(Span::styled(
+                        "  Enter to submit   Esc to go back",
+                        theme::dim(),
+                    )));
+                } else {
+                    lines.push(Line::from(Span::styled(
+                        "  Token  [MC_TOKEN]",
+                        theme::dim(),
+                    )));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(Span::styled(
+                        "  Continue with token",
+                        theme::dim(),
+                    )));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(Span::styled(
+                        "  ↓ Down to enter token   Enter to sign in via OIDC",
+                        theme::dim(),
+                    )));
+                }
             }
         }
+
         Some(OidcPanelState::Initiating) => {
             lines.push(Line::from(Span::styled(
                 "  ○ Connecting to server…",
                 theme::muted(),
             )));
         }
+
         Some(OidcPanelState::AwaitingBrowser { authorize_url, started }) => {
             let elapsed = started.elapsed().as_secs();
             lines.push(Line::from(Span::styled(
@@ -878,7 +995,6 @@ fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
                 theme::muted(),
             )));
             lines.push(Line::from(""));
-            // Wrap the URL across multiple lines if needed
             let url = authorize_url.clone();
             let max_w = 80usize;
             if url.len() <= max_w {
@@ -902,6 +1018,7 @@ fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
             )));
             lines.push(Line::from(Span::styled("  ← Esc to cancel", theme::muted())));
         }
+
         Some(OidcPanelState::TimedOut) => {
             lines.push(Line::from(Span::styled(
                 "  ✗ Browser auth timed out.",
@@ -914,6 +1031,7 @@ fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
             )));
             lines.push(Line::from(Span::styled("  ← Esc to reset", theme::muted())));
         }
+
         Some(OidcPanelState::Failed { error }) => {
             lines.push(Line::from(Span::styled(
                 "  ✗ Authentication failed:",

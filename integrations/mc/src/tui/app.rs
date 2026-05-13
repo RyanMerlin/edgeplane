@@ -920,6 +920,27 @@ impl App {
                 if let Some((ctx_name, url)) = self.config.take_pending_url_apply() {
                     self.apply_context_url(ctx_name, url);
                 }
+                if let Some(token) = self.config.take_pending_token_login() {
+                    if let Ok(new_client) = super::data::RemoteDataClient::new(
+                        self.base_url.clone(),
+                        Some(token.clone()),
+                    ) {
+                        self.client = std::sync::Arc::new(new_client);
+                    }
+                    let masked = if token.len() > 8 {
+                        format!("{}…", &token[..8])
+                    } else {
+                        "***".into()
+                    };
+                    self.token = Some(token);
+                    self.config.token_masked = Some(masked);
+                    self.config.auth_oidc_state = None;
+                    self.config.content_focused = false;
+                    self.agents.error = None;
+                    self.matrix.error = None;
+                    self.approval_queue.last_error = None;
+                    self.screen = Screen::Agents;
+                }
                 if self.config.take_pending_oidc_start() {
                     if self.config.connected {
                         let job_id = next_job_id();

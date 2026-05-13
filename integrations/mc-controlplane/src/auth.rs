@@ -72,6 +72,22 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             .and_then(|s| s.strip_prefix("Bearer "))
             .map(|s| s.trim().to_string());
 
+        // Also accept mc_session_token cookie (set by browser OIDC flow).
+        let cookie_token = parts
+            .headers
+            .get("cookie")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| {
+                s.split(';').find_map(|pair| {
+                    pair.trim()
+                        .strip_prefix("mc_session_token=")
+                        .map(|v| v.trim().to_string())
+                })
+            });
+
+        // Bearer takes priority; fall back to cookie session.
+        let token_credential = bearer.clone().or(cookie_token);
+
         let agent_id_header = parts
             .headers
             .get("x-mc-agent-id")
@@ -88,7 +104,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             }
         }
 
-        if let Some(ref token) = bearer {
+        if let Some(ref token) = token_credential {
             let hash = hash_token(token);
             let now = chrono::Utc::now().naive_utc();
 
