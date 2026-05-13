@@ -83,10 +83,21 @@ try_download_release() {
 mkdir -p "$PREFIX"
 
 if ! try_download_release; then
-  echo "binary download unavailable, building from source (requires cargo)..."
+  echo "binary download unavailable, building from source..."
   if ! command -v cargo >/dev/null 2>&1; then
-    echo "cargo is required to build mc — install Rust from https://rustup.rs" >&2
-    exit 1
+    echo "cargo not found — installing Rust via rustup..."
+    if ! curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path; then
+      echo "rustup install failed — install Rust manually from https://rustup.rs" >&2
+      exit 1
+    fi
+    # Activate the just-installed toolchain in this shell
+    # shellcheck disable=SC1091
+    source "${CARGO_HOME:-$HOME/.cargo}/env"
+    if ! command -v cargo >/dev/null 2>&1; then
+      echo "cargo still not found after rustup install — open a new shell and retry" >&2
+      exit 1
+    fi
+    echo "Rust installed successfully"
   fi
 
   # When running via `bash <(curl ...)`, BASH_SOURCE[0] is a /proc/self/fd path, not a real file.
