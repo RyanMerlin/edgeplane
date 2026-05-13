@@ -88,13 +88,34 @@ if ! try_download_release; then
     echo "cargo is required to build mc — install Rust from https://rustup.rs" >&2
     exit 1
   fi
-  ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+  # When running via `bash <(curl ...)`, BASH_SOURCE[0] is a /proc/self/fd path, not a real file.
+  # Detect that case and clone the repo to a tmpdir instead.
+  SCRIPT_PATH="${BASH_SOURCE[0]:-}"
+  if [[ -f "$SCRIPT_PATH" ]]; then
+    ROOT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+    CLEANUP_ROOT=""
+  else
+    if ! command -v git >/dev/null 2>&1; then
+      echo "git is required to clone the source — install git and retry" >&2
+      exit 1
+    fi
+    ROOT_DIR="$(mktemp -d)"
+    CLEANUP_ROOT="$ROOT_DIR"
+    echo "cloning missioncontrol to build from source..."
+    git clone --depth 1 https://github.com/RyanMerlin/missioncontrol.git "$ROOT_DIR"
+  fi
+
   (
     cd "$ROOT_DIR/integrations/mc"
     cargo build --release
   )
   cp "$ROOT_DIR/integrations/mc/target/release/mc" "$TARGET"
   chmod +x "$TARGET"
+
+  if [[ -n "$CLEANUP_ROOT" ]]; then
+    rm -rf "$CLEANUP_ROOT"
+  fi
 fi
 
 mkdir -p "$(dirname "$ENV_FILE")"

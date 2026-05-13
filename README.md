@@ -66,17 +66,22 @@ MissionControl is a control plane for AI agents and human collaborators. It prov
 
 ## Quick Start
 
+Install the `mc` CLI:
+
 ```bash
-bash scripts/dev-up.sh
-bash scripts/install-mc.sh
-MC_TOKEN="TopSecret" mc system doctor
+curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.sh | bash
 ```
 
 Windows:
 ```powershell
-.\scripts\install-mc.ps1
-$env:MC_TOKEN="TopSecret"
-mc system doctor
+irm https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.ps1 | iex
+```
+
+Then bring up the full stack locally:
+
+```bash
+bash scripts/dev-up.sh
+MC_TOKEN="TopSecret" mc system doctor
 ```
 
 Then open:
@@ -89,7 +94,7 @@ Then open:
 |---|---|
 | Docker full stack | `bash scripts/dev-up.sh` |
 | Install mc CLI | `bash scripts/install-mc.sh` or `.\scripts\install-mc.ps1` |
-| Bootstrap mc (curl) | `bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.sh)` |
+| Bootstrap mc (curl) | `curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.sh \| bash` |
 | Philosophy & vision | [MISSIONCONTROL_PHILOSOPHY.md](MISSIONCONTROL_PHILOSOPHY.md) |
 | API reference | `/api/docs` (Swagger UI) |
 | Agent install guide | [docs/guides/AGENT-INSTALL.md](docs/guides/AGENT-INSTALL.md) |
