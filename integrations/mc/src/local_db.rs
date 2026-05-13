@@ -8,7 +8,7 @@
 //! up changes on its next reconcile tick (60s), or immediately if you send a
 //! SIGHUP (future: mgmt socket hint from `mc`).
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
 use crate::config::mc_home_dir;

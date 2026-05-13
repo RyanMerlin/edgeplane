@@ -1937,9 +1937,6 @@ fn pid_file_path() -> std::path::PathBuf {
     std::env::temp_dir().join("mc-mesh.pid")
 }
 
-fn mc_mesh_config_path() -> std::path::PathBuf {
-    crate::config::mc_home_dir().join("mc-mesh.yaml")
-}
 
 fn is_daemon_running() -> bool {
     // 1. Try the PID file written by `mc mesh start` (foreground / detached
