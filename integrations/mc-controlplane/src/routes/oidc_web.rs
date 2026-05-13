@@ -806,7 +806,7 @@ async fn oidc_start(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().naive_utc();
     let expires_at = now + Duration::hours(cfg.session_ttl_hours);
-    let redirect_path = q.redirect_path.unwrap_or_else(|| "/ui/".to_string());
+    let redirect_path = q.redirect_path.unwrap_or_else(|| "/".to_string());
 
     let result = sqlx::query(
         "INSERT INTO oidcauthrequest \
@@ -1084,7 +1084,7 @@ async fn oidc_callback(
         .await;
 
     let cookie = session_cookie(&token, token_expires_at, cfg.session_cookie_secure);
-    let target = if redirect_path.is_empty() { "/ui/".to_string() } else { redirect_path };
+    let target = if redirect_path.is_empty() { "/".to_string() } else { redirect_path };
 
     (
         StatusCode::FOUND,
