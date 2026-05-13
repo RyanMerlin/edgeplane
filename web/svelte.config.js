@@ -7,7 +7,10 @@ const config = {
   kit: {
     adapter: adapter({
       strict: false
-    })
+    }),
+    paths: {
+      base: '/ui'
+    }
   }
 };
 

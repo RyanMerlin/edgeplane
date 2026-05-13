@@ -1,3 +1,10 @@
+FROM node:22-slim AS web-builder
+WORKDIR /build/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web ./
+RUN npm run build
+
 FROM rust:1.88-slim AS builder
 WORKDIR /build
 
@@ -16,6 +23,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /build/integrations/mc-controlplane/target/release/mc-controlplane /usr/local/bin/mc-controlplane
+COPY --from=web-builder /build/web/build /usr/local/share/mc-web
 
 EXPOSE 8008
 ENTRYPOINT ["mc-controlplane"]

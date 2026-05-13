@@ -779,7 +779,9 @@ async fn cli_poll(
 
 #[derive(serde::Deserialize)]
 struct OidcStartQuery {
+    // Accept both `redirect_path` (legacy) and `redirect` (frontend convention).
     redirect_path: Option<String>,
+    redirect: Option<String>,
 }
 
 async fn oidc_start(
@@ -807,7 +809,7 @@ async fn oidc_start(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().naive_utc();
     let expires_at = now + Duration::hours(cfg.session_ttl_hours);
-    let redirect_path = q.redirect_path.unwrap_or_else(|| "/".to_string());
+    let redirect_path = q.redirect.or(q.redirect_path).unwrap_or_else(|| "/ui/".to_string());
 
     let result = sqlx::query(
         "INSERT INTO oidcauthrequest \

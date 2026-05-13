@@ -1,6 +1,7 @@
 use axum::{Router, extract::State, http::StatusCode, middleware, response::IntoResponse};
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
+use tower_http::services::{ServeDir, ServeFile};
 
 use crate::{auth, routes, state::{AppState, NodeInfo}};
 
@@ -35,10 +36,26 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
     let authed = routes::build_router()
         .layer(middleware::from_fn_with_state(state.clone(), auth::require_auth));
 
-    Router::new()
-        .merge(authed)
-        .fallback(proxy_fallback)
-        .with_state(state)
+    // Serve the SvelteKit web UI at /ui/ if MC_WEB_DIR points to the build.
+    // Falls back to a 404 if the directory doesn't exist (e.g. in test builds).
+    let web_dir = std::env::var("MC_WEB_DIR")
+        .unwrap_or_else(|_| "/usr/local/share/mc-web".to_string());
+    let web_path = PathBuf::from(&web_dir);
+    let router = if web_path.is_dir() {
+        let serve = ServeDir::new(&web_path)
+            .not_found_service(ServeFile::new(web_path.join("index.html")));
+        Router::new()
+            .merge(authed)
+            .nest_service("/ui", serve)
+            .fallback(proxy_fallback)
+            .with_state(state)
+    } else {
+        Router::new()
+            .merge(authed)
+            .fallback(proxy_fallback)
+            .with_state(state)
+    };
+    router
 }
 
 async fn proxy_fallback(
