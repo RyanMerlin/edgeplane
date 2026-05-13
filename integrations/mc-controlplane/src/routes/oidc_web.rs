@@ -39,6 +39,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/auth/oidc/callback", get(oidc_callback))
         .route("/auth/oidc/cli-success", get(cli_success_page))
         .route("/auth/oidc/exchange", post(exchange_grant))
+        .route("/auth/logout", get(logout))
 }
 
 // ── OIDC Config helpers ───────────────────────────────────────────────────────
@@ -1357,4 +1358,20 @@ fn error_page(message: &str) -> String {
   </div>
 </body>
 </html>"#)
+}
+
+// ─── GET /auth/logout ────────────────────────────────────────────────────────
+
+async fn logout() -> impl IntoResponse {
+    (
+        StatusCode::FOUND,
+        [
+            (header::LOCATION, "/".to_string()),
+            (
+                header::SET_COOKIE,
+                "mc_session_token=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0".to_string(),
+            ),
+        ],
+    )
+        .into_response()
 }

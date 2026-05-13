@@ -41,7 +41,30 @@ async fn root_handler(headers: HeaderMap) -> impl IntoResponse {
             .into_response();
     }
 
+    let has_session = headers
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
+        .map(|c| c.contains("mc_session_token="))
+        .unwrap_or(false);
+
     let version = env!("CARGO_PKG_VERSION");
+
+    let auth_section = if has_session {
+        r#"<section>
+    <h2>Signed in</h2>
+    <div class="links">
+      <a href="/auth/logout">Sign out</a>
+    </div>
+  </section>"#
+    } else {
+        r#"<section>
+    <h2>Access</h2>
+    <div class="links">
+      <a href="/auth/oidc/start">Sign in with SSO</a>
+    </div>
+  </section>"#
+    };
+
     Html(format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -65,13 +88,7 @@ async fn root_handler(headers: HeaderMap) -> impl IntoResponse {
 <body>
   <h1>MissionControl</h1>
   <div class="version">v{version} &mdash; API server online</div>
-  <section>
-    <h2>Access</h2>
-    <div class="links">
-      <a href="/auth/oidc/start">Sign in with SSO</a>
-      <a href="/health">Health</a>
-    </div>
-  </section>
+  {auth_section}
   <section>
     <h2>API</h2>
     <div class="links">

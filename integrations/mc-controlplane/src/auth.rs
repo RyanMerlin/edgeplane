@@ -217,6 +217,7 @@ pub fn is_public_path(path: &str) -> bool {
             | "/integrations/teams/events"
             | "/integrations/google-chat/events"
     ) || path.starts_with("/auth/oidc/")
+        || path == "/auth/logout"
 }
 
 /// Tower middleware that gates the entire app on authentication.
