@@ -844,6 +844,7 @@ pub async fn run(args: LaunchArgs, client: &MissionControlClient, config: &McCon
                     ttl_hours: 8,
                     print_token: false,
                     non_interactive: false,
+                    with_token: false,
                 },
                 client,
                 config.base_url.as_str(),

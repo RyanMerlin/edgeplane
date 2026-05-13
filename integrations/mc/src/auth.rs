@@ -48,6 +48,10 @@ pub struct LoginArgs {
     /// Skip prompts: use MC_TOKEN env var directly (non-interactive)
     #[arg(long)]
     pub non_interactive: bool,
+
+    /// Use API token auth instead of OIDC (prompts for token interactively)
+    #[arg(long)]
+    pub with_token: bool,
 }
 
 #[derive(Args, Debug)]
@@ -262,31 +266,12 @@ pub async fn login(
 
     ui_section("MissionControl Login");
 
-    // Always let the user confirm/change the server URL
     let base_url = resolve_base_url(Some(current_base_url))?;
 
-    // Auth method choice
-    eprintln!("  {}Auth method{}", ui::BOLD, ui::RESET);
-    eprintln!(
-        "    {}1){} OIDC / SSO {}(open browser — default){}",
-        ui::CYAN,
-        ui::RESET,
-        ui::DIM,
-        ui::RESET
-    );
-    eprintln!(
-        "    {}2){} API token  {}(paste a long-lived token){}",
-        ui::CYAN,
-        ui::RESET,
-        ui::DIM,
-        ui::RESET
-    );
-    eprintln!();
-    let choice = prompt("  Choice [1]: ")?;
-
-    match choice.trim() {
-        "2" | "token" => login_with_token(&base_url, args.ttl_hours, args.print_token).await,
-        _ => login_oidc(&base_url, args.ttl_hours, args.print_token).await,
+    if args.with_token {
+        login_with_token(&base_url, args.ttl_hours, args.print_token).await
+    } else {
+        login_oidc(&base_url, args.ttl_hours, args.print_token).await
     }
 }
 
