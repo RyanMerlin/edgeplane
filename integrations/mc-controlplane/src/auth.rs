@@ -203,7 +203,8 @@ pub fn make_token(prefix: &str) -> String {
 pub fn is_public_path(path: &str) -> bool {
     matches!(
         path,
-        "/health"
+        "/"
+            | "/health"
             | "/mcp/health"
             | "/mcp/tools"
             | "/raft/status"
