@@ -1195,6 +1195,7 @@ async fn cli_success_page(Query(q): Query<CliSuccessQuery>) -> impl IntoResponse
 #[derive(serde::Deserialize)]
 struct ExchangeRequest {
     grant_id: String,
+    ttl_hours: Option<i64>,
 }
 
 async fn exchange_grant(
@@ -1234,8 +1235,12 @@ async fn exchange_grant(
         .unwrap_or("")
         .to_string();
 
+    let ttl = body.ttl_hours
+        .filter(|&h| h > 0 && h <= 720)
+        .unwrap_or(cfg.session_ttl_hours);
+
     let (token, _session_id, expires_at) =
-        match issue_session_token(&state.db, &subject, &ua, cfg.session_ttl_hours).await {
+        match issue_session_token(&state.db, &subject, &ua, ttl).await {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("exchange_grant: issue_session: {e}");

@@ -286,7 +286,7 @@ pub async fn login(
 
     match choice.trim() {
         "2" | "token" => login_with_token(&base_url, args.ttl_hours, args.print_token).await,
-        _ => login_oidc(&base_url, args.print_token).await,
+        _ => login_oidc(&base_url, args.ttl_hours, args.print_token).await,
     }
 }
 
@@ -310,7 +310,7 @@ async fn login_with_token(base_url: &str, ttl_hours: u64, print_token: bool) -> 
     finish_session_login(resp, base_url, print_token)
 }
 
-async fn login_oidc(base_url: &str, print_token: bool) -> Result<()> {
+async fn login_oidc(base_url: &str, ttl_hours: u64, print_token: bool) -> Result<()> {
     // Unauthenticated client — cli-initiate and cli-poll don't require a token
     let anon_client =
         MissionControlClient::new_with_token(base_url, "").context("could not build client")?;
@@ -397,10 +397,11 @@ async fn login_oidc(base_url: &str, print_token: bool) -> Result<()> {
     );
 
     // Exchange grant for a session token
+    let ttl = ttl_hours.clamp(1, 720);
     let resp = anon_client
         .post_json(
             "/auth/oidc/exchange",
-            &serde_json::json!({ "grant_id": grant_id }),
+            &serde_json::json!({ "grant_id": grant_id, "ttl_hours": ttl }),
         )
         .await
         .context("failed to exchange OIDC grant for session token")?;
