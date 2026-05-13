@@ -144,6 +144,129 @@ impl InfoModal {
     }
 }
 
+/// State of the in-TUI OIDC login flow dialog.
+pub enum OidcLoginState {
+    /// Contacting the server to obtain an authorization URL.
+    Initiating,
+    /// URL is ready; waiting for the user to complete sign-in in their browser.
+    AwaitingBrowser { authorize_url: String, started: std::time::Instant },
+    /// Poll timed out before the browser flow completed.
+    TimedOut,
+    /// Flow failed with an error message.
+    Failed { error: String },
+}
+
+/// An in-TUI OIDC login dialog. Displayed when the user presses `L` while
+/// the server is reachable but they have no valid session.
+pub struct OidcLoginModal {
+    pub state: OidcLoginState,
+}
+
+impl OidcLoginModal {
+    pub fn handle_key(&self, key: KeyCode) -> ModalAction {
+        match key {
+            KeyCode::Esc | KeyCode::Char('q') => ModalAction::Cancelled,
+            _ => ModalAction::Handled,
+        }
+    }
+
+    pub fn render(&self, area: Rect, buf: &mut Buffer) {
+        let width: u16 = 72_u16.min(area.width.saturating_sub(4)).max(40);
+        let height: u16 = match &self.state {
+            OidcLoginState::Initiating => 5,
+            OidcLoginState::AwaitingBrowser { .. } => 9,
+            OidcLoginState::TimedOut => 7,
+            OidcLoginState::Failed { .. } => 7,
+        };
+        let x = area.x + area.width.saturating_sub(width) / 2;
+        let y = area.y + area.height.saturating_sub(height) / 2;
+        let dialog = Rect { x, y, width, height };
+
+        Clear.render(dialog, buf);
+
+        let title_style = Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme::ACCENT))
+            .title(Span::styled(" Sign in to MissionControl ", title_style))
+            .style(theme::normal());
+        let inner = block.inner(dialog);
+        block.render(dialog, buf);
+
+        let lines: Vec<Line<'static>> = match &self.state {
+            OidcLoginState::Initiating => vec![
+                Line::from(""),
+                Line::from(Span::styled("Connecting to server...", theme::muted())),
+                Line::from(""),
+            ],
+            OidcLoginState::AwaitingBrowser { authorize_url, started } => {
+                let elapsed = started.elapsed().as_secs();
+                // Truncate URL to fit inside the dialog border (inner width = width - 2)
+                let max_url = (width.saturating_sub(2)) as usize;
+                let url_display = if authorize_url.len() > max_url {
+                    format!("{}…", &authorize_url[..max_url.saturating_sub(1)])
+                } else {
+                    authorize_url.clone()
+                };
+                vec![
+                    Line::from(""),
+                    Line::from(Span::styled("Open this URL in your browser:", theme::dim())),
+                    Line::from(Span::styled(url_display, Style::default().fg(ratatui::style::Color::Cyan))),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("Waiting for authentication... ({elapsed}s)"),
+                        theme::muted(),
+                    )),
+                    Line::from(""),
+                    Line::from(vec![
+                        Span::styled("  esc ", theme::accent()),
+                        Span::styled("cancel", theme::dim()),
+                    ]),
+                ]
+            }
+            OidcLoginState::TimedOut => vec![
+                Line::from(""),
+                Line::from(Span::styled("Browser auth timed out.", theme::err())),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Visit the URL above and complete sign-in,",
+                    theme::muted(),
+                )),
+                Line::from(Span::styled("then press R to retry.", theme::muted())),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  esc ", theme::accent()),
+                    Span::styled("close", theme::dim()),
+                ]),
+            ],
+            OidcLoginState::Failed { error } => {
+                let max_err = (width.saturating_sub(4)) as usize;
+                let err_display = if error.len() > max_err {
+                    format!("{}…", &error[..max_err.saturating_sub(1)])
+                } else {
+                    error.clone()
+                };
+                vec![
+                    Line::from(""),
+                    Line::from(Span::styled("Authentication failed:", theme::err())),
+                    Line::from(Span::styled(err_display, theme::muted())),
+                    Line::from(""),
+                    Line::from(vec![
+                        Span::styled("  esc ", theme::accent()),
+                        Span::styled("close", theme::dim()),
+                    ]),
+                ]
+            }
+        };
+
+        Paragraph::new(lines)
+            .alignment(Alignment::Center)
+            .style(theme::normal())
+            .render(inner, buf);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

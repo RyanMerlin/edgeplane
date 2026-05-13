@@ -20,8 +20,8 @@ use super::screens::mission_matrix::{Focus as MatrixFocus, MissionMatrix, Missio
 use super::screens::secrets::{SecretsScreen, SecretsState, render_tree_overlay};
 use super::theme;
 use super::widgets::help::{HelpEntry, HelpOverlay, GLOBAL_HELP};
-use super::widgets::modal::{ConfirmModal, InfoModal, ModalAction};
-use super::work::{WorkPool, WorkRequest, WorkResult, next_job_id};
+use super::widgets::modal::{ConfirmModal, InfoModal, ModalAction, OidcLoginModal, OidcLoginState};
+use super::work::{OidcFlowEvent, WorkPool, WorkRequest, WorkResult, next_job_id};
 
 /// Identity / session state used to drive the badge in the tab bar and to
 /// decide whether to surface a "you're not signed in" prompt in panels that
@@ -72,6 +72,7 @@ pub enum PendingAction {
 pub enum AppModal {
     Confirm { modal: ConfirmModal, action: PendingAction },
     Info { modal: InfoModal },
+    OidcLogin { modal: OidcLoginModal },
 }
 
 impl AppModal {
@@ -79,6 +80,7 @@ impl AppModal {
         match self {
             AppModal::Confirm { modal, .. } => modal.render(area, buf),
             AppModal::Info { modal } => modal.render(area, buf),
+            AppModal::OidcLogin { modal } => modal.render(area, buf),
         }
     }
 }
@@ -331,45 +333,74 @@ impl App {
         Some(raw)
     }
 
-    /// Open a modal explaining how to sign in. Phase 1 directs the operator
-    /// to run `mc auth login` in another terminal; Phase 2 will replace this
-    /// with an in-TUI login flow.
+    /// Open a modal explaining how to sign in, or launch the in-TUI OIDC flow.
     pub fn open_signin_modal(&mut self) {
-        let lines = match &self.auth_state {
-            AuthState::SessionFromFlag => vec![
-                "You're signed in via --token / MC_TOKEN.".to_string(),
-                "".to_string(),
-                "If calls are failing, the explicit token is invalid.".to_string(),
-                "Clear it and run `mc auth login` to use a session.".to_string(),
-            ],
-            AuthState::SessionValid { subject, expires_at, .. } => vec![
-                format!("Signed in as {subject}."),
-                format!("Token expires {expires_at}."),
-                "".to_string(),
-                "Use `mc auth logout` to clear the session.".to_string(),
-            ],
-            AuthState::SessionExpired => vec![
-                "Your session has expired.".to_string(),
-                "".to_string(),
-                "Run in another terminal:".to_string(),
-                "  mc auth login".to_string(),
-                "Then return here. The TUI auto-detects the new session within 2 seconds; press R to retry immediately.".to_string(),
-            ],
-            AuthState::Anonymous => vec![
-                "You're not signed in.".to_string(),
-                "".to_string(),
-                "Run in another terminal:".to_string(),
-                "  mc auth login".to_string(),
-                "Then return here. The TUI auto-detects the new session within 2 seconds; press R to retry immediately.".to_string(),
-            ],
-        };
-        let title = match &self.auth_state {
-            AuthState::SessionValid { .. } => "Identity",
-            _ => "Sign in to MissionControl",
-        };
-        self.modal = Some(AppModal::Info {
-            modal: InfoModal { title: title.to_string(), lines },
-        });
+        match &self.auth_state {
+            AuthState::SessionFromFlag => {
+                self.modal = Some(AppModal::Info {
+                    modal: InfoModal {
+                        title: "Identity".to_string(),
+                        lines: vec![
+                            "You're signed in via --token / MC_TOKEN.".to_string(),
+                            "".to_string(),
+                            "If calls are failing, the explicit token is invalid.".to_string(),
+                            "Clear it and run `mc auth login` to use a session.".to_string(),
+                        ],
+                    },
+                });
+            }
+            AuthState::SessionValid { subject, expires_at, .. } => {
+                let subject = subject.clone();
+                let expires_at = expires_at.clone();
+                self.modal = Some(AppModal::Info {
+                    modal: InfoModal {
+                        title: "Identity".to_string(),
+                        lines: vec![
+                            format!("Signed in as {subject}."),
+                            format!("Token expires {expires_at}."),
+                            "".to_string(),
+                            "Use `mc auth logout` to clear the session.".to_string(),
+                        ],
+                    },
+                });
+            }
+            AuthState::Anonymous | AuthState::SessionExpired => {
+                if !self.config.connected {
+                    // Server is not reachable — OIDC would also fail; show a diagnostic instead.
+                    let base_url = self.base_url.clone();
+                    self.modal = Some(AppModal::Info {
+                        modal: InfoModal {
+                            title: "Server Not Reachable".to_string(),
+                            lines: vec![
+                                format!("Cannot connect to: {base_url}"),
+                                "".to_string(),
+                                "Check that the server is running and MC_BASE_URL is correct.".to_string(),
+                                "  mc system start    — start the local dev stack".to_string(),
+                                format!("  MC_BASE_URL=https://your-server.com mc tui"),
+                                "".to_string(),
+                                "Press R to retry once it's up.".to_string(),
+                            ],
+                        },
+                    });
+                } else {
+                    // Server is up — kick off the in-TUI OIDC flow.
+                    let job_id = next_job_id();
+                    self.pool.dispatch(
+                        self.client.clone(),
+                        WorkRequest::OidcFlow {
+                            job_id,
+                            base_url: self.base_url.clone(),
+                            ttl_hours: 8,
+                        },
+                    );
+                    self.modal = Some(AppModal::OidcLogin {
+                        modal: OidcLoginModal {
+                            state: OidcLoginState::Initiating,
+                        },
+                    });
+                }
+            }
+        }
     }
 
     /// Drain any pending work results and update state.
@@ -532,6 +563,53 @@ impl App {
                         });
                     } else {
                         self.approval_queue.last_error = error;
+                    }
+                }
+                WorkResult::OidcFlow(event) => {
+                    match event {
+                        OidcFlowEvent::Initiated { authorize_url, .. } => {
+                            if let Some(AppModal::OidcLogin { modal }) = &mut self.modal {
+                                modal.state = OidcLoginState::AwaitingBrowser {
+                                    authorize_url,
+                                    started: std::time::Instant::now(),
+                                };
+                            }
+                        }
+                        OidcFlowEvent::Complete { token, subject, expires_at, email, .. } => {
+                            // Update auth state with the new session.
+                            self.auth_state = AuthState::SessionValid {
+                                subject: subject.clone(),
+                                email: email.clone(),
+                                expires_at: expires_at.clone(),
+                            };
+                            // Rebuild the data client with the new token.
+                            self.token = Some(token.clone());
+                            if let Ok(new_client) = super::data::RemoteDataClient::new(
+                                self.base_url.clone(),
+                                Some(token),
+                            ) {
+                                self.client = std::sync::Arc::new(new_client);
+                            }
+                            // Close the modal and schedule an immediate refresh.
+                            self.modal = None;
+                            self.agents_last_refresh = None;
+                            self.missions_last_refresh = None;
+                            self.approvals_last_refresh = None;
+                            // Clear any stale auth error messages from panels.
+                            self.agents.error = None;
+                            self.matrix.error = None;
+                            self.approval_queue.last_error = None;
+                        }
+                        OidcFlowEvent::TimedOut { .. } => {
+                            if let Some(AppModal::OidcLogin { modal }) = &mut self.modal {
+                                modal.state = OidcLoginState::TimedOut;
+                            }
+                        }
+                        OidcFlowEvent::Failed { error, .. } => {
+                            if let Some(AppModal::OidcLogin { modal }) = &mut self.modal {
+                                modal.state = OidcLoginState::Failed { error };
+                            }
+                        }
                     }
                 }
             }
@@ -828,6 +906,7 @@ impl App {
         let action = match m {
             AppModal::Confirm { modal, .. } => modal.handle_key(code),
             AppModal::Info { modal } => modal.handle_key(code),
+            AppModal::OidcLogin { modal } => modal.handle_key(code),
         };
         match action {
             ModalAction::Confirmed => {

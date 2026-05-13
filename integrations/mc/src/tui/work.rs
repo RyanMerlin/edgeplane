@@ -52,6 +52,8 @@ pub enum WorkRequest {
     RestartAgent { job_id: JobId, agent_id: String },
     /// Clear an agent's context — controlplane stamps metadata; the runtime acts.
     ClearAgentContext { job_id: JobId, agent_id: String },
+    /// Run the full OIDC browser-based login flow in-TUI.
+    OidcFlow { job_id: JobId, base_url: String, ttl_hours: u64 },
 }
 
 // ─── results ─────────────────────────────────────────────────────────────────
@@ -104,6 +106,20 @@ pub enum WorkResult {
     AgentDeleted { job_id: JobId, agent_id: String, ok: bool, error: Option<String> },
     /// Agent op (restart / clear-context) completed.
     AgentOpCompleted { job_id: JobId, agent_id: String, op: &'static str, ok: bool, error: Option<String> },
+    /// An event from the in-TUI OIDC login flow.
+    OidcFlow(OidcFlowEvent),
+}
+
+/// Events emitted during an in-TUI OIDC browser login flow.
+pub enum OidcFlowEvent {
+    /// Server accepted initiation; browser URL is ready to display / open.
+    Initiated { job_id: JobId, authorize_url: String },
+    /// Browser flow completed and session token saved.
+    Complete { job_id: JobId, token: String, subject: String, expires_at: String, email: Option<String> },
+    /// Polling for browser completion timed out (60 s).
+    TimedOut { job_id: JobId },
+    /// Any unrecoverable error during the flow.
+    Failed { job_id: JobId, error: String },
 }
 
 // ─── pool ────────────────────────────────────────────────────────────────────
@@ -284,6 +300,9 @@ impl WorkPool {
                     };
                     let _ = tx.send(WorkResult::AgentOpCompleted { job_id, agent_id, op: "clear-context", ok, error });
                 }
+                WorkRequest::OidcFlow { job_id, base_url, ttl_hours } => {
+                    handle.block_on(oidc_flow_worker(job_id, base_url, ttl_hours, tx));
+                }
             }
         });
     }
@@ -291,6 +310,194 @@ impl WorkPool {
 
 impl Default for WorkPool {
     fn default() -> Self { Self::new() }
+}
+
+/// Run the full OIDC browser-based login flow: initiate → open browser → poll
+/// for completion → exchange grant for a session token → save session to disk.
+/// Sends OidcFlowEvent variants back on `tx` as the flow progresses.
+async fn oidc_flow_worker(
+    job_id: JobId,
+    base_url: String,
+    ttl_hours: u64,
+    tx: std::sync::mpsc::Sender<WorkResult>,
+) {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
+                job_id,
+                error: format!("could not build HTTP client: {e}"),
+            }));
+            return;
+        }
+    };
+
+    let base = base_url.trim_end_matches('/').to_string();
+
+    // Step 1: initiate
+    let init_url = format!("{base}/auth/oidc/cli-initiate");
+    let init_resp = match client.get(&init_url).send().await {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => {
+            let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
+                job_id,
+                error: format!("OIDC initiate returned {}", r.status()),
+            }));
+            return;
+        }
+        Err(e) => {
+            let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
+                job_id,
+                error: format!("OIDC initiate request failed: {e}"),
+            }));
+            return;
+        }
+    };
+
+    let init_json: serde_json::Value = match init_resp.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
+                job_id,
+                error: format!("failed to parse initiate response: {e}"),
+            }));
+            return;
+        }
+    };
+
+    let authorize_url = match init_json["authorize_url"].as_str() {
+        Some(u) => u.to_string(),
+        None => {
+            let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
+                job_id,
+                error: "server returned no authorize_url".to_string(),
+            }));
+            return;
+        }
+    };
+    let cli_nonce = match init_json["cli_nonce"].as_str() {
+        Some(n) => n.to_string(),
+        None => {
+            let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
+                job_id,
+                error: "server returned no cli_nonce".to_string(),
+            }));
+            return;
+        }
+    };
+
+    // Notify the TUI that we have a URL to display
+    let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Initiated {
+        job_id,
+        authorize_url: authorize_url.clone(),
+    }));
+
+    // Best-effort browser open
+    let _ = open::that(&authorize_url);
+
+    // Step 2: poll for browser completion (60 s deadline, 2 s interval)
+    let poll_url = format!("{base}/auth/oidc/cli-poll/{cli_nonce}");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let grant_id = loop {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        if std::time::Instant::now() >= deadline {
+            let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::TimedOut { job_id }));
+            return;
+        }
+        match client.get(&poll_url).send().await {
+            Ok(r) if r.status().is_success() => {
+                if let Ok(v) = r.json::<serde_json::Value>().await {
+                    if v["status"].as_str() == Some("ready") {
+                        if let Some(gid) = v["grant_id"].as_str() {
+                            break gid.to_string();
+                        }
+                    }
+                }
+            }
+            _ => {} // transient error or still pending — keep polling
+        }
+    };
+
+    // Step 3: exchange grant for session token
+    let exchange_url = format!("{base}/auth/oidc/exchange");
+    let ttl = ttl_hours.clamp(1, 720);
+    let exchange_resp = match client
+        .post(&exchange_url)
+        .json(&serde_json::json!({ "grant_id": grant_id, "ttl_hours": ttl }))
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => {
+            let status = r.status();
+            let body = r.text().await.unwrap_or_default();
+            let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
+                job_id,
+                error: format!("exchange returned {status}: {body}"),
+            }));
+            return;
+        }
+        Err(e) => {
+            let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
+                job_id,
+                error: format!("exchange request failed: {e}"),
+            }));
+            return;
+        }
+    };
+
+    let resp_json: serde_json::Value = match exchange_resp.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
+                job_id,
+                error: format!("failed to parse exchange response: {e}"),
+            }));
+            return;
+        }
+    };
+
+    let token = match resp_json["token"].as_str().or_else(|| resp_json["access_token"].as_str()) {
+        Some(t) => t.to_string(),
+        None => {
+            let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
+                job_id,
+                error: "exchange response missing token field".to_string(),
+            }));
+            return;
+        }
+    };
+    let subject = resp_json["subject"].as_str().unwrap_or("unknown").to_string();
+    let email = resp_json["email"].as_str().map(|s| s.to_string());
+    let expires_at = resp_json["expires_at"].as_str().unwrap_or("").to_string();
+    let session_id = resp_json["session_id"].as_i64();
+
+    let session = crate::auth::SavedSession {
+        token: token.clone(),
+        subject: subject.clone(),
+        email: email.clone(),
+        expires_at: expires_at.clone(),
+        base_url: base,
+        session_id,
+    };
+    if let Err(e) = crate::auth::save_session(&session) {
+        let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
+            job_id,
+            error: format!("failed to save session: {e}"),
+        }));
+        return;
+    }
+
+    let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Complete {
+        job_id,
+        token,
+        subject,
+        expires_at,
+        email,
+    }));
 }
 
 /// Connect to the backend's agent-feed SSE endpoint and stream events until the
