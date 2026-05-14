@@ -208,6 +208,10 @@ impl App {
         pool.dispatch(client.clone(), WorkRequest::Ping { job_id: next_job_id() });
         // Load agents immediately on startup
         pool.dispatch(client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
+        // Resolve token identity when auth came from --token / MC_TOKEN
+        if matches!(auth_state, AuthState::SessionFromFlag) {
+            pool.dispatch(client.clone(), WorkRequest::Whoami { job_id: next_job_id() });
+        }
 
         let token_masked = token.as_ref().map(|t| {
             if t.len() > 8 { format!("{}…", &t[..8]) } else { "***".into() }
@@ -639,6 +643,19 @@ impl App {
                 }
                 WorkResult::UrlTested { ok, latency_ms, version, error, .. } => {
                     self.config.set_controlplane_test_result(ok, latency_ms, version, error);
+                }
+                WorkResult::WhoamiComplete { subject, .. } => {
+                    // Resolve the real identity for token-auth sessions so the
+                    // header shows the actual subject instead of "--token".
+                    if matches!(self.auth_state, AuthState::SessionFromFlag) {
+                        if let Some(sub) = subject {
+                            self.auth_state = AuthState::SessionValid {
+                                subject: sub,
+                                email: None,
+                                expires_at: String::new(),
+                            };
+                        }
+                    }
                 }
             }
         }

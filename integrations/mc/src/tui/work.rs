@@ -56,6 +56,8 @@ pub enum WorkRequest {
     OidcFlow { job_id: JobId, base_url: String, ttl_hours: u64 },
     /// Ping a URL to test connectivity (unauthenticated GET {url}/health).
     PingUrl { job_id: JobId, url: String },
+    /// Resolve the current token to a subject via /auth/whoami.
+    Whoami { job_id: JobId },
 }
 
 // ─── results ─────────────────────────────────────────────────────────────────
@@ -119,6 +121,8 @@ pub enum WorkResult {
         version: Option<String>,
         error: Option<String>,
     },
+    /// Subject resolved from /auth/whoami for a token-authenticated session.
+    WhoamiComplete { job_id: JobId, subject: Option<String> },
 }
 
 /// Events emitted during an in-TUI OIDC browser login flow.
@@ -355,6 +359,10 @@ impl WorkPool {
                             });
                         }
                     }
+                }
+                WorkRequest::Whoami { job_id } => {
+                    let subject = handle.block_on(client.whoami()).ok().flatten();
+                    let _ = tx.send(WorkResult::WhoamiComplete { job_id, subject });
                 }
             }
         });

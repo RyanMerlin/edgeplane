@@ -285,7 +285,7 @@ pub async fn provision_home_mission(db: &sqlx::PgPool, agent_id: i32, agent_name
             (id, name, description, owners, contributors, tags, visibility, status, \
              northstar_md, northstar_version, northstar_created_by, northstar_modified_by, \
              northstar_created_at, northstar_modified_at, created_at, updated_at) \
-         VALUES ($1,$2,$3,$4,'','','private','active','',1,'','',NULL,NULL,$5,$5)"
+         VALUES ($1,$2,$3,$4,'','','public','active','',1,'','',NULL,NULL,$5,$5)"
     )
     .bind(&mission_id)
     .bind(agent_name)

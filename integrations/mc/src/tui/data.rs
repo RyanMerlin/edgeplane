@@ -156,6 +156,8 @@ pub trait DataClient: Send + Sync {
     async fn delete_agent(&self, agent_id: &str) -> Result<()>;
     async fn restart_agent(&self, agent_id: &str) -> Result<()>;
     async fn clear_agent_context(&self, agent_id: &str) -> Result<()>;
+    /// Resolve the current token to a subject via /auth/whoami. Returns None on error.
+    async fn whoami(&self) -> Result<Option<String>>;
 }
 
 // ─── fixture client (test / offline use) ─────────────────────────────────────
@@ -203,6 +205,10 @@ impl DataClient for FixtureDataClient {
 
     async fn clear_agent_context(&self, _agent_id: &str) -> Result<()> {
         Ok(())
+    }
+
+    async fn whoami(&self) -> Result<Option<String>> {
+        Ok(None)
     }
 }
 
@@ -358,6 +364,11 @@ impl DataClient for RemoteDataClient {
             anyhow::bail!("clear_agent_context returned {status}: {text}");
         }
         Ok(())
+    }
+
+    async fn whoami(&self) -> Result<Option<String>> {
+        let v = self.get::<serde_json::Value>("/auth/whoami").await?;
+        Ok(v.get("subject").and_then(|s| s.as_str()).map(String::from))
     }
 }
 
