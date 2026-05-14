@@ -3,6 +3,7 @@
   import { get } from 'svelte/store';
   import '../app.css';
   import { authStore, bootstrapAuth, loginWithCookieSession, loginWithToken, token, startOidcLogin, logout } from '$lib/auth';
+  import { base } from '$app/paths';
   import { exchangeOidcGrant } from '$lib/api';
   import { startMatrixStream, stopMatrixStream } from '$lib/telemetry';
   import { toastStore, showToast } from '$lib/stores/toast';
@@ -96,7 +97,7 @@
   // ── Nav helpers ───────────────────────────────────────────────────────────────
 
   function navClass(path: string) {
-    return `tab ${page.url.pathname.startsWith(path) ? 'active' : ''}`;
+    return `tab ${page.url.pathname.startsWith(`${base}${path}`) ? 'active' : ''}`;
   }
 </script>
 
@@ -121,12 +122,12 @@
 
     {#if isLoggedIn}
       <nav class="tabs">
-        <a href="/agents/" class={navClass('/agents')}>Agents</a>
-        <a href="/ai/" class={navClass('/ai')}>AI Console</a>
-        <a href="/matrix/" class={navClass('/matrix')}>Matrix</a>
-        <a href="/explorer/" class={navClass('/explorer')}>Explorer</a>
-        <a href="/onboarding/" class={navClass('/onboarding')}>Onboarding</a>
-        <a href="/governance/" class={navClass('/governance')}>Governance</a>
+        <a href="{base}/agents/" class={navClass('/agents')}>Agents</a>
+        <a href="{base}/ai/" class={navClass('/ai')}>AI Console</a>
+        <a href="{base}/matrix/" class={navClass('/matrix')}>Matrix</a>
+        <a href="{base}/explorer/" class={navClass('/explorer')}>Explorer</a>
+        <a href="{base}/onboarding/" class={navClass('/onboarding')}>Onboarding</a>
+        <a href="{base}/governance/" class={navClass('/governance')}>Governance</a>
       </nav>
       <div class="main-shell">
         {@render children()}

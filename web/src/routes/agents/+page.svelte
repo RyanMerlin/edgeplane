@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { useAuthState } from '$lib/stores/auth-state.svelte';
 	import { api } from '$lib/api/client';
+	import { base } from '$app/paths';
 
 	type AgentRow = {
 		id: number;
@@ -62,7 +63,7 @@
 					<tr>
 						<td><span class="status-{a.status}">●</span> {a.status}</td>
 						<td>
-							<a href={`/agents/${encodeURIComponent(a.public_id)}/`}>{a.public_id}</a>
+							<a href={`${base}/agents/${encodeURIComponent(a.public_id)}/`}>{a.public_id}</a>
 						</td>
 						<td>{a.name}</td>
 						<td class="caps">{a.capabilities ?? ''}</td>
