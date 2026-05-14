@@ -79,6 +79,8 @@ pub struct ApprovalSummary {
     #[serde(default)]
     pub requested_by: Option<String>,
     pub status: String,
+    #[serde(default)]
+    pub request_context: Option<serde_json::Value>,
 }
 
 // ─── agent summary ───────────────────────────────────────────────────────────

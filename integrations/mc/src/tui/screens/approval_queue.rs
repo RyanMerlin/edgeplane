@@ -21,6 +21,8 @@ pub struct ApprovalRequest {
     #[serde(default)]
     pub requested_by: Option<String>,
     pub status: String,
+    #[serde(default)]
+    pub request_context: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -251,6 +253,52 @@ fn render_detail(buf: &mut Buffer, area: Rect, state: &ApprovalQueueState) {
         lines.push(Line::from(""));
     }
 
+    if let Some(ctx) = &req.request_context {
+        lines.push(Line::from(Span::styled("Context", theme::muted())));
+        let tool = ctx.get("tool").or_else(|| ctx.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        match tool {
+            "str_replace_editor" | "Edit" => {
+                if let Some(path) = ctx.get("path").and_then(|v| v.as_str()) {
+                    lines.push(Line::from(Span::styled(path.to_string(), theme::accent())));
+                }
+                if let Some(old) = ctx.get("old_string").and_then(|v| v.as_str()) {
+                    for l in old.lines().take(8) {
+                        lines.push(Line::from(Span::styled(format!("- {l}"), theme::err())));
+                    }
+                }
+                if let Some(new) = ctx.get("new_string").and_then(|v| v.as_str()) {
+                    for l in new.lines().take(8) {
+                        lines.push(Line::from(Span::styled(format!("+ {l}"), theme::ok())));
+                    }
+                }
+            }
+            "write_file" | "Write" => {
+                if let Some(path) = ctx.get("path").and_then(|v| v.as_str()) {
+                    lines.push(Line::from(Span::styled(path.to_string(), theme::accent())));
+                }
+                if let Some(content) = ctx.get("content").and_then(|v| v.as_str()) {
+                    for l in content.lines().take(10) {
+                        lines.push(Line::from(Span::styled(format!("  {l}"), theme::dim())));
+                    }
+                }
+            }
+            "Bash" | "bash" | "computer" => {
+                if let Some(cmd) = ctx.get("command").or_else(|| ctx.get("cmd"))
+                    .and_then(|v| v.as_str())
+                {
+                    lines.push(Line::from(Span::styled(truncate(cmd, 120), theme::dim())));
+                }
+            }
+            _ => {
+                let raw = truncate(&ctx.to_string(), 200);
+                lines.push(Line::from(Span::styled(raw, theme::dim())));
+            }
+        }
+        lines.push(Line::from(""));
+    }
+
     // Action hint
     lines.push(Line::from(vec![
         Span::styled("  y ", theme::ok()),
@@ -281,7 +329,7 @@ mod tests {
         ApprovalRequest {
             id, mission_id: None, action: action.into(),
             channel: None, reason: None, requested_by: None,
-            status: "pending".into(),
+            status: "pending".into(), request_context: None,
         }
     }
 

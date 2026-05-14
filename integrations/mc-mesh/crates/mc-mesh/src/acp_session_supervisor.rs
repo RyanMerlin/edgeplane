@@ -48,6 +48,9 @@ const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(60);
 const STABLE_THRESHOLD: Duration = Duration::from_secs(30);
 const UPDATES_BROADCAST_CAPACITY: usize = 1024;
+/// Fraction of context window consumed before injecting /compact.
+/// Override with MC_MESH_COMPACT_THRESHOLD env var (0.0–1.0).
+const DEFAULT_COMPACT_THRESHOLD: f64 = 0.85;
 const SIGNAL_CHANNEL_CAPACITY: usize = 64;
 /// How many recent SessionNotifications to keep for viewers attaching
 /// mid-session. Sized for a couple of minutes of typical assistant
@@ -119,11 +122,18 @@ async fn run_one_session(
     registry.register(cfg.agent_id.clone(), endpoints).await;
 
     let mut agent_updates = session.subscribe_updates();
+    let compact_threshold = std::env::var("MC_MESH_COMPACT_THRESHOLD")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|&t| t > 0.0 && t <= 1.0)
+        .unwrap_or(DEFAULT_COMPACT_THRESHOLD);
+
     let result = pump_session(
         &session,
         &mut agent_updates,
         &updates_broadcast,
         &mut signal_rx,
+        compact_threshold,
     )
     .await;
 
@@ -137,7 +147,10 @@ async fn pump_session(
     agent_updates: &mut broadcast::Receiver<mc_mesh_acp::wire::SessionNotification>,
     updates_broadcast: &ReplayBroadcast<mc_mesh_acp::wire::SessionNotification>,
     signal_rx: &mut mpsc::Receiver<AgentSignal>,
+    compact_threshold: f64,
 ) -> anyhow::Result<()> {
+    let mut compact_triggered = false;
+
     loop {
         tokio::select! {
             biased;
@@ -150,6 +163,27 @@ async fn pump_session(
             recv = agent_updates.recv() => {
                 match recv {
                     Ok(notif) => {
+                        if let mc_mesh_acp::wire::SessionUpdate::UsageUpdate(ref val) = notif.update {
+                            if !compact_triggered {
+                                if let (Some(used), Some(size)) = (
+                                    val.get("used").and_then(|v| v.as_u64()),
+                                    val.get("size").and_then(|v| v.as_u64()),
+                                ) {
+                                    if size > 0 {
+                                        let ratio = used as f64 / size as f64;
+                                        if ratio >= compact_threshold {
+                                            compact_triggered = true;
+                                            tracing::info!(
+                                                used, size,
+                                                ratio = format!("{:.1}%", ratio * 100.0),
+                                                "context pressure threshold reached — injecting /compact"
+                                            );
+                                            run_prompt(session, "/compact".into()).await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         updates_broadcast.send(notif);
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {

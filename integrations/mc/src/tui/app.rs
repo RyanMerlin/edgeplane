@@ -549,6 +549,7 @@ impl App {
                                 reason: a.reason,
                                 requested_by: a.requested_by,
                                 status: a.status,
+                                request_context: a.request_context,
                             })
                             .collect();
                         if let Some(id) = prev_id {
