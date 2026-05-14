@@ -99,19 +99,21 @@ impl AgentScreenState {
                 }
                 true
             }
-            Char('d') if self.focus == AgentFocus::Agents => {
+            // Agent ops work regardless of focus — Nodes pane is read-only and
+            // requiring users to first press → is unnecessary friction.
+            Char('d') => {
                 if let Some(agent) = self.visible_agents().get(self.agent_selection) {
                     self.pending_op = Some(AgentOp::Delete { id: agent.id.clone(), name: agent.name.clone() });
                 }
                 true
             }
-            Char('r') if self.focus == AgentFocus::Agents => {
+            Char('r') => {
                 if let Some(agent) = self.visible_agents().get(self.agent_selection) {
                     self.pending_op = Some(AgentOp::Restart { id: agent.id.clone(), name: agent.name.clone() });
                 }
                 true
             }
-            Char('x') if self.focus == AgentFocus::Agents => {
+            Char('x') => {
                 if let Some(agent) = self.visible_agents().get(self.agent_selection) {
                     self.pending_op = Some(AgentOp::ClearContext { id: agent.id.clone(), name: agent.name.clone() });
                 }
@@ -578,11 +580,13 @@ mod tests {
     }
 
     #[test]
-    fn op_keys_are_noop_when_focus_is_nodes() {
+    fn op_keys_work_regardless_of_focus() {
+        // Op keys arm a pending op from either focus pane — the Nodes pane is
+        // read-only so there's no conflict, and requiring → first is friction.
         let mut s = state_with(vec![agent("1", "ghost", None)]);
         s.focus = AgentFocus::Nodes;
         s.handle_key(KeyCode::Char('d'));
-        assert!(s.take_pending_op().is_none(), "'d' on Nodes pane must not arm an op");
+        assert!(matches!(s.take_pending_op(), Some(AgentOp::Delete { .. })));
     }
 
     #[test]
