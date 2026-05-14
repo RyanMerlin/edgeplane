@@ -3,6 +3,7 @@ name: Build and Push Image
 on:
   push:
     branches: [main]
+    tags: ['v*.*.*']
 
 permissions:
   contents: read
@@ -44,6 +45,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/ryanmerlin/missioncontrol
+          tags: |
+            type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
       - name: Build and push missioncontrol
         uses: docker/build-push-action@v7
         with:
@@ -51,13 +63,13 @@ jobs:
           file: integrations/mc-controlplane/Dockerfile
           target: prod
           push: true
-          tags: |
-            ghcr.io/ryanmerlin/missioncontrol:${{ steps.sha.outputs.short }}
-            ghcr.io/ryanmerlin/missioncontrol:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=missioncontrol
           cache-to: type=gha,mode=max,scope=missioncontrol
 
       - name: Update gitops image tag
+        if: ${{ github.ref_type == 'branch' }}
         run: |
           SHORT_SHA=${{ steps.sha.outputs.short }}
           git clone https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/RyanMerlin/gitops-merlinlabs.git /tmp/gitops
