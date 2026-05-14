@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use chrono::Utc;
@@ -25,6 +25,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/agents/{agent_id}", get(get_agent).patch(update_agent).delete(delete_agent))
         .route("/agents/{agent_id}/restart", post(restart_agent))
         .route("/agents/{agent_id}/clear-context", post(clear_agent_context))
+        .route("/agents/{agent_id}/mission", patch(attach_mission))
         .route("/agents/{agent_id}/sessions", get(list_sessions).post(start_session))
         .route("/agents/{agent_id}/sessions/{session_id}/end", post(end_session))
         .route("/agents/{agent_id}/message", post(send_message))
@@ -35,16 +36,32 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 fn row_to_agent(row: &sqlx::postgres::PgRow) -> Agent {
+    let metadata: String = row.get("metadata");
+    let (runtime, node_id) = extract_metadata_fields(&metadata);
     Agent {
         id: row.get("id"),
         public_id: row.get("public_id"),
         name: row.get("name"),
         capabilities: row.get("capabilities"),
         status: row.get("status"),
-        metadata: row.get("metadata"),
+        metadata,
+        home_mission_id: row.try_get("home_mission_id").unwrap_or(None),
+        current_mission_id: row.try_get("current_mission_id").unwrap_or(None),
+        mission_name: row.try_get("mission_name").unwrap_or(None),
+        runtime,
+        node_id,
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
+}
+
+fn extract_metadata_fields(metadata: &str) -> (Option<String>, Option<String>) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(metadata) else {
+        return (None, None);
+    };
+    let runtime = v["runtime"].as_str().map(String::from);
+    let node_id = v["node_id"].as_str().map(String::from);
+    (runtime, node_id)
 }
 
 /// Generate a fresh public_id for a new agent row. Shape is
@@ -154,18 +171,21 @@ async fn list_agents(
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(100).min(500);
-    // Archived agents are filtered out by default — callers must opt in. This
-    // keeps every existing TUI/CLI view focused on live identities without
-    // requiring a code change at each call site.
-    let archived_clause = if q.include_archived { "" } else { " AND archived_at IS NULL" };
+    let archived_clause = if q.include_archived { "" } else { " AND a.archived_at IS NULL" };
     let rows = if let Some(s) = &q.status {
         let sql = format!(
-            "SELECT * FROM agent WHERE status=$1{archived_clause} ORDER BY updated_at DESC LIMIT $2"
+            "SELECT a.*, m.name AS mission_name \
+             FROM agent a \
+             LEFT JOIN mission m ON m.id = a.current_mission_id \
+             WHERE a.status=$1{archived_clause} ORDER BY a.updated_at DESC LIMIT $2"
         );
         sqlx::query(&sql).bind(s).bind(limit).fetch_all(&state.db).await
     } else {
         let sql = format!(
-            "SELECT * FROM agent WHERE 1=1{archived_clause} ORDER BY updated_at DESC LIMIT $1"
+            "SELECT a.*, m.name AS mission_name \
+             FROM agent a \
+             LEFT JOIN mission m ON m.id = a.current_mission_id \
+             WHERE 1=1{archived_clause} ORDER BY a.updated_at DESC LIMIT $1"
         );
         sqlx::query(&sql).bind(limit).fetch_all(&state.db).await
     };
@@ -190,13 +210,6 @@ async fn create_agent(
 
     let now = Utc::now().naive_utc();
     let new_public_id = generate_public_id(&payload.name);
-    // Upsert by name. Re-registering an existing agent refreshes capabilities,
-    // status, metadata, last_seen_at, and un-archives the row — but preserves
-    // the original `created_at` and `public_id` so cumulative-lifetime queries
-    // and wire identifiers stay stable. `public_id` is bound on every call but
-    // only consumed by the INSERT branch; the DO UPDATE deliberately omits it.
-    // See docs/plans/mc-agents-identity-spec.md Phase 1 and
-    // docs/plans/2026-05-11-agent-public-id-mc-mesh-fix.md.
     let result = sqlx::query(
         "INSERT INTO agent \
             (name, capabilities, status, metadata, created_at, updated_at, last_seen_at, public_id) \
@@ -214,10 +227,104 @@ async fn create_agent(
     .bind(&payload.metadata).bind(now).bind(&new_public_id)
     .fetch_one(&state.db).await;
 
-    match result {
-        Ok(row) => (StatusCode::OK, Json(row_to_agent(&row))).into_response(),
-        Err(e) => { tracing::error!("create_agent: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    let row = match result {
+        Ok(row) => row,
+        Err(e) => { tracing::error!("create_agent: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+    };
+
+    let agent_id: i32 = row.get("id");
+    let home_mission_id: Option<String> = row.try_get("home_mission_id").unwrap_or(None);
+
+    // Auto-provision a home mission + Inbox kluster on first registration.
+    if home_mission_id.is_none() {
+        match provision_home_mission(&state.db, agent_id, &payload.name).await {
+            Ok(mission_id) => {
+                // Re-fetch so the response includes the new home/current mission fields.
+                match sqlx::query(
+                    "SELECT a.*, m.name AS mission_name \
+                     FROM agent a LEFT JOIN mission m ON m.id = a.current_mission_id \
+                     WHERE a.id=$1"
+                ).bind(agent_id).fetch_one(&state.db).await {
+                    Ok(refreshed) => return (StatusCode::OK, Json(row_to_agent(&refreshed))).into_response(),
+                    Err(e) => {
+                        tracing::error!("create_agent re-fetch after provision: {e}");
+                        // Return the original row without mission fields rather than failing.
+                    }
+                }
+                let _ = mission_id;
+            }
+            Err(e) => {
+                tracing::error!("create_agent home mission provision for {}: {e}", payload.name);
+                // Non-fatal — agent is registered, mission can be provisioned by backfill.
+            }
+        }
     }
+
+    (StatusCode::OK, Json(row_to_agent(&row))).into_response()
+}
+
+/// Create a home mission + Inbox kluster for an agent that has none, then
+/// set both `home_mission_id` and `current_mission_id` on the agent row.
+/// Wrapped in a transaction so a partial provision can't leave orphaned rows.
+pub async fn provision_home_mission(db: &sqlx::PgPool, agent_id: i32, agent_name: &str) -> anyhow::Result<String> {
+    let now = chrono::Utc::now().naive_utc();
+
+    // Generate a unique mission id (6-byte hex, same pattern as missions.rs).
+    let mut mission_id = hex_id();
+    for _ in 0..5 {
+        let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
+            .bind(&mission_id).fetch_optional(db).await.unwrap_or(None);
+        if exists.is_none() { break; }
+        mission_id = hex_id();
+    }
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query(
+        "INSERT INTO mission \
+            (id, name, description, owners, contributors, tags, visibility, status, \
+             northstar_md, northstar_version, northstar_created_by, northstar_modified_by, \
+             northstar_created_at, northstar_modified_at, created_at, updated_at) \
+         VALUES ($1,$2,$3,$4,'','','private','active','',1,'','',NULL,NULL,$5,$5)"
+    )
+    .bind(&mission_id)
+    .bind(agent_name)
+    .bind(format!("Home mission for {agent_name}"))
+    .bind(agent_name)
+    .bind(now)
+    .execute(&mut *tx).await?;
+
+    // Inbox kluster under the home mission.
+    let kluster_id = hex_id();
+    sqlx::query(
+        "INSERT INTO kluster \
+            (id, mission_id, name, description, owners, contributors, tags, status, \
+             workstream_md, workstream_version, workstream_created_by, workstream_modified_by, \
+             workstream_created_at, workstream_modified_at, created_at, updated_at) \
+         VALUES ($1,$2,'Inbox','Default inbox kluster',$3,'','','active','',1,'','',NULL,NULL,$4,$4)"
+    )
+    .bind(&kluster_id)
+    .bind(&mission_id)
+    .bind(agent_name)
+    .bind(now)
+    .execute(&mut *tx).await?;
+
+    sqlx::query(
+        "UPDATE agent SET home_mission_id=$1, current_mission_id=$1 WHERE id=$2"
+    )
+    .bind(&mission_id)
+    .bind(agent_id)
+    .execute(&mut *tx).await?;
+
+    tx.commit().await?;
+
+    tracing::info!(agent_id, mission_id = %mission_id, "provisioned home mission");
+    Ok(mission_id)
+}
+
+fn hex_id() -> String {
+    let bytes: [u8; 6] = rand::random();
+    hex::encode(bytes)
 }
 
 async fn get_agent(
@@ -229,7 +336,11 @@ async fn get_agent(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    match sqlx::query("SELECT * FROM agent WHERE id=$1").bind(agent_id).fetch_optional(&state.db).await {
+    match sqlx::query(
+        "SELECT a.*, m.name AS mission_name \
+         FROM agent a LEFT JOIN mission m ON m.id = a.current_mission_id \
+         WHERE a.id=$1"
+    ).bind(agent_id).fetch_optional(&state.db).await {
         Ok(Some(row)) => Json(row_to_agent(&row)).into_response(),
         Ok(None) => not_found("Agent not found"),
         Err(e) => { tracing::error!("get_agent: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
@@ -353,6 +464,61 @@ async fn update_agent(
     .fetch_one(&state.db).await {
         Ok(row) => Json(row_to_agent(&row)).into_response(),
         Err(e) => { tracing::error!("update_agent: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
+}
+
+// ── Mission attachment ────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct AttachMission {
+    /// Target mission id. Omit (or null) to detach — resets current_mission_id to home_mission_id.
+    mission_id: Option<String>,
+}
+
+async fn attach_mission(
+    State(state): State<Arc<AppState>>,
+    _principal: Principal,
+    Path(ident): Path<AgentIdent>,
+    Json(payload): Json<AttachMission>,
+) -> impl IntoResponse {
+    let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    let new_current_id: Option<String> = match &payload.mission_id {
+        Some(mid) => {
+            // Validate mission exists.
+            let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
+                .bind(mid).fetch_optional(&state.db).await.unwrap_or(None);
+            if exists.is_none() { return not_found("Mission not found"); }
+            Some(mid.clone())
+        }
+        None => {
+            // Detach: return to home.
+            sqlx::query_scalar::<_, String>("SELECT home_mission_id FROM agent WHERE id=$1")
+                .bind(agent_id).fetch_optional(&state.db).await.unwrap_or(None)
+        }
+    };
+
+    let now = Utc::now().naive_utc();
+    match sqlx::query(
+        "UPDATE agent SET current_mission_id=$1, updated_at=$2 WHERE id=$3 RETURNING id"
+    )
+    .bind(&new_current_id).bind(now).bind(agent_id)
+    .fetch_optional(&state.db).await {
+        Ok(None) => not_found("Agent not found"),
+        Ok(_) => {
+            match sqlx::query(
+                "SELECT a.*, m.name AS mission_name \
+                 FROM agent a LEFT JOIN mission m ON m.id = a.current_mission_id \
+                 WHERE a.id=$1"
+            ).bind(agent_id).fetch_one(&state.db).await {
+                Ok(row) => Json(row_to_agent(&row)).into_response(),
+                Err(e) => { tracing::error!("attach_mission re-fetch: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+            }
+        }
+        Err(e) => { tracing::error!("attach_mission: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
 }
 

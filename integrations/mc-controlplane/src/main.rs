@@ -59,6 +59,12 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("migrations complete");
     }
 
+    // Backfill home missions for any pre-existing agents that lack one.
+    // Safe to run every boot — idempotent, filters on home_mission_id IS NULL.
+    if let Err(e) = backfill_home_missions(&db).await {
+        tracing::warn!("home mission backfill failed (non-fatal): {e}");
+    }
+
     let config = AppConfig {
         node_id: cli.node_id.unwrap_or(1),
         advertise_url: cli.advertise_url.clone(),
@@ -70,6 +76,21 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(bind = %cli.bind, "listening");
     axum::serve(listener, app).await?;
 
+    Ok(())
+}
+
+async fn backfill_home_missions(db: &sqlx::PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query("SELECT id, name FROM agent WHERE home_mission_id IS NULL AND archived_at IS NULL")
+        .fetch_all(db).await?;
+    if rows.is_empty() { return Ok(()); }
+    tracing::info!("backfilling home missions for {} agent(s)", rows.len());
+    for row in rows {
+        let agent_id: i32 = sqlx::Row::get(&row, "id");
+        let name: String = sqlx::Row::get(&row, "name");
+        if let Err(e) = mc_controlplane::routes::agents::provision_home_mission(db, agent_id, &name).await {
+            tracing::warn!("backfill home mission for agent {agent_id} ({name}): {e}");
+        }
+    }
     Ok(())
 }
 

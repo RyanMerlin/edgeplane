@@ -128,6 +128,9 @@ pub enum McCommand {
     /// Manage named controlplane connection contexts.
     #[command(subcommand)]
     Context(ContextCommand),
+    /// Mission attachment and home-mission management for this agent.
+    #[command(subcommand)]
+    Mission(MissionCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -214,6 +217,19 @@ pub enum AgentCommand {
     /// Attach to a persistent ACP session — stream session/update frames
     /// to stdout, forward stdin lines as session/prompt.
     Attach(crate::attach::AttachArgs),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum MissionCommand {
+    /// Show this agent's home mission.
+    Home,
+    /// Attach this agent to a mission (sets current_mission_id).
+    Attach {
+        /// Mission ID to attach to.
+        mission_id: String,
+    },
+    /// Detach from the current mission and return to the home mission.
+    Detach,
 }
 
 #[derive(Subcommand, Debug)]
@@ -859,6 +875,7 @@ pub async fn run(
         McCommand::Discover(args) => discover::run(args).await,
         McCommand::Tui(args) => handle_tui(args, &config),
         McCommand::Context(cmd) => handle_context(cmd),
+        McCommand::Mission(cmd) => handle_mission(cmd, client, &config).await,
     }
 }
 
@@ -3490,4 +3507,43 @@ async fn call_mcp_tool(
     args: Value,
 ) -> Result<Value> {
     mcp_tools::call_tool(client, Some(booster), Some(schema_pack), tool, args).await
+}
+
+// ── mc mission ────────────────────────────────────────────────────────────────
+
+async fn handle_mission(cmd: MissionCommand, client: MissionControlClient, config: &McConfig) -> Result<()> {
+    // Resolve the agent id for this runtime. Prefer the configured agent_id;
+    // fall back to the default derived from the session state file.
+    let agent_id = config
+        .agent_context
+        .agent_id
+        .clone()
+        .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
+        .context("No agent_id configured. Run `mc init` or set MC_AGENT_ID.")?;
+
+    match cmd {
+        MissionCommand::Home => {
+            let agent = client.get_json(&format!("/agents/{agent_id}")).await?;
+            let home_id   = agent.get("home_mission_id").and_then(|v| v.as_str()).unwrap_or("—");
+            let curr_id   = agent.get("current_mission_id").and_then(|v| v.as_str()).unwrap_or("—");
+            let miss_name = agent.get("mission_name").and_then(|v| v.as_str()).unwrap_or("—");
+            println!("Home mission : {home_id}");
+            println!("Current      : {curr_id}  ({miss_name})");
+        }
+        MissionCommand::Attach { mission_id } => {
+            let body = json!({ "mission_id": mission_id });
+            let agent = client.patch_json(&format!("/agents/{agent_id}/mission"), &body).await?;
+            let curr  = agent.get("current_mission_id").and_then(|v| v.as_str()).unwrap_or("—");
+            let name  = agent.get("mission_name").and_then(|v| v.as_str()).unwrap_or("—");
+            println!("Attached to mission {curr} ({name})");
+        }
+        MissionCommand::Detach => {
+            let body = json!({ "mission_id": null });
+            let agent = client.patch_json(&format!("/agents/{agent_id}/mission"), &body).await?;
+            let curr  = agent.get("current_mission_id").and_then(|v| v.as_str()).unwrap_or("—");
+            let name  = agent.get("mission_name").and_then(|v| v.as_str()).unwrap_or("—");
+            println!("Detached — returned to home mission {curr} ({name})");
+        }
+    }
+    Ok(())
 }
