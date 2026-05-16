@@ -1277,7 +1277,7 @@ async fn exchange_grant(
         .to_string();
 
     let ttl = body.ttl_hours
-        .filter(|&h| h > 0 && h <= 720)
+        .filter(|&h| h > 0 && h <= 8760)
         .unwrap_or(cfg.session_ttl_hours);
 
     let (token, _session_id, expires_at) =
