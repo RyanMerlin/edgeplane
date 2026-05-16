@@ -397,7 +397,14 @@ pub async fn run_message_relay(
 ) {
     // We poll the agent-scoped message inbox: GET /agents/{id}/messages
     // which returns messages addressed to this agent + mission broadcasts.
+    //
+    // `last_id` is an in-memory cursor; it resets to 0 on every mcd restart.
+    // To avoid re-delivering the full message history on each startup, the
+    // first poll drains the cursor to the current high-water mark without
+    // routing any messages to the session. Only messages that arrive *after*
+    // mcd starts are delivered.
     let mut last_id: i64 = 0;
+    let mut startup_drain = true;
 
     loop {
         tokio::time::sleep(MESSAGE_POLL_INTERVAL).await;
@@ -410,6 +417,23 @@ pub async fn run_message_relay(
                 continue;
             }
         };
+
+        if startup_drain {
+            // Advance cursor past any pre-existing messages without delivering them.
+            let high = msgs
+                .iter()
+                .filter_map(|m| m.get("id").and_then(|v| v.as_i64()))
+                .max();
+            if let Some(max) = high {
+                tracing::debug!(
+                    "Message relay startup drain for {agent_id}: skipping {} existing message(s), cursor → {max}",
+                    msgs.len()
+                );
+                last_id = max;
+            }
+            startup_drain = false;
+            continue;
+        }
 
         for msg in msgs {
             // Track the highest seen id so we don't re-deliver.

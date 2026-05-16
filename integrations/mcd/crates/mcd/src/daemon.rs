@@ -671,6 +671,10 @@ impl Spawner {
                         agent_id: spec.agent_id.clone(),
                         spawn_opts: opts,
                         cwd: session_cwd,
+                        // agent_id is the public_id (e.g. "aria-work-708650f1");
+                        // using it as the remote-control prefix makes the ACP
+                        // session visible in the Claude app under that name.
+                        remote_control_prefix: Some(spec.agent_id.clone()),
                     };
                     tokio::spawn(acp_session_supervisor::run_for_agent(
                         scfg,

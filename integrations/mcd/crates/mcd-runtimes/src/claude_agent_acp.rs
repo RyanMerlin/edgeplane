@@ -143,7 +143,9 @@ impl AgentRuntime for ClaudeAgentAcpRuntime {
             &prompt[..prompt.len().min(80)]
         );
 
-        let session = AcpSession::open(opts, work_dir).await?;
+        // Task-mode sessions are ephemeral and not inspected interactively;
+        // no remote-control prefix needed.
+        let session = AcpSession::open(opts, work_dir, None).await?;
 
         // Convert prompt + session into a ProgressEvent stream that closes
         // the session when the stream completes.
@@ -293,7 +295,12 @@ impl AcpSession {
     /// Spawn the agent, run the initialize handshake, and create a session
     /// rooted at `cwd`. Returns once the session id is in hand and the agent
     /// is ready to accept prompts.
-    pub async fn open(opts: SpawnOpts, cwd: PathBuf) -> Result<Self> {
+    /// `remote_control_prefix` — when `Some`, injects `--remote-control` and
+    /// `--remote-control-session-name-prefix <prefix>` into the claude process
+    /// via `_meta.claudeCode.options.extraArgs` in `session/new`. The session
+    /// then appears in the Claude app under that prefix, making it addressable
+    /// for interactive inspection of fleet ACP sessions.
+    pub async fn open(opts: SpawnOpts, cwd: PathBuf, remote_control_prefix: Option<String>) -> Result<Self> {
         let agent = Agent::spawn(opts).await.context("acp spawn")?;
 
         let init = tokio::time::timeout(
@@ -318,10 +325,29 @@ impl AcpSession {
             init.agent_info.as_ref().map(|i| &i.name)
         );
 
+        // Build _meta.claudeCode.options.extraArgs when a remote-control prefix
+        // is supplied. The ACP node package reads this path and passes the
+        // key/value pairs as CLI flags to the claude binary it spawns.
+        let session_meta = remote_control_prefix.map(|prefix| {
+            let mut m = serde_json::Map::new();
+            m.insert(
+                "claudeCode".to_string(),
+                serde_json::json!({
+                    "options": {
+                        "extraArgs": {
+                            "remote-control": "",
+                            "remote-control-session-name-prefix": prefix
+                        }
+                    }
+                }),
+            );
+            m
+        });
+
         let new_session = tokio::time::timeout(
             Duration::from_secs(60),
             agent.new_session(schema::NewSessionRequest {
-                meta: None,
+                meta: session_meta,
                 cwd: cwd.to_string_lossy().into_owned(),
                 mcp_servers: vec![],
             }),
