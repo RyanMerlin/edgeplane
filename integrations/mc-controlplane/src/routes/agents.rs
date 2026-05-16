@@ -156,6 +156,9 @@ struct ListQuery {
     limit: Option<i64>,
     agent_id: Option<i32>,
     task_id: Option<i32>,
+    /// Return only messages with id > since_id. Used by mcd message relay to
+    /// avoid re-delivering already-seen messages across process restarts.
+    since_id: Option<i64>,
     /// When true, list_agents returns archived rows alongside live ones. Off
     /// by default so the steady-state TUI/CLI views stay focused. Phase 1 of
     /// the agent-identity spec.
@@ -737,11 +740,13 @@ async fn list_messages(
         Err(resp) => return resp,
     };
     let limit = q.limit.unwrap_or(50).min(200);
+    let since_id = q.since_id.unwrap_or(0);
     match sqlx::query_as::<_, AgentMessage>(
-        "SELECT * FROM agentmessage WHERE from_agent_id=$1 OR to_agent_id=$1 \
-         ORDER BY created_at DESC LIMIT $2"
+        "SELECT * FROM agentmessage \
+         WHERE (from_agent_id=$1 OR to_agent_id=$1) AND id > $3 \
+         ORDER BY id ASC LIMIT $2"
     )
-    .bind(agent_id).bind(limit).fetch_all(&state.db).await {
+    .bind(agent_id).bind(limit).bind(since_id).fetch_all(&state.db).await {
         Ok(msgs) => Json(msgs).into_response(),
         Err(e) => { tracing::error!("list_messages: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }

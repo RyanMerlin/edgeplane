@@ -419,21 +419,40 @@ pub async fn run_message_relay(
                 }
             }
 
+            // from_agent_id may be an integer (agent table id) or a string public_id.
             let from_agent_id = msg
                 .get("from_agent_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
+                .map(|v| {
+                    v.as_str()
+                        .map(String::from)
+                        .unwrap_or_else(|| v.to_string())
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+            // channel: native peer messages use "channel"; mc signal messages use
+            // message_type ("signal", "command") with no channel field.
             let channel = msg
                 .get("channel")
                 .and_then(|v| v.as_str())
-                .unwrap_or("coordination")
+                .unwrap_or_else(|| {
+                    msg.get("message_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("coordination")
+                })
                 .to_string();
+            // body: native peer messages use body_json; mc signal / mc agent remote message
+            // store text in the "content" field. Fall back gracefully so signal
+            // content is not silently dropped.
             let body: serde_json::Value = msg
                 .get("body_json")
                 .and_then(|v| v.as_str())
                 .and_then(|s| serde_json::from_str(s).ok())
-                .unwrap_or_else(|| msg.get("body_json").cloned().unwrap_or(serde_json::json!({})));
+                .unwrap_or_else(|| {
+                    if let Some(content) = msg.get("content").and_then(|v| v.as_str()) {
+                        serde_json::json!({"text": content})
+                    } else {
+                        msg.get("body_json").cloned().unwrap_or(serde_json::json!({}))
+                    }
+                });
 
             tracing::info!(
                 "Agent {agent_id} received message from {from_agent_id} on channel {channel}"
