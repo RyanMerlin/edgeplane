@@ -276,6 +276,43 @@ impl ClaudeAgentAcpRuntime {
             .ok_or_else(|| anyhow!("acp dist/index.js not resolved — call ensure_installed first"))?;
         let mut opts = SpawnOpts::claude_code_acp(node, acp_js);
         opts.cwd = Some(cwd.to_path_buf());
+        // Prefer the system claude CLI over the binary bundled in the ACP npm
+        // package — the bundled binary lags behind the system install and may
+        // be missing remote-control support or recent bug fixes.
+        // Probe candidates in order; systemd services run with a stripped PATH
+        // so which::which() is unreliable — check known locations explicitly.
+        // MC_ACP_CLAUDE_EXECUTABLE overrides all of this for testing.
+        let system_claude = std::env::var("MC_ACP_CLAUDE_EXECUTABLE").ok().or_else(|| {
+            let candidates = [
+                // versioned symlink written by the claude CLI updater
+                dirs::home_dir()
+                    .map(|h| h.join(".local/share/claude/versions"))
+                    .and_then(|base| {
+                        // pick the highest version directory
+                        std::fs::read_dir(&base).ok().and_then(|mut rd| {
+                            let mut entries: Vec<_> = rd
+                                .flatten()
+                                .filter(|e| e.path().join("claude").exists())
+                                .collect();
+                            entries.sort_by_key(|e| e.file_name());
+                            entries.last().map(|e| e.path().join("claude"))
+                        })
+                    }),
+                // standard user-local install
+                dirs::home_dir().map(|h| h.join(".local/bin/claude")),
+                // cargo-installed (some dev setups)
+                dirs::home_dir().map(|h| h.join(".cargo/bin/claude")),
+            ];
+            candidates
+                .into_iter()
+                .flatten()
+                .find(|p| p.exists())
+                .map(|p| p.to_string_lossy().into_owned())
+        });
+        if let Some(exe) = system_claude {
+            tracing::debug!("ACP sessions will use claude executable: {exe}");
+            opts.env.insert("CLAUDE_CODE_EXECUTABLE".into(), exe);
+        }
         Ok(opts)
     }
 }
