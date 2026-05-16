@@ -55,14 +55,14 @@ fn resolve_hostname() -> String {
 
 /// `cmd` is `None` when the user runs `mc sync` with no subcommand; default to Pull.
 pub fn run(cmd: Option<SyncCmd>) -> Result<()> {
-    use mc_mesh_sync::SyncClient;
+    use mcd_sync::SyncClient;
 
     let repo_url = std::env::var("MC_SYNC_REPO")
         .ok()
         .or_else(read_config_sync_repo)
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "sync repo not configured — set MC_SYNC_REPO or add sync_repo to ~/.missioncontrol/config.json"
+                "sync repo not configured — set MC_SYNC_REPO or add sync_repo to ~/.mc/config.json"
             )
         })?;
 

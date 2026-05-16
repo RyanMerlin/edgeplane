@@ -6,7 +6,7 @@ use sqlx::PgPool;
 pub struct Agent {
     pub id: i32,
     /// Stable, human-readable identifier — `{name}-{8-char-suffix}`. Used
-    /// as the external/wire identity (mc-mesh, CLI, TUI, dashboard). The
+    /// as the external/wire identity (mcd, CLI, TUI, dashboard). The
     /// numeric `id` stays internal to the database for foreign keys.
     pub public_id: String,
     pub name: String,
@@ -108,7 +108,7 @@ pub struct AssignmentUpdate {
 #[derive(Debug, Deserialize)]
 pub struct MessageSend {
     /// Accepts either the internal numeric id (legacy) or the public_id
-    /// string (new mc-mesh path). Resolved to a database row via
+    /// string (new mcd path). Resolved to a database row via
     /// `AgentIdent::resolve_id` before persistence.
     pub to_agent_id: AgentIdent,
     pub content: String,

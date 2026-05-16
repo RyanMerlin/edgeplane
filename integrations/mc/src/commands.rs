@@ -7,9 +7,8 @@ use crate::{
     cmd,
     compat,
     config::McConfig,
-    daemon::{self, DaemonArgs},
     discover,
-    drift, evolve, governance, launch, maintenance, mcp_server, mcp_tools, mesh, ops, run,
+    daemon_ctl, drift, evolve, governance, launch, maintenance, mcp_server, mcp_tools, ops, run,
     output::{self, OutputMode},
     remote, runtime,
     schema_pack::SchemaPack,
@@ -84,8 +83,6 @@ pub enum McCommand {
     /// Mission operations (lifecycle orchestration and execution workflows).
     #[command(subcommand)]
     Ops(ops::OpsCommand),
-    /// Run the async background daemon (matrix + MQTT).
-    Daemon(DaemonArgs),
     /// Launch an agent with a fully wired MissionControl harness.
     Launch(launch::LaunchArgs),
     /// Self-update helper for the mc binary.
@@ -103,16 +100,16 @@ pub enum McCommand {
     /// Secrets provider + reference helpers.
     #[command(subcommand)]
     Secrets(SecretsCommand),
-    /// mc-mesh daemon control and work-model commands.
-    #[command(subcommand)]
-    Mesh(mesh::MeshCommand),
+    /// mcd daemon control and work-model commands.
+    #[command(name = "daemon", subcommand)]
+    Daemon(daemon_ctl::DaemonCommand),
     /// Launch an agent runtime with a unified interface.
     #[command(name = "run")]
     Run(run::RunArgs),
-    /// List and describe capability packs available through mc-mesh.
+    /// List and describe capability packs available through mcd.
     #[command(subcommand)]
     Capabilities(cmd::capabilities::CapabilitiesCmd),
-    /// Execute a capability through the mc-mesh routing layer.
+    /// Execute a capability through the mcd routing layer.
     #[command(name = "exec", about = "Execute a capability")]
     Exec(cmd::run::ExecArgs),
     /// Inspect capability execution receipts stored in the local SQLite audit log.
@@ -850,7 +847,7 @@ pub async fn run(
         }
         McCommand::Approvals(cmd) => handle_approvals(cmd, client, output_mode).await,
         McCommand::Ops(cmd) => ops::run(cmd, &client, &booster, &config.schema_pack).await,
-        McCommand::Daemon(args) => daemon::run(&args, &client, ctx).await,
+        McCommand::Daemon(cmd) => daemon_ctl::handle(cmd, &client, &config).await,
         McCommand::Launch(args) => launch::run(args, &client, &config).await,
         McCommand::Update(args) => {
             update::run(update::UpdateCommand::SelfUpdate(args), &config).await
@@ -860,7 +857,6 @@ pub async fn run(
         McCommand::Channel(cmd) => channel::run(cmd, &client).await,
         McCommand::Profile(cmd) => handle_profile(cmd, client, output_mode).await,
         McCommand::Secrets(cmd) => handle_secrets(cmd, client, output_mode).await,
-        McCommand::Mesh(cmd) => mesh::handle(cmd, &client, &config).await,
         McCommand::Run(args) => run::run(args, &client, &config).await,
         McCommand::Capabilities(sub) => {
             // TODO: wire top-level --host and --route global flags through here
@@ -1895,13 +1891,13 @@ fn handle_infisical_profiles(command: InfisicalProfileCommand, output_mode: Outp
     let path = crate::config::mc_home_dir().join("infisical_profiles.json");
     let mut map = if path.exists() {
         let raw = fs::read_to_string(&path)?;
-        serde_json::from_str::<mc_mesh_secrets::InfisicalProfileMap>(&raw)
+        serde_json::from_str::<mcd_secrets::InfisicalProfileMap>(&raw)
             .unwrap_or_default()
     } else {
-        mc_mesh_secrets::InfisicalProfileMap::default()
+        mcd_secrets::InfisicalProfileMap::default()
     };
 
-    let save = |map: &mc_mesh_secrets::InfisicalProfileMap| -> Result<()> {
+    let save = |map: &mcd_secrets::InfisicalProfileMap| -> Result<()> {
         if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
         fs::write(&path, serde_json::to_string_pretty(map)?)?;
         Ok(())
@@ -1918,7 +1914,7 @@ fn handle_infisical_profiles(command: InfisicalProfileCommand, output_mode: Outp
             environment,
             activate,
         } => {
-            use mc_mesh_secrets::InfisicalConfig;
+            use mcd_secrets::InfisicalConfig;
             let cfg = InfisicalConfig {
                 site_url,
                 service_token: service_token.filter(|s| !s.is_empty()),
@@ -2017,7 +2013,7 @@ fn handle_infisical_profiles(command: InfisicalProfileCommand, output_mode: Outp
                 .to_string();
             let env_slug = environment.unwrap_or_else(|| cfg.default_environment.clone());
 
-            let client = mc_mesh_secrets::InfisicalClient::new(&cfg)?;
+            let client = mcd_secrets::InfisicalClient::new(&cfg)?;
             let rt = tokio::runtime::Handle::current();
             let value = rt.block_on(client.fetch_secret(&secret_name, &proj, &env_slug, &path))?;
 

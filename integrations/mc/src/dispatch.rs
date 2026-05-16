@@ -4,7 +4,7 @@
 ///   1. `--host <node>` → Remote
 ///   2. `--route <mode>` → explicit RouteMode
 ///   3. `MC_ROUTE` env var
-///   4. `~/.missioncontrol/config.json` `capability_route` field
+///   4. `~/.mc/config.json` `capability_route` field
 ///   5. Default: Auto
 use anyhow::{Context, Result};
 use serde::Deserialize;

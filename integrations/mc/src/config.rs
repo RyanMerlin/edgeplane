@@ -92,7 +92,7 @@ pub fn default_agent_id_from_session(base_url: &str) -> Option<String> {
     }
 }
 
-/// Load a session token from `~/.missioncontrol/session.json` if one exists,
+/// Load a session token from `~/.mc/session.json` if one exists,
 /// has not expired, and was created for `base_url`.
 ///
 /// Called by `main.rs` when `MC_TOKEN` / `--token` is absent.
@@ -100,7 +100,7 @@ pub fn load_session_token(base_url: &str) -> Option<String> {
     crate::auth::load_saved_session(base_url).map(|s| s.token)
 }
 
-// ── Persistent config file (~/.missioncontrol/config.json) ───────────────────
+// ── Persistent config file (~/.mc/config.json) ───────────────────
 
 /// User-level persistent settings. Written by `mc auth login`, read at startup.
 /// Sensitive values (tokens) are NOT stored here — those live in session.json (chmod 600).

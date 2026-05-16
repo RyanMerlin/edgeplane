@@ -190,7 +190,7 @@ Right side or modal — depending on terminal width — for the cursored agent:
 
 Action affordances:
 - **Attach** — opens the ACP message stream (Phase 2 of persistent-session work). Disabled if no live session.
-- **Restart** — calls `POST /agents/{id}/restart`. Closes the current session cleanly and signals mc-mesh to relaunch.
+- **Restart** — calls `POST /agents/{id}/restart`. Closes the current session cleanly and signals mcd to relaunch.
 - **Clear context** — calls `POST /agents/{id}/clear-context`. Disabled if no live session.
 - **Signal** — opens an input modal to send a prompt/signal to the live session.
 - **Rename** — updates `display_name`. The stable `name` (used for upsert) cannot be changed here.
@@ -284,13 +284,13 @@ Phase 1 alone fixes the new-duplicate problem. Phases 2-4 build the value.
 
 1. **Token accounting source.** The detail pane shows per-session tokens. Where do those numbers come from today? If the runtime doesn't already emit `tokens_input` / `tokens_output` per turn, we need to wire that — and it's coupled to whether we're using ACP (structured events with usage data) or raw PTY (no per-turn telemetry). The ACP-first decision (`project_mc_acp_first.md`) makes this cleaner.
 
-2. **Heartbeat cadence.** 60s "online" threshold assumes a heartbeat at least that frequently. Today's cadence in mc-mesh? Worth verifying before pinning the threshold.
+2. **Heartbeat cadence.** 60s "online" threshold assumes a heartbeat at least that frequently. Today's cadence in mcd? Worth verifying before pinning the threshold.
 
 3. **Federation: same agent name on two controlplanes.** Today the `(name, controlplane_id)` uniqueness handles this. But if a node moves between controlplanes, do we want a single global identity? **Proposed:** no — each controlplane owns its agents. Federation can show a federated view but the rows are distinct.
 
 4. **`mc admin agents merge` UX.** Should the merge be interactive (TUI flow that walks through candidates) or strictly CLI? **Proposed:** CLI first (simple), TUI version as a follow-up if operators actually need it.
 
-5. **Live-session uniqueness vs registration races.** If two `mc-mesh` processes register the same agent name simultaneously, the partial unique index will reject the second one. Should it be a friendly "another instance is already running" error or a forced-takeover? **Proposed:** friendly error. Force-takeover is too easy to misuse.
+5. **Live-session uniqueness vs registration races.** If two `mcd` processes register the same agent name simultaneously, the partial unique index will reject the second one. Should it be a friendly "another instance is already running" error or a forced-takeover? **Proposed:** friendly error. Force-takeover is too easy to misuse.
 
 ---
 

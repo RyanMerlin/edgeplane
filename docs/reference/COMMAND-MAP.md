@@ -24,7 +24,6 @@ This is the authoritative `mc` CLI command hierarchy.
 - `mc daemon`
 - `mc launch`
 - `mc run`
-- `mc mesh`
 - `mc init`
 - `mc serve`
 - `mc profile`

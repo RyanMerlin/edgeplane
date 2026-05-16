@@ -1,7 +1,7 @@
-//! Thin SQLite access for `mc mesh agent` commands in standalone mode.
+//! Thin SQLite access for `mc daemon agent` commands in standalone mode.
 //!
-//! Mirrors the schema in `mc-mesh/src/local_registry.rs`. Both processes open
-//! the same `~/.mc/mc-mesh.db` in WAL mode so concurrent access is safe.
+//! Mirrors the schema in `mcd/src/local_registry.rs`. Both processes open
+//! the same `~/.mc/mcd/registry.db` in WAL mode so concurrent access is safe.
 //!
 //! In standalone mode (no active controlplane profile) the `mc` CLI reads and
 //! writes this file directly — no daemon round-trip required. The daemon picks
@@ -14,14 +14,14 @@ use rusqlite::{Connection, params};
 use crate::config::mc_home_dir;
 
 pub fn db_path() -> std::path::PathBuf {
-    mc_home_dir().join("mc-mesh.db")
+    mc_home_dir().join("mcd").join("registry.db")
 }
 
 /// Returns true if the node has a registered controlplane identity
 /// (state file has a `node_id`). Used to switch between standalone and
 /// federated CLI paths.
 pub fn is_federated() -> bool {
-    let state_path = mc_home_dir().join("mc-mesh.state.json");
+    let state_path = mc_home_dir().join("mcd").join("state.json");
     let Ok(raw) = std::fs::read_to_string(&state_path) else {
         return false;
     };

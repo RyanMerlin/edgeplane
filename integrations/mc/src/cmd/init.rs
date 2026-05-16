@@ -1,7 +1,7 @@
 /// `mc init --repo` — bootstrap this node from a git-backed sync repo.
 ///
-/// Clones the sync repo to ~/.missioncontrol/sync/, stores INFISICAL_TOKEN in
-/// the OS keyring (if available and set), and writes ~/.missioncontrol/config.json
+/// Clones the sync repo to ~/.mc/sync/, stores INFISICAL_TOKEN in
+/// the OS keyring (if available and set), and writes ~/.mc/config.json
 /// with the `sync_repo` field.
 use anyhow::Result;
 use std::path::Path;
@@ -15,7 +15,7 @@ use std::path::Path;
 /// `profile` is used as the keyring profile name for the Infisical service token.
 /// Pass `None` to default to `"default"`.
 pub async fn run_from_repo(repo_url: &str, profile: Option<&str>) -> Result<()> {
-    use mc_mesh_sync::SyncClient;
+    use mcd_sync::SyncClient;
 
     let profile_name = profile.unwrap_or("default");
     let cache_dir = crate::config::mc_home_dir().join("sync");
@@ -34,7 +34,7 @@ pub async fn run_from_repo(repo_url: &str, profile: Option<&str>) -> Result<()> 
     // TODO(mc-init): apply AppArmor profile from sync/fleet/apparmor/ (Phase 2a-3)
     // TODO(mc-init): render goose harness config from sync/fleet/harnesses/goose/
     // TODO(mc-init): register node with MC backend
-    // TODO(mc-init): install + enable systemd unit for mc-mesh daemon
+    // TODO(mc-init): install + enable systemd unit for mcd daemon
 
     // Step 3: Write config file.
     let config_path = crate::config::mc_home_dir().join("config.json");
@@ -53,7 +53,7 @@ fn store_infisical_token_if_set(profile_name: &str) {
         Ok(token) => {
             #[cfg(target_os = "linux")]
             {
-                use mc_mesh_secrets::keyring::{store_service_token, KeyringResult};
+                use mcd_secrets::keyring::{store_service_token, KeyringResult};
                 match store_service_token(profile_name, &token) {
                     KeyringResult::Ok => {
                         println!("✓ INFISICAL_TOKEN stored in keyring");
@@ -68,7 +68,7 @@ fn store_infisical_token_if_set(profile_name: &str) {
             #[cfg(not(target_os = "linux"))]
             {
                 let _ = (profile_name, token);
-                // TODO(mc-init): store INFISICAL_TOKEN in keyring via mc-mesh-secrets
+                // TODO(mc-init): store INFISICAL_TOKEN in keyring via mcd-secrets
                 // Keyring support is Linux-only (libsecret / D-Bus secret-service).
                 eprintln!("⚠ keyring storage not supported on this platform — INFISICAL_TOKEN not persisted");
             }
@@ -83,7 +83,7 @@ fn store_infisical_token_if_set(profile_name: &str) {
 // Config file writing
 // ---------------------------------------------------------------------------
 
-/// Write (or merge) `sync_repo` into `~/.missioncontrol/config.json`.
+/// Write (or merge) `sync_repo` into `~/.mc/config.json`.
 ///
 /// Existing keys in the config are preserved; only `sync_repo` is upserted.
 pub fn write_init_config(path: &Path, sync_repo: &str) -> Result<()> {

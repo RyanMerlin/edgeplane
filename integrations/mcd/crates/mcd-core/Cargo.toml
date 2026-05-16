@@ -1,0 +1,28 @@
+[package]
+name = "mcd-core"
+version.workspace = true
+edition = "2024"
+description = "Shared types, client, progress events, and AgentRuntime trait for mcd"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+dirs = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+portable-pty = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+mcd-packs = { path = "../mcd-packs" }
+mcd-secrets = { path = "../mcd-secrets" }
+mcd-receipts = { path = "../mcd-receipts" }
+
+[dev-dependencies]
+tempfile = "3.9"

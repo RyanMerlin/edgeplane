@@ -2,20 +2,20 @@
 
 ## Build & Check
 
-The primary surface is the Rust `mc` CLI and `mc-mesh` daemon.
+The primary surface is the Rust `mc` CLI and `mcd` daemon.
 
 ```bash
 # Quick syntax/type check (no linking)
 cd integrations/mc && cargo check -p mc
-cd integrations/mc-mesh && cargo check
+cd integrations/mcd && cargo check
 
 # Full build
 cd integrations/mc && cargo build
-cd integrations/mc-mesh && cargo build
+cd integrations/mcd && cargo build
 
 # Tests
 cd integrations/mc && cargo test -- --test-threads=1
-cd integrations/mc-mesh && cargo test
+cd integrations/mcd && cargo test
 cd integrations/mc-controlplane && cargo build
 ```
 
@@ -61,11 +61,11 @@ mc secrets infisical test
 
 ## Secrets — Broker (inside agent subprocesses)
 
-When mc-mesh launches a capability subprocess it injects `MC_SECRETS_SOCKET` and
+When mcd launches a capability subprocess it injects `MC_SECRETS_SOCKET` and
 `MC_SECRETS_SESSION` instead of raw credential values. Use the helper to fetch:
 
 ```bash
-VALUE=$(mc-mesh get-secret MY_API_KEY)
+VALUE=$(mcd get-secret MY_API_KEY)
 ```
 
 Or speak the socket protocol directly:
@@ -74,17 +74,17 @@ echo '{"op":"get","session":"'$MC_SECRETS_SESSION'","name":"MY_API_KEY"}' \
   | nc -U "$MC_SECRETS_SOCKET"
 ```
 
-## mc-mesh Daemon
+## mcd Daemon
 
 ```bash
-mc-mesh run --backend-url http://localhost:8008 --token $MC_TOKEN
-mc-mesh version
+mcd run --backend-url http://localhost:8008 --token $MC_TOKEN
+mcd version
 ```
 
 Socket locations (`~/.mc/`):
-- `mc-mesh-mgmt.sock` — JSON-RPC 2.0 management gateway
-- `mc-mesh-secrets.sock` — secrets broker (agents only)
-- `mc-mesh.sock` — PTY attach gateway
+- `mcd-mgmt.sock` — JSON-RPC 2.0 management gateway
+- `mcd-secrets.sock` — secrets broker (agents only)
+- `mcd.sock` — PTY attach gateway
 
 ## Server (mc-controlplane)
 

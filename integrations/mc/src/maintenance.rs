@@ -1,19 +1,12 @@
 use crate::{client::MissionControlClient, config::McConfig};
 use anyhow::Result;
 use clap::{Args, ValueEnum};
-use reqwest::Method;
 use serde_json::{Value, json};
 use std::fmt;
-use std::time::Duration;
-use tokio::time::timeout;
 use uuid::Uuid;
 
 #[derive(Args, Debug)]
 pub struct DoctorArgs {
-    #[arg(long, default_value = "/events/stream")]
-    pub matrix_endpoint: String,
-    #[arg(long, default_value_t = 5)]
-    pub matrix_sample_seconds: u64,
     #[arg(long = "fix", default_value_t = false)]
     pub fix: bool,
     /// Also cleanup local profile/session artifacts after checks.
@@ -197,12 +190,6 @@ async fn run_doctor(
     let checks = vec![
         run_health_check(client).await,
         run_tools_check(client).await,
-        run_matrix_check(
-            client,
-            &args.matrix_endpoint,
-            Duration::from_secs(args.matrix_sample_seconds),
-        )
-        .await,
         run_tailscale_check().await,
         run_rtk_check(),
     ];
@@ -229,7 +216,6 @@ async fn run_doctor(
     let report = DoctorReport {
         base_url: config.base_url.to_string(),
         agent_id: config.agent_context.agent_id.clone(),
-        matrix_endpoint: args.matrix_endpoint.clone(),
         checks,
         repairs,
         cleanup,
@@ -336,96 +322,6 @@ async fn run_tools_check(client: &MissionControlClient) -> DoctorCheck {
             duration_ms: start.elapsed().as_millis(),
             payload: None,
             repair_hint: Some("Ensure approvals/tools access and tokens are valid".into()),
-        },
-    }
-}
-
-async fn run_matrix_check(
-    client: &MissionControlClient,
-    endpoint: &str,
-    sample_duration: Duration,
-) -> DoctorCheck {
-    let start = std::time::Instant::now();
-    let name = "matrix_stream".to_string();
-    let builder = match client.request_builder(Method::GET, endpoint) {
-        Ok(builder) => builder,
-        Err(err) => {
-            return DoctorCheck {
-                name,
-                ok: false,
-                detail: err.to_string(),
-                duration_ms: start.elapsed().as_millis(),
-                payload: None,
-                repair_hint: Some("Invalid matrix endpoint; update --matrix-endpoint".into()),
-            };
-        }
-    };
-    let response = match timeout(
-        sample_duration,
-        builder
-            .header(reqwest::header::ACCEPT, "text/event-stream")
-            .send(),
-    )
-    .await
-    {
-        Ok(Ok(response)) => response,
-        Ok(Err(err)) => {
-            let hint = if err.to_string().to_lowercase().contains("tls") {
-                Some("Run with MC_ALLOW_INSECURE=true for self-signed certs".into())
-            } else {
-                Some("Ensure /events/stream is reachable and not throttled".into())
-            };
-            return DoctorCheck {
-                name,
-                ok: false,
-                detail: err.to_string(),
-                duration_ms: start.elapsed().as_millis(),
-                payload: None,
-                repair_hint: hint,
-            };
-        }
-        Err(_) => {
-            return DoctorCheck {
-                name,
-                ok: false,
-                detail: "matrix endpoint timed out".into(),
-                duration_ms: start.elapsed().as_millis(),
-                payload: None,
-                repair_hint: Some("Verify the server is reachable and emitting events".into()),
-            };
-        }
-    };
-    let status = response.status();
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-        .to_string();
-    let ok = status.is_success() && content_type.contains("event-stream");
-    let detail = if ok {
-        "matrix endpoint streaming".into()
-    } else {
-        format!(
-            "matrix endpoint returned {} with content-type {}",
-            status, content_type
-        )
-    };
-    let payload = Some(json!({
-        "status": status.as_u16(),
-        "content_type": content_type,
-    }));
-    drop(response);
-    DoctorCheck {
-        name,
-        ok,
-        detail,
-        duration_ms: start.elapsed().as_millis(),
-        payload,
-        repair_hint: if ok {
-            None
-        } else {
-            Some("Confirm the matrix listener is enabled and not blocked by firewalls".into())
         },
     }
 }
@@ -601,7 +497,6 @@ fn perform_repairs(config: &McConfig) -> Vec<DoctorRepair> {
 struct DoctorReport {
     base_url: String,
     agent_id: Option<String>,
-    matrix_endpoint: String,
     checks: Vec<DoctorCheck>,
     repairs: Vec<DoctorRepair>,
     cleanup: Option<ProfileGcSummary>,

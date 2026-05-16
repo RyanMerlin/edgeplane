@@ -81,11 +81,11 @@ fn generate_public_id(name: &str) -> String {
 
 /// Upsert an agent row by name and return its `public_id`. Used by every
 /// meshagent enrollment path to link a topology row to a persistent agent
-/// identity: see `docs/plans/2026-05-11-agent-public-id-mc-mesh-fix.md`.
+/// identity: see `docs/plans/2026-05-11-agent-public-id-mcd-fix.md`.
 ///
 /// Semantics mirror `create_agent`: re-upsertting refreshes `capabilities`
 /// and `updated_at`, un-archives the row, and preserves `public_id` (so the
-/// wire identifier mc-mesh stores stays stable across re-enrollments).
+/// wire identifier mcd stores stays stable across re-enrollments).
 /// Rejects reserved names (anonymous, system:*) and surfaces the row's
 /// status as `offline` on first creation — runtimes flip it to `online`
 /// when they actually start.

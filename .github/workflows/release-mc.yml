@@ -4,10 +4,10 @@ name: Release mc
 #   mc-linux-x86_64        — CLI for x86 Linux nodes (most common)
 #   mc-linux-aarch64       — CLI for ARM Linux (Pi, ARM cloud)
 #   mc-macos-aarch64       — CLI for Apple Silicon dev machines
-#   mc-mesh-linux-x86_64   — node daemon, the per-host service that
+#   mcd-linux-x86_64   — node daemon, the per-host service that
 #                            supervises agents (every end-user needs this
 #                            to run agents)
-#   mc-mesh-linux-aarch64  — node daemon for ARM Linux nodes
+#   mcd-linux-aarch64  — node daemon for ARM Linux nodes
 #
 # `mc-controlplane` is NOT in this matrix — it ships as a Docker image
 # via `build-image.yml`; end users don't install it locally.
@@ -64,19 +64,19 @@ jobs:
             use_cross: false
             features: ''
 
-          # mc-mesh — per-node daemon, ships alongside the CLI.
-          - bin: mc-mesh
-            crate_path: integrations/mc-mesh
+          # mcd — per-node daemon, ships alongside the CLI.
+          - bin: mcd
+            crate_path: integrations/mcd
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: mc-mesh-linux-x86_64
+            artifact: mcd-linux-x86_64
             use_cross: false
             features: ''
-          - bin: mc-mesh
-            crate_path: integrations/mc-mesh
+          - bin: mcd
+            crate_path: integrations/mcd
             target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: mc-mesh-linux-aarch64
+            artifact: mcd-linux-aarch64
             use_cross: true
             features: ''
 

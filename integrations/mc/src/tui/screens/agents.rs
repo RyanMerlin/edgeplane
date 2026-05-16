@@ -397,7 +397,7 @@ fn render_detail_panel(buf: &mut Buffer, area: Rect, state: &AgentScreenState) {
         .split(inner);
 
     // Identity column. `public_id` is the wire identifier the operator uses
-    // for `--to-agent-id` / mc-mesh polling; the numeric id is dimmed since
+    // for `--to-agent-id` / mcd polling; the numeric id is dimmed since
     // it's an internal DB row id, useful for diagnostics but not addressing.
     let pid_display = agent
         .public_id

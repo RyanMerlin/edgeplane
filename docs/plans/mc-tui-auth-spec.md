@@ -159,9 +159,9 @@ Three distinct token classes, each with a clear purpose:
 |-------|-----------|-----|-----------|----------|
 | **Session** | OIDC or API-token exchange via `POST /auth/sessions` | ≤720h (30d) | `~/.missioncontrol/sessions/<context>.json` | Interactive TUI/CLI |
 | **API token** | Server admin issues out-of-band; passed by user to exchange for a session | Caller's choice (existing) | Not persisted by `mc` — caller's responsibility | Bootstrap, scripts |
-| **Service token** *(new)* | `POST /auth/service-tokens` (admin-only) | Year-scale or non-expiring; scoped capabilities | `~/.missioncontrol/service-token.json` (chmod 600), separate from session.json | Headless agents, mc-mesh daemons, CI |
+| **Service token** *(new)* | `POST /auth/service-tokens` (admin-only) | Year-scale or non-expiring; scoped capabilities | `~/.missioncontrol/service-token.json` (chmod 600), separate from session.json | Headless agents, mcd daemons, CI |
 
-**Why a new class:** The current model conflates two needs. A 30-day session is fine for a workstation but wrong for an mc-mesh node that runs for 6 months. Forcing daemons to refresh tokens or rely on plaintext `MC_TOKEN` env vars produces leak-prone configs and 3am pager alerts.
+**Why a new class:** The current model conflates two needs. A 30-day session is fine for a workstation but wrong for an mcd node that runs for 6 months. Forcing daemons to refresh tokens or rely on plaintext `MC_TOKEN` env vars produces leak-prone configs and 3am pager alerts.
 
 **Server changes for service tokens:**
 - `POST /auth/service-tokens` — admin-gated. Body: `{ name, scopes, ttl_days? }`. Returns the token once; never again.
@@ -329,9 +329,9 @@ Most users never edit this. Power users can disable refresh (e.g. for short-live
 
 - Server: `POST /auth/service-tokens`, `GET`, `DELETE`.
 - TUI: third choice in login modal, plus admin-only management sub-screen in Identity modal.
-- Documentation: runbook for issuing service tokens to mc-mesh nodes.
+- Documentation: runbook for issuing service tokens to mcd nodes.
 
-**Value:** Headless agents stop relying on raw `MC_TOKEN` env. Aligns with the persistent-session architecture for mc-mesh nodes.
+**Value:** Headless agents stop relying on raw `MC_TOKEN` env. Aligns with the persistent-session architecture for mcd nodes.
 
 Each phase ships independently. Phase 1 is the minimum to stop the silent-empty failure.
 
@@ -360,7 +360,7 @@ These are the things that separate "functional" from "delightful":
 
 3. **Refresh during 401.** Concurrent: 401 arrives while a refresh is in-flight. **Proposed:** refresh resolves first → retry the original request with the new token before falling back to the sign-in modal.
 
-4. **Service token revocation propagation.** A service token revoked on the server invalidates running daemons immediately. **Proposed:** that's correct behavior, but mc-mesh needs to detect 401 and re-resolve via Infisical (where the token is stored) before crashing. Separate work item for mc-mesh.
+4. **Service token revocation propagation.** A service token revoked on the server invalidates running daemons immediately. **Proposed:** that's correct behavior, but mcd needs to detect 401 and re-resolve via Infisical (where the token is stored) before crashing. Separate work item for mcd.
 
 5. **TUI auto-launch from `mc tui --login`?** Should `mc tui --login` skip the missions screen and open straight to the login modal? **Proposed:** yes, useful for muscle memory.
 
@@ -380,7 +380,7 @@ A user with no prior session can:
 An admin operator can:
 
 - [ ] Issue a service token from inside the TUI
-- [ ] Hand that token to an mc-mesh node config
+- [ ] Hand that token to an mcd node config
 - [ ] Watch that node go online in the Agents panel within 60 seconds
 - [ ] Revoke the token from inside the TUI
 - [ ] Watch the node go offline within one heartbeat interval

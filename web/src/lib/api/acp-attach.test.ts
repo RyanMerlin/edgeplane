@@ -2,7 +2,7 @@
  * Tests for the ACP attach WS client.
  *
  * The frame routing logic — hello vs SessionNotification vs unparseable —
- * is what we can exercise without spinning up an actual mc-mesh node.
+ * is what we can exercise without spinning up an actual mcd node.
  * Connection lifecycle (reconnect timers, real WebSocket state) is
  * covered end-to-end via Phase A validation in the tmux-retirement plan.
  */

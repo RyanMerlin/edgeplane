@@ -1,5 +1,5 @@
 /// Tests for the work module's task-available broadcast registry and
-/// the adaptive backoff constants used by the mc-mesh daemon.
+/// the adaptive backoff constants used by the mcd daemon.
 use axum_test::TestServer;
 use mc_controlplane::{build_app, AppConfig};
 use sqlx::PgPool;
@@ -96,7 +96,7 @@ async fn test_kluster_graph_route_requires_auth() {
 
 // ── Phase 4a: node-keyed assignment-change registry ──────────────────────────
 //
-// Mirrors the mission-keyed `notify_registry` tests above. mc-mesh daemons
+// Mirrors the mission-keyed `notify_registry` tests above. mcd daemons
 // subscribe per `runtime_node_id`; the controlplane publishes here from
 // `enroll_agent` (and Phase 4d's reassign / unassign handlers).
 

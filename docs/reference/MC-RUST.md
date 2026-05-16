@@ -3,7 +3,7 @@
 `mc` is the primary operator and agent interface for MissionControl. It owns all interactivity:
 fleet views, agent launch, capability dispatch, secrets management, and the TUI.
 
-`mc-mesh` is the headless executor daemon (like kubelet to `mc`'s kubectl). Agents reach it via
+`mcd` is the headless executor daemon (like kubelet to `mc`'s kubectl). Agents reach it via
 Unix socket; operators never interact with it directly.
 
 `mc-controlplane` is the Axum HTTP server that backs the REST/SSE API.
@@ -14,8 +14,8 @@ Unix socket; operators never interact with it directly.
 cd integrations/mc && cargo build --release
 cp target/release/mc ~/.local/bin/mc
 
-cd integrations/mc-mesh && cargo build --release
-cp target/release/mc-mesh ~/.local/bin/mc-mesh
+cd integrations/mcd && cargo build --release
+cp target/release/mcd ~/.local/bin/mcd
 
 cd integrations/mc-controlplane && cargo build --release
 cp target/release/mc-controlplane ~/.local/bin/mc-controlplane
@@ -103,27 +103,27 @@ mc health --json
 All subcommands support `--json` for structured output. Always use `--json` when parsing
 programmatically — human-readable output is not a stable interface.
 
-## mc-mesh Daemon
+## mcd Daemon
 
 Headless work executor. Agents communicate via Unix socket.
 
 ```bash
-mc-mesh run --backend-url http://localhost:8008 --token $MC_TOKEN
-mc-mesh version
-mc-mesh get-secret MY_API_KEY   # inside agent subprocess only
+mcd run --backend-url http://localhost:8008 --token $MC_TOKEN
+mcd version
+mcd get-secret MY_API_KEY   # inside agent subprocess only
 ```
 
 Socket paths (`~/.mc/`):
-- `mc-mesh-mgmt.sock` — JSON-RPC 2.0 management gateway
-- `mc-mesh-secrets.sock` — secrets broker (agents only; injected by mc-mesh)
-- `mc-mesh.sock` — PTY attach gateway
+- `mcd-mgmt.sock` — JSON-RPC 2.0 management gateway
+- `mcd-secrets.sock` — secrets broker (agents only; injected by mcd)
+- `mcd.sock` — PTY attach gateway
 
 ### Secrets Broker (inside agent subprocesses)
 
-mc-mesh injects `MC_SECRETS_SOCKET` and `MC_SECRETS_SESSION` instead of raw credentials.
+mcd injects `MC_SECRETS_SOCKET` and `MC_SECRETS_SESSION` instead of raw credentials.
 
 ```bash
-VALUE=$(mc-mesh get-secret MY_API_KEY)
+VALUE=$(mcd get-secret MY_API_KEY)
 ```
 
 Or speak the protocol directly:
@@ -153,9 +153,9 @@ cd integrations/mc     && cargo check -p mc
 cd integrations/mc     && cargo build
 cd integrations/mc     && cargo test -- --test-threads=1
 
-cd integrations/mc-mesh && cargo check
-cd integrations/mc-mesh && cargo build
-cd integrations/mc-mesh && cargo test
+cd integrations/mcd && cargo check
+cd integrations/mcd && cargo build
+cd integrations/mcd && cargo test
 
 cd integrations/mc-controlplane && cargo build
 ```

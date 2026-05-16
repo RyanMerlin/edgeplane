@@ -1,7 +1,7 @@
 /// SoloSupervisor — run an agent runtime in the foreground while participating
 /// in the mesh as a MeshAgent with supervision_mode=solo.
 ///
-/// Does NOT require the mc-mesh daemon.  Talks directly to the backend HTTP API
+/// Does NOT require the mcd daemon.  Talks directly to the backend HTTP API
 /// using the same `MissionControlClient` that `mc` already uses.
 ///
 /// Two modes:
@@ -220,7 +220,7 @@ where
     }
 
     // ---- 4. Work loop ----
-    let work_dir = std::env::temp_dir().join(format!("mc-mesh-{}", &agent_id[..8]));
+    let work_dir = std::env::temp_dir().join(format!("mcd-{}", &agent_id[..8]));
     let _ = std::fs::create_dir_all(&work_dir);
 
     let result = work_loop_inner(
