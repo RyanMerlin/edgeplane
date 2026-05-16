@@ -340,7 +340,7 @@ pub struct ProfileAddArgs {
     /// Controlplane base URL (e.g. http://missioncontrol:8008).
     #[arg(long)]
     pub url: String,
-    /// TTL for the OIDC session token in hours (1–720). Omit to use the
+    /// TTL for the OIDC session token in hours (1–8760). Omit to use the
     /// server default (8h). Longer values reduce re-auth frequency for mcd.
     #[arg(long)]
     pub ttl_hours: Option<u64>,
@@ -2113,7 +2113,7 @@ async fn handle_profile(cmd: DaemonProfileCommand, client: &MissionControlClient
 async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -> Result<()> {
     // Obtain a session token via OIDC browser flow. The resulting mcs_* token is
     // stored in the profile so mcd can authenticate without user interaction.
-    let ttl_hours = a.ttl_hours.unwrap_or(720); // default to max for daemon use
+    let ttl_hours = a.ttl_hours.unwrap_or(8760); // default to 1y max for daemon use
     let session_token = crate::auth::acquire_oidc_token(&a.url, ttl_hours).await
         .context("OIDC login failed — run `mc auth login` to verify connectivity")?;
 
