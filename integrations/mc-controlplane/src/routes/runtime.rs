@@ -1045,7 +1045,7 @@ async fn register_node(
         Ok((mid, aid)) => Some(serde_json::json!({"mission_id": mid, "agent_id": aid})),
         Err(e) => {
             // Soft-fail: home provisioning shouldn't block node registration.
-            // The operator can run `mc mesh agent enroll-home` to retry.
+            // The operator can run `mc daemon agent enroll-home` to retry.
             tracing::warn!("register_node: home-mission provisioning failed: {e}");
             None
         }

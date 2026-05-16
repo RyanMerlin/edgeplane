@@ -7,7 +7,7 @@
 	const auth = useAuthState();
 
 	// `agentId` is the public_id (e.g. `aria-operator-e8820c0d`) — what
-	// mc-mesh polls. It can also be the numeric row id; AgentIdent handles
+	// mcd polls. It can also be the numeric row id; AgentIdent handles
 	// both at the controlplane.
 	const agentId = $derived(page.params.agentId);
 

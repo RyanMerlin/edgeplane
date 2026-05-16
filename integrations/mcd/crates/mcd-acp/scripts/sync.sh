@@ -4,7 +4,7 @@
 # Run from anywhere; resolves paths relative to the script.
 # - Fetches @zed-industries/agent-client-protocol@latest into a tempdir.
 # - Diffs the new schema against the vendored copy.
-# - If different: updates schema.json + VERSION, then runs `cargo test -p mc-mesh-acp`.
+# - If different: updates schema.json + VERSION, then runs `cargo test -p mcd-acp`.
 #   The build.rs regenerates Rust types from the new schema; any breaking
 #   change in upstream surfaces as a Rust compile error in dependent code.
 # - If unchanged: prints "up to date" and exits 0.
@@ -73,11 +73,11 @@ echo "==> updating vendored schema and VERSION"
 cp "$NEW_SCHEMA" "$SCHEMA_FILE"
 echo "$NEW_VERSION" > "$VERSION_FILE"
 
-echo "==> rebuilding + testing mc-mesh-acp (build.rs will regenerate types)"
-(cd "$WORKSPACE_DIR" && cargo test -p mc-mesh-acp)
+echo "==> rebuilding + testing mcd-acp (build.rs will regenerate types)"
+(cd "$WORKSPACE_DIR" && cargo test -p mcd-acp)
 
 echo
 echo "Sync complete. Review the changes in:"
 echo "  $SCHEMA_FILE"
 echo "  $VERSION_FILE"
-echo "  (and the regenerated types via \`cargo expand -p mc-mesh-acp schema\`)"
+echo "  (and the regenerated types via \`cargo expand -p mcd-acp schema\`)"

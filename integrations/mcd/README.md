@@ -1,17 +1,17 @@
-# mc-mesh
+# mcd
 
 Work-first agent coordination daemon for MissionControl. Dispatches tasks to agent runtimes (claude-code, codex, gemini), streams structured progress events, and coordinates agents around a shared mission/kluster.
 
 ## Architecture
 
 ```
-integrations/mc-mesh/
+integrations/mcd/
 ├── crates/
-│   ├── mc-mesh/          # daemon binary
-│   ├── mc-mesh-core/     # shared types, client, progress events, AgentRuntime trait
-│   ├── mc-mesh-work/     # task dispatch, DAG, claim, messaging, watchdog
-│   └── mc-mesh-runtimes/ # claude-code, codex, gemini AgentRuntime impls
-├── systemd/              # mc-mesh.service unit template
+│   ├── mcd/              # daemon binary
+│   ├── mcd-core/         # shared types, client, progress events, AgentRuntime trait
+│   ├── mcd-work/         # task dispatch, DAG, claim, messaging, watchdog
+│   └── mcd-runtimes/     # claude-code, codex, gemini AgentRuntime impls
+├── systemd/              # mcd.service unit template
 └── scripts/
     ├── install.sh        # build and install daemon + mc
     └── e2e-test.sh       # acceptance test (3-runtime canonical demo)
@@ -19,7 +19,7 @@ integrations/mc-mesh/
 
 **Mental model:** Temporal-inspired.
 
-| Temporal | mc-mesh |
+| Temporal | mcd |
 |---|---|
 | Namespace | Mission |
 | Workflow | Kluster |
@@ -32,29 +32,29 @@ integrations/mc-mesh/
 
 ## Usage
 
-`mc-mesh` is a headless daemon. All user interaction is through the `mc mesh` subcommand group.
+`mcd` is a headless daemon. All user interaction is through the `mc daemon` subcommand group.
 
 ```sh
-mc mesh up                          # install and start daemon
-mc mesh status                      # daemon health + active agents
-mc mesh runtime install claude-code # ensure runtime CLI is available
-mc mesh runtime install codex
-mc mesh runtime install gemini
+mc daemon up                          # install and start daemon
+mc daemon status                      # daemon health + active agents
+mc daemon runtime install claude-code # ensure runtime CLI is available
+mc daemon runtime install codex
+mc daemon runtime install gemini
 
-mc mesh agent enroll --mission <id> --runtime claude-code
-mc mesh agent ls --mission <id>
+mc daemon agent enroll --mission <id> --runtime claude-code
+mc daemon agent ls --mission <id>
 
-mc mesh task run <kluster> --title "build it" --runtime claude-code
-mc mesh task watch <task-id>        # live progress stream
-mc mesh task show <task-id>         # full detail + replay
-mc mesh attach <agent-or-task-id>   # PTY into a running agent
+mc daemon task run <kluster> --title "build it" --runtime claude-code
+mc daemon task watch <task-id>        # live progress stream
+mc daemon task show <task-id>         # full detail + replay
+mc daemon attach <agent-or-task-id>   # PTY into a running agent
 
-mc mesh watch --kluster <id>        # unified live feed
-mc mesh watch --mission <id>
+mc daemon watch --kluster <id>        # unified live feed
+mc daemon watch --mission <id>
 
-mc mesh down
-mc mesh upgrade
-mc mesh uninstall
+mc daemon down
+mc daemon upgrade
+mc daemon uninstall
 ```
 
 ## Work model
@@ -110,7 +110,7 @@ All three support interactive PTY attach via `portable-pty`.
 
 ### Optional: RTK token compression
 
-[rtk](https://github.com/merlinlabs/rtk) can be installed alongside mc-mesh to compress shell command output before it reaches agent context windows (typically 60–90% token reduction). It is a soft dependency — agents launch normally if it is absent, with a one-time warning. Enable per-launch with `mc run claude --with-rtk` or set `with_rtk: true` on `LaunchContext` when dispatching via mc-mesh directly.
+[rtk](https://github.com/merlinlabs/rtk) can be installed alongside mcd to compress shell command output before it reaches agent context windows (typically 60–90% token reduction). It is a soft dependency — agents launch normally if it is absent, with a one-time warning. Enable per-launch with `mc run claude --with-rtk` or set `with_rtk: true` on `LaunchContext` when dispatching via mcd directly.
 
 ## Backend endpoints
 
@@ -139,19 +139,19 @@ cd backend && ../.venv/bin/python -m unittest tests.test_work -v
 
 Rust unit tests are inline in each source file:
 ```sh
-cd integrations/mc-mesh && cargo test
+cd integrations/mcd && cargo test
 ```
 
 End-to-end acceptance (requires running backend + all three CLIs on PATH):
 ```sh
-integrations/mc-mesh/scripts/e2e-test.sh
+integrations/mcd/scripts/e2e-test.sh
 ```
 
 ## Installation
 
 ```sh
-integrations/mc-mesh/scripts/install.sh       # builds from source, installs to ~/.cargo/bin/
-mc mesh up                       # starts daemon, optionally installs systemd unit
+integrations/mcd/scripts/install.sh       # builds from source, installs to ~/.cargo/bin/
+mc daemon up                              # starts daemon, optionally installs systemd unit
 ```
 
 Or via the `mc` bootstrap in `integrations/mc/`:

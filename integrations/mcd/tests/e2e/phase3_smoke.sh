@@ -12,7 +12,7 @@ set -euo pipefail
 
 WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_DIR="${WORKSPACE_ROOT}/target/debug"
-SOCKET_PATH="/tmp/mc-mesh-phase3-smoke.sock"
+SOCKET_PATH="/tmp/mcd-phase3-smoke.sock"
 TEST_CONFIG="${WORKSPACE_ROOT}/tests/e2e/smoke-config.toml"
 DAEMON_PID=""
 
@@ -33,15 +33,15 @@ trap cleanup EXIT
 
 # ── Step 1: build ────────────────────────────────────────────────────────────
 
-log "Step 1: building mc-mesh and mc binaries"
-cargo build -p mc-mesh -p mc --manifest-path "${WORKSPACE_ROOT}/Cargo.toml" \
+log "Step 1: building mcd and mc binaries"
+cargo build -p mcd -p mc --manifest-path "${WORKSPACE_ROOT}/Cargo.toml" \
     2>&1 | tail -3
 
-MC_MESH_BIN="${BUILD_DIR}/mc-mesh"
+MCD_BIN="${BUILD_DIR}/mcd"
 MC_BIN="${BUILD_DIR}/mc"
 
-[[ -x "${MC_MESH_BIN}" ]] || fail "mc-mesh binary not found at ${MC_MESH_BIN}"
-[[ -x "${MC_BIN}" ]]      || fail "mc binary not found at ${MC_BIN}"
+[[ -x "${MCD_BIN}" ]] || fail "mcd binary not found at ${MCD_BIN}"
+[[ -x "${MC_BIN}" ]]  || fail "mc binary not found at ${MC_BIN}"
 
 # ── Step 2: write a minimal daemon config (goose only — it's pre-installed) ──
 
@@ -49,7 +49,7 @@ log "Step 2: writing smoke test daemon config"
 cat > "${TEST_CONFIG}" <<'EOF'
 backend_url = "http://localhost:19999"
 token = "smoke-test-token"
-work_dir = "/tmp/mc-mesh-phase3-work"
+work_dir = "/tmp/mcd-phase3-work"
 offline_grace_secs = 3600
 offline_policy = "autonomous"
 
@@ -65,12 +65,12 @@ EOF
 
 log "Step 3: starting daemon (background)"
 export MC_BIN_DIR="${BUILD_DIR}"
-export MC_MESH_SOCKET="${SOCKET_PATH}"
+export MCD_SOCKET="${SOCKET_PATH}"
 
-"${MC_MESH_BIN}" \
+"${MCD_BIN}" \
     --config "${TEST_CONFIG}" \
     --socket "${SOCKET_PATH}" \
-    &>/tmp/mc-mesh-phase3-daemon.log &
+    &>/tmp/mcd-phase3-daemon.log &
 DAEMON_PID=$!
 
 log "  daemon pid=${DAEMON_PID}"
@@ -80,7 +80,7 @@ for i in $(seq 1 20); do
     [[ -S "${SOCKET_PATH}" ]] && break
     sleep 0.5
 done
-[[ -S "${SOCKET_PATH}" ]] || fail "daemon socket not created within 10 s; see /tmp/mc-mesh-phase3-daemon.log"
+[[ -S "${SOCKET_PATH}" ]] || fail "daemon socket not created within 10 s; see /tmp/mcd-phase3-daemon.log"
 
 log "  daemon socket ready"
 
