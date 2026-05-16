@@ -284,6 +284,7 @@ mod tests {
             session_mode: mode,
             capabilities: vec![],
             profile_path: None,
+            webhook_url: None,
         }
     }
 

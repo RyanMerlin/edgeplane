@@ -20,6 +20,7 @@ use std::time::Duration;
 use anyhow::Result;
 use futures::StreamExt;
 use mcd_core::client::BackendClient;
+use reqwest;
 use mcd_core::types::{AgentHandle, AgentSignal, PendingPeerMessage, TaskSpec};
 use mcd_work::watchdog::{ConnectivityState, OfflinePolicy};
 use mcd_work::{claim, task};
@@ -530,6 +531,101 @@ pub async fn run_message_relay(
                         tracing::warn!("signal() delivery failed for agent {agent_id}: {e}");
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Message relay for persistent agents that expose a local webhook.
+///
+/// Polls the controlplane inbox exactly like `run_message_relay` but delivers
+/// each message by POSTing `{"text": "<content>"}` to `webhook_url` instead of
+/// routing through an ACP process. The webhook server (started by
+/// `mc channel claude webhook --listen-port <N>`) translates the POST into a
+/// `notifications/claude/channel` MCP notification, which claude delivers as a
+/// `session/prompt`. No competing claude process is spawned.
+pub async fn run_webhook_relay(
+    client: Arc<BackendClient>,
+    agent_id: String,
+    webhook_url: String,
+) {
+    let http = reqwest::Client::new();
+    let mut last_id: i64 = 0;
+    let mut startup_drain = true;
+
+    loop {
+        tokio::time::sleep(MESSAGE_POLL_INTERVAL).await;
+
+        let path = format!("/agents/{agent_id}/messages?since_id={last_id}");
+        let msgs: Vec<serde_json::Value> = match client.get(&path).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::debug!("Webhook relay poll failed for {agent_id}: {e}");
+                continue;
+            }
+        };
+
+        if startup_drain {
+            let high = msgs
+                .iter()
+                .filter_map(|m| m.get("id").and_then(|v| v.as_i64()))
+                .max();
+            if let Some(max) = high {
+                tracing::debug!(
+                    "Webhook relay startup drain for {agent_id}: skipping {} messages, cursor → {max}",
+                    msgs.len()
+                );
+                last_id = max;
+            }
+            startup_drain = false;
+            continue;
+        }
+
+        for msg in &msgs {
+            if let Some(id) = msg.get("id").and_then(|v| v.as_i64()) {
+                if id > last_id {
+                    last_id = id;
+                }
+            }
+
+            let text = msg
+                .get("content")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .or_else(|| {
+                    msg.get("body_json")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                        .and_then(|b| b.get("text").and_then(|t| t.as_str()).map(String::from))
+                });
+
+            let Some(text) = text else {
+                tracing::debug!("Webhook relay: no deliverable content in message for {agent_id}");
+                continue;
+            };
+
+            let from = msg
+                .get("from_agent_id")
+                .map(|v| v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))
+                .unwrap_or_else(|| "unknown".to_string());
+            let channel = msg
+                .get("channel")
+                .and_then(|v| v.as_str())
+                .or_else(|| msg.get("message_type").and_then(|v| v.as_str()))
+                .unwrap_or("coordination");
+
+            tracing::info!(
+                "Webhook relay: delivering message for {agent_id} from {from} on {channel}"
+            );
+
+            let payload = serde_json::json!({"text": text});
+            match http.post(&webhook_url).json(&payload).send().await {
+                Ok(resp) if resp.status().is_success() => {}
+                Ok(resp) => tracing::warn!(
+                    "Webhook delivery returned {} for {agent_id}",
+                    resp.status()
+                ),
+                Err(e) => tracing::warn!("Webhook delivery failed for {agent_id}: {e}"),
             }
         }
     }

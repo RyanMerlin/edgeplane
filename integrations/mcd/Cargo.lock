@@ -1397,6 +1397,7 @@ dependencies = [
  "mcd-runtimes",
  "mcd-secrets",
  "mcd-work",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",

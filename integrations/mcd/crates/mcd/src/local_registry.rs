@@ -252,6 +252,7 @@ impl AgentRecord {
             session_mode,
             capabilities,
             profile_path: self.profile_path.map(PathBuf::from),
+            webhook_url: None,
         }
     }
 }
@@ -293,6 +294,7 @@ mod tests {
             session_mode: mode,
             capabilities: vec![],
             profile_path: None,
+            webhook_url: None,
         }
     }
 
