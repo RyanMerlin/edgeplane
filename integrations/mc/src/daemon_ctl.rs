@@ -1871,11 +1871,11 @@ impl Drop for RawTerminal {
 }
 
 fn attach_socket_path() -> std::path::PathBuf {
-    crate::config::mc_home_dir().join("mcd.sock")
+    crate::config::mc_home_dir().join("mcd").join("mcd.sock")
 }
 
 fn mgmt_socket_path() -> std::path::PathBuf {
-    crate::config::mc_home_dir().join("mgmt.sock")
+    crate::config::mc_home_dir().join("mcd").join("mgmt.sock")
 }
 
 /// Connect-probe the daemon's mgmt socket. Returns true only if the socket
@@ -2024,7 +2024,7 @@ fn locate_mcd_workspace() -> Option<std::path::PathBuf> {
 // ---------------------------------------------------------------------------
 
 fn state_file_path() -> PathBuf {
-    crate::config::mc_home_dir().join("state.json")
+    crate::config::mc_home_dir().join("mcd").join("state.json")
 }
 
 /// Read the state file as a v2 JSON object. Returns an empty v2 structure on
