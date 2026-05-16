@@ -18,10 +18,6 @@ pub struct CliOpts {
     #[arg(long, env = "MC_BASE_URL")]
     base_url: Option<String>,
 
-    /// Either MC_TOKEN or OIDC creds are used to authenticate against Mission Control.
-    #[arg(long, env = "MC_TOKEN", hide_env_values = true)]
-    token: Option<String>,
-
     /// Optional agent identifier that is propagated throughout approvals and sync calls.
     #[arg(long, env = "MC_AGENT_ID")]
     agent_id: Option<String>,
@@ -75,20 +71,11 @@ async fn main() -> anyhow::Result<()> {
     // Resolve base_url: flag/env → ~/.mc/config.json → hardcoded default.
     let base_url = resolve_startup_base_url(opts.base_url.clone(), DEFAULT_BASE_URL);
 
-    // Resolve the effective token.
-    //
-    // Prefer session tokens (`mcs_*`) from `~/.mc/session.json` over
-    // non-session `MC_TOKEN` values so `mc auth login` reliably takes effect even
-    // when a legacy static token is exported in the shell environment.
-    let saved_session_token = mc::config::load_session_token(&base_url);
-    if saved_session_token.is_some() {
+    // Token comes exclusively from ~/.mc/session.json (written by `mc auth login` OIDC flow).
+    let token = mc::config::load_session_token(&base_url);
+    if token.is_some() {
         tracing::debug!("session token available from ~/.mc/session.json");
     }
-    let token = match opts.token.clone() {
-        Some(raw) if raw.starts_with(mc::auth::SESSION_TOKEN_PREFIX) => Some(raw),
-        Some(raw) => saved_session_token.or(Some(raw)),
-        None => saved_session_token,
-    };
     let token = if let Some(raw) = token {
         Some(
             secrets::resolve_maybe_secret_ref(&raw)
@@ -109,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
         opts.allow_insecure,
         !opts.disable_booster,
         opts.allow_booster_short_circuit,
-        opts.booster_wasm,
+        opts.booster_wasm.clone(),
     )?;
     let client = MissionControlClient::new(&config)?;
     let booster = AgentBooster::load(&config)?;

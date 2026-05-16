@@ -405,7 +405,7 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<Option<String>> {
                     "default".into(),
                     state::ProfileEntry {
                         url: cfg.backend_url.clone(),
-                        auth: state::ProfileAuth::token(""),
+                        auth: state::ProfileAuth::oidc(""),
                         node_id,
                         attach_secret: secret,
                         registered_at: chrono::Utc::now().to_rfc3339(),

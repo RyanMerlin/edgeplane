@@ -936,7 +936,7 @@ fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
                 // Token input row
                 if state.auth_focus == 1 {
                     let display = if state.token_input.is_empty() {
-                        "MC_TOKEN".to_string()
+                        "API token".to_string()
                     } else {
                         "*".repeat(state.token_input.len())
                     };
@@ -959,7 +959,7 @@ fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
                     )));
                 } else {
                     lines.push(Line::from(Span::styled(
-                        "  Token  [MC_TOKEN]",
+                        "  Token  [API token]",
                         theme::dim(),
                     )));
                     lines.push(Line::from(""));

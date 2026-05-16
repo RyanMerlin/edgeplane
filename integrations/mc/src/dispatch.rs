@@ -91,7 +91,7 @@ fn load_file_config() -> FileConfig {
 impl McDispatch {
     /// Build from environment + config file with optional CLI overrides.
     pub fn from_env(host: Option<String>, route_override: Option<String>) -> Self {
-        let mc_token = std::env::var("MC_TOKEN").ok();
+        let mc_token = crate::config::load_session_token("");
 
         // 1. --host flag → Remote immediately.
         if let Some(ref h) = host {

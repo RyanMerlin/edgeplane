@@ -555,7 +555,6 @@ fn write_codex_config(path: &Path, config: &McConfig, existing: Option<&str>) ->
 
     content.push_str(&render_mc_managed_block(
         config.base_url.as_str().trim_end_matches('/'),
-        config.token.as_deref(),
     ));
 
     if let Some(parent) = path.parent() {
@@ -595,7 +594,7 @@ fn strip_mc_managed_block(existing: &str) -> String {
     output.join("\n").trim_end().to_string()
 }
 
-fn render_mc_managed_block(base_url: &str, token: Option<&str>) -> String {
+fn render_mc_managed_block(base_url: &str) -> String {
     let mc_command = desired_mc_command();
 
     let mut buf = String::new();
@@ -608,22 +607,10 @@ fn render_mc_managed_block(base_url: &str, token: Option<&str>) -> String {
     buf.push_str("args = [\"serve\"]\n");
     buf.push_str("startup_timeout_sec = 30\n");
     buf.push_str("tool_timeout_sec = 60\n");
-
-    match token {
-        Some(value) if !value.trim().is_empty() => {
-            buf.push_str(&format!(
-                "env = {{ MC_BASE_URL = \"{}\", MC_TOKEN = \"{}\" }}\n",
-                escape_toml(base_url),
-                escape_toml(value)
-            ));
-        }
-        _ => {
-            buf.push_str(&format!(
-                "env = {{ MC_BASE_URL = \"{}\" }}\n",
-                escape_toml(base_url)
-            ));
-        }
-    }
+    buf.push_str(&format!(
+        "env = {{ MC_BASE_URL = \"{}\" }}\n",
+        escape_toml(base_url)
+    ));
 
     buf.push_str(MC_CODEX_MARKER_END);
     buf.push('\n');
@@ -643,7 +630,7 @@ fn run_codex_process(
     cmd.env("MC_BASE_URL", config.base_url.as_str());
     if let Some(token) = &config.token {
         if !token.trim().is_empty() {
-            cmd.env("MC_TOKEN", token);
+            cmd.env("MC_AGENT_TOKEN", token);
         }
     }
 
@@ -687,7 +674,7 @@ pub fn launch_codex_blocking(
     }
     if let Some(token) = &config.token {
         if !token.trim().is_empty() {
-            cmd.env("MC_TOKEN", token);
+            cmd.env("MC_AGENT_TOKEN", token);
         }
     }
     cmd.status().context("failed to execute codex")
@@ -800,18 +787,10 @@ b = 2
     }
 
     #[test]
-    fn managed_block_without_token_omits_mc_token() {
-        let out = render_mc_managed_block("http://localhost:8008", None);
+    fn managed_block_contains_base_url_not_token() {
+        let out = render_mc_managed_block("http://localhost:8008");
         assert!(out.contains("MC_BASE_URL"));
         assert!(!out.contains("MC_TOKEN"));
-    }
-
-    #[test]
-    fn managed_block_with_token_contains_mc_token() {
-        let out = render_mc_managed_block("http://localhost:8008", Some("abc123"));
-        assert!(out.contains("MC_BASE_URL"));
-        assert!(out.contains("MC_TOKEN"));
-        assert!(out.contains("abc123"));
     }
 
     #[test]

@@ -2,6 +2,7 @@ use httpmock::Method::POST;
 use httpmock::MockServer;
 use serde_json::json;
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 use tempfile::tempdir;
 
@@ -9,9 +10,31 @@ fn mc_bin() -> &'static str {
     env!("CARGO_BIN_EXE_mc")
 }
 
+/// Seed a session.json with a test token in `mc_home`, mimicking the file
+/// written by `mc auth login`. Returns the MC_HOME path.
+fn seed_session(mc_home: &Path, base_url: &str) {
+    fs::create_dir_all(mc_home).expect("mc_home");
+    let session = json!({
+        "token": "mcs_test-token",
+        "subject": "test-user",
+        "expires_at": "2099-01-01T00:00:00Z",
+        "base_url": base_url,
+        "session_id": null
+    });
+    fs::write(
+        mc_home.join("session.json"),
+        serde_json::to_string(&session).unwrap(),
+    )
+    .expect("session.json");
+}
+
 #[test]
 fn profile_list_uses_mcp_call() {
     let server = MockServer::start();
+    let tmp = tempdir().expect("tmp");
+    let mc_home = tmp.path().join("mc-home");
+    seed_session(&mc_home, &server.url(""));
+
     let mock = server.mock(|when, then| {
         when.method(POST)
             .path("/mcp/call")
@@ -27,7 +50,7 @@ fn profile_list_uses_mcp_call() {
     let output = Command::new(mc_bin())
         .args(["profile", "list", "--limit", "2"])
         .env("MC_BASE_URL", server.url(""))
-        .env("MC_TOKEN", "test-token")
+        .env("MC_HOME", &mc_home)
         .output()
         .expect("run mc profile list");
 
@@ -45,6 +68,8 @@ fn profile_list_uses_mcp_call() {
 fn profile_publish_uses_mcp_call() {
     let server = MockServer::start();
     let tmp = tempdir().expect("tmp");
+    let mc_home = tmp.path().join("mc-home");
+    seed_session(&mc_home, &server.url(""));
     let bundle = tmp.path().join("bundle.tar");
     fs::write(&bundle, b"demo-profile-bundle").expect("write bundle");
 
@@ -69,7 +94,7 @@ fn profile_publish_uses_mcp_call() {
             bundle.to_str().expect("bundle path"),
         ])
         .env("MC_BASE_URL", server.url(""))
-        .env("MC_TOKEN", "test-token")
+        .env("MC_HOME", &mc_home)
         .output()
         .expect("run mc profile publish");
 
@@ -88,6 +113,7 @@ fn profile_pull_respects_pin_mismatch_from_mcp() {
     let server = MockServer::start();
     let tmp = tempdir().expect("tmp");
     let mc_home = tmp.path().join("mc-home");
+    seed_session(&mc_home, &server.url(""));
     let profile_dir = mc_home.join("profiles").join("research");
     fs::create_dir_all(&profile_dir).expect("profile dir");
     fs::write(
@@ -111,7 +137,6 @@ fn profile_pull_respects_pin_mismatch_from_mcp() {
     let output = Command::new(mc_bin())
         .args(["profile", "pull", "--name", "research"])
         .env("MC_BASE_URL", server.url(""))
-        .env("MC_TOKEN", "test-token")
         .env("MC_HOME", &mc_home)
         .output()
         .expect("run mc profile pull");
@@ -131,6 +156,7 @@ fn profile_status_calls_get_and_pin_tools() {
     let server = MockServer::start();
     let tmp = tempdir().expect("tmp");
     let mc_home = tmp.path().join("mc-home");
+    seed_session(&mc_home, &server.url(""));
     let profile_dir = mc_home.join("profiles").join("research");
     fs::create_dir_all(&profile_dir).expect("profile dir");
     fs::write(
@@ -169,7 +195,6 @@ fn profile_status_calls_get_and_pin_tools() {
     let output = Command::new(mc_bin())
         .args(["--json", "profile", "status", "--name", "research"])
         .env("MC_BASE_URL", server.url(""))
-        .env("MC_TOKEN", "test-token")
         .env("MC_HOME", &mc_home)
         .output()
         .expect("run mc profile status");
@@ -189,6 +214,10 @@ fn profile_status_calls_get_and_pin_tools() {
 #[test]
 fn init_bootstraps_default_profile_when_empty() {
     let server = MockServer::start();
+    let tmp = tempdir().expect("tmp");
+    let mc_home = tmp.path().join("mc-home");
+    seed_session(&mc_home, &server.url(""));
+
     let list_mock = server.mock(|when, then| {
         when.method(POST)
             .path("/mcp/call")
@@ -211,7 +240,7 @@ fn init_bootstraps_default_profile_when_empty() {
     let output = Command::new(mc_bin())
         .args(["--json", "init"])
         .env("MC_BASE_URL", server.url(""))
-        .env("MC_TOKEN", "test-token")
+        .env("MC_HOME", &mc_home)
         .output()
         .expect("run mc init");
 

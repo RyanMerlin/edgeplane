@@ -27,7 +27,15 @@ pub struct MgmtGateway {
 
 impl MgmtGateway {
     pub fn new(dispatcher: Arc<CapabilityDispatcher>, registry: Arc<PackRegistry>) -> Self {
-        let mc_token = std::env::var("MC_TOKEN").ok().filter(|s| !s.is_empty());
+        let mc_token = mcd_core::paths::state_file_path()
+            .parent()
+            .and_then(|_| {
+                let content = std::fs::read_to_string(mcd_core::paths::state_file_path()).ok()?;
+                let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+                let active = v.get("active_profile")?.as_str()?;
+                let token = v.get("profiles")?.get(active)?.get("auth")?.get("token")?.as_str()?;
+                if token.is_empty() { None } else { Some(token.to_string()) }
+            });
         let tcp_port = std::env::var("MC_MESH_MGMT_PORT")
             .ok()
             .and_then(|s| s.parse::<u16>().ok())

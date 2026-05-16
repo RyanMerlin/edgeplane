@@ -340,9 +340,10 @@ pub struct ProfileAddArgs {
     /// Controlplane base URL (e.g. http://missioncontrol:8008).
     #[arg(long)]
     pub url: String,
-    /// Bearer token for the controlplane.
+    /// TTL for the OIDC session token in hours (1–720). Omit to use the
+    /// server default (8h). Longer values reduce re-auth frequency for mcd.
     #[arg(long)]
-    pub token: String,
+    pub ttl_hours: Option<u64>,
     /// One-time bootstrap token from `mc node join-tokens`. When supplied,
     /// this node is registered with the controlplane and its identity
     /// (node_id + attach_secret) is saved into the profile.
@@ -2110,9 +2111,15 @@ async fn handle_profile(cmd: DaemonProfileCommand, client: &MissionControlClient
 }
 
 async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -> Result<()> {
+    // Obtain a session token via OIDC browser flow. The resulting mcs_* token is
+    // stored in the profile so mcd can authenticate without user interaction.
+    let ttl_hours = a.ttl_hours.unwrap_or(720); // default to max for daemon use
+    let session_token = crate::auth::acquire_oidc_token(&a.url, ttl_hours).await
+        .context("OIDC login failed — run `mc auth login` to verify connectivity")?;
+
     // If a bootstrap token is provided, register this node with the controlplane.
     let (node_id, attach_secret, resolved_fqdn, home_info) = if let Some(bt) = &a.bootstrap_token {
-        let reg_client = MissionControlClient::new_with_token(&a.url, &a.token)?;
+        let reg_client = MissionControlClient::new_with_token(&a.url, &session_token)?;
         let node_name = a.node_name.clone().unwrap_or_else(|| {
             std::process::Command::new("hostname")
                 .output()
@@ -2180,7 +2187,7 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
     let registered_at = chrono::Utc::now().to_rfc3339();
     let mut entry = json!({
         "url": a.url,
-        "auth": { "kind": "token", "token": a.token },
+        "auth": { "kind": "oidc", "token": session_token },
         "node_id": node_id,
         "attach_secret": attach_secret,
         "registered_at": registered_at,

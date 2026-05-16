@@ -66,13 +66,26 @@ pub struct ProfileEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileAuth {
-    /// Auth kind. Currently always `"token"`.
+    /// Auth kind: `"oidc"` (session token from `mc auth login`) or `"service"`
+    /// (long-lived machine credential issued by mc-controlplane at registration).
     pub kind: String,
     /// Bearer token for the controlplane. Never log.
     pub token: String,
 }
 
 impl ProfileAuth {
+    /// OIDC session token — issued by `mc auth login`, TTL up to 720h.
+    pub fn oidc(token: impl Into<String>) -> Self {
+        Self { kind: "oidc".into(), token: token.into() }
+    }
+
+    /// Long-lived machine credential — issued by mc-controlplane at node
+    /// registration. Renewed daemon-to-controlplane without user interaction.
+    pub fn service(token: impl Into<String>) -> Self {
+        Self { kind: "service".into(), token: token.into() }
+    }
+
+    #[deprecated(note = "use ProfileAuth::oidc or ProfileAuth::service")]
     pub fn token(token: impl Into<String>) -> Self {
         Self { kind: "token".into(), token: token.into() }
     }
@@ -153,7 +166,7 @@ impl DaemonState {
         let mut profiles = HashMap::new();
         profiles.insert("default".into(), ProfileEntry {
             url,
-            auth: ProfileAuth::token(token),
+            auth: ProfileAuth::oidc(token),
             node_id: v1.node_id,
             attach_secret: v1.attach_secret,
             registered_at: v1.registered_at,

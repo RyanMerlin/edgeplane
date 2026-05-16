@@ -1,6 +1,8 @@
-use serde_json::Value;
+use serde_json::{Value, json};
+use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use tempfile::tempdir;
 
 fn mc_bin() -> &'static str {
     env!("CARGO_BIN_EXE_mc")
@@ -8,10 +10,26 @@ fn mc_bin() -> &'static str {
 
 #[test]
 fn initialized_request_returns_result_and_list_changed_notification() {
+    let tmp = tempdir().expect("tmp");
+    let mc_home = tmp.path().join("mc-home");
+    fs::create_dir_all(&mc_home).expect("mc_home");
+    let session = json!({
+        "token": "mcs_test-token",
+        "subject": "test-user",
+        "expires_at": "2099-01-01T00:00:00Z",
+        "base_url": "http://127.0.0.1:9",
+        "session_id": null
+    });
+    fs::write(
+        mc_home.join("session.json"),
+        serde_json::to_string(&session).unwrap(),
+    )
+    .expect("session.json");
+
     let mut child = Command::new(mc_bin())
         .args(["serve"])
         .env("MC_BASE_URL", "http://127.0.0.1:9")
-        .env("MC_TOKEN", "test-token")
+        .env("MC_HOME", &mc_home)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

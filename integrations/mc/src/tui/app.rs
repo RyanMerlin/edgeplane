@@ -354,10 +354,9 @@ impl App {
                     modal: InfoModal {
                         title: "Identity".to_string(),
                         lines: vec![
-                            "You're signed in via --token / MC_TOKEN.".to_string(),
+                            "You're signed in via a session token from ~/.mc/session.json.".to_string(),
                             "".to_string(),
-                            "If calls are failing, the explicit token is invalid.".to_string(),
-                            "Clear it and run `mc auth login` to use a session.".to_string(),
+                            "If calls are failing, run `mc auth login` to refresh.".to_string(),
                         ],
                     },
                 });
@@ -733,7 +732,7 @@ impl App {
             }
             AuthState::SessionFromFlag => (
                 DoctorStatus::Ok,
-                "explicit token (--token / MC_TOKEN)".to_string(),
+                "session token (OIDC via mc auth login)".to_string(),
                 None,
             ),
             AuthState::SessionExpired => (

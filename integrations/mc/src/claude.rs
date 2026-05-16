@@ -209,7 +209,6 @@ pub async fn run_hook(event: String, config: &McConfig) -> Result<()> {
     let url = format!("{}{}", base, endpoint);
     let token = std::env::var("MC_AGENT_TOKEN")
         .ok()
-        .or_else(|| std::env::var("MC_TOKEN").ok())
         .or_else(|| config.token.clone());
 
     let client = reqwest::Client::new();
@@ -767,7 +766,6 @@ fn run_claude_process(
 
     if let Some(token) = &config.token {
         if !token.trim().is_empty() {
-            cmd.env("MC_TOKEN", token);
             cmd.env("MC_AGENT_TOKEN", token);
         }
     }
@@ -820,7 +818,6 @@ pub fn launch_claude_blocking(
     }
     if let Some(token) = &config.token {
         if !token.trim().is_empty() {
-            cmd.env("MC_TOKEN", token);
             cmd.env("MC_AGENT_TOKEN", token);
         }
     }
