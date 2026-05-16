@@ -664,10 +664,11 @@ impl Spawner {
                     let opts = acp_spawn_opts
                         .clone()
                         .expect("acp_spawn_opts populated when runtime_kind == claude_agent_acp");
+                    let session_cwd = spec.profile_path.clone().unwrap_or(work_dir.clone());
                     let scfg = AcpSupervisorConfig {
                         agent_id: spec.agent_id.clone(),
                         spawn_opts: opts,
-                        cwd: work_dir.clone(),
+                        cwd: session_cwd,
                     };
                     tokio::spawn(acp_session_supervisor::run_for_agent(
                         scfg,
@@ -729,7 +730,6 @@ pub struct AgentSpec {
     pub runtime_kind: String,
     pub session_mode: SessionMode,
     pub capabilities: Vec<String>,
-    #[allow(dead_code)] // consumed by future ACP supervisor profile-loading work
     pub profile_path: Option<PathBuf>,
 }
 
