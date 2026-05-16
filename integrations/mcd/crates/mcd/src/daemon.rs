@@ -359,12 +359,14 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<Option<String>> {
             match s.active() {
                 Some((name, profile)) => {
                     // Active profile wins over yaml for all identity fields.
-                    if let Some(yaml_node_id) = cfg.node_id.as_ref() {
-                        if yaml_node_id != &profile.node_id {
+                    if let (Some(yaml_node_id), Some(profile_node_id)) =
+                        (cfg.node_id.as_ref(), profile.node_id.as_ref())
+                    {
+                        if yaml_node_id != profile_node_id {
                             tracing::warn!(
                                 "yaml has node_id={yaml_node_id} but active state profile has {}; \
                                  state wins. Remove node_id from yaml.",
-                                profile.node_id
+                                profile_node_id
                             );
                         }
                     }
@@ -374,7 +376,7 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<Option<String>> {
                              remove from yaml. (Daemon does not log secret values.)"
                         );
                     }
-                    cfg.node_id = Some(profile.node_id.clone());
+                    cfg.node_id = profile.node_id.clone();
                     cfg.attach_secret = Some(profile.attach_secret.clone());
                     cfg.backend_url = profile.url.clone();
                     if !profile.auth.token.is_empty() {
@@ -406,7 +408,7 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<Option<String>> {
                     state::ProfileEntry {
                         url: cfg.backend_url.clone(),
                         auth: state::ProfileAuth::oidc(""),
-                        node_id,
+                        node_id: Some(node_id),
                         attach_secret: secret,
                         registered_at: chrono::Utc::now().to_rfc3339(),
                         tailscale_fqdn: None,

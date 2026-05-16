@@ -54,7 +54,8 @@ pub struct ProfileEntry {
     /// Authentication credentials for this profile.
     pub auth: ProfileAuth,
     /// Node UUID assigned by the controlplane at registration.
-    pub node_id: String,
+    #[serde(default)]
+    pub node_id: Option<String>,
     /// HMAC secret minted at registration. Never log.
     pub attach_secret: String,
     /// ISO-8601 UTC timestamp of original registration.
@@ -167,7 +168,7 @@ impl DaemonState {
         profiles.insert("default".into(), ProfileEntry {
             url,
             auth: ProfileAuth::oidc(token),
-            node_id: v1.node_id,
+            node_id: Some(v1.node_id),
             attach_secret: v1.attach_secret,
             registered_at: v1.registered_at,
             tailscale_fqdn: None,
