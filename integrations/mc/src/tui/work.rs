@@ -30,7 +30,7 @@ pub enum WorkRequest {
         project_id: String,
         environment: String,
         path: String,
-        cfg: mc_mesh_secrets::InfisicalConfig,
+        cfg: mcd_secrets::InfisicalConfig,
     },
     /// List secret names (not values) at an Infisical path.
     LoadSecretNames {
@@ -38,7 +38,7 @@ pub enum WorkRequest {
         project_id: String,
         environment: String,
         path: String,
-        cfg: mc_mesh_secrets::InfisicalConfig,
+        cfg: mcd_secrets::InfisicalConfig,
     },
     /// Fetch pending approvals for a mission (or all if mission_id is None).
     FetchApprovals { job_id: JobId, mission_id: Option<String> },
@@ -218,7 +218,7 @@ impl WorkPool {
                 WorkRequest::LoadSecretFolders { job_id, project_id, environment, path, cfg } => {
                     // Infisical API requires no trailing slash except for root "/"
                     let api_path = if path == "/" { path.clone() } else { path.trim_end_matches('/').to_string() };
-                    let infisical = mc_mesh_secrets::InfisicalClient::new(&cfg);
+                    let infisical = mcd_secrets::InfisicalClient::new(&cfg);
                     match infisical {
                         Err(e) => {
                             let _ = tx.send(WorkResult::SecretFoldersLoaded {
@@ -242,7 +242,7 @@ impl WorkPool {
                 WorkRequest::LoadSecretNames { job_id, project_id, environment, path, cfg } => {
                     // Infisical API requires no trailing slash except for root "/"
                     let api_path = if path == "/" { path.clone() } else { path.trim_end_matches('/').to_string() };
-                    let infisical = mc_mesh_secrets::InfisicalClient::new(&cfg);
+                    let infisical = mcd_secrets::InfisicalClient::new(&cfg);
                     match infisical {
                         Err(e) => {
                             let _ = tx.send(WorkResult::SecretNamesLoaded {

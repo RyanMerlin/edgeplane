@@ -45,7 +45,7 @@ pub async fn broadcast_task_available(mission_id: &str, kluster_id: &str, task_i
 // ── Node-keyed assignment-change notifications ────────────────────────────────
 //
 // Parallel to `notify_registry()` above, but keyed by `runtime_node_id`
-// (the runtimenode UUID) instead of mission_id. mc-mesh daemons subscribe
+// (the runtimenode UUID) instead of mission_id. mcd daemons subscribe
 // here at startup and react to add/remove/reassign by spawning, shutting
 // down, or rebalancing supervisors live — no daemon restart, no yaml edit.
 //
@@ -163,7 +163,7 @@ pub fn row_to_agent(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or(serde_json::json!([]));
     let meshagent_id: String = row.get::<String, _>("id");
-    // `public_id` is the wire identifier mc-mesh uses for the poll loop
+    // `public_id` is the wire identifier mcd uses for the poll loop
     // (`/agents/{public_id}/messages`) and that the mc CLI passes via
     // `--to-agent-id`. Prefer the linked `agent.public_id` when this
     // meshagent points at a persistent agent identity (Step 5 of the
@@ -188,7 +188,7 @@ pub fn row_to_agent(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         "current_task_id": row.get::<Option<String>, _>("current_task_id"),
         "enrolled_at": row.get::<chrono::NaiveDateTime, _>("enrolled_at"),
         "last_heartbeat_at": row.get::<Option<chrono::NaiveDateTime>, _>("last_heartbeat_at"),
-        // Daemon-driving fields — required by mc-mesh's controlplane-driven
+        // Daemon-driving fields — required by mcd's controlplane-driven
         // enrollment loop (Phase 4 plan 2026-05-10).
         "runtime_node_id": row.get::<Option<String>, _>("runtime_node_id"),
         "supervision_mode": row.get::<Option<String>, _>("supervision_mode"),
@@ -322,9 +322,9 @@ struct AgentEnroll {
     /// Optional canonical name for the persistent agent identity this
     /// enrollment represents (e.g. `aria-work`). When set, the controlplane
     /// upserts the matching `agent` row and stores its `public_id` on this
-    /// meshagent. mc-mesh then receives the public_id as the wire identifier
+    /// meshagent. mcd then receives the public_id as the wire identifier
     /// and uses it to poll `/agents/{public_id}/messages`. See
-    /// `docs/plans/2026-05-11-agent-public-id-mc-mesh-fix.md`.
+    /// `docs/plans/2026-05-11-agent-public-id-mcd-fix.md`.
     #[serde(default)]
     agent_name: Option<String>,
 }

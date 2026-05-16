@@ -1193,7 +1193,7 @@ async fn dispatch(
             let runtime_kind = str_arg_or(args, "runtime_kind", "claude_code");
             // Optional `agent_name` links this meshagent to a persistent agent
             // identity row; the resulting `public_id` is the wire identifier
-            // mc-mesh uses for `/agents/{public_id}/messages`.
+            // mcd uses for `/agents/{public_id}/messages`.
             let agent_name = args.get("agent_name").and_then(|v| v.as_str()).map(|s| s.trim());
             let agent_public_id = match agent_name {
                 Some(n) if !n.is_empty() => {

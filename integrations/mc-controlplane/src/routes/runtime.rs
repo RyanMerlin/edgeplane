@@ -528,14 +528,14 @@ pub fn router() -> Router<Arc<AppState>> {
             "/runtime/execution-sessions/{session_id}/pty",
             get(execution_session_pty),
         )
-        // Mesh agent attach proxy: browser WS → controlplane → mc-mesh node WS.
+        // Mesh agent attach proxy: browser WS → controlplane → mcd node WS.
         // The browser uses ?mc_token=<bearer> for auth; controlplane signs a
         // short-lived HMAC token to dial the mesh node.
         .route(
             "/runtime/nodes/{node_id}/agents/{agent_id}/attach",
             get(agent_attach_proxy),
         )
-        // Phase 4a — controlplane-driven enrollment for mc-mesh.
+        // Phase 4a — controlplane-driven enrollment for mcd.
         // List meshagent rows assigned to this runtime node; daemons call
         // this on startup and after assignment-change notifications to pick
         // up new/removed/reassigned agents.
@@ -2712,7 +2712,7 @@ fn sign_attach_token(secret: &str, agent_id: &str, exp: i64) -> String {
 mod attach_proxy_tests {
     use super::sign_attach_token;
 
-    /// Locks the wire format. mc-mesh's `attach_ws::sign_attach` MUST produce
+    /// Locks the wire format. mcd's `attach_ws::sign_attach` MUST produce
     /// the same output for the same inputs — see the matching test there.
     #[test]
     fn sign_attach_token_is_stable() {
@@ -2832,14 +2832,14 @@ async fn run_attach_proxy(
 
 // ── Phase 4a: controlplane-driven enrollment ─────────────────────────────────
 //
-// `list_node_agents` and `node_notify_ws` are the two surfaces mc-mesh
+// `list_node_agents` and `node_notify_ws` are the two surfaces mcd
 // daemons consume to drive the new "no missions in yaml" flow:
 //
 //   1. On daemon start, GET this list to discover what to spawn locally.
 //   2. Subscribe to `node_notify_ws` so add/remove/reassign mutations
 //      land as live rebalances instead of yaml edits + restarts.
 //
-// The plan: docs/plans/2026-05-10-mc-mesh-controlplane-driven-enrollment.md.
+// The plan: docs/plans/2026-05-10-mcd-controlplane-driven-enrollment.md.
 
 /// `GET /runtime/nodes/{node_id}/agents`
 ///

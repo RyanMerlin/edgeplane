@@ -3,10 +3,10 @@
 -- Background: the `meshagent` table holds runtime topology (which agent
 -- runtime is enrolled on which node). The `agent` table holds the
 -- persistent agent identity (aria-operator, aria-work, ...). They were
--- never linked, so mc-mesh's poll URL — `/agents/{public_id}/messages`,
+-- never linked, so mcd's poll URL — `/agents/{public_id}/messages`,
 -- which resolves against `agent.public_id` — couldn't find the inbox for
 -- a meshagent identified only by its random UUID. See
--- `docs/plans/2026-05-11-agent-public-id-mc-mesh-fix.md`.
+-- `docs/plans/2026-05-11-agent-public-id-mcd-fix.md`.
 --
 -- This migration adds the link. New enrollments populate it via
 -- enroll_agent / assign_node_agent / enroll_mesh_agent (MCP) / home-mission

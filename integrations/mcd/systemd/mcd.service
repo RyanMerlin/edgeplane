@@ -1,0 +1,30 @@
+[Unit]
+Description=mcd — MissionControl daemon
+Documentation=https://github.com/merlinlabs/missioncontrol
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.cargo/bin/mcd run
+Restart=on-failure
+RestartSec=5s
+
+# Pass secrets via environment or a credentials file — never hardcode tokens.
+# EnvironmentFile=%h/.mc/mcd/mcd.env
+# MC_BACKEND_URL and MCD_WORK_DIR can also be set in ~/.mc/mcd/config.yaml
+
+WorkingDirectory=%h/.mc/mcd
+
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcd
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target

@@ -1,4 +1,4 @@
-/// `mc exec` — execute a capability through the mc-mesh routing layer.
+/// `mc exec` — execute a capability through the mcd routing layer.
 use crate::dispatch::McDispatch;
 use anyhow::Result;
 use std::io::IsTerminal;

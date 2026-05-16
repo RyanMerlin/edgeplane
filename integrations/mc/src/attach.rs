@@ -1,11 +1,11 @@
 //! `mc agent attach <agent-id>` — WebSocket client that opens a viewer
 //! into a persistent ACP session on a mesh node.
 //!
-//! The end-to-end path closed by `pump_acp` in mc-mesh is:
+//! The end-to-end path closed by `pump_acp` in mcd is:
 //!
 //!   mc agent attach
 //!     ⇄ WS — controlplane `GET /runtime/nodes/{n}/agents/{a}/attach`
-//!     ⇄ HMAC'd dial to mc-mesh `attach_ws`
+//!     ⇄ HMAC'd dial to mcd `attach_ws`
 //!     ⇄ `pump_acp` ⇆ supervisor ⇆ `AcpSession` ⇆ `claude-agent-acp`
 //!
 //! This module is the CLI consumer at the top of that stack. It exists to

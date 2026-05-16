@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Widget},
 };
 
-use mc_mesh_secrets::{InfisicalConfig, InfisicalProfileMap};
+use mcd_secrets::{InfisicalConfig, InfisicalProfileMap};
 
 use crate::tui::theme;
 

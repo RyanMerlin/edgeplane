@@ -17,7 +17,7 @@ MissionControl is a control plane for AI agents and human collaborators. It prov
 - **Artifact Ledger** — every mutation recorded in Postgres, vector-indexed for search, and committed to Git with full provenance metadata on publish.
 - **MCP-Native Interface** — standard MCP stdio tools: `search_tasks`, `get_overlap_suggestions`, `load_kluster_workspace`, `publish_pending_ledger_events`. Works with any MCP-compatible agent.
 - **Governance & Approvals** — versioned policy lifecycle (draft → active → rollback), role-based access (Admin / Contributor / Viewer), HMAC-signed approval tokens on sensitive mutations.
-- **Persistent Agent Sessions** — `mc-mesh` manages long-running agent processes on each node via ACP (Agent Client Protocol). Sessions survive crashes and reconnects. Remote attach via the web UI renders structured conversation — assistant turns, tool calls, permission prompts — not raw terminal output.
+- **Persistent Agent Sessions** — `mcd` manages long-running agent processes on each node via ACP (Agent Client Protocol). Sessions survive crashes and reconnects. Remote attach via the web UI renders structured conversation — assistant turns, tool calls, permission prompts — not raw terminal output.
 - **Semantic Search** — tasks, docs, and klusters are vector-indexed (pgvector) for similarity and hybrid search.
 - **S3-Backed File Persistence** — artifact content stored in S3-compatible object storage. RustFS is bundled in the Docker Compose stack. Swap in AWS S3 or MinIO with env vars — no code changes.
 - **Chat Integration** — Slack-native notifications, task creation from threads, approval workflows, and in-channel search. Teams and Google Chat provider skeletons included.
@@ -62,7 +62,7 @@ MissionControl is a control plane for AI agents and human collaborators. It prov
                  └────────────────────────────┘
 ```
 
-**mc-mesh** is the node daemon — analogous to kubelet. It runs on every node, registers with mc-controlplane, and manages all agent processes on that node. `mc` is kubectl: the CLI surface for humans and agents.
+**mcd** is the node daemon — analogous to kubelet. It runs on every node, registers with mc-controlplane, and manages all agent processes on that node. `mc` is kubectl: the CLI surface for humans and agents.
 
 ## Quick Start
 
@@ -99,7 +99,7 @@ Then open:
 | API reference | `/api/docs` (Swagger UI) |
 | Agent install guide | [docs/guides/AGENT-INSTALL.md](docs/guides/AGENT-INSTALL.md) |
 | Web UI | [web/README.md](web/README.md) |
-| Persistent sessions | [docs/plans/mc-mesh-persistent-session-architecture.md](docs/plans/mc-mesh-persistent-session-architecture.md) |
+| Persistent sessions | [docs/plans/mcd-persistent-session-architecture.md](docs/plans/mcd-persistent-session-architecture.md) |
 
 ## Running with Docker (Recommended)
 

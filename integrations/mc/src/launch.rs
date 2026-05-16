@@ -53,7 +53,7 @@ pub struct LaunchArgs {
     #[arg(long)]
     pub(crate) preflight_only: bool,
 
-    /// Skip config generation (use existing ~/.missioncontrol/config/)
+    /// Skip config generation (use existing ~/.mc/config/)
     #[arg(long)]
     pub(crate) skip_config_gen: bool,
 

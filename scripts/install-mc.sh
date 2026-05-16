@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 #
-# Install mc (CLI) and mc-mesh (per-node daemon) from the latest GitHub
+# Install mc (CLI) and mcd (per-node daemon) from the latest GitHub
 # Release. Falls back to building from source if a matching binary
 # isn't published for your platform. Optionally installs a systemd user
-# unit so mc-mesh starts on login.
+# unit so mcd starts on login.
 #
 # Quickstart (no flags):
 #   bash scripts/install-mc.sh
 #
 # Common options:
 #   --prefix DIR        Install binaries here (default: ~/.local/bin)
-#   --install-service   Also install + enable the mc-mesh systemd user unit
-#   --no-mesh           Skip mc-mesh; install just the mc CLI
+#   --install-service   Also install + enable the mcd systemd user unit
+#   --no-daemon           Skip mcd; install just the mc CLI
 #   --version TAG       Pin a specific release tag (default: latest)
 #   --env-file FILE     Load env from FILE in the systemd unit
 #
 # Env overrides:
-#   MC_INSTALL_PREFIX, MC_INSTALL_VERSION, MC_INSTALL_NO_MESH=1,
+#   MC_INSTALL_PREFIX, MC_INSTALL_VERSION, MC_INSTALL_NO_DAEMON=1,
 #   MC_INSTALL_SERVICE=1, MC_ENV_FILE, MC_INSTALL_SHELL_HOOK=1.
 
 set -euo pipefail
@@ -25,18 +25,18 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PREFIX="${MC_INSTALL_PREFIX:-$HOME/.local/bin}"
 VERSION="${MC_INSTALL_VERSION:-latest}"
-INSTALL_MESH=1
+INSTALL_DAEMON=1
 INSTALL_SERVICE="${MC_INSTALL_SERVICE:-0}"
 ENV_FILE="${MC_ENV_FILE:-$ROOT_DIR/.env}"
 AUTO_SHELL_HOOK="${MC_INSTALL_SHELL_HOOK:-0}"
 
-[[ "${MC_INSTALL_NO_MESH:-0}" = "1" ]] && INSTALL_MESH=0
+[[ "${MC_INSTALL_NO_DAEMON:-0}" = "1" ]] && INSTALL_DAEMON=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --prefix)          PREFIX="$2"; shift 2 ;;
     --version)         VERSION="$2"; shift 2 ;;
-    --no-mesh)         INSTALL_MESH=0; shift ;;
+    --no-daemon)         INSTALL_DAEMON=0; shift ;;
     --install-service) INSTALL_SERVICE=1; shift ;;
     --env-file)        ENV_FILE="$2"; shift 2 ;;
     -h|--help)
@@ -142,32 +142,41 @@ echo "installing mc to ${PREFIX}/mc"
 install_binary mc integrations/mc "${PREFIX}/mc"
 "${PREFIX}/mc" --version
 
-# ── Install mc-mesh ───────────────────────────────────────────────────────────
+# ── Install mcd ───────────────────────────────────────────────────────────
 
-if [[ "$INSTALL_MESH" = "1" ]]; then
-  echo "installing mc-mesh to ${PREFIX}/mc-mesh"
-  install_binary mc-mesh integrations/mc-mesh "${PREFIX}/mc-mesh"
-  if "${PREFIX}/mc-mesh" --version >/dev/null 2>&1; then
-    echo "  $("${PREFIX}/mc-mesh" --version)"
+if [[ "$INSTALL_DAEMON" = "1" ]]; then
+  echo "installing mcd to ${PREFIX}/mcd"
+  install_binary mcd integrations/mcd "${PREFIX}/mcd"
+  if "${PREFIX}/mcd" --version >/dev/null 2>&1; then
+    echo "  $("${PREFIX}/mcd" --version)"
   fi
 else
-  echo "skipping mc-mesh (per --no-mesh)"
+  echo "skipping mcd (per --no-daemon)"
 fi
 
-# ── Optional: systemd user unit for mc-mesh ───────────────────────────────────
+# ── Optional: systemd user unit for mcd ───────────────────────────────────
 
-if [[ "$INSTALL_SERVICE" = "1" && "$INSTALL_MESH" = "1" ]]; then
+if [[ "$INSTALL_SERVICE" = "1" && "$INSTALL_DAEMON" = "1" ]]; then
   if ! command -v systemctl >/dev/null 2>&1; then
     echo "systemctl not found — skipping service install" >&2
   else
     UNIT_DIR="${HOME}/.config/systemd/user"
-    UNIT_FILE="${UNIT_DIR}/mc-mesh.service"
-    SRC_UNIT="${ROOT_DIR}/integrations/mc-mesh/systemd/mc-mesh.service"
-    mkdir -p "$UNIT_DIR" "${HOME}/.missioncontrol/mc-mesh"
+    UNIT_FILE="${UNIT_DIR}/mcd.service"
+    SRC_UNIT="${ROOT_DIR}/integrations/mcd/systemd/mcd.service"
+    mkdir -p "$UNIT_DIR" "${HOME}/.mc/mcd"
+
+    # Remove legacy mc-mesh unit if present (clean cutover).
+    LEGACY_UNIT="${UNIT_DIR}/mc-mesh.service"
+    if [[ -f "$LEGACY_UNIT" ]]; then
+      echo "removing legacy mc-mesh.service unit…"
+      systemctl --user disable --now mc-mesh.service 2>/dev/null || true
+      rm -f "$LEGACY_UNIT"
+      systemctl --user daemon-reload || true
+    fi
 
     if [[ -f "$SRC_UNIT" ]]; then
       # Rewrite the ExecStart to point at our actual install prefix.
-      sed "s|%h/\.cargo/bin/mc-mesh|${PREFIX}/mc-mesh|g" "$SRC_UNIT" > "$UNIT_FILE"
+      sed "s|%h/\.cargo/bin/mcd|${PREFIX}/mcd|g" "$SRC_UNIT" > "$UNIT_FILE"
       # If an env file was given, add a corresponding EnvironmentFile line
       # (idempotent — leaves the unit alone if already present).
       if [[ -f "$ENV_FILE" ]] && ! grep -q "EnvironmentFile=" "$UNIT_FILE"; then
@@ -176,11 +185,11 @@ if [[ "$INSTALL_SERVICE" = "1" && "$INSTALL_MESH" = "1" ]]; then
       echo "installed systemd user unit: $UNIT_FILE"
 
       systemctl --user daemon-reload || true
-      if systemctl --user enable --now mc-mesh.service 2>&1; then
-        echo "enabled + started mc-mesh.service"
-        systemctl --user --no-pager status mc-mesh.service | head -5 || true
+      if systemctl --user enable --now mcd.service 2>&1; then
+        echo "enabled + started mcd.service"
+        systemctl --user --no-pager status mcd.service | head -5 || true
       else
-        echo "warning: could not enable mc-mesh.service — check 'systemctl --user status mc-mesh'" >&2
+        echo "warning: could not enable mcd.service — check 'systemctl --user status mcd'" >&2
       fi
     else
       echo "unit template not found at $SRC_UNIT — skipping service install" >&2
@@ -221,19 +230,19 @@ cat <<DONE
 
 Installed:
   mc       → ${PREFIX}/mc
-$( [[ "$INSTALL_MESH" = "1" ]] && echo "  mc-mesh  → ${PREFIX}/mc-mesh" )
+$( [[ "$INSTALL_DAEMON" = "1" ]] && echo "  mcd  → ${PREFIX}/mcd" )
 
 Next steps:
   1. Sign in:                mc auth login
   2. Launch the TUI:         mc tui
-$( [[ "$INSTALL_SERVICE" = "1" && "$INSTALL_MESH" = "1" ]] && cat <<SERVICE
-  3. mc-mesh is running as a systemd user service.
-     Check status:           systemctl --user status mc-mesh
-     Tail logs:              journalctl --user -u mc-mesh -f
+$( [[ "$INSTALL_SERVICE" = "1" && "$INSTALL_DAEMON" = "1" ]] && cat <<SERVICE
+  3. mcd is running as a systemd user service.
+     Check status:           systemctl --user status mcd
+     Tail logs:              journalctl --user -u mcd -f
 SERVICE
-)$( [[ "$INSTALL_SERVICE" != "1" && "$INSTALL_MESH" = "1" ]] && cat <<MANUAL
-  3. Start mc-mesh manually (or re-run with --install-service):
-     mc-mesh run
+)$( [[ "$INSTALL_SERVICE" != "1" && "$INSTALL_DAEMON" = "1" ]] && cat <<MANUAL
+  3. Start mcd manually (or re-run with --install-service):
+     mcd run
 MANUAL
 )
 

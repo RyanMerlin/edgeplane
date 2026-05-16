@@ -9,7 +9,7 @@ use crate::tui::work::{JobId, WorkRequest, next_job_id};
 
 pub struct SecretsState {
     /// The active Infisical config, loaded when the screen is first entered.
-    pub cfg: Option<mc_mesh_secrets::InfisicalConfig>,
+    pub cfg: Option<mcd_secrets::InfisicalConfig>,
     /// Active profile project_id (pulled from cfg or prompted).
     pub project_id: Option<String>,
     /// Active profile environment (pulled from cfg default_environment).

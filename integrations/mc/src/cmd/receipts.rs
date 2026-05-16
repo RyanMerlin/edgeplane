@@ -1,6 +1,6 @@
 /// `mc receipts` — inspect capability execution receipts stored locally.
 ///
-/// Reads directly from `~/.missioncontrol/receipts.db` — no daemon required.
+/// Reads directly from `~/.mc/receipts.db` — no daemon required.
 use anyhow::Result;
 use clap::Subcommand;
 
@@ -44,7 +44,7 @@ pub enum ReceiptsCmd {
 // ---------------------------------------------------------------------------
 
 pub fn run(cmd: ReceiptsCmd) -> Result<()> {
-    use mc_mesh_receipts::{ReceiptFilter, ReceiptStore};
+    use mcd_receipts::{ReceiptFilter, ReceiptStore};
 
     let db_path = crate::config::mc_home_dir().join("receipts.db");
     let store = ReceiptStore::open(&db_path)?;
@@ -76,7 +76,7 @@ pub fn run(cmd: ReceiptsCmd) -> Result<()> {
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
-fn print_receipts(receipts: &[mc_mesh_receipts::Receipt], as_json: bool) -> Result<()> {
+fn print_receipts(receipts: &[mcd_receipts::Receipt], as_json: bool) -> Result<()> {
     if as_json {
         println!("{}", serde_json::to_string_pretty(receipts)?);
     } else {
@@ -94,7 +94,7 @@ fn print_receipts(receipts: &[mc_mesh_receipts::Receipt], as_json: bool) -> Resu
     Ok(())
 }
 
-fn print_receipt(r: &mc_mesh_receipts::Receipt, as_json: bool) -> Result<()> {
+fn print_receipt(r: &mcd_receipts::Receipt, as_json: bool) -> Result<()> {
     if as_json {
         println!("{}", serde_json::to_string_pretty(r)?);
     } else {
@@ -125,7 +125,7 @@ fn print_receipt(r: &mc_mesh_receipts::Receipt, as_json: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use mc_mesh_receipts::{Receipt, ReceiptFilter, ReceiptStore};
+    use mcd_receipts::{Receipt, ReceiptFilter, ReceiptStore};
 
     fn make_receipt(id: &str, mission_id: Option<&str>) -> Receipt {
         Receipt {

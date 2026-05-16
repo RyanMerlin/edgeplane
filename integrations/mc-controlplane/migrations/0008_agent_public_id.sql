@@ -2,7 +2,7 @@
 --
 -- Motivation:
 -- - Integer ids (2, 7, 8...) become unreadable noise at fleet scale.
--- - mc-mesh uses string identifiers (UUIDs today); mc-controlplane uses i32.
+-- - mcd uses string identifiers (UUIDs today); mc-controlplane uses i32.
 --   Aligning on a single string identifier removes the type mismatch and
 --   the per-route parsing it produces ("Cannot parse UUID to i32").
 -- - Format: `{name}-{8-char-suffix}`. The suffix is short enough to stay

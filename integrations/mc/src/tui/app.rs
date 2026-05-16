@@ -31,7 +31,7 @@ use super::work::{OidcFlowEvent, WorkPool, WorkRequest, WorkResult, next_job_id}
 pub enum AuthState {
     /// No session file on disk, no explicit token. First-launch state.
     Anonymous,
-    /// A valid saved session was loaded from `~/.missioncontrol/`.
+    /// A valid saved session was loaded from `~/.mc/`.
     SessionValid {
         subject: String,
         email: Option<String>,
@@ -123,7 +123,7 @@ pub struct App {
     pub approvals_last_refresh: Option<Instant>,
     pub missions_last_refresh: Option<Instant>,
 
-    /// Last time we polled `~/.missioncontrol/session.json` looking for a
+    /// Last time we polled `~/.mc/session.json` looking for a
     /// fresh session (the user running `mc auth login` in another shell).
     /// Throttled to a couple of seconds — see `try_reauth_from_disk`.
     pub auth_last_check: Option<Instant>,
@@ -1147,7 +1147,7 @@ impl App {
         let profile_path = dirs::home_dir()
             .map(|h| h.join(".mc").join("infisical_profiles.json"));
 
-        let map: Option<mc_mesh_secrets::InfisicalProfileMap> = profile_path
+        let map: Option<mcd_secrets::InfisicalProfileMap> = profile_path
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| serde_json::from_str(&s).ok());
 

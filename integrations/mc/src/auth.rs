@@ -1,7 +1,7 @@
 //! `mc auth login` / `mc auth logout` / `mc auth whoami` — session token management.
 //!
 //! Session tokens (`mcs_*`) are issued by the MissionControl server and stored
-//! at `~/.missioncontrol/session.json` (chmod 600). They are:
+//! at `~/.mc/session.json` (chmod 600). They are:
 //!
 //! - Revocable server-side at any time
 //! - Never embedded in agent config files (mc launch uses env injection)
@@ -11,7 +11,7 @@
 //! ## Interactive login flow
 //!
 //! `mc auth login` with no flags prompts the user for everything it needs:
-//!   1. MC_BASE_URL (skipped if already in env or ~/.missioncontrol/config.json)
+//!   1. MC_BASE_URL (skipped if already in env or ~/.mc/config.json)
 //!   2. Auth method: token or OIDC
 //!      - token: masked prompt → POST /auth/sessions → save session.json
 //!      - oidc:  GET /auth/oidc/cli-initiate → open browser → poll → exchange → save

@@ -1,7 +1,7 @@
 /// `mc capabilities` — list and describe built-in capability packs.
 use anyhow::Result;
 use clap::Subcommand;
-use mc_mesh_packs::PackRegistry;
+use mcd_packs::PackRegistry;
 
 // ---------------------------------------------------------------------------
 // Clap types
