@@ -37,7 +37,7 @@ pub const SESSION_TOKEN_PREFIX: &str = "mcs_";
 
 #[derive(Args, Debug)]
 pub struct LoginArgs {
-    /// Session TTL in hours (default: 8, max: 720)
+    /// Session TTL in hours (default: 8, max: 8760)
     #[arg(long, default_value_t = 8)]
     pub ttl_hours: u64,
 
@@ -256,7 +256,7 @@ pub async fn login(
             std::env::var("MC_TOKEN").context("--non-interactive requires MC_TOKEN to be set")?;
         let client = MissionControlClient::new_with_token(current_base_url, &token)
             .context("could not build client")?;
-        let ttl = args.ttl_hours.clamp(1, 720);
+        let ttl = args.ttl_hours.clamp(1, 8760);
         let resp = client
             .post_json("/auth/sessions", &serde_json::json!({ "ttl_hours": ttl }))
             .await
@@ -283,7 +283,7 @@ async fn login_with_token(base_url: &str, ttl_hours: u64, print_token: bool) -> 
     }
     eprintln!();
 
-    let ttl = ttl_hours.clamp(1, 720);
+    let ttl = ttl_hours.clamp(1, 8760);
     let client = MissionControlClient::new_with_token(base_url, &raw_token)
         .context("could not build client with provided token")?;
 
@@ -382,7 +382,7 @@ async fn login_oidc(base_url: &str, ttl_hours: u64, print_token: bool) -> Result
     );
 
     // Exchange grant for a session token
-    let ttl = ttl_hours.clamp(1, 720);
+    let ttl = ttl_hours.clamp(1, 8760);
     let resp = anon_client
         .post_json(
             "/auth/oidc/exchange",
@@ -499,7 +499,7 @@ pub async fn acquire_oidc_token(base_url: &str, ttl_hours: u64) -> Result<String
         return Err(anyhow!("no code provided"));
     }
 
-    let ttl = ttl_hours.clamp(1, 720);
+    let ttl = ttl_hours.clamp(1, 8760);
     let resp = anon_client
         .post_json(
             "/auth/oidc/exchange",
