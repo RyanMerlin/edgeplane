@@ -372,7 +372,6 @@ impl AcpSession {
                 serde_json::json!({
                     "options": {
                         "extraArgs": {
-                            "remote-control": true,
                             "remote-control-session-name-prefix": prefix
                         }
                     }
