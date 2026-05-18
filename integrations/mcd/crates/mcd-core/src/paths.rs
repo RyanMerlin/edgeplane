@@ -52,6 +52,10 @@ pub fn state_file_path() -> PathBuf {
     mcd_dir().join("state.json")
 }
 
+pub fn lock_file_path() -> PathBuf {
+    mcd_dir().join("mcd.lock")
+}
+
 pub fn sync_cache_dir() -> PathBuf {
     mc_home_dir().join("sync")
 }

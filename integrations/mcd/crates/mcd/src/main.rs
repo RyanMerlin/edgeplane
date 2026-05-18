@@ -7,12 +7,14 @@ mod attach_registry;
 mod attach_ws;
 mod config;
 mod daemon;
+mod doctor;
 mod local_registry;
 mod mgmt_gateway;
 mod reconcile;
 mod replay_broadcast;
 mod secrets_gateway;
 mod session_supervisor;
+mod singleton;
 mod state;
 mod supervisor;
 mod task_loop;
@@ -42,7 +44,21 @@ enum Commands {
         work_dir: String,
         #[arg(long, default_value = "30")]
         offline_grace_secs: u64,
+        /// Forcefully replace a running mcd. Sends SIGTERM to the holder,
+        /// waits 5s, sends SIGKILL if still alive, then takes the lock.
+        /// Use only when the existing daemon is hung — prefer
+        /// `systemctl --user restart mcd.service` otherwise.
+        #[arg(long)]
+        kill_existing: bool,
+        /// Allow startup to continue when a required TCP port is already
+        /// bound (attach_ws 8009, mgmt 7731). Default is fatal. Use only
+        /// when you knowingly want partial functionality.
+        #[arg(long)]
+        allow_degraded: bool,
     },
+    /// Health check: lock state, port reachability, registry, runtimes.
+    /// Read-only — does not connect to a running daemon, safe to run anytime.
+    Doctor,
     /// Fetch a secret from the running mcd secrets broker.
     ///
     /// Reads MC_SECRETS_SOCKET and MC_SECRETS_SESSION from the environment
@@ -78,6 +94,8 @@ async fn main() -> anyhow::Result<()> {
             token,
             work_dir,
             offline_grace_secs,
+            kill_existing,
+            allow_degraded,
         } => {
             let work_dir = if work_dir.is_empty() {
                 config::DaemonConfig::load_or_default().work_dir
@@ -89,9 +107,12 @@ async fn main() -> anyhow::Result<()> {
                 token,
                 work_dir,
                 offline_grace_secs,
+                kill_existing,
+                allow_degraded,
             })
             .await
         }
+        Commands::Doctor => doctor::run().await,
         Commands::GetSecret { name } => get_secret(&name),
         Commands::Version => {
             println!("mcd {}", env!("CARGO_PKG_VERSION"));
