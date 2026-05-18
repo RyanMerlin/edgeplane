@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MissionControl — Overview</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: #0d1117; color: #e6edf3;
+  font-family: 'JetBrains Mono','Cascadia Code','Fira Code','SF Mono',ui-monospace,monospace;
+  font-size: 13px; line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  display: flex; flex-direction: column;
+}
+.ok { color: #3fb950; } .warn { color: #d29922; } .err { color: #f85149; }
+.accent { color: #58a6ff; } .purple { color: #bc8cff; } .dim { color: #484f58; } .muted { color: #8b949e; }
+
+#topbar {
+  height: 34px; flex-shrink: 0;
+  display: flex; align-items: center;
+  background: #161b22; border-bottom: 1px solid #21262d;
+  padding: 0 0 0 12px;
+}
+#logo { color: #58a6ff; font-weight: 700; font-size: 14px; letter-spacing: -0.03em;
+  padding-right: 12px; border-right: 1px solid #30363d; margin-right: 2px; flex-shrink: 0; }
+.nav-tab {
+  height: 34px; display: flex; align-items: center;
+  padding: 0 14px; color: #8b949e; font-size: 12px;
+  text-decoration: none; white-space: nowrap;
+  border-bottom: 2px solid transparent; cursor: pointer;
+  transition: color 0.1s;
+}
+.nav-tab:hover { color: #e6edf3; }
+.nav-tab.active { color: #e6edf3; border-bottom-color: #58a6ff; }
+#topbar-right {
+  margin-left: auto; display: flex; align-items: center;
+  gap: 14px; padding: 0 12px; font-size: 12px; color: #8b949e;
+}
+
+/* metrics strip */
+#metrics {
+  display: flex; flex-shrink: 0;
+  background: #0d1117; border-bottom: 1px solid #21262d;
+}
+.metric-cell {
+  flex: 1; padding: 8px 14px;
+  border-right: 1px solid #21262d;
+}
+.metric-cell:last-child { border-right: none; }
+.metric-val { font-size: 22px; font-weight: 700; line-height: 1; margin-bottom: 2px; }
+.metric-lbl { font-size: 10px; color: #484f58; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
+.metric-sub { font-size: 11px; color: #484f58; }
+
+/* content */
+#content { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+/* left: missions pane */
+#pane-missions { width: 240px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid #21262d; }
+/* center: agent table */
+#pane-agents { flex: 1; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #21262d; }
+/* right: approvals + events */
+#pane-right { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* pane header */
+.ph {
+  height: 28px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  background: #161b22; border-bottom: 1px solid #21262d;
+  padding: 0 10px; font-size: 11px; color: #8b949e;
+}
+.ph .t { color: #e6edf3; font-size: 12px; }
+.ph .c { color: #484f58; font-size: 11px; }
+
+/* mission rows */
+.m-row {
+  padding: 8px 10px; border-bottom: 1px solid #161b22; cursor: pointer;
+}
+.m-row:hover { background: #161b22; }
+.m-row.sel { background: #1c2938; border-left: 2px solid #58a6ff; }
+.m-name { font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+.m-meta { font-size: 11px; color: #484f58; padding-left: 14px; line-height: 1.7; }
+.m-prog { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #484f58; padding-left: 14px; margin-top: 2px; }
+.bar-d { color: #3fb950; } .bar-r { color: #58a6ff; } .bar-w { color: #30363d; }
+
+/* agent table */
+.agent-thead {
+  display: grid;
+  grid-template-columns: 16px 160px 96px 60px 120px 1fr 64px;
+  gap: 0 6px; padding: 3px 10px;
+  background: #161b22; border-bottom: 1px solid #30363d;
+  color: #484f58; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.agent-tbody { flex: 1; overflow-y: auto; }
+.agent-row {
+  display: grid;
+  grid-template-columns: 16px 160px 96px 60px 120px 1fr 64px;
+  gap: 0 6px; padding: 4px 10px;
+  border-bottom: 1px solid #161b22;
+  align-items: center; cursor: pointer; font-size: 12px;
+}
+.agent-row:hover { background: #161b22; }
+.agent-row.sel { background: #1c2938; box-shadow: inset 2px 0 0 #58a6ff; }
+.agent-row.offline { opacity: 0.45; }
+.agent-row.degraded { opacity: 0.7; }
+.ar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-node { color: #8b949e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-runtime { font-size: 11px; }
+.ar-mission { font-size: 11px; color: #8b949e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-task { font-size: 11px; color: #58a6ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-task.idle { color: #484f58; }
+.ar-uptime { font-size: 11px; color: #484f58; text-align: right; }
+
+/* approvals */
+#pane-approvals { flex-shrink: 0; border-bottom: 1px solid #21262d; }
+.approval-item {
+  padding: 8px 10px; border-bottom: 1px solid #161b22;
+  border-left: 3px solid #d29922;
+}
+.appr-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; }
+.appr-tool { font-weight: 700; }
+.appr-agent { font-size: 11px; color: #484f58; }
+.appr-desc { font-size: 11px; color: #8b949e; margin-bottom: 6px; }
+.appr-btns { display: flex; gap: 6px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 3px; border: 1px solid #30363d;
+  background: #161b22; color: #8b949e; font-family: inherit; font-size: 11px; cursor: pointer;
+}
+.btn.g { border-color: #238636; color: #3fb950; background: #0d2b1a; }
+.btn.d { border-color: #da3633; color: #f85149; background: #1a0f0f; }
+
+/* events */
+#pane-events { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.ev-row {
+  display: grid; grid-template-columns: 58px 1fr;
+  gap: 0 6px; padding: 3px 10px;
+  border-bottom: 1px solid #161b22; font-size: 11px;
+  cursor: pointer;
+}
+.ev-row:hover { background: #161b22; }
+.ev-row.alert-err { border-left: 2px solid #f85149; background: #120a0a; }
+.ev-row.alert-gov { border-left: 2px solid #bc8cff; background: #0a0f1a; }
+.ev-row.alert-warn { border-left: 2px solid #d29922; background: #110f00; }
+.ev-time { color: #484f58; }
+.ev-body { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8b949e; }
+.ev-type-err  { color: #f85149; }
+.ev-type-ok   { color: #3fb950; }
+.ev-type-gov  { color: #bc8cff; }
+.ev-type-info { color: #58a6ff; }
+.ev-type-done { color: #3fb950; font-weight: 700; }
+.ev-type-warn { color: #d29922; font-weight: 700; }
+
+/* statusbar */
+#statusbar {
+  height: 24px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 20px;
+  background: #161b22; border-top: 1px solid #21262d;
+  padding: 0 12px; font-size: 11px; color: #484f58;
+}
+#statusbar-right { margin-left: auto; display: flex; gap: 16px; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.live { animation: pulse 1.5s infinite; }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <span id="logo">mc</span>
+  <a href="02-dashboard.html" class="nav-tab active">Overview</a>
+  <a href="03-ai-console.html" class="nav-tab">Console</a>
+  <a href="04-agents.html" class="nav-tab">Agents</a>
+  <a href="05-explorer.html" class="nav-tab">Explorer</a>
+  <a href="06-feed.html" class="nav-tab">Feed</a>
+  <a href="07-governance.html" class="nav-tab">Governance</a>
+  <div id="topbar-right">
+    <span class="ok">● 5/6 nodes</span>
+    <span>19 agents</span>
+    <span class="dim">|</span>
+    <span class="accent">14 active</span>
+    <span class="dim">|</span>
+    <span class="dim">missioncontrol:8008</span>
+    <span class="dim">|</span>
+    <span>10:47:22</span>
+  </div>
+</div>
+
+<div id="metrics">
+  <div class="metric-cell">
+    <div class="metric-lbl">Nodes</div>
+    <div class="metric-val ok">5<span style="font-size:14px;color:#484f58">/6</span></div>
+    <div class="metric-sub warn">▲ 1 degraded</div>
+  </div>
+  <div class="metric-cell">
+    <div class="metric-lbl">Agents</div>
+    <div class="metric-val" style="color:#e6edf3">19</div>
+    <div class="metric-sub">3 idle · 1 offline</div>
+  </div>
+  <div class="metric-cell">
+    <div class="metric-lbl">Active</div>
+    <div class="metric-val accent">14</div>
+    <div class="metric-sub">⟳ running tasks</div>
+  </div>
+  <div class="metric-cell">
+    <div class="metric-lbl">Missions</div>
+    <div class="metric-val" style="color:#bc8cff">4</div>
+    <div class="metric-sub">2 with active klusters</div>
+  </div>
+  <div class="metric-cell">
+    <div class="metric-lbl">Approvals</div>
+    <div class="metric-val warn">3</div>
+    <div class="metric-sub">⚠ oldest: 42m ago</div>
+  </div>
+  <div class="metric-cell">
+    <div class="metric-lbl">Errors</div>
+    <div class="metric-val err">1</div>
+    <div class="metric-sub" style="color:#484f58">last: 47m ago</div>
+  </div>
+</div>
+
+<div id="content">
+
+  <!-- Missions pane -->
+  <div id="pane-missions">
+    <div class="ph"><span class="t">Missions</span><span class="c">4</span></div>
+    <div style="flex:1;overflow-y:auto">
+
+      <div class="m-row sel">
+        <div class="m-name"><span class="accent">◈</span> web-revamp</div>
+        <div class="m-meta">2 klusters · 3 agents</div>
+        <div class="m-prog">
+          <span class="bar-d">███</span><span class="bar-r">█</span><span class="bar-w">░░░░</span>
+          <span style="margin-left:4px">4/8 tasks</span>
+        </div>
+      </div>
+
+      <div class="m-row">
+        <div class="m-name"><span class="accent">◈</span> research-q3</div>
+        <div class="m-meta">2 klusters · 6 agents</div>
+        <div class="m-prog">
+          <span class="bar-d">██</span><span class="bar-r">████</span><span class="bar-w">░░░░</span>
+          <span style="margin-left:4px">6/20 tasks</span>
+        </div>
+      </div>
+
+      <div class="m-row">
+        <div class="m-name"><span class="accent">◈</span> infra-hardening</div>
+        <div class="m-meta">1 kluster · 3 agents</div>
+        <div class="m-prog">
+          <span class="bar-d">████</span><span class="bar-r">███</span><span class="bar-w">░</span>
+          <span style="margin-left:4px">4/8 tasks</span>
+        </div>
+      </div>
+
+      <div class="m-row">
+        <div class="m-name"><span class="muted">◈</span> platform-ops</div>
+        <div class="m-meta">2 klusters · 4 agents</div>
+        <div class="m-prog">
+          <span class="bar-r">██████████</span>
+          <span style="margin-left:4px">ongoing</span>
+        </div>
+      </div>
+
+      <div class="slbl" style="font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:0.08em;padding:10px 10px 4px">Pending Klusters</div>
+      <div style="padding:4px 10px;font-size:11px;color:#484f58;line-height:1.9">
+        <div><span style="color:#484f58">○</span> impl-phase <span class="dim">·</span> web-revamp <span class="dim">· waiting on design-phase</span></div>
+        <div><span style="color:#484f58">○</span> synthesis <span class="dim">·</span> research-q3 <span class="dim">· 2/5 tasks done</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent table pane -->
+  <div id="pane-agents">
+    <div class="ph">
+      <span class="t">Agents</span>
+      <span class="c">19 total · 14 active</span>
+    </div>
+    <div class="agent-thead">
+      <span></span>
+      <span>Agent</span>
+      <span>Node</span>
+      <span>Runtime</span>
+      <span>Mission</span>
+      <span>Active Task</span>
+      <span style="text-align:right">Uptime</span>
+    </div>
+    <div class="agent-tbody">
+
+      <div class="agent-row sel">
+        <span class="accent">⟳</span>
+        <span class="ar-name accent">aria-mc-engineer</span>
+        <span class="ar-node">excalibur</span>
+        <span class="ar-runtime ok">claude</span>
+        <span class="ar-mission">web-revamp</span>
+        <span class="ar-task">TSK-0142 create-design-mockups</span>
+        <span class="ar-uptime">4h 12m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">aria-operator</span>
+        <span class="ar-node">excalibur</span>
+        <span class="ar-runtime ok">claude</span>
+        <span class="ar-mission">platform-ops</span>
+        <span class="ar-task">TSK-0138 monitor-fleet</span>
+        <span class="ar-uptime">8h 04m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">aria-research</span>
+        <span class="ar-node">excalibur</span>
+        <span class="ar-runtime ok">claude</span>
+        <span class="ar-mission">research-q3</span>
+        <span class="ar-task">TSK-0127 sector-analysis</span>
+        <span class="ar-uptime">3h 57m</span>
+      </div>
+
+      <div class="agent-row">
+        <span style="color:#8b949e">●</span>
+        <span class="ar-name">aria-merlinlabs</span>
+        <span class="ar-node">excalibur</span>
+        <span class="ar-runtime ok">claude</span>
+        <span class="ar-mission">platform-ops</span>
+        <span class="ar-task idle">— idle</span>
+        <span class="ar-uptime">8h 04m</span>
+      </div>
+
+      <div class="agent-row">
+        <span style="color:#8b949e">●</span>
+        <span class="ar-name">aria-work</span>
+        <span class="ar-node">excalibur</span>
+        <span class="ar-runtime ok">claude</span>
+        <span class="ar-mission dim">—</span>
+        <span class="ar-task idle">— idle</span>
+        <span class="ar-uptime">8h 04m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">goose-research-1</span>
+        <span class="ar-node">cloud0</span>
+        <span class="ar-runtime" style="color:#d29922">goose</span>
+        <span class="ar-mission">research-q3</span>
+        <span class="ar-task">TSK-0128 data-fetch</span>
+        <span class="ar-uptime">2h 18m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">goose-research-2</span>
+        <span class="ar-node">cloud0</span>
+        <span class="ar-runtime" style="color:#d29922">goose</span>
+        <span class="ar-mission">research-q3</span>
+        <span class="ar-task">TSK-0129 etl-pipeline</span>
+        <span class="ar-uptime">2h 18m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">goose-research-3</span>
+        <span class="ar-node">cloud0</span>
+        <span class="ar-runtime" style="color:#d29922">goose</span>
+        <span class="ar-mission">research-q3</span>
+        <span class="ar-task">TSK-0130 vectorize-docs</span>
+        <span class="ar-uptime">2h 18m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">goose-deploy-1</span>
+        <span class="ar-node">cloud0</span>
+        <span class="ar-runtime" style="color:#d29922">goose</span>
+        <span class="ar-mission">infra-hardening</span>
+        <span class="ar-task">TSK-0135 vuln-scan-api</span>
+        <span class="ar-uptime">1h 44m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">goose-deploy-2</span>
+        <span class="ar-node">cloud0</span>
+        <span class="ar-runtime" style="color:#d29922">goose</span>
+        <span class="ar-mission">infra-hardening</span>
+        <span class="ar-task">TSK-0136 patch-dependencies</span>
+        <span class="ar-uptime">1h 44m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">goose-infra-1</span>
+        <span class="ar-node">cloud0</span>
+        <span class="ar-runtime" style="color:#d29922">goose</span>
+        <span class="ar-mission">platform-ops</span>
+        <span class="ar-task">TSK-0141 backup-verify</span>
+        <span class="ar-uptime">0h 22m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">codex-impl-1</span>
+        <span class="ar-node">cloud0</span>
+        <span class="ar-runtime" style="color:#58a6ff">openai</span>
+        <span class="ar-mission">web-revamp</span>
+        <span class="ar-task">TSK-0143 scaffold-components</span>
+        <span class="ar-uptime">0h 47m</span>
+      </div>
+
+      <div class="agent-row">
+        <span style="color:#8b949e">●</span>
+        <span class="ar-name">codex-impl-2</span>
+        <span class="ar-node">cloud0</span>
+        <span class="ar-runtime" style="color:#58a6ff">openai</span>
+        <span class="ar-mission dim">—</span>
+        <span class="ar-task idle">— idle</span>
+        <span class="ar-uptime">0h 47m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">gemini-analyst</span>
+        <span class="ar-node">kai</span>
+        <span class="ar-runtime" style="color:#bc8cff">gemini</span>
+        <span class="ar-mission">research-q3</span>
+        <span class="ar-task">TSK-0131 deep-analysis</span>
+        <span class="ar-uptime">3h 11m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">gemini-synthesis</span>
+        <span class="ar-node">kai</span>
+        <span class="ar-runtime" style="color:#bc8cff">gemini</span>
+        <span class="ar-mission">research-q3</span>
+        <span class="ar-task">TSK-0132 report-draft</span>
+        <span class="ar-uptime">3h 11m</span>
+      </div>
+
+      <div class="agent-row">
+        <span class="accent">⟳</span>
+        <span class="ar-name">goose-audit-1</span>
+        <span class="ar-node">kai</span>
+        <span class="ar-runtime" style="color:#d29922">goose</span>
+        <span class="ar-mission">infra-hardening</span>
+        <span class="ar-task">TSK-0137 k8s-audit</span>
+        <span class="ar-uptime">1h 22m</span>
+      </div>
+
+      <div class="agent-row">
+        <span style="color:#8b949e">●</span>
+        <span class="ar-name">aria-socrates-1</span>
+        <span class="ar-node">socrates</span>
+        <span class="ar-runtime ok">claude</span>
+        <span class="ar-mission">platform-ops</span>
+        <span class="ar-task idle">— idle</span>
+        <span class="ar-uptime">2h 05m</span>
+      </div>
+
+      <div class="agent-row degraded">
+        <span class="warn">▲</span>
+        <span class="ar-name warn">goose-epyc-1</span>
+        <span class="ar-node warn">epyc</span>
+        <span class="ar-runtime" style="color:#d29922">goose</span>
+        <span class="ar-mission">research-q3</span>
+        <span class="ar-task warn">TSK-0099 embedding-gen · slow</span>
+        <span class="ar-uptime">6h 44m</span>
+      </div>
+
+      <div class="agent-row offline">
+        <span style="color:#484f58">○</span>
+        <span class="ar-name dim">claude-bg-1</span>
+        <span class="ar-node dim">node-06</span>
+        <span class="ar-runtime dim">claude</span>
+        <span class="ar-mission dim">—</span>
+        <span class="ar-task" style="color:#484f58">— node offline</span>
+        <span class="ar-uptime dim">—</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Right: approvals + events -->
+  <div id="pane-right">
+
+    <div id="pane-approvals">
+      <div class="ph" style="background:#1a1500">
+        <span class="t warn">⚠ Pending Approvals</span>
+        <span class="c warn">3</span>
+      </div>
+
+      <div class="approval-item">
+        <div class="appr-head">
+          <span class="appr-tool">kubectl apply</span>
+          <span class="appr-agent dim">· goose-deploy-1 · 42m ago</span>
+        </div>
+        <div class="appr-desc">Apply cni-config.yaml to production cluster. Network change.</div>
+        <div class="appr-btns">
+          <button class="btn g">Approve</button>
+          <button class="btn d">Reject</button>
+        </div>
+      </div>
+
+      <div class="approval-item">
+        <div class="appr-head">
+          <span class="appr-tool">git push --force</span>
+          <span class="appr-agent dim">· codex-impl-1 · 18m ago</span>
+        </div>
+        <div class="appr-desc">Force push to feat/new-components. 14 commits ahead.</div>
+        <div class="appr-btns">
+          <button class="btn g">Approve</button>
+          <button class="btn d">Reject</button>
+        </div>
+      </div>
+
+      <div class="approval-item">
+        <div class="appr-head">
+          <span class="appr-tool">create_artifact</span>
+          <span class="appr-agent dim">· gemini-analyst · 3m ago</span>
+        </div>
+        <div class="appr-desc">research-synthesis-q3.pdf → rustfs://mc/artifacts/ (2.4 MB)</div>
+        <div class="appr-btns">
+          <button class="btn g">Approve</button>
+          <button class="btn d">Reject</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="pane-events">
+      <div class="ph">
+        <span class="t">Recent Events</span>
+        <span style="display:flex;align-items:center;gap:5px">
+          <span class="ok live">●</span>
+          <span class="c ok" style="font-size:11px">LIVE</span>
+        </span>
+      </div>
+      <div style="flex:1;overflow-y:auto">
+
+        <div class="ev-row">
+          <span class="ev-time">10:47:22</span>
+          <span class="ev-body"><span class="ev-type-ok">step_finished</span> · aria-mc-engineer · mockup file written 12.4kb</span>
+        </div>
+
+        <div class="ev-row alert-err">
+          <span class="ev-time err">10:47:18</span>
+          <span class="ev-body"><span class="ev-type-err">step_error</span> · goose-deploy-2 · pip install failed: conflict (retry 2/3)</span>
+        </div>
+
+        <div class="ev-row alert-gov">
+          <span class="ev-time warn">10:47:05</span>
+          <span class="ev-body"><span class="ev-type-gov">governance</span> · goose-deploy-1 · kubectl apply pending approval</span>
+        </div>
+
+        <div class="ev-row">
+          <span class="ev-time">10:46:58</span>
+          <span class="ev-body"><span class="ev-type-ok">step_finished</span> · goose-research-3 · vectorized 2,814 docs (18.3s)</span>
+        </div>
+
+        <div class="ev-row">
+          <span class="ev-time">10:46:42</span>
+          <span class="ev-body"><span class="ev-type-info">step_started</span> · codex-impl-1 · scaffold SvelteKit component tree</span>
+        </div>
+
+        <div class="ev-row">
+          <span class="ev-time">10:46:30</span>
+          <span class="ev-body"><span class="ev-type-gov" style="color:#bc8cff">artifact</span> · gemini-analyst · sector-analysis-raw.json → rustfs</span>
+        </div>
+
+        <div class="ev-row">
+          <span class="ev-time">10:46:11</span>
+          <span class="ev-body"><span class="ev-type-done">task_done</span> · goose-research-3 · TSK-0126 normalize-dataset ✓</span>
+        </div>
+
+        <div class="ev-row">
+          <span class="ev-time">10:45:58</span>
+          <span class="ev-body"><span class="ev-type-info">task_claimed</span> · goose-research-1 · TSK-0128 data-fetch · lease 20m</span>
+        </div>
+
+        <div class="ev-row">
+          <span class="ev-time">10:45:44</span>
+          <span class="ev-body"><span class="ev-type-ok">step_finished</span> · aria-operator · backup-verify passed 14 volumes</span>
+        </div>
+
+        <div class="ev-row">
+          <span class="ev-time dim">10:44:11</span>
+          <span class="ev-body dim"><span style="color:#30363d">heartbeat</span> · aria-merlinlabs · idle · 0 tasks</span>
+        </div>
+
+        <div class="ev-row">
+          <span class="ev-time dim">10:43:02</span>
+          <span class="ev-body dim"><span style="color:#30363d">heartbeat</span> · aria-work · idle · 0 tasks</span>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<div id="statusbar">
+  <span class="accent">web-revamp</span>
+  <span class="dim">·</span>
+  <span class="ok">14 running</span>
+  <span class="muted">3 idle</span>
+  <span class="warn">1 degraded</span>
+  <span class="err">1 offline</span>
+  <div id="statusbar-right">
+    <span class="warn">3 approvals pending</span>
+    <span class="dim">|</span>
+    <span>312 events today</span>
+    <span class="dim">|</span>
+    <span class="ok live">●</span> <span class="ok">LIVE</span>
+  </div>
+</div>
+
+</body>
+</html>
