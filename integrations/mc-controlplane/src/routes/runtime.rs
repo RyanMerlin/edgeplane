@@ -1756,9 +1756,24 @@ async fn assign_node_agent(
         .as_ref()
         .and_then(|v| serde_json::to_string(v).ok());
 
+    // Derive the node's short name for the canonical agent name prefix.
+    // Format: `<node_short>-<agent_name>` → public_id `<node_short>-<agent_name>-<hex>`.
+    // `node_short` is the first DNS label of the Tailscale FQDN, or the
+    // raw node_name if it contains no dots (e.g. "excalibur").
+    let node_short: String = sqlx::query_scalar(
+        "SELECT SPLIT_PART(COALESCE(tailscale_fqdn, node_name), '.', 1) FROM runtimenode WHERE id=$1",
+    )
+    .bind(&node_id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None)
+    .unwrap_or_else(|| "node".to_string());
+
     let agent_public_id = match &body.agent_name {
         Some(n) if !n.trim().is_empty() => {
-            match crate::routes::agents::upsert_agent_by_name(&state.db, n.trim(), &caps_json)
+            // Canonical name: <node_short>-<agent_name>
+            let canonical = format!("{node_short}-{}", n.trim());
+            match crate::routes::agents::upsert_agent_by_name(&state.db, &canonical, &caps_json)
                 .await
             {
                 Ok(pid) => Some(pid),

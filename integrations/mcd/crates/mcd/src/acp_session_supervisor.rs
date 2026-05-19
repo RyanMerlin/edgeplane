@@ -66,6 +66,10 @@ pub struct AcpSupervisorConfig {
     pub agent_id: String,
     pub spawn_opts: SpawnOpts,
     pub cwd: std::path::PathBuf,
+    /// Passed to `AcpSession::open` as the `--remote-control-session-name-prefix`
+    /// flag so the session is visible in the Claude app under the agent's canonical
+    /// public_id. `None` disables remote-control for this session.
+    pub remote_control_prefix: Option<String>,
 }
 
 pub async fn run_for_agent(cfg: AcpSupervisorConfig, registry: Arc<AttachRegistry>) {
@@ -106,7 +110,7 @@ async fn run_one_session(
     cfg: &AcpSupervisorConfig,
     registry: &Arc<AttachRegistry>,
 ) -> anyhow::Result<()> {
-    let session = AcpSession::open(cfg.spawn_opts.clone(), cfg.cwd.clone())
+    let session = AcpSession::open(cfg.spawn_opts.clone(), cfg.cwd.clone(), cfg.remote_control_prefix.clone())
         .await
         .context("acp session open")?;
     tracing::info!("ACP session started for agent {}", cfg.agent_id);

@@ -553,6 +553,25 @@ impl Spawner {
     /// the caller logs and continues. Mirrors the inline behavior the
     /// legacy spawn loop had, just refactored for callability.
     pub async fn spawn_one(self: &Arc<Self>, spec: &AgentSpec) -> Option<RunningAgent> {
+        // Persistent agents with a webhook_url are already running as
+        // systemd/tmux sessions. We relay messages to them via HTTP webhook
+        // instead of spawning a competing ACP process.
+        if spec.session_mode == SessionMode::Persistent {
+            if let Some(ref webhook_url) = spec.webhook_url {
+                tracing::info!(
+                    "Agent {} is persistent with webhook_url={webhook_url}; \
+                     using webhook relay (no ACP spawn)",
+                    spec.agent_id
+                );
+                let relay_jh = tokio::spawn(task_loop::run_webhook_relay(
+                    self.client.clone(),
+                    spec.agent_id.clone(),
+                    webhook_url.clone(),
+                ));
+                return Some(RunningAgent::new(spec.clone(), vec![relay_jh]));
+            }
+        }
+
         let extra_caps: Vec<mcd_core::types::Capability> = spec
             .capabilities
             .iter()
@@ -671,6 +690,10 @@ impl Spawner {
                         agent_id: spec.agent_id.clone(),
                         spawn_opts: opts,
                         cwd: session_cwd,
+                        // agent_id is the public_id (e.g. "aria-work-708650f1");
+                        // using it as the remote-control prefix makes the ACP
+                        // session visible in the Claude app under that name.
+                        remote_control_prefix: Some(spec.agent_id.clone()),
                     };
                     tokio::spawn(acp_session_supervisor::run_for_agent(
                         scfg,
@@ -733,6 +756,9 @@ pub struct AgentSpec {
     pub session_mode: SessionMode,
     pub capabilities: Vec<String>,
     pub profile_path: Option<PathBuf>,
+    /// HTTP endpoint to POST messages to (instead of spawning an ACP process).
+    /// Set when the agent's `machine.webhook_url` is populated in the controlplane.
+    pub webhook_url: Option<String>,
 }
 
 /// Build the initial spawn list.
@@ -880,6 +906,12 @@ fn agent_spec_from_json(v: &serde_json::Value) -> Result<AgentSpec> {
         .and_then(|p| p.get("path"))
         .and_then(|s| s.as_str())
         .map(PathBuf::from);
+    let webhook_url = v
+        .get("machine")
+        .and_then(|m| m.get("webhook_url"))
+        .and_then(|u| u.as_str())
+        .filter(|u| !u.is_empty())
+        .map(String::from);
     Ok(AgentSpec {
         agent_id,
         mission_id,
@@ -887,6 +919,7 @@ fn agent_spec_from_json(v: &serde_json::Value) -> Result<AgentSpec> {
         session_mode,
         capabilities,
         profile_path,
+        webhook_url,
     })
 }
 
@@ -901,6 +934,7 @@ fn yaml_specs(cfg: &DaemonConfig) -> Vec<AgentSpec> {
                 session_mode: a.session_mode,
                 capabilities: a.capabilities.clone(),
                 profile_path: a.profile_path.clone(),
+                webhook_url: None,
             });
         }
     }

@@ -74,7 +74,7 @@ cp "$NEW_SCHEMA" "$SCHEMA_FILE"
 echo "$NEW_VERSION" > "$VERSION_FILE"
 
 echo "==> rebuilding + testing mcd-acp (build.rs will regenerate types)"
-(cd "$WORKSPACE_DIR" && cargo test -p mcd-acp)
+(cd "$WORKSPACE_DIR" && cargo nextest run -p mcd-acp)
 
 echo
 echo "Sync complete. Review the changes in:"

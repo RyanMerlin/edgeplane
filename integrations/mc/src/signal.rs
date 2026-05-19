@@ -92,9 +92,8 @@ pub async fn run(args: SignalArgs, client: &MissionControlClient) -> Result<()> 
     Ok(())
 }
 
-/// Default sender identity — `mc-signal-<hostname>`. Hostname-scoped so
-/// multi-host deployments don't all share one row (which would muddy
-/// audit logs across nodes).
+/// Default sender identity — `<hostname>-mc-signal`. Canonical format
+/// matches the fleet naming convention: `<node>-<role>[-<hex>]`.
 fn default_sender_name() -> String {
     let host = std::env::var("HOSTNAME")
         .ok()
@@ -113,7 +112,7 @@ fn default_sender_name() -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c.to_ascii_lowercase() } else { '-' })
         .collect();
-    format!("mc-signal-{cleaned}")
+    format!("{cleaned}-mc-signal")
 }
 
 /// Upsert the sender agent via the MCP `register_agent` tool. Returns
@@ -161,6 +160,6 @@ mod tests {
         unsafe {
             std::env::remove_var("HOSTNAME");
         }
-        assert_eq!(n, "mc-signal-excalibur-net");
+        assert_eq!(n, "excalibur-net-mc-signal");
     }
 }

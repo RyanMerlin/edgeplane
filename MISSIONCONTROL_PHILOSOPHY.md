@@ -1,5 +1,7 @@
 # MissionControl — Philosophy
 
+> **For precise entity definitions (Mission, Kluster, Task, Artifact, Session, Agent), see [`docs/architecture/entities.md`](docs/architecture/entities.md).** This doc is the *why*; entities.md is the *what*. If they disagree, entities.md wins until reconciled.
+
 ## The Coordination Layer
 
 AI agents can write code, run tools, and reason over architecture.
