@@ -8,6 +8,7 @@
 //! Schema v1. New columns go through `migrate()` additions.
 
 use anyhow::{Context, Result};
+use mcd_core::types::StateDirSpec;
 use rusqlite::{Connection, params};
 use std::path::{Path, PathBuf};
 
@@ -66,7 +67,20 @@ impl LocalRegistry {
                 last_synced_at    TEXT,
                 PRIMARY KEY (source, id)
             );
-            CREATE INDEX IF NOT EXISTS agent_by_source ON agent (source);",
+            CREATE INDEX IF NOT EXISTS agent_by_source ON agent (source);
+            CREATE TABLE IF NOT EXISTS agent_launch_context (
+                source          TEXT NOT NULL,
+                agent_id        TEXT NOT NULL,
+                vault_folder    TEXT,
+                state_dir_spec  TEXT,
+                zellij_session  TEXT,
+                PRIMARY KEY (source, agent_id),
+                FOREIGN KEY (source, agent_id)
+                    REFERENCES agent (source, id)
+                    ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS launch_context_by_source
+                ON agent_launch_context (source);",
         )?;
         conn.execute("INSERT OR IGNORE INTO schema_version VALUES (1)", [])?;
         Ok(())
@@ -147,6 +161,74 @@ impl LocalRegistry {
     pub fn list_specs_by_source(&self, source: &str) -> Result<Vec<AgentSpec>> {
         let rows = self.list_by_source(source)?;
         Ok(rows.into_iter().map(AgentRecord::into_spec).collect())
+    }
+
+    /// Upsert the launch context for an agent. Foreign-key enforced — the
+    /// `(source, agent_id)` row must already exist in `agent`. Phase 1 of
+    /// the daemon-absorption plan; consumed by the ZellijHosted runtime
+    /// (Phase 2) and the cron registry (Phase 4).
+    pub fn upsert_launch_context(&self, ctx: &AgentLaunchContext) -> Result<()> {
+        let state_dir_json = ctx
+            .state_dir_spec
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .context("serialising state_dir_spec")?;
+        self.conn.execute(
+            "INSERT INTO agent_launch_context
+                (source, agent_id, vault_folder, state_dir_spec, zellij_session)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(source, agent_id) DO UPDATE SET
+                vault_folder   = excluded.vault_folder,
+                state_dir_spec = excluded.state_dir_spec,
+                zellij_session = excluded.zellij_session",
+            params![
+                ctx.source,
+                ctx.agent_id,
+                ctx.vault_folder,
+                state_dir_json,
+                ctx.zellij_session,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Fetch the launch context for a single agent. Returns `None` if no row
+    /// exists — most agents (legacy task-mode, controlplane-synced) won't
+    /// have one until they're explicitly registered with one.
+    pub fn get_launch_context(
+        &self,
+        source: &str,
+        agent_id: &str,
+    ) -> Result<Option<AgentLaunchContext>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT source, agent_id, vault_folder, state_dir_spec, zellij_session
+             FROM agent_launch_context
+             WHERE source = ?1 AND agent_id = ?2",
+        )?;
+        let mut rows = stmt.query(params![source, agent_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row_to_launch_context(row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List all launch contexts for a given source. Used by the importer
+    /// (to skip already-imported rows) and by diagnostic CLIs.
+    pub fn list_launch_contexts_by_source(
+        &self,
+        source: &str,
+    ) -> Result<Vec<AgentLaunchContext>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT source, agent_id, vault_folder, state_dir_spec, zellij_session
+             FROM agent_launch_context
+             WHERE source = ?1
+             ORDER BY agent_id ASC",
+        )?;
+        let rows = stmt.query_map(params![source], row_to_launch_context)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("reading launch contexts from registry")
     }
 
     /// Atomically replace all agent records for `source` with `specs`.
@@ -255,6 +337,43 @@ impl AgentRecord {
             webhook_url: None,
         }
     }
+}
+
+// ---------- AgentLaunchContext ----------
+
+/// One row of `agent_launch_context` — the declarative launch parameters
+/// for a given agent (vault folder, state dir lifecycle, zellij session
+/// name). 1:1 with `agent` by `(source, agent_id)`; most agents won't have
+/// a row here until the fleet importer or an explicit registration writes
+/// one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentLaunchContext {
+    pub source: String,
+    pub agent_id: String,
+    pub vault_folder: Option<String>,
+    pub state_dir_spec: Option<StateDirSpec>,
+    pub zellij_session: Option<String>,
+}
+
+fn row_to_launch_context(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentLaunchContext> {
+    let state_dir_json: Option<String> = row.get(3)?;
+    let state_dir_spec = match state_dir_json {
+        Some(s) => Some(serde_json::from_str(&s).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(
+                3,
+                rusqlite::types::Type::Text,
+                Box::new(e),
+            )
+        })?),
+        None => None,
+    };
+    Ok(AgentLaunchContext {
+        source: row.get(0)?,
+        agent_id: row.get(1)?,
+        vault_folder: row.get(2)?,
+        state_dir_spec,
+        zellij_session: row.get(4)?,
+    })
 }
 
 // ---------- Helpers ----------
@@ -424,6 +543,109 @@ mod tests {
         let after = reg.list_specs_by_source(&src).unwrap();
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].agent_id, "a-3");
+    }
+
+    #[test]
+    fn launch_context_round_trips_persistent() {
+        let (_dir, reg) = tmp_reg();
+        // FK requires the agent row to exist first.
+        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Persistent), SOURCE_LOCAL))
+            .unwrap();
+        let ctx = AgentLaunchContext {
+            source: SOURCE_LOCAL.into(),
+            agent_id: "a-1".into(),
+            vault_folder: Some("work".into()),
+            state_dir_spec: Some(StateDirSpec::Persistent {
+                path: PathBuf::from("/home/merlin/.claude/profiles/work"),
+            }),
+            zellij_session: Some("work".into()),
+        };
+        reg.upsert_launch_context(&ctx).unwrap();
+        let got = reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().unwrap();
+        assert_eq!(got, ctx);
+    }
+
+    #[test]
+    fn launch_context_round_trips_ephemeral() {
+        let (_dir, reg) = tmp_reg();
+        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
+            .unwrap();
+        let ctx = AgentLaunchContext {
+            source: SOURCE_LOCAL.into(),
+            agent_id: "a-1".into(),
+            vault_folder: None,
+            state_dir_spec: Some(StateDirSpec::Ephemeral { ttl_minutes: Some(30) }),
+            zellij_session: None,
+        };
+        reg.upsert_launch_context(&ctx).unwrap();
+        let got = reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().unwrap();
+        assert_eq!(got, ctx);
+    }
+
+    #[test]
+    fn launch_context_missing_returns_none() {
+        let (_dir, reg) = tmp_reg();
+        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
+            .unwrap();
+        assert!(reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().is_none());
+    }
+
+    #[test]
+    fn launch_context_fk_requires_agent_row() {
+        let (_dir, reg) = tmp_reg();
+        // No agent row → FK violation.
+        let ctx = AgentLaunchContext {
+            source: SOURCE_LOCAL.into(),
+            agent_id: "no-such-agent".into(),
+            vault_folder: None,
+            state_dir_spec: None,
+            zellij_session: None,
+        };
+        assert!(reg.upsert_launch_context(&ctx).is_err());
+    }
+
+    #[test]
+    fn launch_context_cascades_on_agent_delete() {
+        let (_dir, reg) = tmp_reg();
+        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Persistent), SOURCE_LOCAL))
+            .unwrap();
+        reg.upsert_launch_context(&AgentLaunchContext {
+            source: SOURCE_LOCAL.into(),
+            agent_id: "a-1".into(),
+            vault_folder: Some("operator".into()),
+            state_dir_spec: None,
+            zellij_session: Some("operator".into()),
+        })
+        .unwrap();
+        assert!(reg.delete(SOURCE_LOCAL, "a-1").unwrap());
+        // Deleting the agent cascades — the launch_context row is gone too.
+        assert!(reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().is_none());
+    }
+
+    #[test]
+    fn launch_context_upsert_overwrites() {
+        let (_dir, reg) = tmp_reg();
+        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Persistent), SOURCE_LOCAL))
+            .unwrap();
+        reg.upsert_launch_context(&AgentLaunchContext {
+            source: SOURCE_LOCAL.into(),
+            agent_id: "a-1".into(),
+            vault_folder: Some("work".into()),
+            state_dir_spec: None,
+            zellij_session: Some("work".into()),
+        })
+        .unwrap();
+        reg.upsert_launch_context(&AgentLaunchContext {
+            source: SOURCE_LOCAL.into(),
+            agent_id: "a-1".into(),
+            vault_folder: Some("research".into()),
+            state_dir_spec: None,
+            zellij_session: Some("research".into()),
+        })
+        .unwrap();
+        let got = reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().unwrap();
+        assert_eq!(got.vault_folder.as_deref(), Some("research"));
+        assert_eq!(got.zellij_session.as_deref(), Some("research"));
     }
 
     #[test]

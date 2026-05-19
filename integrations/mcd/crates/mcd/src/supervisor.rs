@@ -57,6 +57,12 @@ impl Supervisor {
             profile: None,
             roster: vec![],
             with_rtk: false,
+            // vault_folder + state_dir_spec are populated by the fleet importer
+            // for ZellijHosted agents (Phase 1 daemon-absorption). Generic
+            // task-mode agents launched through this Supervisor path leave them
+            // None — the runtime falls back to the resolved `work_dir`.
+            vault_folder: None,
+            state_dir_spec: None,
         };
 
         let handle = runtime.launch(ctx).await?;

@@ -12,6 +12,7 @@ use mcd_runtimes::{
     codex::CodexRuntime,
     gemini::GeminiRuntime,
     goose::GooseRuntime,
+    zellij_hosted::ZellijHostedRuntime,
 };
 use mcd_receipts::ReceiptStore;
 use mcd_work::watchdog::{OfflinePolicy, Watchdog};
@@ -116,6 +117,34 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
             e
         })
         .ok();
+
+    // Phase 1 daemon-absorption: idempotent one-time import of Aria-style
+    // fleet-profiles.toml into the local registry as ZellijHosted agents.
+    // Runs on every startup so newly-added profiles get picked up. Missing
+    // manifest is not an error — most nodes don't run the Aria fleet.
+    if let Some(reg) = registry.as_ref() {
+        let manifest_path = crate::fleet_import::resolve_manifest_path(
+            cfg.fleet_profiles_file.as_deref(),
+        );
+        match manifest_path {
+            Some(path) => match crate::fleet_import::load_profiles(&path)
+                .and_then(|profiles| crate::fleet_import::import_into(reg, &profiles))
+            {
+                Ok(summary) => tracing::info!(
+                    "fleet import from {}: {} created, {} updated, {} total",
+                    path.display(),
+                    summary.created,
+                    summary.updated,
+                    summary.total,
+                ),
+                Err(e) => tracing::warn!(
+                    "fleet import from {} failed: {e:#}. Continuing without it.",
+                    path.display(),
+                ),
+            },
+            None => tracing::debug!("no fleet-profiles.toml to import (this is fine)"),
+        }
+    }
 
     let client = Arc::new(BackendClient::new(&cfg.backend_url, &cfg.token));
 
@@ -639,6 +668,9 @@ impl Spawner {
             "codex" => Arc::new(Box::new(CodexRuntime::with_extra_capabilities(extra_caps))),
             "gemini" => Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(extra_caps))),
             "goose" => Arc::new(Box::new(GooseRuntime::with_extra_capabilities(extra_caps))),
+            "zellij_hosted" => Arc::new(Box::new(
+                ZellijHostedRuntime::with_extra_capabilities(extra_caps),
+            )),
             other => {
                 tracing::warn!(
                     "Unknown runtime kind '{other}', skipping agent {}",

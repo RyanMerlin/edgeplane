@@ -5,3 +5,4 @@ pub mod gemini;
 pub mod goose;
 pub mod shared;
 pub mod harness;
+pub mod zellij_hosted;
