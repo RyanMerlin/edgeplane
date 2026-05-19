@@ -160,7 +160,7 @@ fn apply_env(
     cmd.env("MC_BASE_URL", config.base_url.as_str());
     if let Some(token) = &config.token {
         if !token.trim().is_empty() {
-            cmd.env("MC_TOKEN", token);
+            cmd.env("MC_AGENT_TOKEN", token);
         }
     }
     cmd.env("MC_AGENT_PROFILE", profile);

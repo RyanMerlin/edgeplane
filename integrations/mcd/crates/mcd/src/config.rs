@@ -47,6 +47,12 @@ pub struct DaemonConfig {
     /// address using `tailscale_fqdn` from node registration.
     #[serde(default = "default_attach_bind")]
     pub attach_bind_addr: String,
+    /// Default mission that persistent agents attach to on daemon startup.
+    /// Pushed from mc-controlplane at `mc daemon profile add` time (via the
+    /// `home` field in the node-register response), or set manually.
+    /// Ephemeral agents (session_mode: Task) ignore this field entirely.
+    #[serde(default)]
+    pub home_mission_id: Option<String>,
 }
 
 fn default_attach_bind() -> String {
@@ -61,8 +67,12 @@ pub struct MissionEntry {
     pub agents: Vec<AgentEntry>,
 }
 
-/// Whether an agent runs in short-lived task mode (`claude -p` per task) or
-/// as a long-running interactive session managed by `session_supervisor`.
+/// Whether an agent runs in short-lived task mode or as a long-running session.
+///
+/// - `Persistent`: attaches to `home_mission_id` on daemon startup. Can be
+///   temporarily reassigned to a working mission. Never starts without a home.
+/// - `Task` (ephemeral): only connects when dispatched. MUST arrive with
+///   `mission_id`, `kluster_id`, and `task_id` all set. Rejected otherwise.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionMode {
@@ -93,22 +103,20 @@ pub struct AgentEntry {
     pub profile_path: Option<std::path::PathBuf>,
 }
 
-/// Shared session fields written by `mc auth login`.
-#[derive(Deserialize)]
-struct McSession {
-    token: String,
-    base_url: String,
-}
-
 /// Shared persistent config written by `mc auth login`.
 #[derive(Deserialize)]
 struct McConfig {
     base_url: Option<String>,
 }
 
-fn read_mc_session() -> Option<McSession> {
-    let content = std::fs::read_to_string(paths::session_file_path()).ok()?;
-    serde_json::from_str(&content).ok()
+/// Read the token from the active profile in mcd's own state.json.
+/// This is the machine credential stored during `mc daemon profile add`.
+fn read_state_profile_token() -> Option<String> {
+    let content = std::fs::read_to_string(paths::state_file_path()).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let active = v.get("active_profile")?.as_str()?;
+    let token = v.get("profiles")?.get(active)?.get("auth")?.get("token")?.as_str()?;
+    if token.is_empty() { None } else { Some(token.to_string()) }
 }
 
 fn read_mc_base_url() -> Option<String> {
@@ -147,27 +155,23 @@ impl DaemonConfig {
             node_id: None,
             attach_secret: None,
             attach_bind_addr: default_attach_bind(),
+            home_mission_id: None,
         });
         cfg.resolve_credentials();
         cfg
     }
 
-    /// Fill in missing token / backend_url from env vars and mc's shared files.
+    /// Fill in missing token / backend_url from mcd's own state.json profile.
+    /// MC_TOKEN env is intentionally not read — auth goes through OIDC only.
     fn resolve_credentials(&mut self) {
-        // Token: env → config.yaml → mc session.json
+        // Token: config.yaml (explicit) → active profile in state.json
         if self.token.is_empty() {
-            if let Ok(t) = std::env::var("MC_TOKEN") {
+            if let Some(t) = read_state_profile_token() {
                 self.token = t;
-            } else if let Some(s) = read_mc_session() {
-                self.token = s.token;
-                // Also pick up base_url from session if not set
-                if self.backend_url.is_empty() {
-                    self.backend_url = s.base_url;
-                }
             }
         }
 
-        // backend_url: env → config.yaml → mc config.json → localhost fallback
+        // backend_url: config.yaml → MC_BASE_URL env → mc config.json → localhost fallback
         if self.backend_url.is_empty() {
             if let Ok(u) = std::env::var("MC_BASE_URL") {
                 self.backend_url = u;

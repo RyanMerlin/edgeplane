@@ -5,7 +5,7 @@
 //!
 //! - Revocable server-side at any time
 //! - Never embedded in agent config files (mc launch uses env injection)
-//! - Auto-loaded by McConfig when MC_TOKEN is absent
+//! - Auto-loaded by McConfig from ~/.mc/session.json
 //! - Validated for expiry before use, with a clear renewal hint
 //!
 //! ## Interactive login flow
@@ -37,7 +37,7 @@ pub const SESSION_TOKEN_PREFIX: &str = "mcs_";
 
 #[derive(Args, Debug)]
 pub struct LoginArgs {
-    /// Session TTL in hours (default: 8, max: 720)
+    /// Session TTL in hours (default: 8, max: 8760)
     #[arg(long, default_value_t = 8)]
     pub ttl_hours: u64,
 
@@ -256,7 +256,7 @@ pub async fn login(
             std::env::var("MC_TOKEN").context("--non-interactive requires MC_TOKEN to be set")?;
         let client = MissionControlClient::new_with_token(current_base_url, &token)
             .context("could not build client")?;
-        let ttl = args.ttl_hours.clamp(1, 720);
+        let ttl = args.ttl_hours.clamp(1, 8760);
         let resp = client
             .post_json("/auth/sessions", &serde_json::json!({ "ttl_hours": ttl }))
             .await
@@ -283,7 +283,7 @@ async fn login_with_token(base_url: &str, ttl_hours: u64, print_token: bool) -> 
     }
     eprintln!();
 
-    let ttl = ttl_hours.clamp(1, 720);
+    let ttl = ttl_hours.clamp(1, 8760);
     let client = MissionControlClient::new_with_token(base_url, &raw_token)
         .context("could not build client with provided token")?;
 
@@ -382,7 +382,7 @@ async fn login_oidc(base_url: &str, ttl_hours: u64, print_token: bool) -> Result
     );
 
     // Exchange grant for a session token
-    let ttl = ttl_hours.clamp(1, 720);
+    let ttl = ttl_hours.clamp(1, 8760);
     let resp = anon_client
         .post_json(
             "/auth/oidc/exchange",
@@ -441,6 +441,81 @@ fn finish_session_login(resp: serde_json::Value, base_url: &str, print_token: bo
     }
 
     Ok(())
+}
+
+/// Run the OIDC browser flow and return the raw session token string.
+/// Used by `mc daemon profile add` to obtain a daemon-owned credential
+/// without overwriting the user's ~/.mc/session.json.
+pub async fn acquire_oidc_token(base_url: &str, ttl_hours: u64) -> Result<String> {
+    let anon_client =
+        MissionControlClient::new_with_token(base_url, "").context("could not build client")?;
+
+    eprintln!();
+    eprintln!("  {}Starting OIDC login for daemon profile…{}", crate::ui::CYAN, crate::ui::RESET);
+
+    let init: serde_json::Value = anon_client
+        .get_json("/auth/oidc/cli-initiate")
+        .await
+        .context("OIDC is not configured on this server")?;
+
+    let authorize_url = init["authorize_url"]
+        .as_str()
+        .ok_or_else(|| anyhow!("server returned no authorize_url"))?
+        .to_string();
+    let cli_nonce = init["cli_nonce"]
+        .as_str()
+        .ok_or_else(|| anyhow!("server returned no cli_nonce"))?
+        .to_string();
+
+    eprintln!("  Opening browser for authentication…");
+    eprintln!("  URL: {}{}{}", crate::ui::CYAN, authorize_url, crate::ui::RESET);
+    if let Err(e) = open::that(&authorize_url) {
+        eprintln!("  (could not open browser: {})", e);
+    }
+
+    eprintln!("  {}Waiting for browser authentication…{}", crate::ui::DIM, crate::ui::RESET);
+    let poll_url = format!("/auth/oidc/cli-poll/{}", cli_nonce);
+    let poll_deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+
+    let grant_id = 'poll: {
+        while std::time::Instant::now() < poll_deadline {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            match anon_client.get_json(&poll_url).await {
+                Ok(resp) if resp["status"].as_str() == Some("ready") => {
+                    let gid = resp["grant_id"]
+                        .as_str()
+                        .ok_or_else(|| anyhow!("ready but no grant_id"))?
+                        .to_string();
+                    break 'poll gid;
+                }
+                _ => {}
+            }
+        }
+        eprintln!("  Auto-detection timed out. Paste the code from your browser:");
+        prompt("  Code: ")?.trim().to_string()
+    };
+
+    if grant_id.is_empty() {
+        return Err(anyhow!("no code provided"));
+    }
+
+    let ttl = ttl_hours.clamp(1, 8760);
+    let resp = anon_client
+        .post_json(
+            "/auth/oidc/exchange",
+            &serde_json::json!({ "grant_id": grant_id, "ttl_hours": ttl }),
+        )
+        .await
+        .context("failed to exchange OIDC grant for session token")?;
+
+    let token = resp["token"]
+        .as_str()
+        .or_else(|| resp["access_token"].as_str())
+        .ok_or_else(|| anyhow!("server response missing 'token' field"))?
+        .to_string();
+
+    eprintln!("  {}OIDC login complete.{}", crate::ui::GREEN, crate::ui::RESET);
+    Ok(token)
 }
 
 pub async fn logout(args: LogoutArgs, client: &MissionControlClient) -> Result<()> {

@@ -108,7 +108,7 @@ pub async fn run(args: &ServeMcpArgs, client: &MissionControlClient) -> Result<(
         client
             .get_json("/mcp/health")
             .await
-            .context("preflight health check failed — verify MC_TOKEN and MC_BASE_URL")?;
+            .context("preflight health check failed — run `mc auth login` and verify MC_BASE_URL")?;
         tracing::debug!("mcp_server: preflight ok");
     }
 

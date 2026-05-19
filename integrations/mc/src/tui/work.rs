@@ -484,7 +484,7 @@ async fn oidc_flow_worker(
 
     // Step 3: exchange grant for session token
     let exchange_url = format!("{base}/auth/oidc/exchange");
-    let ttl = ttl_hours.clamp(1, 720);
+    let ttl = ttl_hours.clamp(1, 8760);
     let exchange_resp = match client
         .post(&exchange_url)
         .json(&serde_json::json!({ "grant_id": grant_id, "ttl_hours": ttl }))
