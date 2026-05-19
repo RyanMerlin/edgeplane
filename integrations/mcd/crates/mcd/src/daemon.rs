@@ -40,9 +40,26 @@ pub struct CliOverrides {
     pub token: String,
     pub work_dir: PathBuf,
     pub offline_grace_secs: u64,
+    /// If another mcd holds the singleton lock, terminate it and take over.
+    /// SIGTERM, wait 5s, SIGKILL if still alive. Use only when the existing
+    /// daemon is hung — otherwise prefer `systemctl --user restart mcd.service`.
+    pub kill_existing: bool,
+    /// Permit startup to continue when a required TCP port (attach_ws 8009,
+    /// mgmt 7731) is in use. Default is fatal. Use only when you knowingly
+    /// need partial functionality and are willing to lose attach/mgmt.
+    pub allow_degraded: bool,
 }
 
 pub async fn run(cli: CliOverrides) -> Result<()> {
+    // Singleton guard: acquire the kernel flock before any port binds, before
+    // touching the registry, before reaching out to the controlplane. If
+    // another mcd is running, this returns a structured error and we exit.
+    // The lock is held for the lifetime of this function — released by the
+    // kernel on any termination (clean exit, panic, SIGKILL, OOM).
+    let lock_path = mcd_core::paths::lock_file_path();
+    let _singleton = crate::singleton::SingletonLock::acquire(&lock_path, cli.kill_existing)?;
+    tracing::info!("singleton lock acquired at {}", lock_path.display());
+
     let mut cfg = DaemonConfig::load_or_default();
 
     // Phase 5b/d: state file is the source of truth for node identity + active
@@ -73,6 +90,12 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         "missions: {:?}",
         cfg.missions.iter().map(|m| &m.mission_id).collect::<Vec<_>>()
     );
+
+    // Fail-fast port probe. The singleton lock already catches the dominant
+    // case (another mcd holding these ports), but a third party could be
+    // holding them. Probe → drop → let serve() re-bind. The TOCTOU window
+    // between probe and re-bind is microseconds.
+    probe_required_ports(&cfg, cli.allow_degraded).await?;
 
     std::fs::create_dir_all(&cfg.work_dir)?;
 
@@ -952,6 +975,53 @@ fn yaml_specs(cfg: &DaemonConfig) -> Vec<AgentSpec> {
         );
     }
     out
+}
+
+/// Try to bind every TCP port the daemon will use later, then immediately
+/// drop the listener. If any required bind fails:
+/// - default: return an error → daemon refuses to start
+/// - `allow_degraded`: log a warning and continue (operator opt-in)
+///
+/// This is fail-fast belt to the singleton lock's suspenders. The singleton
+/// lock blocks the dominant "two mcds" case, but a port conflict can still
+/// arise if some unrelated process is on 8009 or 7731 — we want that loud,
+/// not silently degraded.
+async fn probe_required_ports(cfg: &DaemonConfig, allow_degraded: bool) -> Result<()> {
+    let mgmt_port: u16 = std::env::var("MC_MESH_MGMT_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(7731);
+    let mgmt_addr = format!("0.0.0.0:{mgmt_port}");
+
+    let probes: [(&str, &str); 2] = [
+        ("attach_ws", cfg.attach_bind_addr.as_str()),
+        ("mgmt_tcp", mgmt_addr.as_str()),
+    ];
+
+    for (name, addr) in probes {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => {
+                drop(listener);
+                tracing::debug!("port probe ok: {name} ({addr})");
+            }
+            Err(e) if allow_degraded => {
+                tracing::warn!(
+                    "port probe failed for {name} at {addr}: {e}. \
+                     Continuing because --allow-degraded was set."
+                );
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "{name} port {addr} is already in use: {e}\n\n\
+                     Another process is bound to a port mcd needs. To diagnose:\n  \
+                       ss -lntp | grep -E ':({mgmt_port}|8009)\\b'\n  \
+                       mcd doctor\n\n\
+                     If you intentionally want partial startup, re-run with --allow-degraded."
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
