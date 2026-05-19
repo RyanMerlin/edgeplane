@@ -101,6 +101,7 @@ pub fn import_into(registry: &LocalRegistry, profiles: &[Profile]) -> Result<Imp
             capabilities: vec![],
             profile_path: None,
             webhook_url: None,
+            launch_overrides: Default::default(),
         };
         let record = AgentRecord::from_spec(&spec, SOURCE_FLEET_IMPORT);
         registry

@@ -26,13 +26,14 @@ use crate::attach_gateway;
 use crate::attach_registry::AttachRegistry;
 use crate::attach_ws;
 use crate::config::{DaemonConfig, SessionMode};
+use crate::fleet_import::SOURCE_FLEET_IMPORT;
 use crate::local_registry::{LocalRegistry, SOURCE_LOCAL, source_cp};
 use crate::mgmt_gateway::MgmtGateway;
 use crate::reconcile::{self, RunningAgent, RunningAgents};
 use crate::secrets_gateway::SecretsGateway;
 use crate::session_supervisor;
 use crate::state;
-use crate::supervisor::Supervisor;
+use crate::supervisor::{SpawnOverrides, Supervisor};
 use crate::task_loop;
 
 /// Config passed from the CLI, overrides any file-based config.
@@ -702,6 +703,7 @@ impl Spawner {
                 spec.mission_id.clone(),
                 rt.clone(),
                 vec![],
+                spec.launch_overrides.clone(),
             )
             .await
         {
@@ -814,15 +816,70 @@ pub struct AgentSpec {
     /// HTTP endpoint to POST messages to (instead of spawning an ACP process).
     /// Set when the agent's `machine.webhook_url` is populated in the controlplane.
     pub webhook_url: Option<String>,
+    /// Per-agent launch-context overrides resolved from the local registry's
+    /// `agent_launch_context` table (Phase 1+). Empty default for agents
+    /// without a row; populated for fleet-imported ZellijHosted agents and
+    /// any future runtime that needs declarative launch parameters.
+    pub launch_overrides: SpawnOverrides,
 }
 
 /// Build the initial spawn list.
 ///
-/// Priority order:
+/// Priority order for the "base" specs (one of these three is selected):
 /// 1. Controlplane GET (federated — when `cfg.node_id` is set).
 /// 2. Local SQLite registry (`source = 'local'`) — standalone mode.
 /// 3. Legacy yaml `missions:` — deprecated fallback for pre-Phase-4 configs.
+///
+/// **Additive layer (always on when a registry is present):**
+/// fleet-imported agents (`source = 'fleet_import'`) are appended to whatever
+/// the base path returns. These represent the local Aria fleet (operator,
+/// work, etc.) — they coexist with controlplane assignments and yaml legacy
+/// missions, not replace them. Each fleet_import spec gets its
+/// `launch_overrides` populated from the `agent_launch_context` table so
+/// the runtime knows which Zellij session to address.
 async fn resolve_agent_specs(
+    cfg: &DaemonConfig,
+    client: &BackendClient,
+    registry: Option<&LocalRegistry>,
+) -> Vec<AgentSpec> {
+    let mut specs = base_agent_specs(cfg, client, registry).await;
+
+    if let Some(reg) = registry {
+        match reg.list_specs_by_source(SOURCE_FLEET_IMPORT) {
+            Ok(mut fleet_specs) => {
+                let n = fleet_specs.len();
+                for spec in &mut fleet_specs {
+                    if let Ok(Some(ctx)) =
+                        reg.get_launch_context(SOURCE_FLEET_IMPORT, &spec.agent_id)
+                    {
+                        spec.launch_overrides = SpawnOverrides {
+                            vault_folder: ctx.vault_folder,
+                            state_dir_spec: ctx.state_dir_spec,
+                            zellij_session: ctx.zellij_session,
+                        };
+                    }
+                }
+                if n > 0 {
+                    tracing::info!("fleet_import: {n} agent(s) appended to spawn list");
+                }
+                specs.extend(fleet_specs);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Could not list fleet_import agents from registry: {e:#}. \
+                     Continuing without them."
+                );
+            }
+        }
+    }
+
+    specs
+}
+
+/// Resolve the "base" agent list per the controlplane > local > yaml priority.
+/// Separated from `resolve_agent_specs` so the fleet_import additive layer
+/// can wrap it cleanly.
+async fn base_agent_specs(
     cfg: &DaemonConfig,
     client: &BackendClient,
     registry: Option<&LocalRegistry>,
@@ -975,6 +1032,7 @@ fn agent_spec_from_json(v: &serde_json::Value) -> Result<AgentSpec> {
         capabilities,
         profile_path,
         webhook_url,
+        launch_overrides: SpawnOverrides::default(),
     })
 }
 
@@ -990,6 +1048,7 @@ fn yaml_specs(cfg: &DaemonConfig) -> Vec<AgentSpec> {
                 capabilities: a.capabilities.clone(),
                 profile_path: a.profile_path.clone(),
                 webhook_url: None,
+                launch_overrides: SpawnOverrides::default(),
             });
         }
     }
