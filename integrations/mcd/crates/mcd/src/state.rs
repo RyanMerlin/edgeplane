@@ -244,7 +244,7 @@ mod tests {
         profiles.insert("work".into(), ProfileEntry {
             url: "http://localhost:8008".into(),
             auth: ProfileAuth::token("tok-abc"),
-            node_id: "n-1".into(),
+            node_id: Some("n-1".into()),
             attach_secret: "deadbeef".into(),
             registered_at: "2026-05-10T00:00:00Z".into(),
             tailscale_fqdn: None,
@@ -268,7 +268,7 @@ mod tests {
         let back = DaemonState::read(&path).unwrap().unwrap();
         assert_eq!(back.active_profile.as_deref(), Some("work"));
         let entry = back.profiles.get("work").unwrap();
-        assert_eq!(entry.node_id, "n-1");
+        assert_eq!(entry.node_id.as_deref(), Some("n-1"));
         assert_eq!(entry.auth.token, "tok-abc");
     }
 
@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(state.schema_version, 2);
         assert_eq!(state.active_profile.as_deref(), Some("default"));
         let entry = state.profiles.get("default").unwrap();
-        assert_eq!(entry.node_id, "n-1");
+        assert_eq!(entry.node_id.as_deref(), Some("n-1"));
         // File should have been rewritten as v2.
         let on_disk: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -299,7 +299,7 @@ mod tests {
         let s = v2_state();
         let (name, entry) = s.active().unwrap();
         assert_eq!(name, "work");
-        assert_eq!(entry.node_id, "n-1");
+        assert_eq!(entry.node_id.as_deref(), Some("n-1"));
     }
 
     #[cfg(unix)]
