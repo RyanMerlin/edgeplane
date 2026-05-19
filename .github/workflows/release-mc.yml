@@ -89,16 +89,14 @@ jobs:
 
       - name: Install cross
         if: matrix.use_cross
-        run: cargo install cross --locked
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v5
+        uses: taiki-e/install-action@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-${{ matrix.target }}-${{ matrix.bin }}-cargo-${{ hashFiles(format('{0}/Cargo.lock', matrix.crate_path)) }}
-          restore-keys: ${{ runner.os }}-${{ matrix.target }}-${{ matrix.bin }}-cargo-
+          tool: cross
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.crate_path }}
+          key: ${{ matrix.target }}-${{ matrix.bin }}
 
       - name: Build (cross)
         if: matrix.use_cross
@@ -110,12 +108,15 @@ jobs:
         run: cargo build --release ${{ matrix.features }} --target ${{ matrix.target }}
 
       - name: Rename artifact
+        # Each integrations/* is its own Cargo workspace (no top-level
+        # workspace Cargo.toml). Both `cross build --manifest-path X/Cargo.toml`
+        # and native `cargo build` (with working-directory: X) write to
+        # X/target/, so the path is the same regardless of use_cross.
         run: |
-          BIN=$(find ${{ matrix.crate_path }}/target/${{ matrix.target }}/release target/${{ matrix.target }}/release -maxdepth 1 -name ${{ matrix.bin }} -type f 2>/dev/null | head -1)
-          cp "$BIN" ${{ matrix.artifact }}
+          cp ${{ matrix.crate_path }}/target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.artifact }}
           chmod +x ${{ matrix.artifact }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -151,14 +152,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v5
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-${{ matrix.target }}-${{ matrix.bin }}-cargo-${{ hashFiles(format('{0}/Cargo.lock', matrix.crate_path)) }}
-          restore-keys: ${{ runner.os }}-${{ matrix.target }}-${{ matrix.bin }}-cargo-
+          workspaces: ${{ matrix.crate_path }}
+          key: ${{ matrix.target }}-${{ matrix.bin }}
 
       - name: Build
         working-directory: ${{ matrix.crate_path }}
@@ -167,8 +164,7 @@ jobs:
       - name: Rename artifact (Unix)
         if: runner.os != 'Windows'
         run: |
-          BIN=$(find ${{ matrix.crate_path }}/target/${{ matrix.target }}/release target/${{ matrix.target }}/release -maxdepth 1 -name ${{ matrix.bin }} -type f 2>/dev/null | head -1)
-          cp "$BIN" ${{ matrix.artifact }}
+          cp ${{ matrix.crate_path }}/target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.artifact }}
           chmod +x ${{ matrix.artifact }}
 
       - name: Rename artifact (Windows)
@@ -176,7 +172,7 @@ jobs:
         run: copy ${{ matrix.crate_path }}\target\${{ matrix.target }}\release\${{ matrix.bin }}.exe ${{ matrix.artifact }}
         shell: cmd
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -184,11 +180,22 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [build]
-    if: always() && needs.build.result == 'success'
+    needs: [build, build-extras]
+    # Run when `build` succeeds. Tolerate `build-extras` being skipped (tag
+    # pushes don't request extras) or failing (extras are `continue-on-error`
+    # by design — a Windows toolchain hiccup must never block the core publish).
+    # `always()` is required to override GitHub's default "skip when any need is
+    # skipped" — without it, every tag-push release would be auto-skipped because
+    # extras only run on workflow_dispatch.
+    if: |
+      always() &&
+      needs.build.result == 'success' &&
+      (needs.build-extras.result == 'success' ||
+       needs.build-extras.result == 'skipped' ||
+       needs.build-extras.result == 'failure')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
