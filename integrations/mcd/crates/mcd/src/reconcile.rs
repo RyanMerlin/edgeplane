@@ -285,6 +285,7 @@ mod tests {
             capabilities: vec![],
             profile_path: None,
             webhook_url: None,
+            launch_overrides: Default::default(),
         }
     }
 

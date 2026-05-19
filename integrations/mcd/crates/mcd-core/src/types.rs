@@ -160,6 +160,10 @@ pub struct LaunchContext {
     /// (idempotent `mkdir -p`); `Ephemeral` causes the daemon to `mkdtemp`
     /// before launch and reap after exit.
     pub state_dir_spec: Option<StateDirSpec>,
+    /// Name of the Zellij session this agent runs in. Populated by the
+    /// daemon from `AgentLaunchContext.zellij_session` only when
+    /// `runtime_kind == ZellijHosted`. `None` for all other runtimes.
+    pub zellij_session: Option<String>,
 }
 
 /// A handle to a running agent runtime process.

@@ -335,6 +335,10 @@ impl AgentRecord {
             capabilities,
             profile_path: self.profile_path.map(PathBuf::from),
             webhook_url: None,
+            // launch_overrides is populated by `resolve_agent_specs` after
+            // listing — into_spec only sees the agent row, not the joined
+            // launch context.
+            launch_overrides: crate::supervisor::SpawnOverrides::default(),
         }
     }
 }
@@ -414,6 +418,7 @@ mod tests {
             capabilities: vec![],
             profile_path: None,
             webhook_url: None,
+            launch_overrides: Default::default(),
         }
     }
 
