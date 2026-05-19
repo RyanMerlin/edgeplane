@@ -12,6 +12,7 @@ use mcd_runtimes::{
     codex::CodexRuntime,
     gemini::GeminiRuntime,
     goose::GooseRuntime,
+    zellij_hosted::ZellijHostedRuntime,
 };
 use mcd_receipts::ReceiptStore;
 use mcd_work::watchdog::{OfflinePolicy, Watchdog};
@@ -667,6 +668,9 @@ impl Spawner {
             "codex" => Arc::new(Box::new(CodexRuntime::with_extra_capabilities(extra_caps))),
             "gemini" => Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(extra_caps))),
             "goose" => Arc::new(Box::new(GooseRuntime::with_extra_capabilities(extra_caps))),
+            "zellij_hosted" => Arc::new(Box::new(
+                ZellijHostedRuntime::with_extra_capabilities(extra_caps),
+            )),
             other => {
                 tracing::warn!(
                     "Unknown runtime kind '{other}', skipping agent {}",

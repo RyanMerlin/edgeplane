@@ -13,13 +13,13 @@ pub enum RuntimeKind {
     ClaudeAgentAcp,
     Codex,
     Gemini,
-    /// A long-running agent hosted in a Zellij pane. The supervisor talks to
-    /// the agent through `zellij action` subprocess invocations against the
-    /// named session — there is no PTY owned by mcd. See
-    /// `mcd-runtimes/src/zellij_hosted.rs`.
-    ZellijHosted {
-        session_name: String,
-    },
+    /// A long-running agent hosted in a Zellij pane. The supervisor talks
+    /// to the agent through `zellij action` subprocess invocations against
+    /// the named session — there is no PTY owned by mcd. The per-agent
+    /// session name lives in `AgentLaunchContext.zellij_session` (not on
+    /// this variant, since the runtime impl is a node-wide singleton).
+    /// See `mcd-runtimes/src/zellij_hosted.rs`.
+    ZellijHosted,
     Custom(String),
 }
 
@@ -30,7 +30,7 @@ impl std::fmt::Display for RuntimeKind {
             RuntimeKind::ClaudeAgentAcp => write!(f, "claude_agent_acp"),
             RuntimeKind::Codex => write!(f, "codex"),
             RuntimeKind::Gemini => write!(f, "gemini"),
-            RuntimeKind::ZellijHosted { .. } => write!(f, "zellij_hosted"),
+            RuntimeKind::ZellijHosted => write!(f, "zellij_hosted"),
             RuntimeKind::Custom(s) => write!(f, "{s}"),
         }
     }
