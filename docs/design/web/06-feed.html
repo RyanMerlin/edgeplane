@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MissionControl — Feed</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: #0d1117; color: #e6edf3;
+  font-family: 'JetBrains Mono','Cascadia Code','Fira Code','SF Mono',ui-monospace,monospace;
+  font-size: 13px; line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  display: flex; flex-direction: column;
+}
+.ok { color: #3fb950; } .warn { color: #d29922; } .err { color: #f85149; }
+.accent { color: #58a6ff; } .purple { color: #bc8cff; } .dim { color: #484f58; } .muted { color: #8b949e; }
+
+#topbar {
+  height: 34px; flex-shrink: 0; display: flex; align-items: center;
+  background: #161b22; border-bottom: 1px solid #21262d; padding: 0 0 0 12px;
+}
+#logo { color: #58a6ff; font-weight: 700; font-size: 14px; letter-spacing: -0.03em;
+  padding-right: 12px; border-right: 1px solid #30363d; margin-right: 2px; flex-shrink: 0; }
+.nav-tab {
+  height: 34px; display: flex; align-items: center; padding: 0 14px;
+  color: #8b949e; font-size: 12px; text-decoration: none; white-space: nowrap;
+  border-bottom: 2px solid transparent; cursor: pointer; transition: color 0.1s;
+}
+.nav-tab:hover { color: #e6edf3; }
+.nav-tab.active { color: #e6edf3; border-bottom-color: #58a6ff; }
+#topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; padding: 0 12px; font-size: 12px; color: #8b949e; }
+
+/* filter bar */
+#filterbar {
+  height: 34px; flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap;
+  background: #161b22; border-bottom: 1px solid #21262d; padding: 0 12px; gap: 6px;
+}
+.fi {
+  display: flex; align-items: center; gap: 5px;
+  background: #0d1117; border: 1px solid #30363d; border-radius: 3px;
+  padding: 2px 8px; font-size: 11px; color: #8b949e;
+}
+.fi.focused { border-color: #58a6ff; }
+.fi input { background: transparent; border: none; outline: none; color: #e6edf3; font-family: inherit; font-size: 11px; width: 20ch; }
+.fi input::placeholder { color: #484f58; }
+.fsep { color: #21262d; font-size: 14px; margin: 0 2px; }
+
+.chip {
+  padding: 1px 7px; border: 1px solid #30363d; font-size: 11px; color: #484f58; cursor: pointer;
+}
+.chip:hover { border-color: #8b949e; color: #e6edf3; }
+.chip.on      { border-color: #58a6ff; color: #58a6ff; background: #0d1f3c; }
+.chip.on-err  { border-color: #da3633; color: #f85149; background: #1a0f0f; }
+.chip.on-warn { border-color: #9e6a03; color: #d29922; background: #1a1500; }
+.chip.on-ok   { border-color: #238636; color: #3fb950; background: #0d2b1a; }
+
+.fr { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 11px; color: #484f58; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.live { animation: pulse 1.5s infinite; }
+
+/* content */
+#content { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+/* feed list */
+#feed-list { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#feed-hdr {
+  display: grid;
+  grid-template-columns: 68px 140px 160px 120px 1fr;
+  gap: 0 6px; padding: 3px 12px;
+  background: #161b22; border-bottom: 1px solid #30363d;
+  color: #484f58; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+#feed { flex: 1; overflow-y: auto; }
+.f-row {
+  display: grid;
+  grid-template-columns: 68px 140px 160px 120px 1fr;
+  gap: 0 6px; padding: 3px 12px;
+  border-bottom: 1px solid #161b22; align-items: baseline; cursor: pointer;
+}
+.f-row:hover { background: #161b22; }
+.f-row.sel { background: #1c2938; }
+.f-row.a-err  { border-left: 2px solid #f85149; background: #120a0a; }
+.f-row.a-warn { border-left: 2px solid #d29922; background: #110f00; }
+.f-row.a-gov  { border-left: 2px solid #bc8cff; background: #0a0f1a; }
+.f-row.sel.a-err  { background: #1f1010; }
+.f-row.sel.a-warn { background: #1f1a0a; }
+.f-row.sel.a-gov  { background: #141c30; }
+
+.f-time  { color: #484f58; font-size: 11px; }
+.f-agent { color: #8b949e; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f-ctx   { color: #484f58; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f-type  { font-size: 11px; font-weight: 600; white-space: nowrap; }
+.f-msg   { color: #8b949e; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ty-start  { color: #58a6ff; }
+.ty-finish { color: #3fb950; }
+.ty-err    { color: #f85149; font-weight: 700; }
+.ty-gov    { color: #bc8cff; font-weight: 700; }
+.ty-art    { color: #bc8cff; }
+.ty-hb     { color: #21262d; }
+.ty-claim  { color: #58a6ff; }
+.ty-done   { color: #3fb950; font-weight: 700; }
+.ty-warn   { color: #d29922; font-weight: 700; }
+
+/* detail panel */
+#detail-panel {
+  width: 380px; flex-shrink: 0; border-left: 1px solid #21262d;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.dp-hdr {
+  height: 28px; flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  background: #161b22; border-bottom: 1px solid #21262d; padding: 0 12px; font-size: 11px; color: #8b949e;
+}
+.dp-hdr .t { color: #e6edf3; font-size: 12px; }
+.dp-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
+
+.kv { display: flex; gap: 8px; font-size: 12px; margin-bottom: 4px; line-height: 1.5; }
+.kk { color: #484f58; width: 80px; flex-shrink: 0; }
+.d-sep { border-top: 1px solid #21262d; margin: 8px 0 6px; }
+.d-sec { font-size: 10px; color: #484f58; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+
+.payload {
+  background: #161b22; border: 1px solid #30363d;
+  padding: 7px 10px; font-size: 11px; line-height: 1.7; font-family: inherit;
+  margin-bottom: 6px;
+}
+.pk { color: #58a6ff; }
+.pv { color: #e6edf3; }
+.pv-err { color: #f85149; }
+
+.ctx-log { font-size: 11px; color: #484f58; line-height: 1.9; }
+
+/* statusbar */
+#statusbar {
+  height: 24px; flex-shrink: 0; display: flex; align-items: center; gap: 20px;
+  background: #161b22; border-top: 1px solid #21262d;
+  padding: 0 12px; font-size: 11px; color: #484f58;
+}
+#statusbar-right { margin-left: auto; display: flex; gap: 16px; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <span id="logo">mc</span>
+  <a href="02-dashboard.html" class="nav-tab">Overview</a>
+  <a href="03-ai-console.html" class="nav-tab">Console</a>
+  <a href="04-agents.html" class="nav-tab">Agents</a>
+  <a href="05-explorer.html" class="nav-tab">Explorer</a>
+  <a href="06-feed.html" class="nav-tab active">Feed</a>
+  <a href="07-governance.html" class="nav-tab">Governance</a>
+  <div id="topbar-right">
+    <span class="ok">● 5/6 nodes</span>
+    <span class="muted">19 agents</span>
+    <span class="dim">|</span>
+    <span>10:47:22</span>
+  </div>
+</div>
+
+<div id="filterbar">
+  <div class="fi focused">
+    <span style="color:#484f58">/</span>
+    <input type="text" placeholder="filter events..." value="infra" />
+  </div>
+  <span class="fsep">|</span>
+  <span class="chip on">All</span>
+  <span class="chip on-err">Errors</span>
+  <span class="chip on-warn" style="border-color:#6e40c9;color:#bc8cff;background:#1a1030">Governance</span>
+  <span class="chip">Artifacts</span>
+  <span class="chip">Tasks</span>
+  <span class="chip">Heartbeat</span>
+  <span class="fsep">|</span>
+  <div class="fi" style="cursor:pointer;border-color:#9e6a03;color:#d29922;background:#1a1500">
+    <span style="width:7px;height:7px;border-radius:50%;background:#d29922;display:inline-block"></span>
+    <span>⚠ Alerts only</span>
+  </div>
+  <div class="fr">
+    <span>481 events</span>
+    <span class="dim">·</span>
+    <span class="ok" style="font-size:11px">rate 42/60</span>
+    <span class="ok live">●</span>
+    <span class="ok" style="font-weight:700;font-size:11px">LIVE</span>
+  </div>
+</div>
+
+<div id="content">
+
+  <!-- Feed list -->
+  <div id="feed-list">
+    <div id="feed-hdr">
+      <span>Time</span>
+      <span>Agent</span>
+      <span>Context</span>
+      <span>Event</span>
+      <span>Detail</span>
+    </div>
+    <div id="feed">
+
+      <div class="f-row">
+        <span class="f-time">10:47:22</span>
+        <span class="f-agent">aria-mc-engineer</span>
+        <span class="f-ctx">web-revamp/design-phase</span>
+        <span class="f-type ty-finish">step_finished</span>
+        <span class="f-msg">Wrote 06-feed.html — 14.2kb · TSK-0142</span>
+      </div>
+
+      <div class="f-row sel a-err">
+        <span class="f-time err">10:47:18</span>
+        <span class="f-agent err">goose-deploy-2</span>
+        <span class="f-ctx err">infra-hardening/audit</span>
+        <span class="f-type ty-err">step_error</span>
+        <span class="f-msg err">pip install: dependency conflict httpx==0.24 vs 0.27 (retry 2/3)</span>
+      </div>
+
+      <div class="f-row a-gov">
+        <span class="f-time warn">10:47:05</span>
+        <span class="f-agent warn">goose-deploy-1</span>
+        <span class="f-ctx warn">infra-hardening/audit</span>
+        <span class="f-type ty-gov">governance</span>
+        <span class="f-msg warn">kubectl apply cni-config.yaml — pending approval · production network</span>
+      </div>
+
+      <div class="f-row">
+        <span class="f-time">10:46:58</span>
+        <span class="f-agent">goose-research-3</span>
+        <span class="f-ctx">research-q3/market-scan</span>
+        <span class="f-type ty-finish">step_finished</span>
+        <span class="f-msg">Vectorized 2,814 documents into weaviate (18.3s)</span>
+      </div>
+
+      <div class="f-row">
+        <span class="f-time">10:46:42</span>
+        <span class="f-agent">codex-impl-1</span>
+        <span class="f-ctx">web-revamp/impl-phase</span>
+        <span class="f-type ty-start">step_started</span>
+        <span class="f-msg">Scaffolding SvelteKit component tree · 14 files</span>
+      </div>
+
+      <div class="f-row">
+        <span class="f-time">10:46:30</span>
+        <span class="f-agent">gemini-analyst</span>
+        <span class="f-ctx">research-q3/market-scan</span>
+        <span class="f-type ty-art">artifact</span>
+        <span class="f-msg" style="color:#bc8cff">sector-analysis-raw.json (8.4MB) → rustfs://mc/artifacts/TSK-0131/</span>
+      </div>
+
+      <div class="f-row">
+        <span class="f-time">10:46:11</span>
+        <span class="f-agent">goose-infra-1</span>
+        <span class="f-ctx">platform-ops/monitoring</span>
+        <span class="f-type ty-done">task_finished</span>
+        <span class="f-msg ok">TSK-0141 backup-verify ✓ all 14 volumes verified (22.4s)</span>
+      </div>
+
+      <div class="f-row a-warn">
+        <span class="f-time warn">10:45:58</span>
+        <span class="f-agent warn">goose-epyc-1</span>
+        <span class="f-ctx warn">research-q3/market-scan</span>
+        <span class="f-type ty-warn">overlap_detected</span>
+        <span class="f-msg warn">TSK-0099 similar to TSK-0086 (embedding-gen) — similarity 0.91</span>
+      </div>
+
+      <div class="f-row">
+        <span class="f-time">10:45:44</span>
+        <span class="f-agent">goose-research-1</span>
+        <span class="f-ctx">research-q3/market-scan</span>
+        <span class="f-type ty-claim">task_claimed</span>
+        <span class="f-msg">TSK-0128 data-fetch · lease 20m · goose-research-1</span>
+      </div>
+
+      <div class="f-row">
+        <span class="f-time">10:45:22</span>
+        <span class="f-agent">goose-audit-1</span>
+        <span class="f-ctx">infra-hardening/audit</span>
+        <span class="f-type ty-finish">step_finished</span>
+        <span class="f-msg">kubectl auth can-i check — 147 RBAC rules evaluated</span>
+      </div>
+
+      <div class="f-row">
+        <span class="f-time">10:45:11</span>
+        <span class="f-agent">aria-mc-engineer</span>
+        <span class="f-ctx">web-revamp/design-phase</span>
+        <span class="f-type ty-finish">step_finished</span>
+        <span class="f-msg">Wrote 05-explorer.html — 12.8kb · TSK-0142</span>
+      </div>
+
+      <div class="f-row">
+        <span class="f-time">10:44:58</span>
+        <span class="f-agent">codex-impl-1</span>
+        <span class="f-ctx">web-revamp/impl-phase</span>
+        <span class="f-type ty-claim">task_claimed</span>
+        <span class="f-msg">TSK-0143 scaffold-components · lease 30m</span>
+      </div>
+
+      <div class="f-row">
+        <span class="f-time">10:44:11</span>
+        <span class="f-agent dim">aria-operator</span>
+        <span class="f-ctx dim">platform-ops/monitoring</span>
+        <span class="f-type ty-hb">heartbeat</span>
+        <span class="f-msg dim">aria-operator · running · TSK-0138 monitor-fleet · 1 task</span>
+      </div>
+
+      <div class="f-row">
+        <span class="f-time">10:43:02</span>
+        <span class="f-agent dim">aria-merlinlabs</span>
+        <span class="f-ctx dim">—</span>
+        <span class="f-type ty-hb">heartbeat</span>
+        <span class="f-msg dim">aria-merlinlabs · idle · 0 tasks</span>
+      </div>
+
+      <div class="f-row">
+        <span class="f-time">10:42:55</span>
+        <span class="f-agent">goose-deploy-2</span>
+        <span class="f-ctx">infra-hardening/audit</span>
+        <span class="f-type ty-start">step_started</span>
+        <span class="f-msg">pip install safety==3.0.1 — checking dependency tree</span>
+      </div>
+
+    </div><!-- #feed -->
+  </div>
+
+  <!-- Event detail panel -->
+  <div id="detail-panel">
+    <div class="dp-hdr">
+      <span class="err">⚠</span>
+      <span class="t">step_error</span>
+      <span class="dim">·</span>
+      <span>10:47:18</span>
+    </div>
+    <div class="dp-body">
+
+      <div class="kv"><span class="kk">Time</span><span class="dim">10:47:18.334</span></div>
+      <div class="kv"><span class="kk">Agent</span><span>goose-deploy-2</span></div>
+      <div class="kv"><span class="kk">Node</span><span class="muted">cloud0</span></div>
+      <div class="kv"><span class="kk">Mission</span><span>infra-hardening</span></div>
+      <div class="kv"><span class="kk">Kluster</span><span>audit</span></div>
+      <div class="kv"><span class="kk">Task</span><span class="accent">TSK-0136 patch-dependencies</span></div>
+
+      <div class="d-sep"></div>
+      <div class="d-sec">Error Payload</div>
+
+      <div class="payload">
+        <span class="pk">type</span>    <span class="pv-err">step_error</span><br>
+        <span class="pk">step</span>    <span class="pv">pip-install</span><br>
+        <span class="pk">message</span> <span class="pv-err">dependency conflict: httpx==0.24.0 required by<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;package A, but httpx==0.27.0 by package B</span><br>
+        <span class="pk">retry_in</span> <span class="pv">30s (attempt 2/3)</span><br>
+        <span class="pk">exit_code</span> <span class="pv">1</span>
+      </div>
+
+      <div class="d-sep"></div>
+      <div class="d-sec">Agent Context</div>
+
+      <div class="ctx-log">
+        <div><span class="muted">10:42:55</span> started pip install safety==3.0.1</div>
+        <div><span class="muted">10:43:02</span> resolving dependency tree...</div>
+        <div><span class="muted">10:47:12</span> conflict detected: httpx version mismatch</div>
+        <div><span class="muted err">10:47:18</span> <span class="err">step_error — retrying in 30s</span></div>
+      </div>
+
+      <div class="d-sep"></div>
+      <div class="d-sec">Related Events (same task)</div>
+
+      <div class="ctx-log">
+        <div><span class="muted">10:42:55</span> <span class="ty-start">step_started</span> pip-install</div>
+        <div><span class="muted err">10:47:18</span> <span class="ty-err">step_error</span> conflict httpx</div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<div id="statusbar">
+  <span class="muted">481 events</span>
+  <span class="dim">·</span>
+  <span class="ok">14 agents active</span>
+  <span class="dim">·</span>
+  <span class="err">1 error</span>
+  <span class="warn">1 governance</span>
+  <span class="warn">1 overlap</span>
+  <div id="statusbar-right">
+    <span>/ filter</span>
+    <span class="dim">·</span>
+    <span>↑↓ scroll</span>
+    <span class="dim">·</span>
+    <span>Enter detail</span>
+    <span class="dim">·</span>
+    <span>p pause</span>
+    <span class="dim">·</span>
+    <span class="ok live">●</span> <span class="ok">LIVE</span>
+  </div>
+</div>
+
+</body>
+</html>
