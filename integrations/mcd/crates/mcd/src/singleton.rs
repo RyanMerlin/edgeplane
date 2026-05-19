@@ -38,6 +38,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Holds the kernel flock for the daemon's lifetime. Drop releases the lock.
+#[derive(Debug)]
 pub struct SingletonLock {
     _file: File,
     #[allow(dead_code)]

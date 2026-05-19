@@ -22,6 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
       - name: Cache Cargo registry
         uses: actions/cache@v5
         with:
@@ -31,11 +35,11 @@ jobs:
           key: ${{ runner.os }}-cargo-test-${{ hashFiles('integrations/mc/Cargo.lock', 'integrations/mc-controlplane/Cargo.lock', 'integrations/mcd/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-test-
       - name: Test mc-controlplane
-        run: cargo test --manifest-path integrations/mc-controlplane/Cargo.toml --test test_health --test test_routes --test test_proxy --test test_work
+        run: cargo nextest run --manifest-path integrations/mc-controlplane/Cargo.toml --test test_health --test test_routes --test test_proxy --test test_work
       - name: Test mc
-        run: cargo test --manifest-path integrations/mc/Cargo.toml -- --test-threads=1
-      - name: Check mcd
-        run: cargo check --manifest-path integrations/mcd/Cargo.toml
+        run: cargo nextest run --manifest-path integrations/mc/Cargo.toml --test-threads 1
+      - name: Test mcd
+        run: cargo nextest run --manifest-path integrations/mcd/Cargo.toml --workspace
 
   launch-regression:
     name: Launch regression

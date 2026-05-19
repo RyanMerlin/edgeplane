@@ -3,7 +3,7 @@ project: missioncontrol
 last_reviewed: 2026-03-21
 read_first:
   - README.md
-  - docs/design/architecture.md
+  - docs/architecture/architecture.md
   - docs/catalog/index.yaml
 
 domains:
