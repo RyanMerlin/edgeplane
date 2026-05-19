@@ -13,6 +13,13 @@ pub enum RuntimeKind {
     ClaudeAgentAcp,
     Codex,
     Gemini,
+    /// A long-running agent hosted in a Zellij pane. The supervisor talks to
+    /// the agent through `zellij action` subprocess invocations against the
+    /// named session — there is no PTY owned by mcd. See
+    /// `mcd-runtimes/src/zellij_hosted.rs`.
+    ZellijHosted {
+        session_name: String,
+    },
     Custom(String),
 }
 
@@ -23,9 +30,41 @@ impl std::fmt::Display for RuntimeKind {
             RuntimeKind::ClaudeAgentAcp => write!(f, "claude_agent_acp"),
             RuntimeKind::Codex => write!(f, "codex"),
             RuntimeKind::Gemini => write!(f, "gemini"),
+            RuntimeKind::ZellijHosted { .. } => write!(f, "zellij_hosted"),
             RuntimeKind::Custom(s) => write!(f, "{s}"),
         }
     }
+}
+
+/// How an agent's working/state directory should be allocated when the
+/// daemon launches it.
+///
+/// The agent record carries the *spec* (declarative); the daemon resolves it
+/// to a concrete `LaunchContext.work_dir` at launch time. The two variants
+/// have different lifecycles:
+///
+/// - `Persistent` — created once at the given path, lives forever, used by
+///   long-running ZellijHosted profile agents and any other agent whose
+///   conversation state must survive restarts.
+/// - `Ephemeral` — `mkdtemp` a fresh directory per launch, reaped on agent
+///   exit (after the optional `ttl_minutes` post-mortem grace period).
+///   Used for task-mode agents (Goose batch, Codex one-shot, etc.).
+///
+/// The reaper that cleans `Ephemeral` dirs lives in mcd (not mcd-core) and
+/// is wired in Phase 2 of the daemon-absorption plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StateDirSpec {
+    Persistent {
+        path: std::path::PathBuf,
+    },
+    Ephemeral {
+        /// Minutes to keep the dir alive after agent exit for post-mortem
+        /// inspection. `None` falls back to the daemon-global default
+        /// (`mcd.reaper.default_ttl_minutes`, 60).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ttl_minutes: Option<u32>,
+    },
 }
 
 /// A capability string, e.g. "code.edit", "test.run", "claude_code".
@@ -111,6 +150,16 @@ pub struct LaunchContext {
     /// If true, the runtime should attempt to enable RTK (Rust Token Killer) hooks
     /// for output compression before spawning the agent process.
     pub with_rtk: bool,
+    /// Aria vault folder this agent writes to (`operator`, `work`, etc.).
+    /// `None` for task agents that have no implicit vault scope.
+    /// Injected into the launched process's environment as `ARIA_VAULT_FOLDER`.
+    pub vault_folder: Option<String>,
+    /// Declarative spec for how `work_dir` should be allocated. `None` means
+    /// the caller has already populated `work_dir` and no special lifecycle
+    /// handling is needed. When present, `Persistent` resolves to its path
+    /// (idempotent `mkdir -p`); `Ephemeral` causes the daemon to `mkdtemp`
+    /// before launch and reap after exit.
+    pub state_dir_spec: Option<StateDirSpec>,
 }
 
 /// A handle to a running agent runtime process.
