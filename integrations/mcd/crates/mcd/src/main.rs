@@ -8,6 +8,7 @@ mod attach_ws;
 mod config;
 mod daemon;
 mod doctor;
+mod fleet_import;
 mod local_registry;
 mod mgmt_gateway;
 mod reconcile;

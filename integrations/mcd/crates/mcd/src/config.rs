@@ -53,6 +53,14 @@ pub struct DaemonConfig {
     /// Ephemeral agents (session_mode: Task) ignore this field entirely.
     #[serde(default)]
     pub home_mission_id: Option<String>,
+    /// Path to an Aria-style `fleet-profiles.toml`. When set (and the file
+    /// exists), mcd imports each `[[profile]]` into the local registry as a
+    /// ZellijHosted agent at startup. Env override:
+    /// `MCD_FLEET_PROFILES_FILE`. Default fallback (if neither config nor
+    /// env is set): `~/code/aria/fleet-profiles.toml`. Missing files are
+    /// not an error — mcd just skips the import.
+    #[serde(default)]
+    pub fleet_profiles_file: Option<PathBuf>,
 }
 
 fn default_attach_bind() -> String {
@@ -156,6 +164,7 @@ impl DaemonConfig {
             attach_secret: None,
             attach_bind_addr: default_attach_bind(),
             home_mission_id: None,
+            fleet_profiles_file: None,
         });
         cfg.resolve_credentials();
         cfg
