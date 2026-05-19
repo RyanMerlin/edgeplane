@@ -14,7 +14,7 @@ source_of_truth:
   docs:
     - README.md
     - docs/guides/DEPLOYMENT.md
-    - docs/design/architecture.md
+    - docs/architecture/architecture.md
   code_paths:
     - integrations/mc-controlplane/src/routes/artifacts.rs
 

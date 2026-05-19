@@ -12,7 +12,7 @@ summary: >
 source_of_truth:
   docs:
     - README.md
-    - docs/design/architecture.md
+    - docs/architecture/architecture.md
     - docs/reference/AI-CONSOLE.md
     - docs/guides/DEPLOYMENT.md
   code_paths:
@@ -78,7 +78,7 @@ dependencies:
   - storage
 
 read_next:
-  - docs/design/architecture.md
+  - docs/architecture/architecture.md
   - docs/reference/AI-CONSOLE.md
   - docs/guides/DEPLOYMENT.md
 
