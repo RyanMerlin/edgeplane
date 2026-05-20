@@ -384,12 +384,36 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
             crate::cron::gc_task(cron_config_for_gc, registry_path_for_gc).await
         });
 
+        // Phase 5: spawn the unit-health loop + its GC task. Broadcast
+        // channel for SupervisorEvents — buffer 256 so a slow subscriber
+        // doesn't block the supervisor. Future TUI/WS surfaces subscribe;
+        // for Phase 5 itself, persistent history lives in unit_restart_log.
+        let (supervisor_events_tx, _) =
+            tokio::sync::broadcast::channel::<mcd_core::types::SupervisorEvent>(256);
+        let unit_health_loop = crate::unit_health::UnitHealthLoop::new(
+            registry_path.clone(),
+            crate::unit_health::UnitHealthConfig::default(),
+            supervisor_events_tx.clone(),
+        );
+        let unit_gc_registry_path = registry_path.clone();
+        tokio::spawn(async move { unit_health_loop.run().await });
+        tokio::spawn(async move {
+            crate::unit_health::gc_task(
+                unit_gc_registry_path,
+                30, // history_days — match cron defaults
+                500, // max_rows_per_agent
+                60,  // gc interval minutes
+            )
+            .await
+        });
+
         let agent_ops = crate::mgmt_gateway::AgentOpsHandle {
             supervisor: Arc::clone(&supervisor),
             runtime_map: Arc::clone(&runtime_map),
             registry_path,
             cron: Some(cron_handle),
             cron_config_path: Some(cron_config_path),
+            supervisor_events: Some(supervisor_events_tx),
         };
         let mgmt_gw = MgmtGateway::new(dispatcher, registry).with_agent_ops(agent_ops);
         tokio::spawn(async move {
