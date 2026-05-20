@@ -4,7 +4,7 @@ mcd is the work-first agent coordination daemon. Think Temporal, not RKE2:
 - **Mission** = namespace / long-lived workspace
 - **Kluster** = objective owning a task DAG
 - **MeshTask** = unit of work (claimed, executed, finished)
-- **AgentRuntime** = worker (Goose, Claude, Codex, Gemini)
+- **AgentRuntime** = worker. Five impls today: `claude_code` (one-shot `claude -p`), `claude_agent_acp` (persistent JSON-RPC; ACP), `codex`, `gemini`, `goose`, and `zellij_hosted` (long-running agents hosted in a Zellij pane — Aria fleet; signals via `mc agent signal`). See `integrations/mcd/crates/mcd-runtimes/src/`.
 
 The daemon (`mcd`) runs a headless attach gateway. The work loop (`mc run <runtime>`) connects to a mission, claims tasks, and supervises agent child processes.
 

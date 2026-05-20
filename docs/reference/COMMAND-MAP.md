@@ -84,11 +84,38 @@ This is the authoritative `mc` CLI command hierarchy.
 
 ## agent
 
-- `mc agent remote ...`
-- `mc agent evolve ...`
-- `mc agent node register` — register this node with MissionControl and obtain a join token.
-- `mc agent node run` — start the resident node-agent daemon (polls for jobs, reports health).
-- `mc agent node doctor` — validate node-agent connectivity and config.
+Verb-first surface added in v0.8 (Phase 3 daemon-absorption). Each verb
+auto-resolves: asks the local `mcd` mgmt-gateway first, falls through to
+the controlplane if the agent isn't known locally. Use `--local` /
+`--remote` to force a single path when an id collides between sources.
+
+- `mc agent signal <id> --content "..."` — send a prompt (UserInput).
+  Works against both fleet-imported ZellijHosted agents (e.g. `work`,
+  `operator`) and controlplane ACP agents (e.g. `aria-operator-…`).
+- `mc agent cancel <id>` — interrupt the agent (`Ctrl c` for
+  ZellijHosted; `--remote` cancel is not yet implemented).
+- `mc agent list [--source local|remote|all] [--json]` — enumerate
+  visible agents, tagged by source.
+- `mc agent describe <id> [--json]` — show one agent's runtime,
+  session, vault folder, supervision state.
+- `mc agent attach <id> [--web] [--web-base-url <URL>] [--remote]` —
+  dispatches on runtime kind. ZellijHosted → `exec zellij attach
+  <session>`; with `--web` prints the `zellij web` URL. ACP →
+  WebSocket session/update stream (unchanged).
+
+DEPRECATED — kept for muscle memory; removed in a future cleanup:
+
+- `mc signal <id>` (top-level) — alias for `mc agent signal --remote`.
+  Use `mc agent signal` instead.
+- `mc agent remote ...` — controlplane-only verbs. Use `mc agent <verb>`
+  with optional `--remote` instead.
+
+Other agent surface:
+
+- `mc agent evolve ...` — self-improvement loop for MissionControl.
+- `mc agent node register` — register this node with MissionControl.
+- `mc agent node run` — start the resident node-agent daemon.
+- `mc agent node doctor` — validate node-agent connectivity.
 
 ## unchanged top-level domains
 
