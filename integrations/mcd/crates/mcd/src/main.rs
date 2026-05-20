@@ -6,6 +6,7 @@ mod attach_gateway;
 mod attach_registry;
 mod attach_ws;
 mod config;
+mod cron_config;
 mod daemon;
 mod doctor;
 mod fleet_import;
