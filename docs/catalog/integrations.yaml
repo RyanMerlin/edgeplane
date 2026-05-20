@@ -14,10 +14,9 @@ source_of_truth:
     - README.md
     - docs/design/CLOUD-INTEGRATION.md
   code_paths:
-    - integrations/mc-controlplane/src/routes/slack_integrations.rs
-    - integrations/mc-controlplane/src/routes/chat_integrations.rs
-    - integrations/mc-controlplane/src/routes/remotectl.rs
-    - integrations/
+    - crates/mc-controlplane/src/routes/slack_integrations.rs
+    - crates/mc-controlplane/src/routes/chat_integrations.rs
+    - crates/mc-controlplane/src/routes/remotectl.rs
 
 entrypoints:
   verify:

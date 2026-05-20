@@ -53,7 +53,7 @@ web:  ## Start Vite frontend dev server (proxies API to localhost:8008)
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 test:  ## Run mc-controlplane unit tests
-	cargo test --manifest-path integrations/mc-controlplane/Cargo.toml
+	cargo test --manifest-path crates/mc-controlplane/Cargo.toml
 
 test-client:  ## Run MCP integration client tests
 	cd distribution/mc-integration/missioncontrol-mcp && PYTHONPATH=src python -m unittest discover -v
@@ -63,15 +63,15 @@ test-all: test test-client  ## Run all tests
 # ── mc Rust binary ────────────────────────────────────────────────────────────
 
 mc-build:  ## Build mc binary (debug, fast)
-	cargo build --manifest-path integrations/mc/Cargo.toml
-	@echo "Binary: integrations/mc/target/debug/mc"
+	cargo build --manifest-path crates/mc/Cargo.toml
+	@echo "Binary: crates/mc/target/debug/mc"
 
 mc-build-release:  ## Build mc binary (release, optimized)
-	cargo build --release --manifest-path integrations/mc/Cargo.toml
-	@echo "Binary: integrations/mc/target/release/mc"
+	cargo build --release --manifest-path crates/mc/Cargo.toml
+	@echo "Binary: crates/mc/target/release/mc"
 
 mc-install: mc-build-release  ## Install mc release binary to ~/.local/bin/mc
-	install -m 755 integrations/mc/target/release/mc ~/.local/bin/mc
+	install -m 755 crates/mc/target/release/mc ~/.local/bin/mc
 	@echo "Installed mc to ~/.local/bin/mc"
 
 # ── Production image ──────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ build:  ## Build prod Docker image (tag: IMAGE:TAG and IMAGE:latest)
 	docker build \
 	  -t $(IMAGE):$(TAG) \
 	  -t $(IMAGE):latest \
-	  -f integrations/mc-controlplane/Dockerfile .
+	  -f crates/mc-controlplane/Dockerfile .
 
 push: build  ## Push prod image to ghcr.io
 	docker push $(IMAGE):$(TAG)
@@ -90,13 +90,13 @@ push: build  ## Push prod image to ghcr.io
 # ── Database ──────────────────────────────────────────────────────────────────
 
 migrate:  ## Run SQLx migrations (requires DATABASE_URL)
-	cargo sqlx migrate run --manifest-path integrations/mc-controlplane/Cargo.toml \
-	  --source integrations/mc-controlplane/migrations
+	cargo sqlx migrate run --manifest-path crates/mc-controlplane/Cargo.toml \
+	  --source crates/mc-controlplane/migrations
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
 lint:  ## Run cargo clippy on mc-controlplane
-	cargo clippy --manifest-path integrations/mc-controlplane/Cargo.toml -- -D warnings
+	cargo clippy --manifest-path crates/mc-controlplane/Cargo.toml -- -D warnings
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 

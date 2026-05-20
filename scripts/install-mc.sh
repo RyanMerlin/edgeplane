@@ -139,14 +139,14 @@ install_binary() {
 # ── Install mc ────────────────────────────────────────────────────────────────
 
 echo "installing mc to ${PREFIX}/mc"
-install_binary mc integrations/mc "${PREFIX}/mc"
+install_binary mc crates/mc "${PREFIX}/mc"
 "${PREFIX}/mc" --version
 
 # ── Install mcd ───────────────────────────────────────────────────────────
 
 if [[ "$INSTALL_DAEMON" = "1" ]]; then
   echo "installing mcd to ${PREFIX}/mcd"
-  install_binary mcd integrations/mcd "${PREFIX}/mcd"
+  install_binary mcd crates/mcd "${PREFIX}/mcd"
   if "${PREFIX}/mcd" --version >/dev/null 2>&1; then
     echo "  $("${PREFIX}/mcd" --version)"
   fi
@@ -162,7 +162,7 @@ if [[ "$INSTALL_SERVICE" = "1" && "$INSTALL_DAEMON" = "1" ]]; then
   else
     UNIT_DIR="${HOME}/.config/systemd/user"
     UNIT_FILE="${UNIT_DIR}/mcd.service"
-    SRC_UNIT="${ROOT_DIR}/integrations/mcd/systemd/mcd.service"
+    SRC_UNIT="${ROOT_DIR}/crates/mcd/systemd/mcd.service"
     mkdir -p "$UNIT_DIR" "${HOME}/.mc/mcd"
 
     # Remove legacy mc-mesh unit if present (clean cutover).

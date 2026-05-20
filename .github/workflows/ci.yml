@@ -29,14 +29,14 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('integrations/mc/Cargo.lock', 'integrations/mc-controlplane/Cargo.lock', 'integrations/mcd/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('crates/mc/Cargo.lock', 'crates/mc-controlplane/Cargo.lock', 'crates/mcd/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-test-
       - name: Test mc-controlplane
-        run: cargo nextest run --manifest-path integrations/mc-controlplane/Cargo.toml --test test_health --test test_routes --test test_proxy --test test_work
+        run: cargo nextest run --manifest-path crates/mc-controlplane/Cargo.toml --test test_health --test test_routes --test test_proxy --test test_work
       - name: Test mc
-        run: cargo nextest run --manifest-path integrations/mc/Cargo.toml --test-threads 1
+        run: cargo nextest run --manifest-path crates/mc/Cargo.toml --test-threads 1
       - name: Test mcd
-        run: cargo nextest run --manifest-path integrations/mcd/Cargo.toml --workspace
+        run: cargo nextest run --manifest-path crates/mcd/Cargo.toml --workspace
 
   launch-regression:
     name: Launch regression
@@ -50,7 +50,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-launch-regression-${{ hashFiles('integrations/mc/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-launch-regression-${{ hashFiles('crates/mc/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-launch-regression-
       - name: Run mc launch regression harness
         run: bash scripts/launch-regression.sh
@@ -63,7 +63,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Run staged compatibility smoke matrix
         run: |
-          cd integrations/mc
+          cd crates/mc
           cargo run -- system compat matrix run --providers claude,codex --mode smoke
 
   compat-strict-main:
@@ -77,13 +77,13 @@ jobs:
         with:
           filters: |
             mc:
-              - 'integrations/mc/**'
+              - 'crates/mc/**'
       - uses: dtolnay/rust-toolchain@stable
         if: steps.changes.outputs.mc == 'true'
       - name: Main branch strict compatibility gate
         if: steps.changes.outputs.mc == 'true'
         run: |
-          cd integrations/mc
+          cd crates/mc
           mkdir -p .ci-bin
           cat > .ci-bin/claude <<'EOF'
           #!/usr/bin/env bash
@@ -99,7 +99,7 @@ jobs:
           jq -e '.summary.overall_status == "compatible"' /tmp/compat-latest.json >/dev/null
       - name: Compatibility gate skipped
         if: steps.changes.outputs.mc != 'true'
-        run: echo "No integrations/mc changes detected; skipping strict compatibility gate."
+        run: echo "No crates/mc changes detected; skipping strict compatibility gate."
 
   docs-catalog:
     runs-on: ubuntu-latest

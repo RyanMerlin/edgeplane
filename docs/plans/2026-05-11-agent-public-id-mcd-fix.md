@@ -20,7 +20,7 @@ Two bugs prevent mcd from delivering messages to running Claude Code agents:
 
 ### Part 1 — mc-controlplane: Add `public_id`
 
-**1.1 Migration** — `integrations/mc-controlplane/migrations/0008_agent_public_id.sql`
+**1.1 Migration** — `crates/mc-controlplane/migrations/0008_agent_public_id.sql`
 
 ```sql
 ALTER TABLE agent ADD COLUMN public_id VARCHAR;
@@ -57,7 +57,7 @@ Include `public_id` in all agent responses so mcd can record it after enrollment
 
 **2.1 Strip the `/work/` prefix — single-place fix**
 
-`integrations/mcd/crates/mcd-core/src/client.rs`
+`crates/mcd/crates/mcd-core/src/client.rs`
 
 Add `api_prefix: String` field (default `""`) to the HTTP client. All hardcoded `/work/` strings become `format!("{}/agents/...", self.api_prefix)` etc.
 
@@ -122,9 +122,9 @@ mc agent remote message --agent-id aria-merlinlabs-x1y2z3a4 --to-agent-id aria-w
 
 | File | Change |
 |------|--------|
-| `integrations/mc-controlplane/migrations/0008_agent_public_id.sql` | New migration |
-| `integrations/mc-controlplane/src/models/agent.rs` | Add public_id field |
-| `integrations/mc-controlplane/src/routes/agents.rs` | AgentIdent extractor, generate on insert |
-| `integrations/mcd/crates/mcd-core/src/client.rs` | Strip api_prefix |
-| `integrations/mcd/crates/mcd/src/daemon.rs` | Read public_id from enrollment |
-| `integrations/mcd/crates/mcd/src/local_registry.rs` | Store public_id |
+| `crates/mc-controlplane/migrations/0008_agent_public_id.sql` | New migration |
+| `crates/mc-controlplane/src/models/agent.rs` | Add public_id field |
+| `crates/mc-controlplane/src/routes/agents.rs` | AgentIdent extractor, generate on insert |
+| `crates/mcd/crates/mcd-core/src/client.rs` | Strip api_prefix |
+| `crates/mcd/crates/mcd/src/daemon.rs` | Read public_id from enrollment |
+| `crates/mcd/crates/mcd/src/local_registry.rs` | Store public_id |

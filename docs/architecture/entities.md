@@ -4,7 +4,7 @@
 
 Every entity below cites both the philosophy doc (definition) and the schema (structural truth). Drift between them is a bug — file an issue, fix here first.
 
-- **Schema:** `integrations/mc-controlplane/migrations/0001_initial_schema.sql`
+- **Schema:** `crates/mc-controlplane/migrations/0001_initial_schema.sql`
 - **Philosophy:** `MISSIONCONTROL_PHILOSOPHY.md`
 
 ---

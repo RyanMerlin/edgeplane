@@ -40,21 +40,21 @@ jobs:
         include:
           # mc CLI — covers nodes and dev machines.
           - bin: mc
-            crate_path: integrations/mc
+            crate_path: crates/mc
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: mc-linux-x86_64
             use_cross: false
             features: ''
           - bin: mc
-            crate_path: integrations/mc
+            crate_path: crates/mc
             target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: mc-linux-aarch64
             use_cross: true
             features: ''
           - bin: mc
-            crate_path: integrations/mc
+            crate_path: crates/mc
             target: aarch64-apple-darwin
             os: macos-latest
             artifact: mc-macos-aarch64
@@ -63,14 +63,14 @@ jobs:
 
           # mcd — per-node daemon, ships alongside the CLI.
           - bin: mcd
-            crate_path: integrations/mcd
+            crate_path: crates/mcd
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: mcd-linux-x86_64
             use_cross: false
             features: ''
           - bin: mcd
-            crate_path: integrations/mcd
+            crate_path: crates/mcd
             target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: mcd-linux-aarch64
@@ -105,7 +105,7 @@ jobs:
         run: cargo build --release ${{ matrix.features }} --target ${{ matrix.target }}
 
       - name: Rename artifact
-        # Each integrations/* is its own Cargo workspace (no top-level
+        # Each crates/* is its own Cargo workspace (no top-level
         # workspace Cargo.toml). Both `cross build --manifest-path X/Cargo.toml`
         # and native `cargo build` (with working-directory: X) write to
         # X/target/, so the path is the same regardless of use_cross.
@@ -131,13 +131,13 @@ jobs:
       matrix:
         include:
           - bin: mc
-            crate_path: integrations/mc
+            crate_path: crates/mc
             target: x86_64-apple-darwin
             os: macos-latest
             artifact: mc-macos-x86_64
             features: ''
           - bin: mc
-            crate_path: integrations/mc
+            crate_path: crates/mc
             target: x86_64-pc-windows-msvc
             os: windows-latest
             artifact: mc-windows-x86_64.exe

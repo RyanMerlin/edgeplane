@@ -447,7 +447,7 @@ async fn handle_up(args: DaemonUpArgs, config: &McConfig) -> Result<()> {
             build_and_install_mcd()?;
         } else {
             println!(
-                "Skipped. Run `cargo install` from integrations/mcd/ to install manually."
+                "Skipped. Run `cargo install` from crates/mcd/ to install manually."
             );
             return Ok(());
         }
@@ -2010,7 +2010,7 @@ fn build_and_install_mcd() -> Result<()> {
         println!("mcd installed.");
     } else {
         println!("Could not locate mcd workspace. Install manually:");
-        println!("  cd integrations/mcd && cargo install --path crates/mcd");
+        println!("  cd crates/mcd && cargo install --path crates/mcd");
     }
     Ok(())
 }
@@ -2020,7 +2020,7 @@ fn locate_mcd_workspace() -> Option<std::path::PathBuf> {
     let mut dir = std::env::current_exe().ok()?;
     for _ in 0..8 {
         dir = dir.parent()?.to_path_buf();
-        let relative = "integrations/mcd";
+        let relative = "crates/mcd";
         let candidate = dir.join(relative).join("Cargo.toml");
         if candidate.exists() {
             return Some(dir.join(relative));

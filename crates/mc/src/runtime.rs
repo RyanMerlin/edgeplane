@@ -523,7 +523,7 @@ async fn run_node_run(args: NodeAgentRunArgs, client: &MissionControlClient) -> 
     //   mc daemon agent enroll --mission <id> --runtime claude-code
     //   mc daemon task run <kluster-id> --title "my task"
     //
-    // See: https://github.com/RyanMerlin/missioncontrol/tree/main/integrations/mcd
+    // See: https://github.com/RyanMerlin/missioncontrol/tree/main/crates/mcd
     // ─────────────────────────────────────────────────────────────────────────
     eprintln!(
         "⚠  mc node run is deprecated. Use `mc daemon up` instead.\n\

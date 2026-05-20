@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MC_DIR="$ROOT_DIR/integrations/mc"
+MC_DIR="$ROOT_DIR/crates/mc"
 TARGET_BIN="${MC_TARGET_BIN:-$HOME/.local/bin/mc}"
 
 echo "[mc-build] building release binary..."

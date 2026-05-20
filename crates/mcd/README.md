@@ -5,7 +5,7 @@ Work-first agent coordination daemon for MissionControl. Dispatches tasks to age
 ## Architecture
 
 ```
-integrations/mcd/
+crates/mcd/
 ├── crates/
 │   ├── mcd/              # daemon binary
 │   ├── mcd-core/         # shared types, client, progress events, AgentRuntime trait
@@ -139,22 +139,22 @@ cd backend && ../.venv/bin/python -m unittest tests.test_work -v
 
 Rust unit tests are inline in each source file:
 ```sh
-cd integrations/mcd && cargo test
+cd crates/mcd && cargo test
 ```
 
 End-to-end acceptance (requires running backend + all three CLIs on PATH):
 ```sh
-integrations/mcd/scripts/e2e-test.sh
+crates/mcd/scripts/e2e-test.sh
 ```
 
 ## Installation
 
 ```sh
-integrations/mcd/scripts/install.sh       # builds from source, installs to ~/.cargo/bin/
+crates/mcd/scripts/install.sh       # builds from source, installs to ~/.cargo/bin/
 mc daemon up                              # starts daemon, optionally installs systemd unit
 ```
 
-Or via the `mc` bootstrap in `integrations/mc/`:
+Or via the `mc` bootstrap in `crates/mc/`:
 ```sh
 curl -fsSL <bootstrap-url> | sh
 ```

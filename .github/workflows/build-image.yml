@@ -57,7 +57,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: integrations/mc-controlplane/Dockerfile
+          file: crates/mc-controlplane/Dockerfile
           target: prod
           push: true
           tags: ${{ steps.meta.outputs.tags }}

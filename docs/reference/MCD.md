@@ -4,7 +4,7 @@ mcd is the work-first agent coordination daemon. Think Temporal, not RKE2:
 - **Mission** = namespace / long-lived workspace
 - **Kluster** = objective owning a task DAG
 - **MeshTask** = unit of work (claimed, executed, finished)
-- **AgentRuntime** = worker. Five impls today: `claude_code` (one-shot `claude -p`), `claude_agent_acp` (persistent JSON-RPC; ACP), `codex`, `gemini`, `goose`, and `zellij_hosted` (long-running agents hosted in a Zellij pane — Aria fleet; signals via `mc agent signal`). See `integrations/mcd/crates/mcd-runtimes/src/`.
+- **AgentRuntime** = worker. Five impls today: `claude_code` (one-shot `claude -p`), `claude_agent_acp` (persistent JSON-RPC; ACP), `codex`, `gemini`, `goose`, and `zellij_hosted` (long-running agents hosted in a Zellij pane — Aria fleet; signals via `mc agent signal`). See `crates/mcd/crates/mcd-runtimes/src/`.
 
 The daemon (`mcd`) runs a headless attach gateway. The work loop (`mc run <runtime>`) connects to a mission, claims tasks, and supervises agent child processes.
 
@@ -43,7 +43,7 @@ aria-rs is now a pure toolchain — no long-running processes:
 
 ```bash
 # On the target machine (avoids glibc version mismatch)
-git clone <repo> && cd missioncontrol/integrations/mc
+git clone <repo> && cd missioncontrol/crates/mc
 cargo build --release
 cp target/release/mc ~/bin/mc
 ```

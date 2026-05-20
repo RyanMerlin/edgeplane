@@ -10,14 +10,14 @@ in [`docs/reference/REAL-TIME.md`](../docs/reference/REAL-TIME.md).
 ## Building & installing
 
 ```
-cd integrations/mc
+cd crates/mc
 cargo fmt && cargo clippy
 cargo test
 cargo build --release
 cp target/release/mc /usr/local/bin/mc
 ```
 
-Alternatively, install via `cargo install --path integrations/mc` or ship the binary inside your Linux
+Alternatively, install via `cargo install --path crates/mc` or ship the binary inside your Linux
 package of choice.
 
 ## Configuration
@@ -155,7 +155,7 @@ mc [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 
 ### Node service
 - `curl -fsSL "$BASE_URL/runtime/nodes/$NODE_ID/install-script" | sh` bootstraps a Linux node from MissionControl with a rendered config, join token, release artifact download, and `mc-node.service` enablement.
-- `integrations/mc/install.sh` installs `mc` and the `mc-node.service` unit for Linux hosts from a local checkout.
+- `crates/mc/install.sh` installs `mc` and the `mc-node.service` unit for Linux hosts from a local checkout.
 - `mc node run [--node-name <name>] [--hostname <host>] [--trust-tier <tier>]` runs the resident node loop.
 - `mc node doctor [--node-name <name>]` inspects local node state/config before enabling the service.
 

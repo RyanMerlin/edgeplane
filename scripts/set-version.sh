@@ -23,7 +23,7 @@ cd "$repo_root"
 echo "$new" > VERSION
 
 for crate in mc mcd mc-controlplane; do
-  toml="integrations/$crate/Cargo.toml"
+  toml="crates/$crate/Cargo.toml"
   if [[ ! -f "$toml" ]]; then
     echo "error: $toml not found" >&2
     exit 1

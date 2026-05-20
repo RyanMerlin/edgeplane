@@ -295,8 +295,8 @@ mc-controlplane returns `id` as `i32`; custom `id_to_string` deserializer handle
 
 ## Build & Release State
 
-- **Binary:** `integrations/mc/target/release/mc` — compiled and confirmed `mc tui --help` works
-- **Feature gate:** `default = ["tui"]` in `integrations/mc/Cargo.toml`; explicit `--features tui` also works
+- **Binary:** `crates/mc/target/release/mc` — compiled and confirmed `mc tui --help` works
+- **Feature gate:** `default = ["tui"]` in `crates/mc/Cargo.toml`; explicit `--features tui` also works
 - **Release workflow:** `.github/workflows/release-mc.yml` updated with explicit `--features tui`
 - **Version:** `0.5.0` across `mc`, `mc-tui`, `mc-tui-widgets`
 

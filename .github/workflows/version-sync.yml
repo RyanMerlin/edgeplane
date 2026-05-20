@@ -4,9 +4,9 @@ on:
   pull_request:
     paths:
       - VERSION
-      - "integrations/mc/Cargo.toml"
-      - "integrations/mcd/Cargo.toml"
-      - "integrations/mc-controlplane/Cargo.toml"
+      - "crates/mc/Cargo.toml"
+      - "crates/mcd/Cargo.toml"
+      - "crates/mc-controlplane/Cargo.toml"
       - ".github/workflows/version-sync.yml"
   push:
     branches: [main]
@@ -26,7 +26,7 @@ jobs:
           fi
           fail=0
           for crate in mc mcd mc-controlplane; do
-            toml="integrations/$crate/Cargo.toml"
+            toml="crates/$crate/Cargo.toml"
             actual=$(python3 -c "
 import re, sys
 text = open('$toml').read()

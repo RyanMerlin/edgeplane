@@ -123,7 +123,7 @@ Object storage is available locally at `http://localhost:9000` (S3 API) and `htt
 
 ```bash
 cp .env.example .env
-cd integrations/mc-controlplane
+cd crates/mc-controlplane
 cargo build --release
 set -a; source .env; set +a
 ./target/release/mc-controlplane
@@ -209,10 +209,10 @@ See [docs/reference/GOVERNANCE.md](docs/reference/GOVERNANCE.md) for the full en
 Migrations run automatically on startup via sqlx. To run manually:
 
 ```bash
-cd integrations/mc-controlplane && sqlx migrate run
+cd crates/mc-controlplane && sqlx migrate run
 ```
 
-Migration files: `integrations/mc-controlplane/migrations/`
+Migration files: `crates/mc-controlplane/migrations/`
 
 ## Tests
 

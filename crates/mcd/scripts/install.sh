@@ -2,7 +2,7 @@
 # install.sh — bootstrap mcd on a fresh machine
 #
 # Usage:
-#   bash integrations/mcd/scripts/install.sh
+#   bash crates/mcd/scripts/install.sh
 #
 # What it does:
 #   1. Checks for Rust / cargo
@@ -13,8 +13,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-MCD_DIR="$REPO_ROOT/integrations/mcd"
-MC_DIR="$REPO_ROOT/integrations/mc"
+MCD_DIR="$REPO_ROOT/crates/mcd"
+MC_DIR="$REPO_ROOT/crates/mc"
 
 green()  { printf '\033[0;32m%s\033[0m\n' "$*"; }
 yellow() { printf '\033[0;33m%s\033[0m\n' "$*"; }
@@ -91,7 +91,7 @@ green "Installation complete!"
 echo ""
 echo "Next steps:"
 echo "  1. Add credentials to ~/.missioncontrol/mcd.yaml"
-echo "     (see integrations/mcd/README.md for the schema and usage)"
+echo "     (see crates/mcd/README.md for the schema and usage)"
 echo ""
 echo "  2. Start the daemon:"
 echo "     mc daemon up"

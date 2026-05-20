@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MC_MANIFEST_PATH="${ROOT_DIR}/integrations/mc/Cargo.toml"
+MC_MANIFEST_PATH="${ROOT_DIR}/crates/mc/Cargo.toml"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT

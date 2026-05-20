@@ -152,9 +152,9 @@ Behavior:
 - `Ctrl-C` sends `session/cancel` and exits cleanly
 
 **Files to touch:**
-- `integrations/mc/src/commands.rs` — add `Attach(AttachArgs)` to `AgentCommand`
-- `integrations/mc/src/attach.rs` (new) — WS client logic, tungstenite already in deps
-- `integrations/mc/src/main.rs` — dispatch wired
+- `crates/mc/src/commands.rs` — add `Attach(AttachArgs)` to `AgentCommand`
+- `crates/mc/src/attach.rs` (new) — WS client logic, tungstenite already in deps
+- `crates/mc/src/main.rs` — dispatch wired
 
 **B.2 — Exit criteria for Phase B**
 
@@ -349,6 +349,6 @@ Realistic compressed schedule with parallel work: **~2.5 weeks calendar**.
 - Umbrella architecture: `docs/plans/mcd-persistent-session-architecture.md`
 - Public ID prerequisite: `docs/plans/2026-05-11-agent-public-id-mcd-fix.md`
 - ACP runtime gotchas: `feedback_acp_runtime_gotchas.md` (in Aria memory: strip `CLAUDECODE`/`CLAUDE_CODE_*` env, agent ignores stdin close)
-- Phase 1 implementation: `integrations/mcd/crates/mcd/src/acp_session_supervisor.rs`
-- Phase 2 implementation: `integrations/mc-controlplane/src/routes/runtime.rs:2598` (`agent_attach_proxy`)
+- Phase 1 implementation: `crates/mcd/crates/mcd/src/acp_session_supervisor.rs`
+- Phase 2 implementation: `crates/mc-controlplane/src/routes/runtime.rs:2598` (`agent_attach_proxy`)
 - Agent identity (public_id): `8c89c1a feat(mc): link meshagent → agent public_id, display in CLI + TUI`

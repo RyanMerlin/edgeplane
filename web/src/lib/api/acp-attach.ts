@@ -2,7 +2,7 @@
  * Typed client for the ACP attach WebSocket.
  *
  * Speaks the same wire protocol as mcd's `pump_acp`
- * (integrations/mcd/crates/mcd/src/attach_ws.rs):
+ * (crates/mcd/crates/mcd/src/attach_ws.rs):
  *
  *   Outbound (agent → viewer):
  *     - One-shot `{kind:"hello", protocol:"acp/1"}` on connect.

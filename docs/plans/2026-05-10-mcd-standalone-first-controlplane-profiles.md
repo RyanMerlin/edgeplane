@@ -141,7 +141,7 @@ user-facing subcommands. All operator surfaces go through `mc daemon …`
   via the secrets socket
 - `mcd version`
 
-The user-facing surfaces below all live in `integrations/mc/src/mesh.rs`
+The user-facing surfaces below all live in `crates/mc/src/mesh.rs`
 (where the existing `MeshCommand` enum already gathers `mc daemon up`,
 `mc daemon agent`, `mc daemon task`, etc.). Phase 5c extends that enum.
 
@@ -188,7 +188,7 @@ mc daemon agent ls                                # query SQLite (both modes)
 ```
 
 These already exist in skeleton form (`MeshAgentCommand::{Ls, Enroll}`)
-in `integrations/mc/src/mesh.rs:88`. Phase 5c fills in `Reassign`,
+in `crates/mc/src/mesh.rs:88`. Phase 5c fills in `Reassign`,
 `Unenroll`, and the `Profile` subcommand tree, and rewires `Enroll` to
 branch on standalone vs. federated.
 
@@ -324,7 +324,7 @@ the TUI = same as `mcd use <name>`.
 - [ ] Tests: migration paths, missing-active-profile, missing-named-profile
 
 ### 5c — Profile management CLI (in `mc`, not `mcd`)
-- [ ] Extend `integrations/mc/src/mesh.rs::MeshCommand` with:
+- [ ] Extend `crates/mc/src/mesh.rs::MeshCommand` with:
       `Profile(MeshProfileCommand)` and `Use(MeshUseArgs)`.
 - [ ] `MeshProfileCommand::{Add, List, Remove, Rename}` implementations
       that read/write `~/.mc/mcd.state.json` directly.
@@ -334,7 +334,7 @@ the TUI = same as `mcd use <name>`.
       federated path POSTs to controlplane.
 - [ ] **Remove** the `node-register` subcommand from the `mcd`
       binary added in Phase 4b. Its body moves into `mc daemon profile add`'s
-      handler in `integrations/mc/src/`. Update `Phase 4b`'s state-file
+      handler in `crates/mc/src/`. Update `Phase 4b`'s state-file
       module so the mc binary can call it (move it from
       `crates/mcd/src/state.rs` to a shared crate, e.g.
       `mcd-core::state` or a new `mcd-state` crate, so both `mc`

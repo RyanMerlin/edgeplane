@@ -42,7 +42,7 @@ services:
   rustfs-init:
     build:
       context: .
-      dockerfile: integrations/mc-controlplane/Dockerfile
+      dockerfile: crates/mc-controlplane/Dockerfile
     container_name: missioncontrol-rustfs-init
     depends_on:
       rustfs:
@@ -59,7 +59,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: integrations/mc-controlplane/Dockerfile
+      dockerfile: crates/mc-controlplane/Dockerfile
     container_name: missioncontrol-api
     depends_on:
       postgres:
@@ -90,7 +90,7 @@ services:
   mcpd:
     build:
       context: .
-      dockerfile: integrations/mc/Dockerfile
+      dockerfile: crates/mc/Dockerfile
     container_name: missioncontrol-mcpd
     depends_on:
       api:

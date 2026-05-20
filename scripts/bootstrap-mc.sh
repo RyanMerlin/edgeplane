@@ -118,10 +118,10 @@ if ! try_download_release; then
   fi
 
   (
-    cd "$ROOT_DIR/integrations/mc"
+    cd "$ROOT_DIR/crates/mc"
     cargo build --release
   )
-  cp "$ROOT_DIR/integrations/mc/target/release/mc" "$TARGET"
+  cp "$ROOT_DIR/crates/mc/target/release/mc" "$TARGET"
   chmod +x "$TARGET"
 
   if [[ -n "$CLEANUP_ROOT" ]]; then

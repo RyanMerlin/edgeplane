@@ -19,7 +19,7 @@ The same rule applies to mcd.yaml: **it must not be the authority for mission/ag
 
 ## What's broken today
 
-Concrete evidence in the current `DaemonConfig` (`integrations/mcd/crates/mcd/src/config.rs`):
+Concrete evidence in the current `DaemonConfig` (`crates/mcd/crates/mcd/src/config.rs`):
 
 ```yaml
 backend_url: ...

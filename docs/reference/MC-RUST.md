@@ -11,13 +11,13 @@ Unix socket; operators never interact with it directly.
 ## Installation
 
 ```bash
-cd integrations/mc && cargo build --release
+cd crates/mc && cargo build --release
 cp target/release/mc ~/.local/bin/mc
 
-cd integrations/mcd && cargo build --release
+cd crates/mcd && cargo build --release
 cp target/release/mcd ~/.local/bin/mcd
 
-cd integrations/mc-controlplane && cargo build --release
+cd crates/mc-controlplane && cargo build --release
 cp target/release/mc-controlplane ~/.local/bin/mc-controlplane
 ```
 
@@ -149,13 +149,13 @@ Everything else proxies to `--api-proxy` with full header forwarding and streami
 ## Build & Test
 
 ```bash
-cd integrations/mc     && cargo check -p mc
-cd integrations/mc     && cargo build
-cd integrations/mc     && cargo test -- --test-threads=1
+cd crates/mc     && cargo check -p mc
+cd crates/mc     && cargo build
+cd crates/mc     && cargo test -- --test-threads=1
 
-cd integrations/mcd && cargo check
-cd integrations/mcd && cargo build
-cd integrations/mcd && cargo test
+cd crates/mcd && cargo check
+cd crates/mcd && cargo build
+cd crates/mcd && cargo test
 
-cd integrations/mc-controlplane && cargo build
+cd crates/mc-controlplane && cargo build
 ```

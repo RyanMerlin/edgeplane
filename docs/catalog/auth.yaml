@@ -15,8 +15,8 @@ source_of_truth:
     - docs/guides/OIDC.md
     - docs/guides/DEPLOYMENT.md
   code_paths:
-    - integrations/mc-controlplane/src/auth.rs
-    - integrations/mc-controlplane/src/routes/auth.rs
+    - crates/mc-controlplane/src/auth.rs
+    - crates/mc-controlplane/src/routes/auth.rs
 
 entrypoints:
   run:

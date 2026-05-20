@@ -22,7 +22,7 @@ This document captures the architecture blueprint discussed for deploying Missio
 
 ### Compute
 - AKS cluster with two node pools (system + missioncontrol). Nodes join private network with managed identities for pull secrets, Key Vault access, and blob storage.
-- Helm/Kustomize deploys `backend` and `integrations/mc` services with Kubernetes Services/Ingress, secrets mounted from External Secrets Operator, and ConfigMaps for `MC_*` values.
+- Helm/Kustomize deploys `backend` and `crates/mc` services with Kubernetes Services/Ingress, secrets mounted from External Secrets Operator, and ConfigMaps for `MC_*` values.
 
 ### Data plane
 - Azure Database for PostgreSQL (flexible server) provisioned with custom parameter group, SSL-only connections, and geo-redundant backup; Terraform exports connection strings consumed via Key Vault secrets.

@@ -6,17 +6,17 @@ The primary surface is the Rust `mc` CLI and `mcd` daemon.
 
 ```bash
 # Quick syntax/type check (no linking)
-cd integrations/mc && cargo check -p mc
-cd integrations/mcd && cargo check --workspace
+cd crates/mc && cargo check -p mc
+cd crates/mcd && cargo check --workspace
 
 # Full build
-cd integrations/mc && cargo build
-cd integrations/mcd && cargo build --workspace
+cd crates/mc && cargo build
+cd crates/mcd && cargo build --workspace
 
 # Tests — prefer cargo nextest run (CI uses it)
-cargo nextest run --manifest-path integrations/mc/Cargo.toml --test-threads 1
-cargo nextest run --manifest-path integrations/mcd/Cargo.toml --workspace
-cargo nextest run --manifest-path integrations/mc-controlplane/Cargo.toml \
+cargo nextest run --manifest-path crates/mc/Cargo.toml --test-threads 1
+cargo nextest run --manifest-path crates/mcd/Cargo.toml --workspace
+cargo nextest run --manifest-path crates/mc-controlplane/Cargo.toml \
   --test test_health --test test_routes --test test_proxy --test test_work
 ```
 

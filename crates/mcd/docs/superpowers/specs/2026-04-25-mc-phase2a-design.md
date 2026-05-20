@@ -273,7 +273,7 @@ At daemon startup, `mc-mesh` registers its Tailscale/external address with the M
 
 ## `mc` CLI Extensions
 
-All new subcommands land in the existing `mc` binary (`integrations/mc/`).
+All new subcommands land in the existing `mc` binary (`crates/mc/`).
 
 ### Capability commands
 
@@ -383,7 +383,7 @@ Four lines. No MCP tool dump. No capability schema preloaded. Progressive discov
 - Existing attach socket (`mc-mesh.sock`) unchanged
 
 ### Phase 2a-3: `mc` CLI extensions
-- Add `mc-mesh-packs`, `mc-mesh-receipts`, `mc-mesh-secrets` as dependencies to `integrations/mc/Cargo.toml`
+- Add `mc-mesh-packs`, `mc-mesh-receipts`, `mc-mesh-secrets` as dependencies to `crates/mc/Cargo.toml`
 - New `McDispatch` routing layer (socket + backend fallback)
 - Add subcommands: `mc run`, `mc capabilities`, `mc receipts`, `mc sync`
 - Extend `mc init` with `--from-repo` bootstrap flow

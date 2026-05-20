@@ -16,7 +16,7 @@ Nothing currently blocked.
 
 ## Done (recent)
 
-- [x] `integrations/mcd/scripts/demo_three_agents.sh`: end-to-end dependency chain
+- [x] `crates/mcd/scripts/demo_three_agents.sh`: end-to-end dependency chain
       demo (mission + kluster + 3 tasks + claim/complete simulation via REST API);
       `test_work.rs`: 5 tests covering broadcast isolation, route registration (2026-05-09)
 - [x] CI updated: `test_proxy` and `test_work` added to `rust-test` job (2026-05-09)

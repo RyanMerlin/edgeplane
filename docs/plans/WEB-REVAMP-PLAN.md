@@ -227,7 +227,7 @@ Each slice should pass the existing checks before it is merged:
 - `cd backend && uv run --python ../.venv/bin/python -m unittest discover -s tests -q`
 - `cd web && npm run check`
 - `cd web && npm run build`
-- `cd integrations/mc && cargo check -p mc`
+- `cd crates/mc && cargo check -p mc`
 
 If a slice changes UI behavior, add a manual verification note in the PR or commit message describing the flow that was checked.
 

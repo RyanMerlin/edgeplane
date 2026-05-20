@@ -165,7 +165,7 @@ bash scripts/install-mc.sh
 
 Or build from source (requires Rust/cargo):
 ```bash
-cd integrations/mc && cargo build --release && cp target/release/mc ~/.local/bin/mc
+cd crates/mc && cargo build --release && cp target/release/mc ~/.local/bin/mc
 ```
 
 ### 2) Set MissionControl Endpoint

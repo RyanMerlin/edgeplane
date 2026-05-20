@@ -4,6 +4,42 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.12.0] — 2026-05-20
+
+### Changed — Repo layout: `integrations/` → `crates/`
+
+The directory holding mc, mcd, and mc-controlplane has been renamed:
+
+- `integrations/mc/` → `crates/mc/`
+- `integrations/mcd/` → `crates/mcd/`
+- `integrations/mc-controlplane/` → `crates/mc-controlplane/`
+
+The old name was a holdover from when this repo was Python-first and the Rust binaries were peripheral. They are now the platform; `crates/` is the Rust-idiomatic name and matches the layout most Rust monorepos use.
+
+**No behaviour change.** All HTTP routes — `/integrations/slack/events`, `/integrations/teams/events`, `/integrations/google-chat/events`, and other webhook endpoints — are unchanged. Slack, Teams, Google Chat, and other upstream callers do not need to update their configured URLs.
+
+### Migration
+
+For local clones:
+
+```bash
+git pull --rebase   # the rename is a normal commit; no filter-repo
+# Update any local scripts that referenced `integrations/...`:
+grep -rln "integrations/m" your-scripts/ | xargs sed -i \
+  -e 's|integrations/mc-controlplane|crates/mc-controlplane|g' \
+  -e 's|integrations/mcd|crates/mcd|g' \
+  -e 's|integrations/mc\b|crates/mc|g'
+```
+
+For CI / external automation: any reference to `integrations/mc`, `integrations/mcd`, or `integrations/mc-controlplane` (whether as a build context, working directory, or doc path) needs to update to `crates/...`. Webhook URLs do **not** change.
+
+### Internal scope
+
+- `scripts/set-version.sh` paths updated
+- `.github/workflows/{version-sync,ci,release-mc,build-image,ci-migrations}.yml` updated
+- `docker-compose*.yml` build contexts updated
+- ~52 files swept; HTTP route literals (5 files) verified untouched
+
 ## [0.11.0] — 2026-05-20
 
 ### Removed — Deprecation aliases (Phase 6.5)
@@ -40,9 +76,9 @@ mcd --version           # 0.11.0
 mc-controlplane --version   # 0.11.0
 ```
 
-### Out of scope (Phase 6.6 — separate PR)
+### Out of scope (followed up separately)
 
-- Renaming `integrations/` → `crates/` (the directory name is legacy from when this repo was Python-first; the rename touches CI, Helm, scripts, docs, and lands separately).
+- Renaming `integrations/` → `crates/` — landed in 0.12.0.
 
 ## [0.10.0] — 2026-05-20
 

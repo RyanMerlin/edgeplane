@@ -1,6 +1,6 @@
 # MissionControl K8s overlay
 
-Deploys the `backend`, `integrations/mc`, and supporting services on a managed Kubernetes cluster. It expects:
+Deploys the `backend`, `crates/mc`, and supporting services on a managed Kubernetes cluster. It expects:
 
 - a `ConfigMap` containing the `MC_*` environment variables.
 - Secrets injected via External Secrets Operator from Key Vault or Secret Manager.

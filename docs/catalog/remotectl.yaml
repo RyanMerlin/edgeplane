@@ -15,8 +15,8 @@ source_of_truth:
     - README.md
     - docs/reference/MC-RUST.md
   code_paths:
-    - integrations/mc-controlplane/src/routes/remotectl.rs
-    - integrations/mc-controlplane/src/models/mod.rs
+    - crates/mc-controlplane/src/routes/remotectl.rs
+    - crates/mc-controlplane/src/models/mod.rs
 
 entrypoints:
   verify:

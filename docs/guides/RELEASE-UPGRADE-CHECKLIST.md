@@ -7,7 +7,7 @@ Use this checklist for each release that includes schema, auth, or deployment ch
 ## Pre-Release
 
 1. Confirm migration state:
-   - `cd integrations/mc-controlplane`
+   - `cd crates/mc-controlplane`
    - `sqlx migrate info` — confirm all migrations applied
 2. Validate migration integrity locally:
    - `sqlx migrate run` — apply pending migrations
@@ -28,7 +28,7 @@ Use this checklist for each release that includes schema, auth, or deployment ch
 2. Deploy application image.
 3. Run schema migrations:
    - mc-controlplane runs migrations automatically on startup
-   - To run manually: `cd integrations/mc-controlplane && sqlx migrate run`
+   - To run manually: `cd crates/mc-controlplane && sqlx migrate run`
 4. Verify API health:
    - `GET /`
    - `GET /schema-pack`
