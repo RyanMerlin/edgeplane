@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/MissionControl-Repo-Main.png" alt="MissionControl" width="100%">
+  <img src="assets/mc-hero-image-2.png" alt="MissionControl" width="100%">
 </p>
 
 # MissionControl
