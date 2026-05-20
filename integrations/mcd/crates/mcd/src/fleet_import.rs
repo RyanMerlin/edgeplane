@@ -26,7 +26,8 @@ pub const SOURCE_FLEET_IMPORT: &str = "fleet_import";
 pub struct Profile {
     pub name: String,
     pub zellij_session: String,
-    #[allow(dead_code)] // referenced by Phase 5 watchdog absorption, not Phase 1
+    /// systemd `--user` unit name (e.g. `aria-work.service`). Used by
+    /// the Phase 5 unit-health loop to monitor + restart.
     pub service: String,
     pub state_dir: String,
 }
@@ -116,6 +117,12 @@ pub fn import_into(registry: &LocalRegistry, profiles: &[Profile]) -> Result<Imp
                 path: PathBuf::from(&profile.state_dir),
             }),
             zellij_session: Some(profile.zellij_session.clone()),
+            // Phase 5: store the systemd unit name so the unit-health
+            // loop can supervise it.
+            systemd_service: Some(profile.service.clone()),
+            // supervise_paused defaults to false; upsert preserves the
+            // operator's pause state across re-imports.
+            supervise_paused: false,
         };
         registry.upsert_launch_context(&ctx).with_context(|| {
             format!("upserting launch context for profile '{}'", profile.name)
