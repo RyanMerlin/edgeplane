@@ -223,6 +223,23 @@ pub enum AgentCommand {
     /// Attach to a persistent ACP session — stream session/update frames
     /// to stdout, forward stdin lines as session/prompt.
     Attach(crate::attach::AttachArgs),
+    /// Cron jobs scheduled by mcd (Phase 4 daemon-absorption).
+    #[command(subcommand)]
+    Cron(CronCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CronCommand {
+    /// List all cron jobs from `~/.mc/mcd/cron.toml` + their runtime state.
+    List(crate::agent_cron::ListArgs),
+    /// Describe one cron job: schedule, last fire, recent history.
+    Describe(crate::agent_cron::DescribeArgs),
+    /// Re-parse `cron.toml` (mcd reloads on its next tick).
+    Reload(crate::agent_cron::ReloadArgs),
+    /// Recent fires across all (or one) job.
+    History(crate::agent_cron::HistoryArgs),
+    /// Force a retention sweep on `agent_cron_fire_log` now.
+    GcNow(crate::agent_cron::GcNowArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -2093,6 +2110,13 @@ async fn handle_agent(
         AgentCommand::Node(cmd) => runtime::run_node_agent(cmd, &client).await,
         AgentCommand::Evolve(args) => evolve::run(args, &client).await,
         AgentCommand::Attach(args) => crate::attach::run(args, &client).await,
+        AgentCommand::Cron(cmd) => match cmd {
+            CronCommand::List(a) => crate::agent_cron::run_list(a).await,
+            CronCommand::Describe(a) => crate::agent_cron::run_describe(a).await,
+            CronCommand::Reload(a) => crate::agent_cron::run_reload(a).await,
+            CronCommand::History(a) => crate::agent_cron::run_history(a).await,
+            CronCommand::GcNow(a) => crate::agent_cron::run_gc_now(a).await,
+        },
     }
 }
 

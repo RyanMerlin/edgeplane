@@ -80,7 +80,24 @@ impl LocalRegistry {
                     ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS launch_context_by_source
-                ON agent_launch_context (source);",
+                ON agent_launch_context (source);
+            CREATE TABLE IF NOT EXISTS agent_cron_state (
+                job_name        TEXT PRIMARY KEY,
+                last_fired_at   TEXT,
+                last_status     TEXT,
+                last_error      TEXT,
+                updated_at      TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS agent_cron_fire_log (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_name        TEXT NOT NULL,
+                fired_at        TEXT NOT NULL,
+                status          TEXT NOT NULL,
+                duration_ms     INTEGER,
+                error_message   TEXT
+            );
+            CREATE INDEX IF NOT EXISTS fire_log_by_job_time
+                ON agent_cron_fire_log (job_name, fired_at DESC);",
         )?;
         conn.execute("INSERT OR IGNORE INTO schema_version VALUES (1)", [])?;
         Ok(())
@@ -380,6 +397,219 @@ fn row_to_launch_context(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentLaunc
     })
 }
 
+// ---------- Cron telemetry (Phase 4) ----------
+//
+// `cron.toml` is the source of truth for which jobs exist. SQLite only
+// stores runtime state — when each job last fired, the outcome, and a
+// bounded history log for diagnostics.
+
+/// Latest state per known cron job. One row per job_name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentCronState {
+    pub job_name: String,
+    pub last_fired_at: Option<String>,
+    pub last_status: Option<String>,
+    pub last_error: Option<String>,
+    pub updated_at: String,
+}
+
+/// One row in the append-only fire log. Rows are GC'd per retention
+/// policy in the cron.toml file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CronFireLogEntry {
+    pub id: i64,
+    pub job_name: String,
+    pub fired_at: String,
+    pub status: String,
+    pub duration_ms: Option<i64>,
+    pub error_message: Option<String>,
+}
+
+impl LocalRegistry {
+    /// Record a fire: upsert `agent_cron_state` (latest state) + append
+    /// to `agent_cron_fire_log` (history). Both writes happen in one
+    /// transaction so a crash between them can't leave a fire half-logged.
+    pub fn cron_record_fire(
+        &self,
+        job_name: &str,
+        fired_at: &str,
+        status: &str,
+        duration_ms: Option<i64>,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        let tx_conn = &self.conn;
+        // SQLite immediate transaction — atomic across the two tables.
+        tx_conn.execute("BEGIN IMMEDIATE", [])?;
+        let result = (|| -> Result<()> {
+            tx_conn.execute(
+                "INSERT INTO agent_cron_state
+                    (job_name, last_fired_at, last_status, last_error, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?2)
+                 ON CONFLICT(job_name) DO UPDATE SET
+                    last_fired_at = excluded.last_fired_at,
+                    last_status   = excluded.last_status,
+                    last_error    = excluded.last_error,
+                    updated_at    = excluded.updated_at",
+                params![job_name, fired_at, status, error_message],
+            )?;
+            tx_conn.execute(
+                "INSERT INTO agent_cron_fire_log
+                    (job_name, fired_at, status, duration_ms, error_message)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![job_name, fired_at, status, duration_ms, error_message],
+            )?;
+            Ok(())
+        })();
+        if result.is_ok() {
+            tx_conn.execute("COMMIT", [])?;
+        } else {
+            tx_conn.execute("ROLLBACK", [])?;
+        }
+        result
+    }
+
+    /// Fetch the latest state for one job. Returns `None` if the job
+    /// has never fired (no row yet).
+    pub fn cron_get_state(&self, job_name: &str) -> Result<Option<AgentCronState>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT job_name, last_fired_at, last_status, last_error, updated_at
+             FROM agent_cron_state WHERE job_name = ?1",
+        )?;
+        let mut rows = stmt.query(params![job_name])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(AgentCronState {
+                job_name: row.get(0)?,
+                last_fired_at: row.get(1)?,
+                last_status: row.get(2)?,
+                last_error: row.get(3)?,
+                updated_at: row.get(4)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List all rows in `agent_cron_state`. Used by `mc agent cron list`
+    /// to join file-defined jobs against their last-fire status.
+    pub fn cron_list_state(&self) -> Result<Vec<AgentCronState>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT job_name, last_fired_at, last_status, last_error, updated_at
+             FROM agent_cron_state",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(AgentCronState {
+                job_name: row.get(0)?,
+                last_fired_at: row.get(1)?,
+                last_status: row.get(2)?,
+                last_error: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("reading agent_cron_state rows")
+    }
+
+    /// Fetch the most recent N fire-log entries for one job, newest first.
+    /// `limit` of 0 returns all rows for that job.
+    pub fn cron_history_for_job(
+        &self,
+        job_name: &str,
+        limit: u32,
+    ) -> Result<Vec<CronFireLogEntry>> {
+        let sql = if limit == 0 {
+            "SELECT id, job_name, fired_at, status, duration_ms, error_message
+             FROM agent_cron_fire_log
+             WHERE job_name = ?1
+             ORDER BY fired_at DESC".to_string()
+        } else {
+            format!(
+                "SELECT id, job_name, fired_at, status, duration_ms, error_message
+                 FROM agent_cron_fire_log
+                 WHERE job_name = ?1
+                 ORDER BY fired_at DESC LIMIT {limit}"
+            )
+        };
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![job_name], cron_log_row)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("reading agent_cron_fire_log rows")
+    }
+
+    /// Recent fires across all jobs, newest first.
+    pub fn cron_history_all(&self, limit: u32) -> Result<Vec<CronFireLogEntry>> {
+        let sql = if limit == 0 {
+            "SELECT id, job_name, fired_at, status, duration_ms, error_message
+             FROM agent_cron_fire_log
+             ORDER BY fired_at DESC".to_string()
+        } else {
+            format!(
+                "SELECT id, job_name, fired_at, status, duration_ms, error_message
+                 FROM agent_cron_fire_log
+                 ORDER BY fired_at DESC LIMIT {limit}"
+            )
+        };
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([], cron_log_row)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("reading agent_cron_fire_log rows")
+    }
+
+    /// GC sweep. Drops fire-log rows older than `history_days` OR beyond
+    /// `max_rows_per_job` (whichever fires first per row). Returns the
+    /// number of rows deleted across both passes.
+    pub fn cron_gc(&self, history_days: u32, max_rows_per_job: u32) -> Result<u64> {
+        let mut deleted: u64 = 0;
+
+        // Pass 1: age-based.
+        if history_days > 0 {
+            let n = self.conn.execute(
+                "DELETE FROM agent_cron_fire_log
+                 WHERE fired_at < datetime('now', '-' || ?1 || ' days')",
+                params![history_days],
+            )?;
+            deleted += n as u64;
+        }
+
+        // Pass 2: per-job cap. For each job_name with > max_rows_per_job
+        // remaining, delete the oldest rows.
+        if max_rows_per_job > 0 {
+            let mut stmt = self.conn.prepare(
+                "SELECT job_name FROM agent_cron_fire_log GROUP BY job_name",
+            )?;
+            let jobs: Vec<String> = stmt
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            for job in jobs {
+                let n = self.conn.execute(
+                    "DELETE FROM agent_cron_fire_log
+                     WHERE job_name = ?1
+                       AND id NOT IN (
+                         SELECT id FROM agent_cron_fire_log
+                         WHERE job_name = ?1
+                         ORDER BY fired_at DESC
+                         LIMIT ?2
+                       )",
+                    params![job, max_rows_per_job],
+                )?;
+                deleted += n as u64;
+            }
+        }
+
+        Ok(deleted)
+    }
+}
+
+fn cron_log_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CronFireLogEntry> {
+    Ok(CronFireLogEntry {
+        id: row.get(0)?,
+        job_name: row.get(1)?,
+        fired_at: row.get(2)?,
+        status: row.get(3)?,
+        duration_ms: row.get(4)?,
+        error_message: row.get(5)?,
+    })
+}
+
 // ---------- Helpers ----------
 
 #[cfg(unix)]
@@ -670,5 +900,200 @@ mod tests {
         let reg = LocalRegistry::open(&path).unwrap();
         assert!(reg.list_specs_by_source(&src_a).unwrap().is_empty());
         assert_eq!(reg.list_specs_by_source(&src_b).unwrap().len(), 1);
+    }
+
+    // ---- Phase 4: cron telemetry ----
+
+    #[test]
+    fn cron_record_fire_writes_state_and_log() {
+        let (_dir, reg) = tmp_reg();
+        reg.cron_record_fire(
+            "briefing",
+            "2026-05-20T05:30:00Z",
+            "ok",
+            Some(120),
+            None,
+        )
+        .unwrap();
+
+        let state = reg.cron_get_state("briefing").unwrap().unwrap();
+        assert_eq!(state.job_name, "briefing");
+        assert_eq!(state.last_fired_at.as_deref(), Some("2026-05-20T05:30:00Z"));
+        assert_eq!(state.last_status.as_deref(), Some("ok"));
+        assert!(state.last_error.is_none());
+
+        let history = reg.cron_history_for_job("briefing", 10).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].duration_ms, Some(120));
+    }
+
+    #[test]
+    fn cron_record_fire_with_error() {
+        let (_dir, reg) = tmp_reg();
+        reg.cron_record_fire(
+            "briefing",
+            "2026-05-20T05:30:00Z",
+            "error",
+            Some(50),
+            Some("agent operator not supervised"),
+        )
+        .unwrap();
+
+        let state = reg.cron_get_state("briefing").unwrap().unwrap();
+        assert_eq!(state.last_status.as_deref(), Some("error"));
+        assert_eq!(
+            state.last_error.as_deref(),
+            Some("agent operator not supervised")
+        );
+    }
+
+    #[test]
+    fn cron_record_fire_upserts_state() {
+        let (_dir, reg) = tmp_reg();
+        // First fire
+        reg.cron_record_fire("briefing", "2026-05-19T05:30:00Z", "ok", Some(100), None)
+            .unwrap();
+        // Second fire: state overwrites, history appends
+        reg.cron_record_fire("briefing", "2026-05-20T05:30:00Z", "error", Some(200), Some("x"))
+            .unwrap();
+
+        let state = reg.cron_get_state("briefing").unwrap().unwrap();
+        assert_eq!(state.last_fired_at.as_deref(), Some("2026-05-20T05:30:00Z"));
+        assert_eq!(state.last_status.as_deref(), Some("error"));
+
+        let history = reg.cron_history_for_job("briefing", 10).unwrap();
+        assert_eq!(history.len(), 2);
+        // Newest first
+        assert_eq!(history[0].fired_at, "2026-05-20T05:30:00Z");
+        assert_eq!(history[1].fired_at, "2026-05-19T05:30:00Z");
+    }
+
+    #[test]
+    fn cron_get_state_returns_none_for_missing_job() {
+        let (_dir, reg) = tmp_reg();
+        assert!(reg.cron_get_state("never-fired").unwrap().is_none());
+    }
+
+    #[test]
+    fn cron_history_all_across_jobs() {
+        let (_dir, reg) = tmp_reg();
+        reg.cron_record_fire("a", "2026-05-20T01:00:00Z", "ok", None, None).unwrap();
+        reg.cron_record_fire("b", "2026-05-20T02:00:00Z", "ok", None, None).unwrap();
+        reg.cron_record_fire("a", "2026-05-20T03:00:00Z", "ok", None, None).unwrap();
+
+        let all = reg.cron_history_all(10).unwrap();
+        assert_eq!(all.len(), 3);
+        // Newest first
+        assert_eq!(all[0].fired_at, "2026-05-20T03:00:00Z");
+    }
+
+    #[test]
+    fn cron_list_state_returns_all() {
+        let (_dir, reg) = tmp_reg();
+        reg.cron_record_fire("a", "2026-05-20T01:00:00Z", "ok", None, None).unwrap();
+        reg.cron_record_fire("b", "2026-05-20T02:00:00Z", "ok", None, None).unwrap();
+
+        let all = reg.cron_list_state().unwrap();
+        assert_eq!(all.len(), 2);
+        let names: std::collections::HashSet<String> =
+            all.into_iter().map(|s| s.job_name).collect();
+        assert!(names.contains("a"));
+        assert!(names.contains("b"));
+    }
+
+    #[test]
+    fn cron_gc_caps_per_job() {
+        let (_dir, reg) = tmp_reg();
+        // Insert 20 rows for job-a, 5 for job-b.
+        for i in 0..20 {
+            reg.cron_record_fire(
+                "job-a",
+                &format!("2026-05-{:02}T00:00:00Z", i + 1),
+                "ok",
+                None,
+                None,
+            )
+            .unwrap();
+        }
+        for i in 0..5 {
+            reg.cron_record_fire(
+                "job-b",
+                &format!("2026-05-{:02}T00:00:00Z", i + 1),
+                "ok",
+                None,
+                None,
+            )
+            .unwrap();
+        }
+
+        // GC: keep all ages, cap at 10/job.
+        let deleted = reg.cron_gc(0, 10).unwrap();
+        assert_eq!(deleted, 10, "expected to drop 10 from job-a, 0 from job-b");
+
+        let a_rows = reg.cron_history_for_job("job-a", 0).unwrap();
+        let b_rows = reg.cron_history_for_job("job-b", 0).unwrap();
+        assert_eq!(a_rows.len(), 10);
+        assert_eq!(b_rows.len(), 5);
+    }
+
+    #[test]
+    fn cron_gc_drops_old_rows() {
+        let (_dir, reg) = tmp_reg();
+        // Insert a row that's clearly outside the retention window (older
+        // than 30 days from "now"). SQLite's datetime('now', '-30 days')
+        // is wall-clock time, so we need a row dated long in the past.
+        reg.cron_record_fire(
+            "job-a",
+            "2020-01-01T00:00:00",
+            "ok",
+            None,
+            None,
+        )
+        .unwrap();
+        reg.cron_record_fire(
+            "job-a",
+            &chrono::Utc::now().to_rfc3339(),
+            "ok",
+            None,
+            None,
+        )
+        .unwrap();
+
+        // GC with 30 days retention should drop the 2020 row, keep the recent.
+        let deleted = reg.cron_gc(30, 0).unwrap();
+        assert_eq!(deleted, 1);
+        assert_eq!(reg.cron_history_for_job("job-a", 0).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn cron_gc_zero_history_days_keeps_all() {
+        let (_dir, reg) = tmp_reg();
+        reg.cron_record_fire("a", "2020-01-01T00:00:00", "ok", None, None).unwrap();
+        reg.cron_record_fire("a", "2026-05-20T00:00:00Z", "ok", None, None).unwrap();
+
+        // 0 history_days = keep forever (no age sweep). 0 max_rows_per_job = no cap.
+        let deleted = reg.cron_gc(0, 0).unwrap();
+        assert_eq!(deleted, 0);
+        assert_eq!(reg.cron_history_for_job("a", 0).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn cron_history_limit_respected() {
+        let (_dir, reg) = tmp_reg();
+        for i in 0..5 {
+            reg.cron_record_fire(
+                "job-x",
+                &format!("2026-05-{:02}T00:00:00Z", i + 1),
+                "ok",
+                None,
+                None,
+            )
+            .unwrap();
+        }
+        let limit_2 = reg.cron_history_for_job("job-x", 2).unwrap();
+        assert_eq!(limit_2.len(), 2);
+        // Newest first
+        assert_eq!(limit_2[0].fired_at, "2026-05-05T00:00:00Z");
+        assert_eq!(limit_2[1].fired_at, "2026-05-04T00:00:00Z");
     }
 }

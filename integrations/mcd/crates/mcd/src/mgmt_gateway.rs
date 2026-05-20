@@ -44,6 +44,12 @@ pub struct AgentOpsHandle {
     pub supervisor: Arc<Supervisor>,
     pub runtime_map: RuntimeMap,
     pub registry_path: PathBuf,
+    /// Cron handle for `agent.cron.reload`. `None` when the daemon
+    /// didn't spawn a cron loop (e.g. test harnesses).
+    pub cron: Option<crate::cron::CronHandle>,
+    /// Path to `cron.toml` for the `agent.cron.list/describe` handlers
+    /// to re-parse on demand. `None` when cron is not wired.
+    pub cron_config_path: Option<PathBuf>,
 }
 
 impl MgmtGateway {
@@ -294,6 +300,26 @@ async fn dispatch_jsonrpc(
         },
         "agent.describe_local" => match agent_ops {
             Some(ops) => handle_agent_describe_local(ops, id, &params).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.cron.list" => match agent_ops {
+            Some(ops) => handle_agent_cron_list(ops, id).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.cron.describe" => match agent_ops {
+            Some(ops) => handle_agent_cron_describe(ops, id, &params).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.cron.reload" => match agent_ops {
+            Some(ops) => handle_agent_cron_reload(ops, id),
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.cron.history" => match agent_ops {
+            Some(ops) => handle_agent_cron_history(ops, id, &params).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.cron.gc_now" => match agent_ops {
+            Some(ops) => handle_agent_cron_gc_now(ops, id, &params).await,
             None => jsonrpc_error(id, -32603, "agent ops not wired"),
         },
         _ => jsonrpc_error(id, -32601, "method not found"),
@@ -564,6 +590,213 @@ fn describe_local_agent(
     Ok(None)
 }
 
+// ─── agent.cron.* handlers (Phase 4) ──────────────────────────────────────
+
+/// `agent.cron.list` — return all jobs from cron.toml joined with their
+/// runtime state from SQLite. Output:
+///   { "jobs": [ { name, schedule, session, dispatch, enabled,
+///                 last_fired_at?, last_status?, last_error? } ] }
+async fn handle_agent_cron_list(ops: &Arc<AgentOpsHandle>, id: Value) -> Value {
+    let config_path = match &ops.cron_config_path {
+        Some(p) => p.clone(),
+        None => return jsonrpc_error(id, -32603, "cron is not wired (no config path)"),
+    };
+    let registry_path = ops.registry_path.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
+        let cfg = crate::cron_config::load(&config_path)?;
+        let reg = LocalRegistry::open(&registry_path)?;
+        let states = reg.cron_list_state()?;
+
+        let state_by_name: std::collections::HashMap<String, _> =
+            states.into_iter().map(|s| (s.job_name.clone(), s)).collect();
+
+        let jobs: Vec<Value> = cfg
+            .jobs
+            .iter()
+            .map(|j| {
+                let state = state_by_name.get(&j.name);
+                serde_json::json!({
+                    "name": j.name,
+                    "schedule": j.schedule,
+                    "session": j.session,
+                    "dispatch": j.dispatch,
+                    "enabled": j.enabled,
+                    "last_fired_at": state.and_then(|s| s.last_fired_at.clone()),
+                    "last_status": state.and_then(|s| s.last_status.clone()),
+                    "last_error": state.and_then(|s| s.last_error.clone()),
+                })
+            })
+            .collect();
+
+        Ok(serde_json::json!({
+            "timezone": cfg.timezone,
+            "schema_version": cfg.schema_version,
+            "jobs": jobs,
+        }))
+    })
+    .await;
+
+    match result {
+        Ok(Ok(v)) => jsonrpc_result(id, v),
+        Ok(Err(e)) => jsonrpc_error(id, -32001, &format!("cron list failed: {e:#}")),
+        Err(e) => jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
+    }
+}
+
+/// `agent.cron.describe` — return one job plus recent fire history.
+/// Params: `{ "name": "<job-name>", "limit"?: <int, default 5> }`
+async fn handle_agent_cron_describe(
+    ops: &Arc<AgentOpsHandle>,
+    id: Value,
+    params: &Value,
+) -> Value {
+    let name = match params.get("name").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => return jsonrpc_error(id, -32602, "missing param: name"),
+    };
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5) as u32;
+
+    let config_path = match &ops.cron_config_path {
+        Some(p) => p.clone(),
+        None => return jsonrpc_error(id, -32603, "cron is not wired"),
+    };
+    let registry_path = ops.registry_path.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
+        let cfg = crate::cron_config::load(&config_path)?;
+        let job = cfg
+            .jobs
+            .iter()
+            .find(|j| j.name == name)
+            .ok_or_else(|| anyhow::anyhow!("no job named {:?} in {}", name, config_path.display()))?;
+
+        let reg = LocalRegistry::open(&registry_path)?;
+        let state = reg.cron_get_state(&name)?;
+        let history = reg.cron_history_for_job(&name, limit)?;
+
+        Ok(serde_json::json!({
+            "name": job.name,
+            "schedule": job.schedule,
+            "session": job.session,
+            "dispatch": job.dispatch,
+            "enabled": job.enabled,
+            "prompt": job.prompt,
+            "last_fired_at": state.as_ref().and_then(|s| s.last_fired_at.clone()),
+            "last_status": state.as_ref().and_then(|s| s.last_status.clone()),
+            "last_error": state.as_ref().and_then(|s| s.last_error.clone()),
+            "history": history.iter().map(|h| serde_json::json!({
+                "fired_at": h.fired_at,
+                "status": h.status,
+                "duration_ms": h.duration_ms,
+                "error_message": h.error_message,
+            })).collect::<Vec<_>>(),
+        }))
+    })
+    .await;
+
+    match result {
+        Ok(Ok(v)) => jsonrpc_result(id, v),
+        Ok(Err(e)) => jsonrpc_error(id, -32004, &format!("cron describe failed: {e:#}")),
+        Err(e) => jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
+    }
+}
+
+/// `agent.cron.reload` — poke the cron loop's reload channel. Returns
+/// immediately; the actual re-parse happens on the next tick boundary.
+fn handle_agent_cron_reload(ops: &Arc<AgentOpsHandle>, id: Value) -> Value {
+    match &ops.cron {
+        Some(handle) => {
+            handle.reload();
+            jsonrpc_result(id, serde_json::json!({ "queued": true }))
+        }
+        None => jsonrpc_error(id, -32603, "cron handle not wired"),
+    }
+}
+
+/// `agent.cron.history` — recent fires across all jobs (or one job
+/// when `name` is set). Params:
+///   `{ "name"?: "<job-name>", "limit"?: <int, default 20> }`
+async fn handle_agent_cron_history(
+    ops: &Arc<AgentOpsHandle>,
+    id: Value,
+    params: &Value,
+) -> Value {
+    let name = params.get("name").and_then(|v| v.as_str()).map(String::from);
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20) as u32;
+    let registry_path = ops.registry_path.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
+        let reg = LocalRegistry::open(&registry_path)?;
+        let rows = match name {
+            Some(n) => reg.cron_history_for_job(&n, limit)?,
+            None => reg.cron_history_all(limit)?,
+        };
+        Ok(serde_json::json!({
+            "fires": rows.iter().map(|h| serde_json::json!({
+                "job_name": h.job_name,
+                "fired_at": h.fired_at,
+                "status": h.status,
+                "duration_ms": h.duration_ms,
+                "error_message": h.error_message,
+            })).collect::<Vec<_>>(),
+        }))
+    })
+    .await;
+
+    match result {
+        Ok(Ok(v)) => jsonrpc_result(id, v),
+        Ok(Err(e)) => jsonrpc_error(id, -32001, &format!("cron history failed: {e:#}")),
+        Err(e) => jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
+    }
+}
+
+/// `agent.cron.gc_now` — force a retention sweep right now (in addition
+/// to the periodic GC task). Params (all optional, default from cron.toml):
+///   `{ "history_days"?: <int>, "max_rows_per_job"?: <int> }`
+async fn handle_agent_cron_gc_now(
+    ops: &Arc<AgentOpsHandle>,
+    id: Value,
+    params: &Value,
+) -> Value {
+    let config_path = match &ops.cron_config_path {
+        Some(p) => p.clone(),
+        None => return jsonrpc_error(id, -32603, "cron is not wired"),
+    };
+    let registry_path = ops.registry_path.clone();
+    let override_days = params.get("history_days").and_then(|v| v.as_u64()).map(|n| n as u32);
+    let override_rows = params
+        .get("max_rows_per_job")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32);
+
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
+        let cfg = crate::cron_config::load(&config_path)?;
+        let history_days = override_days.unwrap_or(cfg.retention.history_days);
+        let max_rows = override_rows.unwrap_or(cfg.retention.max_rows_per_job);
+        let reg = LocalRegistry::open(&registry_path)?;
+        let deleted = reg.cron_gc(history_days, max_rows)?;
+        Ok(serde_json::json!({
+            "deleted": deleted,
+            "history_days": history_days,
+            "max_rows_per_job": max_rows,
+        }))
+    })
+    .await;
+
+    match result {
+        Ok(Ok(v)) => jsonrpc_result(id, v),
+        Ok(Err(e)) => jsonrpc_error(id, -32001, &format!("cron gc failed: {e:#}")),
+        Err(e) => jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
+    }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 fn jsonrpc_result(id: Value, result: Value) -> Value {
@@ -801,6 +1034,8 @@ mod tests {
             )),
             runtime_map: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             registry_path,
+            cron: None,
+            cron_config_path: None,
         });
 
         let resp = dispatch(
@@ -831,6 +1066,8 @@ mod tests {
             )),
             runtime_map: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             registry_path,
+            cron: None,
+            cron_config_path: None,
         });
 
         let resp = dispatch(
@@ -857,6 +1094,8 @@ mod tests {
             )),
             runtime_map: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             registry_path,
+            cron: None,
+            cron_config_path: None,
         });
 
         let resp = dispatch(
@@ -886,6 +1125,8 @@ mod tests {
             )),
             runtime_map: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             registry_path,
+            cron: None,
+            cron_config_path: None,
         });
 
         let resp = dispatch(
