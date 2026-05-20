@@ -261,11 +261,92 @@ where
             continue;
         }
 
+        // Peek at the method to detect streaming subscriptions. Streaming
+        // hijacks the connection — after ack, the gateway pushes
+        // newline-delimited event frames until the client disconnects.
+        // No further JSON-RPC requests are processed on this connection.
+        if let Some(req) = serde_json::from_str::<Value>(trimmed).ok() {
+            if req.get("method").and_then(|v| v.as_str()) == Some("events.subscribe") {
+                let id = req.get("id").cloned().unwrap_or(Value::Null);
+                let sender = agent_ops.and_then(|ops| ops.supervisor_events.as_ref());
+                stream_supervisor_events(sender, id, &mut writer).await?;
+                // Connection is done after a stream ends (always EOF or fatal lag).
+                break;
+            }
+        }
+
         let response = dispatch_jsonrpc(dispatcher, registry, agent_ops, trimmed).await;
         let mut response_bytes = serde_json::to_vec(&response)
             .unwrap_or_else(|_| br#"{"jsonrpc":"2.0","error":{"code":-32700,"message":"serialization error"}}"#.to_vec());
         response_bytes.push(b'\n');
         writer.write_all(&response_bytes).await?;
+    }
+    Ok(())
+}
+
+/// Stream SupervisorEvents to the client until disconnect or fatal broadcast
+/// lag. Sends one ack frame (`{"ok": true, "subscribed": true}`), then one JSON
+/// frame per event. Lagged subscribers receive `{"ok": false, "error": "lag",
+/// "skipped": N}` and the stream terminates.
+async fn stream_supervisor_events<W>(
+    sender: Option<&tokio::sync::broadcast::Sender<mcd_core::types::SupervisorEvent>>,
+    id: Value,
+    writer: &mut W,
+) -> Result<()>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::sync::broadcast::error::RecvError;
+
+    // No broadcast sender means either agent_ops isn't wired (test harnesses)
+    // or the unit-health loop isn't running. Either way: return JSON-RPC
+    // error and close the connection.
+    let Some(sender) = sender else {
+        let err = jsonrpc_error(id, -32603, "supervisor events not wired (unit-health loop not running)");
+        let mut bytes = serde_json::to_vec(&err)?;
+        bytes.push(b'\n');
+        writer.write_all(&bytes).await?;
+        return Ok(());
+    };
+    let mut rx = sender.subscribe();
+
+    // Ack — tells the client the stream is live. After this frame, no further
+    // JSON-RPC responses; only `SupervisorEvent` frames serialized via serde.
+    let ack = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": { "subscribed": true }
+    });
+    let mut ack_bytes = serde_json::to_vec(&ack)?;
+    ack_bytes.push(b'\n');
+    writer.write_all(&ack_bytes).await?;
+    writer.flush().await?;
+
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                let mut bytes = serde_json::to_vec(&event)?;
+                bytes.push(b'\n');
+                if writer.write_all(&bytes).await.is_err() {
+                    // Client gone.
+                    break;
+                }
+                let _ = writer.flush().await;
+            }
+            Err(RecvError::Lagged(skipped)) => {
+                let frame = serde_json::json!({
+                    "ok": false,
+                    "error": "lag",
+                    "skipped": skipped,
+                });
+                let mut bytes = serde_json::to_vec(&frame)?;
+                bytes.push(b'\n');
+                let _ = writer.write_all(&bytes).await;
+                let _ = writer.flush().await;
+                break;
+            }
+            Err(RecvError::Closed) => break,
+        }
     }
     Ok(())
 }
@@ -1460,5 +1541,104 @@ mod tests {
             .and_then(|e| e.get("code"))
             .and_then(|c| c.as_i64());
         assert_eq!(code, Some(-32602), "resp: {resp}");
+    }
+
+    // ─── events.subscribe streaming ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn events_subscribe_streams_event_after_ack() {
+        use mcd_core::types::SupervisorEvent;
+
+        // In-memory broadcast channel — same shape as daemon.rs:392.
+        let (tx, _rx_initial) = tokio::sync::broadcast::channel::<SupervisorEvent>(16);
+
+        // DuplexStream gives us an in-memory bidirectional pipe.
+        let (server_side, mut client_side) = tokio::io::duplex(4096);
+        let (server_read, server_write) = tokio::io::split(server_side);
+        let reader = BufReader::new(server_read);
+
+        // Spawn the streaming handler on the server side.
+        let tx_clone = tx.clone();
+        let server_task = tokio::spawn(async move {
+            // Inline the loop's "is this events.subscribe?" branch — we test
+            // the streaming function directly with a known method line.
+            let mut writer = server_write;
+            let mut reader = reader;
+            let mut line = String::new();
+            let _ = reader.read_line(&mut line).await;
+            let trimmed = line.trim();
+            let req: Value = serde_json::from_str(trimmed).expect("valid req");
+            assert_eq!(req["method"], "events.subscribe");
+            let id = req.get("id").cloned().unwrap_or(Value::Null);
+            stream_supervisor_events(Some(&tx_clone), id, &mut writer)
+                .await
+                .expect("stream ok");
+        });
+
+        // Client: send events.subscribe.
+        client_side
+            .write_all(br#"{"jsonrpc":"2.0","id":42,"method":"events.subscribe","params":{}}
+"#)
+            .await
+            .expect("write subscribe");
+
+        // Read ack frame.
+        let mut client_reader = BufReader::new(client_side);
+        let mut ack_line = String::new();
+        client_reader.read_line(&mut ack_line).await.expect("read ack");
+        let ack: Value = serde_json::from_str(ack_line.trim()).expect("ack json");
+        assert_eq!(ack["id"], 42);
+        assert_eq!(ack["result"]["subscribed"], true);
+
+        // Fire a SupervisorEvent — give the subscriber a moment to register.
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        tx.send(SupervisorEvent::UnitRestarted {
+            agent_id: "work".to_string(),
+            source: "fleet_import".to_string(),
+            systemd_service: "merlinlabs.service".to_string(),
+            reason: "manual".to_string(),
+            result: "started".to_string(),
+            exit_code: None,
+            at: "2026-05-20T20:30:00Z".to_string(),
+        })
+        .expect("broadcast send");
+
+        // Read event frame.
+        let mut event_line = String::new();
+        client_reader.read_line(&mut event_line).await.expect("read event");
+        let event: Value = serde_json::from_str(event_line.trim()).expect("event json");
+        assert_eq!(event["kind"], "unit_restarted");
+        assert_eq!(event["agent_id"], "work");
+        assert_eq!(event["result"], "started");
+
+        // Drop the sender → receiver closes → stream task exits cleanly.
+        drop(tx);
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(500), server_task).await;
+    }
+
+    #[tokio::test]
+    async fn events_subscribe_errors_when_no_sender_wired() {
+        // None sender → JSON-RPC error frame, no streaming.
+        let (server_side, mut client_side) = tokio::io::duplex(4096);
+        let (_, mut server_write) = tokio::io::split(server_side);
+
+        let server_task = tokio::spawn(async move {
+            stream_supervisor_events(None, Value::from(7), &mut server_write)
+                .await
+                .expect("stream returns Ok even when erroring");
+        });
+
+        let mut client_reader = BufReader::new(&mut client_side);
+        let mut err_line = String::new();
+        client_reader.read_line(&mut err_line).await.expect("read err");
+        let err: Value = serde_json::from_str(err_line.trim()).expect("err json");
+        assert_eq!(err["id"], 7);
+        assert_eq!(err["error"]["code"], -32603);
+        assert!(
+            err["error"]["message"].as_str().unwrap_or("").contains("supervisor events not wired"),
+            "got: {err}"
+        );
+
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(500), server_task).await;
     }
 }

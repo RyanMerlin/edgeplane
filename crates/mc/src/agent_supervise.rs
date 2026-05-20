@@ -58,6 +58,13 @@ pub struct HistoryArgs {
     pub json: bool,
 }
 
+#[derive(Args, Debug)]
+pub struct EventsArgs {
+    /// Emit raw JSON event frames (one per line) instead of pretty-printed lines.
+    #[arg(long)]
+    pub json: bool,
+}
+
 // ─── Runners ─────────────────────────────────────────────────────────────
 
 pub async fn run_list(args: ListArgs) -> Result<()> {
@@ -218,6 +225,102 @@ pub async fn run_history(args: HistoryArgs) -> Result<()> {
 
 fn str_or<'a>(v: &'a Value, key: &str, fallback: &'a str) -> &'a str {
     v.get(key).and_then(|x| x.as_str()).unwrap_or(fallback)
+}
+
+/// Subscribe to mcd's SupervisorEvent broadcast and print frames as they
+/// arrive. Blocks until the user Ctrl-C's, mcd shuts down, or the broadcast
+/// channel issues a fatal lag signal.
+pub async fn run_events(args: EventsArgs) -> Result<()> {
+    let path = mgmt_socket_path();
+    let stream = tokio::net::UnixStream::connect(&path).await.with_context(|| {
+        format!(
+            "connect to mcd mgmt socket {} (is mcd running?)",
+            path.display()
+        )
+    })?;
+    let (read_half, mut write_half) = stream.into_split();
+    let mut reader = BufReader::new(read_half);
+
+    // Send events.subscribe.
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "events.subscribe",
+        "params": {},
+    });
+    let mut bytes = serde_json::to_vec(&request).context("serialize subscribe")?;
+    bytes.push(b'\n');
+    write_half.write_all(&bytes).await.context("write subscribe")?;
+
+    // Read ack — fails fast if the gateway returns an error (e.g. unit-health
+    // loop not running).
+    let mut ack_line = String::new();
+    reader.read_line(&mut ack_line).await.context("read ack")?;
+    let ack: Value = serde_json::from_str(ack_line.trim())
+        .with_context(|| format!("parse ack: {}", ack_line.trim()))?;
+    if let Some(err) = ack.get("error") {
+        let code = err.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
+        let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown");
+        bail!("mgmt-gateway error {code}: {msg}");
+    }
+    if !args.json {
+        eprintln!("subscribed — streaming SupervisorEvents (Ctrl-C to exit)");
+    }
+
+    // Read event frames until EOF (mcd shutdown or broadcast lag).
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let n = reader.read_line(&mut line).await.context("read event")?;
+        if n == 0 {
+            // mcd closed the connection.
+            if !args.json {
+                eprintln!("stream closed by mcd");
+            }
+            return Ok(());
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let frame: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("warn: bad event frame: {e}");
+                continue;
+            }
+        };
+        // Lag terminator frame from the gateway — print + exit non-zero so
+        // operators don't miss the gap.
+        if frame.get("error").and_then(|v| v.as_str()) == Some("lag") {
+            let skipped = frame.get("skipped").and_then(|v| v.as_u64()).unwrap_or(0);
+            bail!("broadcast lag — skipped {skipped} events. Subscriber too slow.");
+        }
+        if args.json {
+            println!("{trimmed}");
+        } else {
+            println!("{}", pretty_event(&frame));
+        }
+    }
+}
+
+/// Render a SupervisorEvent JSON frame as a single human-readable line.
+fn pretty_event(ev: &Value) -> String {
+    let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
+    let at = ev.get("at").and_then(|v| v.as_str()).unwrap_or("?");
+    let agent = ev.get("agent_id").and_then(|v| v.as_str()).unwrap_or("?");
+    match kind {
+        "unit_dead_detected" => format!("{at}  DEAD       {agent}"),
+        "unit_restarted" => {
+            let result = ev.get("result").and_then(|v| v.as_str()).unwrap_or("?");
+            let reason = ev.get("reason").and_then(|v| v.as_str()).unwrap_or("?");
+            format!("{at}  RESTART    {agent} reason={reason} result={result}")
+        }
+        "supervise_paused" => format!("{at}  PAUSED     {agent}"),
+        "supervise_resumed" => format!("{at}  RESUMED    {agent}"),
+        "nightly_restart_fired" => format!("{at}  NIGHTLY    {agent}"),
+        other => format!("{at}  {other:10} {agent}"),
+    }
 }
 
 fn mgmt_socket_path() -> std::path::PathBuf {

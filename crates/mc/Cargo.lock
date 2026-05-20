@@ -2337,7 +2337,7 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "mc"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2387,7 +2387,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-packs"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "mcd-sandbox",
  "mcd-secrets",
@@ -2400,7 +2400,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-receipts"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -2414,7 +2414,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-sandbox"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "dirs",
  "hex",
@@ -2429,7 +2429,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-secrets"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "keyring",
  "once_cell",
@@ -2445,7 +2445,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-sync"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "chrono",

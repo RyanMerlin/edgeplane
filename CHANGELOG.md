@@ -4,6 +4,32 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.13.0] — 2026-05-20
+
+### Added — SupervisorEvent streaming via mgmt-gateway
+
+Phase 5 (mcd v0.10.0) added a `tokio::sync::broadcast::Sender<SupervisorEvent>` publisher inside the unit-health loop, with no consumer. Phase B of the 1.0.0 path wires the consumer.
+
+- **New JSON-RPC method `events.subscribe`** on the mgmt-gateway. When invoked, the gateway hijacks the connection: sends one ack frame (`{"jsonrpc":"2.0","id":N,"result":{"subscribed":true}}`), then pushes newline-delimited `SupervisorEvent` JSON frames as they fire on the broadcast channel. The stream terminates on client disconnect, mcd shutdown, or fatal broadcast lag (subscriber too slow — the channel is bounded at 256). On lag, the gateway emits `{"ok":false,"error":"lag","skipped":N}` and closes the connection.
+- **New CLI: `mc agent supervise events [--json]`** — opens the mcd Unix socket, subscribes, and prints frames as they arrive. Pretty mode is one human-readable line per event; `--json` passes raw frames through (for piping into `jq`, log shippers, etc).
+- **Wire format** is unchanged from what `mcd-core::types::SupervisorEvent` already serialized via serde: tagged-enum JSON with a `kind` discriminator (`unit_dead_detected`, `unit_restarted`, `supervise_paused`, `supervise_resumed`, `nightly_restart_fired`).
+
+### Connection model
+
+`events.subscribe` is the first **streaming** method on the gateway. All previous methods follow strict request → single-response over the same line-delimited JSON-RPC framing. Subscriptions are mode-switched per-connection: once subscribed, no further JSON-RPC requests are accepted on that connection. Open a separate connection for non-streaming calls. This keeps the existing request/response surface untouched.
+
+### Out of scope (next layers)
+
+- **TUI / web-portal consumers.** The streaming surface is now wired; the actual fleet-dashboard rendering on top of it is a separate UX phase.
+- **Replay / history.** `agent.supervise.history` already serves the persisted log via the `unit_restart_log` table; the live stream is for "what's happening right now", not "what happened yesterday".
+- **Per-agent filtering on the server side.** Subscribers receive all events; client-side filtering with `jq` works for now.
+
+### Tests
+
+- `events_subscribe_streams_event_after_ack` — full duplex test with `tokio::io::duplex`: subscribe, fire a `SupervisorEvent::UnitRestarted` via the broadcast `Sender`, assert ack + event frames arrive in order with the right discriminator.
+- `events_subscribe_errors_when_no_sender_wired` — `Option<&Sender>::None` returns JSON-RPC error `-32603` and closes cleanly.
+- mcd full suite: 282/282 pass (was 280/280, +2 from this PR).
+
 ## [0.12.0] — 2026-05-20
 
 ### Changed — Repo layout: `integrations/` → `crates/`

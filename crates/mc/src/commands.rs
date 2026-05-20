@@ -238,6 +238,8 @@ pub enum SuperviseCommand {
     Resume(crate::agent_supervise::PauseResumeArgs),
     /// Recent restart events across all (or one) agent.
     History(crate::agent_supervise::HistoryArgs),
+    /// Stream live SupervisorEvents from mcd (Ctrl-C to exit).
+    Events(crate::agent_supervise::EventsArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -2133,6 +2135,7 @@ async fn handle_agent(
             SuperviseCommand::Pause(a) => crate::agent_supervise::run_pause(a).await,
             SuperviseCommand::Resume(a) => crate::agent_supervise::run_resume(a).await,
             SuperviseCommand::History(a) => crate::agent_supervise::run_history(a).await,
+            SuperviseCommand::Events(a) => crate::agent_supervise::run_events(a).await,
         },
     }
 }
