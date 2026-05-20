@@ -358,7 +358,20 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
                 .with_receipt_store(Arc::new(receipt_store))
                 .with_session_store(Arc::clone(&session_store), secrets_socket),
         );
-        let mgmt_gw = MgmtGateway::new(dispatcher, registry);
+        // Phase 3 daemon-absorption: wire the supervisor + runtime_map +
+        // registry path so the new `agent.local.*` and
+        // `agent.describe_local` JSON-RPC methods can answer queries about
+        // locally-supervised agents. Registry path falls back to the
+        // default location if discovery fails — the agent.* handlers
+        // return a structured "registry read failed" error in that case.
+        let registry_path = crate::local_registry::LocalRegistry::default_path()
+            .unwrap_or_else(|_| mcd_core::paths::registry_db_path());
+        let agent_ops = crate::mgmt_gateway::AgentOpsHandle {
+            supervisor: Arc::clone(&supervisor),
+            runtime_map: Arc::clone(&runtime_map),
+            registry_path,
+        };
+        let mgmt_gw = MgmtGateway::new(dispatcher, registry).with_agent_ops(agent_ops);
         tokio::spawn(async move {
             if let Err(e) = mgmt_gw.run().await {
                 tracing::error!("mgmt gateway error: {e}");
@@ -738,6 +751,22 @@ impl Spawner {
                 }));
             }
             SessionMode::Persistent => {
+                // ZellijHosted agents are externally managed: their Zellij
+                // session is owned by systemd + aria-watchdog, mcd doesn't
+                // need a session supervisor or message-relay loop. Signals
+                // route via the mgmt_gateway `agent.local.signal` method
+                // (Phase 3), which looks the agent up in the supervisor's
+                // map (populated above by `supervisor.spawn`). No loops
+                // needed; the agent record is the entire surface.
+                if spec.runtime_kind == "zellij_hosted" {
+                    tracing::info!(
+                        "ZellijHosted agent {} registered; no session supervisor needed \
+                         (signals route via mgmt_gateway agent.local.signal)",
+                        spec.agent_id
+                    );
+                    return Some(RunningAgent::new(spec.clone(), handles));
+                }
+
                 let supervisor_jh = if spec.runtime_kind == "claude_agent_acp" {
                     let opts = acp_spawn_opts
                         .clone()

@@ -28,9 +28,22 @@ entrypoints:
       purpose: Launch Codex in a prepared profile runtime
     - command: mc run gemini
       purpose: Launch Gemini in a prepared profile runtime
+  agent_ops:
+    - command: mc agent signal <id> --content "..."
+      purpose: Send a prompt to an agent. Auto-resolves local (mcd) vs controlplane.
+    - command: mc agent cancel <id>
+      purpose: Interrupt the agent (Ctrl c for ZellijHosted).
+    - command: mc agent list [--source local|remote|all]
+      purpose: Enumerate visible agents tagged by source.
+    - command: mc agent describe <id>
+      purpose: Show one agent's runtime, session, vault folder, supervision state.
+    - command: mc agent attach <id> [--web]
+      purpose: Attach to a live agent. ZellijHosted execs zellij attach (or prints web URL with --web). ACP streams via WebSocket.
   verify:
     - command: mc system doctor
       purpose: Health check (backend connectivity, token, daemon)
+    - command: mcd doctor
+      purpose: Read-only mcd health check — lock state, port reachability, registry, runtime resolution.
 
 interfaces:
   env_vars:

@@ -30,20 +30,110 @@ use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 #[derive(Args, Debug)]
 pub struct AttachArgs {
-    /// Agent public_id (e.g. `aria-operator-e8820c0d`) or numeric id.
+    /// Agent id. For local ZellijHosted agents this is the profile name
+    /// (e.g. `work`); for controlplane ACP agents it's the `public_id`
+    /// (e.g. `aria-operator-e8820c0d`).
     pub agent_id: String,
     /// Stream raw `SessionNotification` JSON, one frame per line. Default
     /// is a human-readable rendering of assistant turns, tool calls, etc.
+    /// Only meaningful for ACP attach; ignored for ZellijHosted.
     #[arg(long)]
     pub json: bool,
     /// Override node id when the agent registry doesn't know which node
     /// hosts this agent (rare; mostly useful during early bringup before
-    /// linkage is fully populated).
+    /// linkage is fully populated). Only meaningful for ACP attach.
     #[arg(long)]
     pub node_id: Option<String>,
+    /// For ZellijHosted agents only: instead of exec'ing `zellij attach`,
+    /// print the `zellij web` URL (`http://<base>/<session>`). Useful for
+    /// embedding in a browser or sharing the link.
+    #[arg(long)]
+    pub web: bool,
+    /// Base URL for `zellij web` when --web is set. Defaults to the
+    /// local `zellij web` listener at `http://127.0.0.1:8082`.
+    #[arg(long, default_value = "http://127.0.0.1:8082")]
+    pub web_base_url: String,
+    /// Force the controlplane ACP attach path; skip the local lookup.
+    /// Useful when an agent ID happens to collide between local and
+    /// controlplane and you know you want the controlplane one.
+    #[arg(long)]
+    pub remote: bool,
 }
 
 pub async fn run(args: AttachArgs, client: &MissionControlClient) -> Result<()> {
+    // Phase 3 daemon-absorption: dispatch on runtime kind. Try local first
+    // unless --remote forces controlplane. ZellijHosted gets a different
+    // attach surface (zellij attach / zellij web URL); ACP keeps the
+    // existing WS streaming path.
+    if !args.remote {
+        match crate::agent_ops::describe_local(&args.agent_id).await {
+            Ok(Some(info)) => {
+                let runtime_kind = info
+                    .get("runtime_kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if runtime_kind == "zellij_hosted" {
+                    return attach_zellij_hosted(&args, &info);
+                }
+                // Other local runtime kinds (none currently) — fall through
+                // to ACP path and let it error if not applicable.
+            }
+            Ok(None) => { /* not local, continue to ACP path */ }
+            Err(e) => {
+                // mgmt socket unreachable — log once and continue, in case
+                // the operator is targeting a controlplane agent and mcd
+                // happens to be down on this node.
+                tracing::debug!(
+                    "agent.describe_local failed for {}: {e:#}. Falling through to ACP attach.",
+                    args.agent_id
+                );
+            }
+        }
+    }
+
+    if args.web {
+        bail!(
+            "--web is only supported for ZellijHosted agents. \
+             `{}` is not a local ZellijHosted agent (or `--remote` was set).",
+            args.agent_id
+        );
+    }
+    run_acp_attach(args, client).await
+}
+
+/// Attach to a ZellijHosted agent — either exec `zellij attach <session>`
+/// or print the web URL when `--web` is set.
+fn attach_zellij_hosted(args: &AttachArgs, info: &serde_json::Value) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let session = info
+        .get("zellij_session")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            anyhow!(
+                "agent `{}` is ZellijHosted but has no zellij_session in its launch context",
+                args.agent_id
+            )
+        })?;
+
+    if args.web {
+        let base = args.web_base_url.trim_end_matches('/');
+        println!("{base}/{session}");
+        return Ok(());
+    }
+
+    // exec replaces this process — the operator's terminal becomes the
+    // zellij client. No return on success.
+    let err = std::process::Command::new("zellij")
+        .arg("attach")
+        .arg(session)
+        .exec();
+    Err(anyhow!("exec zellij attach failed: {err}"))
+}
+
+/// Existing ACP attach path — WS to controlplane → mesh node → pump_acp.
+/// Extracted from the original `run()` so the new dispatch can call it
+/// unchanged.
+async fn run_acp_attach(args: AttachArgs, client: &MissionControlClient) -> Result<()> {
     let node_id = match args.node_id.clone() {
         Some(n) => n,
         None => resolve_node_id(client, &args.agent_id)

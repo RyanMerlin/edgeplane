@@ -203,7 +203,16 @@ pub enum SystemCommand {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentCommand {
-    /// Remote agent control verbs.
+    /// Send a prompt to an agent (auto-resolves local vs controlplane).
+    Signal(crate::agent_ops::SignalArgs),
+    /// Interrupt an in-flight agent (auto-resolves local vs controlplane).
+    Cancel(crate::agent_ops::CancelArgs),
+    /// List visible agents — local (mcd-supervised) and/or remote (controlplane).
+    List(crate::agent_ops::ListArgs),
+    /// Describe a single agent — auto-resolves local vs controlplane.
+    Describe(crate::agent_ops::DescribeArgs),
+    /// DEPRECATED — controlplane-only verbs. Prefer top-level `mc agent` verbs which
+    /// auto-resolve. Kept for muscle memory; will be removed in a future cleanup.
     #[command(subcommand)]
     Remote(remote::RemoteCommand),
     /// Resident node-agent control verbs.
@@ -2076,6 +2085,10 @@ async fn handle_agent(
 ) -> Result<()> {
     let _ = (booster, schema_pack);
     match command {
+        AgentCommand::Signal(args) => crate::agent_ops::run_signal(args, &client).await,
+        AgentCommand::Cancel(args) => crate::agent_ops::run_cancel(args, &client).await,
+        AgentCommand::List(args) => crate::agent_ops::run_list(args, &client).await,
+        AgentCommand::Describe(args) => crate::agent_ops::run_describe(args, &client).await,
         AgentCommand::Remote(cmd) => remote::run(cmd, &client).await,
         AgentCommand::Node(cmd) => runtime::run_node_agent(cmd, &client).await,
         AgentCommand::Evolve(args) => evolve::run(args, &client).await,

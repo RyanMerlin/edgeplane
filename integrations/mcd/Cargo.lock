@@ -1389,7 +1389,7 @@ dependencies = [
 
 [[package]]
 name = "mcd"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1426,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-acp"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1448,7 +1448,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1472,7 +1472,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-packs"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "mcd-sandbox",
  "mcd-secrets",
@@ -1485,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-receipts"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -1500,7 +1500,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-runtimes"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1523,7 +1523,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-sandbox"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "dirs",
  "hex",
@@ -1538,7 +1538,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-secrets"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "keyring",
  "once_cell",
@@ -1554,7 +1554,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-sync"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "mcd-work"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "chrono",

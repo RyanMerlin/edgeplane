@@ -234,22 +234,32 @@ impl AgentRuntime for ZellijHostedRuntime {
         Ok(())
     }
 
-    /// Verify `zellij` is on PATH. Surfaces missing-binary at startup
+    /// Verify `zellij` is available. Surfaces missing-binary at startup
     /// instead of at first signal.
+    ///
+    /// systemd `--user` services run with a stripped PATH that doesn't
+    /// include `~/.cargo/bin` or `~/.local/bin` where users typically
+    /// install zellij. Probe known candidate locations explicitly rather
+    /// than relying on PATH or `which::which` (same pattern as the ACP
+    /// runtime's claude probe).
     async fn ensure_installed(&self) -> Result<()> {
-        let present = tokio::process::Command::new("zellij")
-            .arg("--version")
-            .output()
-            .await
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if !present {
-            bail!(
-                "zellij is not on PATH. Install with `cargo install zellij` \
-                 or your package manager."
-            );
+        for candidate in crate::zellij_session::zellij_candidates() {
+            let probe = tokio::process::Command::new(&candidate)
+                .arg("--version")
+                .output()
+                .await;
+            if let Ok(out) = probe {
+                if out.status.success() {
+                    tracing::debug!("ZellijHostedRuntime: found zellij at {}", candidate);
+                    return Ok(());
+                }
+            }
         }
-        Ok(())
+        bail!(
+            "zellij binary not found in any of the candidate locations \
+             (PATH, ~/.cargo/bin, ~/.local/bin, /usr/local/bin, /usr/bin). \
+             Install with `cargo install zellij` or your package manager."
+        )
     }
 }
 
