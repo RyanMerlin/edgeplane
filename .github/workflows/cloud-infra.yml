@@ -11,15 +11,12 @@ on:
         type: boolean
         default: false
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 jobs:
   terraform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v2
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.5.7
       - name: Configure Azure Credentials

@@ -3,15 +3,12 @@ name: DCO Check
 on:
   workflow_dispatch: # disabled during pilot dev — re-enable before public release
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 jobs:
   dco:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

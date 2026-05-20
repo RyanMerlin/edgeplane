@@ -12,15 +12,12 @@ on:
         type: boolean
         default: false
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 jobs:
   rust-test:
     name: Rust tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
@@ -45,7 +42,7 @@ jobs:
     name: Launch regression
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo registry
         uses: actions/cache@v5
@@ -62,7 +59,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.run_compat_smoke == true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Run staged compatibility smoke matrix
         run: |
@@ -73,7 +70,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Check whether mc integration changed
         id: changes
         uses: dorny/paths-filter@v4
@@ -107,8 +104,8 @@ jobs:
   docs-catalog:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install pyyaml
