@@ -14,7 +14,8 @@ Every entity below cites both the philosophy doc (definition) and the schema (st
 **A bounded organizational objective.** The high-level "what we are doing and why." Carries the northstar narrative, owners, governance scope.
 
 - Philosophy: line 98–106 ("A Mission is: A bounded objective; A scoped knowledge domain; A policy surface; A permission boundary; A tool/skill profile")
-- Schema: `public.mission` (line 590) — has `northstar_md`, `owners`, `contributors`, `visibility`, `status`
+- Schema: `public.mission` (0001) — has `northstar_md`, `owners`, `contributors`, `visibility`, `status`, `kind`
+- Migration 0006 adds `kind` (`'work'` | `'home'`). Work missions are regular objectives; home missions are per-node coordination inboxes (`home-{tailscale_hostname}`) that anchor a node's persistent agent. Same table, two distinct lifecycles — filter by `kind` in UI/API.
 - Owns: many klusters (`kluster.mission_id`)
 
 Missions do **not** complete. They scope. Tasks complete.
@@ -70,12 +71,29 @@ Whether `task` and `meshtask` will converge is an open architecture question —
 
 ## Agent
 
-**An identity that performs work.** Human or AI. Carries capabilities, status, metadata.
+**An identity that performs work.** Human or AI. Carries capabilities, status, metadata, mission anchor.
 
 - Philosophy: line 122–149 (agent profiles travel with the operator)
-- Schema: `public.agent` (line 1) — has `name`, `capabilities`, `status`, `metadata`
-- Plus mesh-side: `public.meshagent` (line 489) — the discoverable, runtime-bound projection
-- Plus identity: `public.agent_identity` (migration 0007) — public_id for stable external reference
+- Schema: `public.agent` (0001) — base columns: `name`, `capabilities`, `status`, `metadata`
+- Migration 0007 adds: `archived_at`, `display_name`, `node_id`, `last_seen_at` (lifecycle + presence metadata; reserved-name enforcement happens in code, not as a CHECK constraint)
+- Migration 0008 adds: `public_id` (`{name}-{8-char-suffix}`) — the stable, human-readable identifier used by `/agents/{public_id}/messages` and the unified `mc agent` surface. Immutable after creation
+- Migration 0010 adds: `home_mission_id` (permanent anchor — set once at registration, never cleared) and `current_mission_id` (active attachment — follows the agent's working context, resets to home on detach). Both nullable FKs to `mission(id)`
+
+**Note:** there is no separate `agent_identity` table. Migration 0007 only adds columns to `agent`. Earlier doc revisions claimed a distinct table — that was inaccurate.
+
+See `MeshAgent` (below) for the discoverable, runtime-bound projection.
+
+---
+
+## MeshAgent
+
+**The runtime-bound, discoverable projection of an agent into the mesh.** This is the row the controlplane scheduler matches against when claiming a `meshtask`. Distinct from `agent` (the canonical identity row).
+
+- Schema: `public.meshagent` (0001) — has `mission_id`, `node_id`, `runtime_kind`, `runtime_version`, `capabilities`, `labels`, `status`, `current_task_id`, `enrolled_by_subject`, `enrolled_at`, `last_heartbeat_at`, `runtime_node_id`, `profile_json`, `machine_json`, `runtime_json`, `supervision_mode`
+- Migration 0004 adds: `discovered_capabilities` — runtime-introspected capability set, union'd with declared `capabilities` during scheduling
+- Migration 0009 adds: `agent_public_id` (nullable FK to `agent.public_id`) — links the mesh projection back to the canonical agent identity. Nullable so legacy meshagent rows can exist without a paired `agent`
+
+Why two tables: `agent` is identity (who); `meshagent` is presence + capability (where + what they can do right now). One agent identity can have multiple meshagent rows over time as it enrolls on different nodes.
 
 ---
 
@@ -87,7 +105,8 @@ There are three "session" tables. Confusion here is the root cause of past archi
 
 **The persistent AI session as a logical entity.** Title, owner, runtime kind, status. Survives across runs.
 
-- Schema: `public.aisession` (line 104) — has `id`, `owner_subject`, `title`, `runtime_kind` (e.g. `claude_agent_acp`), `runtime_session_id`, `workspace_path`, `policy_json`
+- Schema: `public.aisession` (0001) — has `id`, `owner_subject`, `title`, `status`, `runtime_kind` (e.g. `claude_agent_acp`), `runtime_session_id`, `workspace_path`, `policy_json`, `capability_snapshot_json`
+- `status` tracks lifecycle (active/ended/etc.); `capability_snapshot_json` freezes the capability set at session start for policy enforcement consistency across the session's lifespan
 - This is what the user sees as "a session" — what you'd resume.
 
 ### AgentSession — local agent ↔ claude binding
