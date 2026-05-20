@@ -39,6 +39,30 @@ entrypoints:
       purpose: Show one agent's runtime, session, vault folder, supervision state.
     - command: mc agent attach <id> [--web]
       purpose: Attach to a live agent. ZellijHosted execs zellij attach (or prints web URL with --web). ACP streams via WebSocket.
+  cron_ops:
+    - command: mc agent cron list
+      purpose: List jobs from ~/.mc/mcd/cron.toml with last-fire status. (Phase 4, v0.9)
+    - command: mc agent cron describe <name>
+      purpose: One cron job's schedule + recent fire history.
+    - command: mc agent cron reload
+      purpose: Poke mcd to re-parse cron.toml after an editor edit.
+    - command: mc agent cron history [--name <n>] [-n N]
+      purpose: Recent fires across all (or one) job.
+    - command: mc agent cron gc-now
+      purpose: Force a retention sweep on agent_cron_fire_log.
+  supervise_ops:
+    - command: mc agent supervise list
+      purpose: List supervised systemd units + live state. (Phase 5, v0.10)
+    - command: mc agent supervise status <id>
+      purpose: One agent's unit state + recent restart history.
+    - command: mc agent supervise restart <id>
+      purpose: Manual systemctl --user restart (logged as reason=manual).
+    - command: mc agent supervise pause [<id>] [--all]
+      purpose: Disable auto-restart for this agent (or all). Orthogonal to manual restart.
+    - command: mc agent supervise resume [<id>] [--all]
+      purpose: Re-enable auto-restart.
+    - command: mc agent supervise history [-n N]
+      purpose: Recent restart events from unit_restart_log.
   verify:
     - command: mc system doctor
       purpose: Health check (backend connectivity, token, daemon)
