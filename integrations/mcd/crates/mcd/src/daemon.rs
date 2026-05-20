@@ -366,10 +366,30 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         // return a structured "registry read failed" error in that case.
         let registry_path = crate::local_registry::LocalRegistry::default_path()
             .unwrap_or_else(|_| mcd_core::paths::registry_db_path());
+
+        // Phase 4: spawn the cron tick loop + GC task. CronHandle is
+        // threaded into AgentOpsHandle so the `agent.cron.reload` JSON-RPC
+        // method can poke the loop without holding any Mutex.
+        let cron_config_path = crate::cron_config::resolve_path(None);
+        let (cron_loop, cron_handle) = crate::cron::CronLoop::new(
+            cron_config_path.clone(),
+            Arc::clone(&supervisor),
+            Arc::clone(&runtime_map),
+            registry_path.clone(),
+        );
+        let cron_config_for_gc = cron_loop.config_for_gc();
+        let registry_path_for_gc = registry_path.clone();
+        tokio::spawn(async move { cron_loop.run().await });
+        tokio::spawn(async move {
+            crate::cron::gc_task(cron_config_for_gc, registry_path_for_gc).await
+        });
+
         let agent_ops = crate::mgmt_gateway::AgentOpsHandle {
             supervisor: Arc::clone(&supervisor),
             runtime_map: Arc::clone(&runtime_map),
             registry_path,
+            cron: Some(cron_handle),
+            cron_config_path: Some(cron_config_path),
         };
         let mgmt_gw = MgmtGateway::new(dispatcher, registry).with_agent_ops(agent_ops);
         tokio::spawn(async move {

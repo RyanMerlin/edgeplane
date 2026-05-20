@@ -342,6 +342,14 @@ impl CronLoop {
         let cfg = self.config.clone();
         async move { cfg.lock().await.clone() }
     }
+
+    /// Hand out the shared config Arc for the GC task. The GC task reads
+    /// `[retention]` from this config; reload updates it under the same
+    /// Mutex, so the next GC tick after reload picks up new retention
+    /// values automatically.
+    pub fn config_for_gc(&self) -> Arc<tokio::sync::Mutex<CronConfig>> {
+        Arc::clone(&self.config)
+    }
 }
 
 /// Background GC task. Runs every `cfg.retention.gc_interval_minutes`,
