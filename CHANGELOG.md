@@ -4,7 +4,7 @@ All notable changes to mc + mcd are recorded here. mc-controlplane has its own v
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
-## [Unreleased] — Phase 5 daemon-absorption (will be 0.10.0)
+## [0.10.0] — 2026-05-20
 
 ### Added — Watchdog absorption
 
