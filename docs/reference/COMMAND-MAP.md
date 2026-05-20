@@ -135,6 +135,12 @@ ones with the same throttling aria-watchdog used (90s post-restart grace,
 - `mc agent supervise resume [<id>] [--all]` — re-enable auto-restart.
 - `mc agent supervise history [--agent-id <id>] [-n N] [--json]` —
   recent restart events from `unit_restart_log`.
+- `mc agent supervise events [--json]` (v0.13) — stream live
+  `SupervisorEvent`s as they fire (Ctrl-C to exit). `--json` passes
+  raw frames through for `jq` pipelines.
+- `mc agent supervise watch [--poll-secs N] [--tail-size N]` (v0.14) —
+  ratatui TUI: agent table at top (polled), live event tail at
+  bottom (streamed). `q`/Esc/Ctrl-C to quit.
 
 `pause` and `restart` are orthogonal: a paused agent stays paused after
 a manual `restart`. Operators run `resume` separately.

@@ -4,6 +4,62 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.14.0] — 2026-05-20
+
+### Added — Live fleet dashboard (`mc agent supervise watch`)
+
+Phase B (v0.13.0) wired `events.subscribe` to a streaming consumer protocol; this release adds the first interactive consumer that actually renders the stream.
+
+- **`mc agent supervise watch [--poll-secs N] [--tail-size N]`** — ratatui TUI with:
+  - **Top pane:** agent table (one row per supervised agent), polled from `agent.supervise.list` every `--poll-secs` (default 5s). Columns: AGENT, SYSTEMD, STATE (color-coded green/red/yellow by unit_state), PAUSED, LAST (most recent event timestamp + label).
+  - **Bottom pane:** scrolling event tail, fed by `events.subscribe`. Newest at the bottom. Color-coded by kind (red=dead, yellow=restart, cyan=pause/resume, magenta=nightly).
+  - **Header:** stream status indicator (connecting / live / closed / error) + snapshot age.
+  - **Footer:** keybinds + agent/event counts.
+- **Resilience:** the streamer reconnects automatically if mcd hangs up. Snapshot poller continues independently of stream state, so even if streaming breaks the table still refreshes. Both connections surface their state in the header.
+- **State preservation across snapshot polls:** the "last event" column tracks events that have already scrolled off the tail — set by the streamer and preserved across snapshot merges.
+
+### Connection model
+
+The watch command opens two concurrent Unix-socket connections to mcd: one for `agent.supervise.list` polling (closed and reopened each poll cycle), one long-lived for `events.subscribe` streaming. This sidesteps the connection-mode-switch constraint added in v0.13.0 (streaming hijacks the connection — no further JSON-RPC requests on a streaming connection) by using separate connections for the two concerns.
+
+### Internals
+
+- New module `crates/mc/src/agent_supervise_watch.rs` (~500 LOC). Self-contained; reuses no code from `agent_supervise.rs` so the watch surface can evolve without affecting the one-shot CLI verbs.
+- Shared state behind `std::sync::Mutex<State>` — locks held briefly for clone-in/clone-out. No async lock needed (no await points under the lock).
+- Render loop runs on `tokio::task::spawn_blocking`; crossterm event reads and ratatui draws are sync. Background tokio tasks own the I/O.
+
+### Tests
+
+- `apply_event_updates_agent_row_and_tail` — synthetic event frame updates both the per-agent last-event pointer and the tail.
+- `apply_event_trims_tail_to_capacity` — FIFO trim at the configured tail size.
+- `merge_snapshot_preserves_last_event` — fresh snapshots overwrite poll-side fields but preserve stream-side `last_event_*`.
+- `short_time_extracts_hms` — RFC3339 timestamp → HH:MM:SS rendering.
+
+mc 133/133 (was 129, +4 from this PR), mcd 282/282, mc-controlplane 48/48 — all pass.
+
+### Try it
+
+```bash
+mc agent supervise watch
+# In another terminal:
+mc agent supervise restart work
+# Watch the TUI: the event flows into the tail + updates the "LAST" column for `work`.
+```
+
+### Out of scope (next layers)
+
+- **Web-portal consumer.** This is the TUI; a browser dashboard is a separate phase.
+- **Server-side event filtering** (filter to one agent). Client-side filtering on `--json` event output still works for now.
+- **Replay buffer.** The tail starts empty when the TUI launches. For history, use `mc agent supervise history`.
+
+## [0.13.1] — 2026-05-20
+
+### Fixed — version-sync CI workflow
+
+The version-sync workflow added in 0.11.0 has been silently failing on every push since it landed (duration 0s, "workflow file issue") — GitHub's workflow file parser couldn't handle the triple-nested escapes in the inline python regex. The invariant has been valid throughout (verified manually each release); the workflow was the broken thing. Rewrote the parser in pure awk; no nested escapes, no external interpreter. version-sync now runs to completion (~7s) and reports the per-crate version alongside `/VERSION`.
+
+Patch bump from 0.13.0 with no functional changes — just the workflow fix and the bump itself.
+
 ## [0.13.0] — 2026-05-20
 
 ### Added — SupervisorEvent streaming via mgmt-gateway

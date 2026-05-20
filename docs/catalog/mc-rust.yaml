@@ -63,6 +63,10 @@ entrypoints:
       purpose: Re-enable auto-restart.
     - command: mc agent supervise history [-n N]
       purpose: Recent restart events from unit_restart_log.
+    - command: mc agent supervise events [--json]
+      purpose: Stream live SupervisorEvents as they fire (v0.13).
+    - command: mc agent supervise watch
+      purpose: Live fleet dashboard — agent table + event tail (TUI, v0.14).
   verify:
     - command: mc system doctor
       purpose: Health check (backend connectivity, token, daemon)

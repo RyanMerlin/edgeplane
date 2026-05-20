@@ -240,6 +240,8 @@ pub enum SuperviseCommand {
     History(crate::agent_supervise::HistoryArgs),
     /// Stream live SupervisorEvents from mcd (Ctrl-C to exit).
     Events(crate::agent_supervise::EventsArgs),
+    /// Live fleet dashboard: agent table + event tail (TUI, q to quit).
+    Watch(crate::agent_supervise::WatchArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -2136,6 +2138,7 @@ async fn handle_agent(
             SuperviseCommand::Resume(a) => crate::agent_supervise::run_resume(a).await,
             SuperviseCommand::History(a) => crate::agent_supervise::run_history(a).await,
             SuperviseCommand::Events(a) => crate::agent_supervise::run_events(a).await,
+            SuperviseCommand::Watch(a) => crate::agent_supervise_watch::run(a).await,
         },
     }
 }

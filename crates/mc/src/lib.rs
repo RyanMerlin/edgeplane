@@ -3,6 +3,7 @@ pub mod agent_context;
 pub mod agent_cron;
 pub mod agent_ops;
 pub mod agent_supervise;
+pub mod agent_supervise_watch;
 pub mod dispatch;
 pub mod attach;
 pub mod auth;

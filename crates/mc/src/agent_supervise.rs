@@ -65,6 +65,16 @@ pub struct EventsArgs {
     pub json: bool,
 }
 
+#[derive(Args, Debug)]
+pub struct WatchArgs {
+    /// Snapshot poll interval in seconds. Default 5.
+    #[arg(long, default_value_t = 5)]
+    pub poll_secs: u64,
+    /// Maximum events to retain in the scrollback. Default 200.
+    #[arg(long, default_value_t = 200)]
+    pub tail_size: usize,
+}
+
 // ─── Runners ─────────────────────────────────────────────────────────────
 
 pub async fn run_list(args: ListArgs) -> Result<()> {
