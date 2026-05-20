@@ -4,6 +4,53 @@ All notable changes to mc + mcd are recorded here. mc-controlplane has its own v
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.9.0] — 2026-05-20
+
+### Added — Phase 4 daemon-absorption (PR #31)
+
+mcd absorbs `aria-cron.toml` + the `aria cron` dispatcher. After this release, `~/.mc/mcd/cron.toml` is the canonical cron config; mcd runs its own 1-minute tick loop, dispatches via `runtime.signal`, and stores every fire in SQLite with bounded retention.
+
+- **File-as-config:** mcd reads `~/.mc/mcd/cron.toml` on startup + on `mc agent cron reload`. File schema is byte-compatible with `aria-cron.toml` (add `schema_version = 1` at top; migration is `cp`). Schema_version forwards-compat: files newer than `MCD_SUPPORTED_CRON_SCHEMA` are refused with a clear "upgrade mcd" message.
+- **New `mc agent cron` CLI** (read + inspect only — file edits go through `$EDITOR`):
+  - `mc agent cron list` — all jobs from file + last-fire status
+  - `mc agent cron describe <name> [--limit N]` — one job + recent history
+  - `mc agent cron reload` — poke mcd to re-parse the file
+  - `mc agent cron history [--name N] [-n N]` — recent fires across all (or one) job
+  - `mc agent cron gc-now [--history-days N] [--max-rows-per-job N]` — force a retention sweep
+- **New mgmt-gateway methods** (mcd-side): `agent.cron.list / describe / reload / history / gc_now`
+- **New SQLite tables (telemetry only):**
+  - `agent_cron_state` — latest state per job (last_fired_at, last_status, last_error)
+  - `agent_cron_fire_log` — append-only fire history, GC'd per retention policy
+- **Configurable retention** in `[retention]` section of `cron.toml`:
+  - `history_days = 30` — drop log rows older than this (0 = keep forever)
+  - `max_rows_per_job = 500` — per-job cap regardless of age
+  - `gc_interval_minutes = 60` — background GC task cadence
+- **Resilient reload:** parse errors during reload keep the previously-loaded config in memory; mcd logs loudly and waits for a fix.
+- **Recovery semantics:** missed iterations during daemon downtime fire once on recovery (not N times for N missed iterations).
+
+### Migration
+
+```bash
+cp ~/code/aria/aria-cron.toml ~/.mc/mcd/cron.toml
+# Add `schema_version = 1` at the top of the file
+systemctl --user restart mcd
+mc agent cron list                                # verify
+systemctl --user disable --now aria-cron.timer    # when satisfied
+```
+
+### Deprecated
+
+- `aria-cron.toml` (in aria-rs) — superseded by `~/.mc/mcd/cron.toml`. `aria cron` dispatcher and `aria-cron.timer` operationally dead; full removal in Phase 6 (the aria-rs deprecation phase).
+
+### Out of scope (Phase 5+)
+
+- aria-watchdog-rs absorption (Phase 5)
+- aria-rs `aria fleet` + `aria cron` removal (Phase 6)
+- `kind = "heartbeat"` schedules (none currently used)
+- `dispatch = "goose"` execution (none currently used)
+- Inotify auto-reload (explicit `mc agent cron reload` works fine)
+- CLI-driven cron.toml mutations (operator edits the file directly)
+
 ## [0.8.0] — 2026-05-19
 
 ### Added — Phase 1–3 daemon-absorption (PRs #25, #28, #29)
