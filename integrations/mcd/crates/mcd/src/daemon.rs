@@ -358,7 +358,20 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
                 .with_receipt_store(Arc::new(receipt_store))
                 .with_session_store(Arc::clone(&session_store), secrets_socket),
         );
-        let mgmt_gw = MgmtGateway::new(dispatcher, registry);
+        // Phase 3 daemon-absorption: wire the supervisor + runtime_map +
+        // registry path so the new `agent.local.*` and
+        // `agent.describe_local` JSON-RPC methods can answer queries about
+        // locally-supervised agents. Registry path falls back to the
+        // default location if discovery fails — the agent.* handlers
+        // return a structured "registry read failed" error in that case.
+        let registry_path = crate::local_registry::LocalRegistry::default_path()
+            .unwrap_or_else(|_| mcd_core::paths::registry_db_path());
+        let agent_ops = crate::mgmt_gateway::AgentOpsHandle {
+            supervisor: Arc::clone(&supervisor),
+            runtime_map: Arc::clone(&runtime_map),
+            registry_path,
+        };
+        let mgmt_gw = MgmtGateway::new(dispatcher, registry).with_agent_ops(agent_ops);
         tokio::spawn(async move {
             if let Err(e) = mgmt_gw.run().await {
                 tracing::error!("mgmt gateway error: {e}");

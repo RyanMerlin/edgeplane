@@ -11,9 +11,14 @@ use std::sync::Arc;
 use anyhow::Result;
 use mcd_core::capability_dispatcher::{CapabilityDispatcher, DispatchRequest};
 use mcd_core::paths;
+use mcd_core::types::AgentSignal;
 use mcd_packs::PackRegistry;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+use crate::attach_gateway::RuntimeMap;
+use crate::local_registry::LocalRegistry;
+use crate::supervisor::Supervisor;
 
 // ─── MgmtGateway ─────────────────────────────────────────────────────────────
 
@@ -23,6 +28,22 @@ pub struct MgmtGateway {
     mc_token: Option<String>,
     socket_path: PathBuf,
     tcp_port: u16,
+    /// Local agent ops dependencies. Populated by `daemon::run` after the
+    /// supervisor + runtime_map are wired up. Required for the
+    /// `agent.local.*` and `agent.describe_local` JSON-RPC methods that
+    /// Phase 3 added; the legacy `dispatch` / `capabilities.*` methods
+    /// don't read it.
+    agent_ops: Option<Arc<AgentOpsHandle>>,
+}
+
+/// Shared deps the JSON-RPC `agent.*` handlers need. Constructed once by
+/// `daemon::run`; `LocalRegistry` is opened per-call inside the handlers
+/// (rusqlite::Connection is !Sync so we can't hold one here) using
+/// `registry_path` as the address.
+pub struct AgentOpsHandle {
+    pub supervisor: Arc<Supervisor>,
+    pub runtime_map: RuntimeMap,
+    pub registry_path: PathBuf,
 }
 
 impl MgmtGateway {
@@ -48,7 +69,17 @@ impl MgmtGateway {
             mc_token,
             socket_path,
             tcp_port,
+            agent_ops: None,
         }
+    }
+
+    /// Wire the agent-ops handle (supervisor + runtime_map + registry path).
+    /// Required before serving the `agent.local.*` and `agent.describe_local`
+    /// JSON-RPC methods. Builder-style so existing callsites that only need
+    /// capabilities dispatch don't have to construct the handle.
+    pub fn with_agent_ops(mut self, ops: AgentOpsHandle) -> Self {
+        self.agent_ops = Some(Arc::new(ops));
+        self
     }
 
     pub async fn run(self) -> Result<()> {
@@ -164,7 +195,14 @@ impl MgmtGateway {
 
         // Rejoin halves into a unified async stream for handle_connection.
         // We use a wrapper that chains our already-buffered reader with the write half.
-        handle_jsonrpc_loop(&self.dispatcher, &self.registry, reader, write_half).await
+        handle_jsonrpc_loop(
+            &self.dispatcher,
+            &self.registry,
+            self.agent_ops.as_ref(),
+            reader,
+            write_half,
+        )
+        .await
     }
 
     /// Handle a Unix socket connection — always authenticated.
@@ -174,7 +212,14 @@ impl MgmtGateway {
     {
         let (read_half, write_half) = tokio::io::split(stream);
         let reader = BufReader::new(read_half);
-        handle_jsonrpc_loop(&self.dispatcher, &self.registry, reader, write_half).await
+        handle_jsonrpc_loop(
+            &self.dispatcher,
+            &self.registry,
+            self.agent_ops.as_ref(),
+            reader,
+            write_half,
+        )
+        .await
     }
 }
 
@@ -183,6 +228,7 @@ impl MgmtGateway {
 async fn handle_jsonrpc_loop<R, W>(
     dispatcher: &CapabilityDispatcher,
     registry: &PackRegistry,
+    agent_ops: Option<&Arc<AgentOpsHandle>>,
     mut reader: BufReader<R>,
     mut writer: W,
 ) -> Result<()>
@@ -204,7 +250,7 @@ where
             continue;
         }
 
-        let response = dispatch_jsonrpc(dispatcher, registry, trimmed).await;
+        let response = dispatch_jsonrpc(dispatcher, registry, agent_ops, trimmed).await;
         let mut response_bytes = serde_json::to_vec(&response)
             .unwrap_or_else(|_| br#"{"jsonrpc":"2.0","error":{"code":-32700,"message":"serialization error"}}"#.to_vec());
         response_bytes.push(b'\n');
@@ -216,6 +262,7 @@ where
 async fn dispatch_jsonrpc(
     dispatcher: &CapabilityDispatcher,
     registry: &PackRegistry,
+    agent_ops: Option<&Arc<AgentOpsHandle>>,
     raw: &str,
 ) -> Value {
     // Parse the request.
@@ -237,6 +284,18 @@ async fn dispatch_jsonrpc(
         "dispatch" => handle_dispatch(dispatcher, id, &params).await,
         "capabilities.list" => handle_capabilities_list(registry, id, &params),
         "capabilities.describe" => handle_capabilities_describe(registry, id, &params),
+        "agent.local.signal" => match agent_ops {
+            Some(ops) => handle_agent_local_signal(ops, id, &params).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.local.list" => match agent_ops {
+            Some(ops) => handle_agent_local_list(ops, id).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.describe_local" => match agent_ops {
+            Some(ops) => handle_agent_describe_local(ops, id, &params).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
         _ => jsonrpc_error(id, -32601, "method not found"),
     }
 }
@@ -318,6 +377,193 @@ fn handle_capabilities_describe(registry: &PackRegistry, id: Value, params: &Val
     }
 }
 
+// ─── agent.local.* + agent.describe_local handlers (Phase 3) ──────────────
+
+/// `agent.local.signal` — invoke `AgentRuntime::signal` on a locally
+/// supervised agent. Params:
+///   { agent_id, kind: "user_input"|"peer_message"|"cancel",
+///     text?, from_agent_id?, channel?, body? }
+///
+/// Returns `{ "ok": true }` on success; structured error otherwise.
+async fn handle_agent_local_signal(
+    ops: &Arc<AgentOpsHandle>,
+    id: Value,
+    params: &Value,
+) -> Value {
+    let agent_id = match params.get("agent_id").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => return jsonrpc_error(id, -32602, "missing param: agent_id"),
+    };
+    let kind = params.get("kind").and_then(|v| v.as_str()).unwrap_or("user_input");
+
+    let signal = match kind {
+        "user_input" => {
+            let text = match params.get("text").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => return jsonrpc_error(id, -32602, "missing param: text (required for user_input)"),
+            };
+            AgentSignal::UserInput { text }
+        }
+        "cancel" => AgentSignal::Cancel,
+        "peer_message" => {
+            let from_agent_id = params
+                .get("from_agent_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("local")
+                .to_string();
+            let channel = params
+                .get("channel")
+                .and_then(|v| v.as_str())
+                .unwrap_or("signal")
+                .to_string();
+            let body = params.get("body").cloned().unwrap_or(Value::Null);
+            AgentSignal::PeerMessage { from_agent_id, channel, body }
+        }
+        other => {
+            return jsonrpc_error(
+                id,
+                -32602,
+                &format!("unknown signal kind '{other}' (expected user_input|peer_message|cancel)"),
+            );
+        }
+    };
+
+    // Look up the supervised agent. `with_agent` returns Some((runtime,
+    // handle_clone)) when registered; we clone what we need so we don't
+    // hold the supervisor lock while awaiting the signal call.
+    let lookup = ops
+        .supervisor
+        .with_agent(&agent_id, |supervised| {
+            (
+                supervised.runtime.clone(),
+                mcd_core::types::AgentHandle {
+                    agent_id: supervised.handle.agent_id.clone(),
+                    runtime_kind: supervised.handle.runtime_kind.clone(),
+                    pid: supervised.handle.pid,
+                },
+            )
+        })
+        .await;
+
+    let (runtime, handle) = match lookup {
+        Some(pair) => pair,
+        None => {
+            return jsonrpc_error(
+                id,
+                -32004,
+                &format!("agent '{agent_id}' is not supervised locally"),
+            );
+        }
+    };
+
+    match runtime.signal(&handle, signal).await {
+        Ok(()) => jsonrpc_result(id, serde_json::json!({ "ok": true })),
+        Err(e) => jsonrpc_error(id, -32000, &format!("signal failed: {e:#}")),
+    }
+}
+
+/// `agent.local.list` — enumerate locally-supervised agents from the
+/// registry (joined with their `agent_launch_context` row when present).
+/// Used by `mc agent list` to show the local set.
+async fn handle_agent_local_list(ops: &Arc<AgentOpsHandle>, id: Value) -> Value {
+    let registry_path = ops.registry_path.clone();
+    let agents = match tokio::task::spawn_blocking(move || list_local_agents(&registry_path)).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => return jsonrpc_error(id, -32001, &format!("registry read failed: {e:#}")),
+        Err(e) => return jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
+    };
+    jsonrpc_result(id, serde_json::json!({ "agents": agents }))
+}
+
+/// `agent.describe_local` — return a description of a single agent if it
+/// exists in any local registry source. The `mc` CLI calls this first when
+/// auto-resolving `mc agent signal/attach/describe <id>` — found → local
+/// dispatch; missing → fall through to controlplane.
+async fn handle_agent_describe_local(
+    ops: &Arc<AgentOpsHandle>,
+    id: Value,
+    params: &Value,
+) -> Value {
+    let agent_id = match params.get("agent_id").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => return jsonrpc_error(id, -32602, "missing param: agent_id"),
+    };
+
+    let registry_path = ops.registry_path.clone();
+    let lookup_id = agent_id.clone();
+    let entry = match tokio::task::spawn_blocking(move || {
+        describe_local_agent(&registry_path, &lookup_id)
+    })
+    .await
+    {
+        Ok(Ok(opt)) => opt,
+        Ok(Err(e)) => return jsonrpc_error(id, -32001, &format!("registry read failed: {e:#}")),
+        Err(e) => return jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
+    };
+
+    match entry {
+        Some(mut info) => {
+            let supervised = ops.supervisor.with_agent(&agent_id, |_| ()).await.is_some();
+            if let Value::Object(ref mut map) = info {
+                map.insert("supervised".into(), Value::Bool(supervised));
+                map.insert("found".into(), Value::Bool(true));
+            }
+            jsonrpc_result(id, info)
+        }
+        None => jsonrpc_result(id, serde_json::json!({ "found": false })),
+    }
+}
+
+/// Read all agents from the local registry, joined with their launch
+/// context. Returns a flat JSON array. Blocking (rusqlite); call from
+/// `spawn_blocking`.
+fn list_local_agents(registry_path: &std::path::Path) -> anyhow::Result<Vec<Value>> {
+    let reg = LocalRegistry::open(registry_path)?;
+    // Sources we consider "local" — everything except controlplane-synced
+    // rows. Right now that's `local` + `fleet_import`.
+    let mut out = Vec::new();
+    for source in &[crate::local_registry::SOURCE_LOCAL, crate::fleet_import::SOURCE_FLEET_IMPORT] {
+        for rec in reg.list_by_source(source)? {
+            let lc = reg.get_launch_context(source, &rec.id)?;
+            out.push(serde_json::json!({
+                "agent_id": rec.id,
+                "source": rec.source,
+                "mission_id": rec.mission_id,
+                "runtime_kind": rec.runtime_kind,
+                "supervision_mode": rec.supervision_mode,
+                "vault_folder": lc.as_ref().and_then(|c| c.vault_folder.clone()),
+                "zellij_session": lc.as_ref().and_then(|c| c.zellij_session.clone()),
+            }));
+        }
+    }
+    Ok(out)
+}
+
+/// Look up a single agent across known local sources. Returns `None` if no
+/// matching row exists in any local source. Blocking.
+fn describe_local_agent(
+    registry_path: &std::path::Path,
+    agent_id: &str,
+) -> anyhow::Result<Option<Value>> {
+    let reg = LocalRegistry::open(registry_path)?;
+    for source in &[crate::local_registry::SOURCE_LOCAL, crate::fleet_import::SOURCE_FLEET_IMPORT] {
+        let rows = reg.list_by_source(source)?;
+        if let Some(rec) = rows.into_iter().find(|r| r.id == agent_id) {
+            let lc = reg.get_launch_context(source, &rec.id)?;
+            return Ok(Some(serde_json::json!({
+                "agent_id": rec.id,
+                "source": rec.source,
+                "mission_id": rec.mission_id,
+                "runtime_kind": rec.runtime_kind,
+                "supervision_mode": rec.supervision_mode,
+                "vault_folder": lc.as_ref().and_then(|c| c.vault_folder.clone()),
+                "zellij_session": lc.as_ref().and_then(|c| c.zellij_session.clone()),
+            })));
+        }
+    }
+    Ok(None)
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 fn jsonrpc_result(id: Value, result: Value) -> Value {
@@ -361,6 +607,7 @@ mod tests {
             mc_token: None,
             socket_path,
             tcp_port,
+            agent_ops: None,
         }
     }
 
@@ -377,6 +624,7 @@ mod tests {
             mc_token: Some(token.to_string()),
             socket_path,
             tcp_port,
+            agent_ops: None,
         }
     }
 
@@ -482,5 +730,174 @@ mod tests {
         let n = stream.read(&mut buf).await.expect("read ok");
         let response = std::str::from_utf8(&buf[..n]).expect("utf8");
         assert_eq!(response.trim(), "OK", "expected OK, got: {response:?}");
+    }
+
+    // ─── agent.local.* + agent.describe_local (Phase 3) ─────────────────
+
+    /// Drive a single JSON-RPC request through `dispatch_jsonrpc` without
+    /// spinning up the full gateway. Validates handler logic in isolation.
+    async fn dispatch(raw: &str, agent_ops: Option<Arc<AgentOpsHandle>>) -> Value {
+        let registry = Arc::new(PackRegistry::load_builtin().expect("builtin registry"));
+        let dispatcher = Arc::new(CapabilityDispatcher::new(
+            Arc::clone(&registry),
+            PolicyBundle::allow_all(),
+            None,
+        ));
+        dispatch_jsonrpc(&dispatcher, &registry, agent_ops.as_ref(), raw).await
+    }
+
+    #[tokio::test]
+    async fn agent_local_signal_without_ops_returns_unwired() {
+        let resp = dispatch(
+            r#"{"jsonrpc":"2.0","id":1,"method":"agent.local.signal","params":{"agent_id":"x","kind":"user_input","text":"hi"}}"#,
+            None,
+        )
+        .await;
+        let code = resp.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_i64());
+        assert_eq!(code, Some(-32603), "resp: {resp}");
+    }
+
+    #[tokio::test]
+    async fn agent_local_list_without_ops_returns_unwired() {
+        let resp = dispatch(
+            r#"{"jsonrpc":"2.0","id":2,"method":"agent.local.list","params":{}}"#,
+            None,
+        )
+        .await;
+        assert_eq!(
+            resp.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_i64()),
+            Some(-32603)
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_describe_local_without_ops_returns_unwired() {
+        let resp = dispatch(
+            r#"{"jsonrpc":"2.0","id":3,"method":"agent.describe_local","params":{"agent_id":"x"}}"#,
+            None,
+        )
+        .await;
+        assert_eq!(
+            resp.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_i64()),
+            Some(-32603)
+        );
+    }
+
+    /// With agent_ops wired but an empty registry, `agent.local.list`
+    /// succeeds and returns an empty array — exercising the registry-open
+    /// + `spawn_blocking` path.
+    #[tokio::test]
+    async fn agent_local_list_empty_registry() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_path = tmp.path().join("registry.db");
+        // Open once to create + migrate.
+        let _ = LocalRegistry::open(&registry_path).expect("open registry");
+
+        let ops = Arc::new(AgentOpsHandle {
+            supervisor: Arc::new(Supervisor::new(
+                tmp.path().join("work").to_path_buf(),
+                "http://localhost:8008".into(),
+                String::new(),
+            )),
+            runtime_map: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            registry_path,
+        });
+
+        let resp = dispatch(
+            r#"{"jsonrpc":"2.0","id":4,"method":"agent.local.list","params":{}}"#,
+            Some(ops),
+        )
+        .await;
+
+        let agents = resp
+            .get("result")
+            .and_then(|r| r.get("agents"))
+            .and_then(|a| a.as_array())
+            .expect("result.agents array");
+        assert!(agents.is_empty(), "expected empty agents list, got: {resp}");
+    }
+
+    #[tokio::test]
+    async fn agent_describe_local_missing_returns_not_found() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_path = tmp.path().join("registry.db");
+        let _ = LocalRegistry::open(&registry_path).expect("open registry");
+
+        let ops = Arc::new(AgentOpsHandle {
+            supervisor: Arc::new(Supervisor::new(
+                tmp.path().join("work").to_path_buf(),
+                "http://localhost:8008".into(),
+                String::new(),
+            )),
+            runtime_map: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            registry_path,
+        });
+
+        let resp = dispatch(
+            r#"{"jsonrpc":"2.0","id":5,"method":"agent.describe_local","params":{"agent_id":"no-such"}}"#,
+            Some(ops),
+        )
+        .await;
+
+        let found = resp.get("result").and_then(|r| r.get("found")).and_then(|f| f.as_bool());
+        assert_eq!(found, Some(false), "resp: {resp}");
+    }
+
+    #[tokio::test]
+    async fn agent_local_signal_missing_agent_returns_not_supervised() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_path = tmp.path().join("registry.db");
+        let _ = LocalRegistry::open(&registry_path).expect("open registry");
+
+        let ops = Arc::new(AgentOpsHandle {
+            supervisor: Arc::new(Supervisor::new(
+                tmp.path().join("work").to_path_buf(),
+                "http://localhost:8008".into(),
+                String::new(),
+            )),
+            runtime_map: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            registry_path,
+        });
+
+        let resp = dispatch(
+            r#"{"jsonrpc":"2.0","id":6,"method":"agent.local.signal","params":{"agent_id":"no-such","kind":"user_input","text":"hi"}}"#,
+            Some(ops),
+        )
+        .await;
+
+        assert_eq!(
+            resp.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_i64()),
+            Some(-32004),
+            "resp: {resp}"
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_local_signal_bad_kind_returns_invalid_params() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let registry_path = tmp.path().join("registry.db");
+        let _ = LocalRegistry::open(&registry_path).expect("open registry");
+
+        let ops = Arc::new(AgentOpsHandle {
+            supervisor: Arc::new(Supervisor::new(
+                tmp.path().join("work").to_path_buf(),
+                "http://localhost:8008".into(),
+                String::new(),
+            )),
+            runtime_map: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            registry_path,
+        });
+
+        let resp = dispatch(
+            r#"{"jsonrpc":"2.0","id":7,"method":"agent.local.signal","params":{"agent_id":"x","kind":"bogus"}}"#,
+            Some(ops),
+        )
+        .await;
+
+        let code = resp
+            .get("error")
+            .and_then(|e| e.get("code"))
+            .and_then(|c| c.as_i64());
+        assert_eq!(code, Some(-32602), "resp: {resp}");
     }
 }
