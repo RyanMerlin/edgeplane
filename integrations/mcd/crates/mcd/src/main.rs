@@ -21,6 +21,7 @@ mod singleton;
 mod state;
 mod supervisor;
 mod task_loop;
+mod unit_health;
 
 use clap::{Parser, Subcommand};
 
