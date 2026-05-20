@@ -1016,7 +1016,7 @@ async fn handle_supervise_restart(
     let lookup_id = agent_id.clone();
 
     // Look up + restart on a blocking thread (subprocess + SQLite).
-    let outcome = tokio::task::spawn_blocking(move || -> anyhow::Result<(String, String, i32)> {
+    let outcome = tokio::task::spawn_blocking(move || -> anyhow::Result<(String, String, String, i32)> {
         let reg = LocalRegistry::open(&registry_path)?;
         let ctx = reg
             .list_all_launch_contexts()?
@@ -1041,18 +1041,18 @@ async fn handle_supervise_restart(
             Some(code as i64),
             None,
         )?;
-        Ok((ctx.agent_id, ctx.source, code))
+        Ok((ctx.agent_id, ctx.source, service, code))
     })
     .await;
 
     match outcome {
-        Ok(Ok((agent_id, source, exit))) => {
+        Ok(Ok((agent_id, source, systemd_service, exit))) => {
             // Best-effort event publish.
             if let Some(tx) = events_tx {
                 let _ = tx.send(mcd_core::types::SupervisorEvent::UnitRestarted {
                     agent_id: agent_id.clone(),
                     source: source.clone(),
-                    systemd_service: String::new(), // resolved inside the blocking task
+                    systemd_service: systemd_service.clone(),
                     reason: "manual".into(),
                     result: if exit == 0 { "started".into() } else { "failed".into() },
                     exit_code: Some(exit as i64),

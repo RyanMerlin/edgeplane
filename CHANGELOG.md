@@ -4,6 +4,67 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.0] — 2026-05-20
+
+### Added — Cron heartbeat tier (`kind = "heartbeat"`)
+
+`~/.mc/mcd/cron.toml` now accepts heartbeat-style jobs that fire on a duration cadence instead of a cron expression. Useful for periodic polls where exact clock alignment doesn't matter (queue sweeps, commitment checks, drift detection).
+
+```toml
+[[job]]
+name     = "my-heartbeat"
+kind     = "heartbeat"
+interval = "30m"          # "Ns" / "Nm" / "Nh" / "Nd" or compound "2h30m"
+session  = "operator"
+prompt   = "run /my-check"
+```
+
+Fires whenever `now - last_fire >= interval`. Bootstrap: a heartbeat with no prior fire is due immediately on the next dispatcher tick. Tolerant of the 60s dispatcher tick — a `30m` heartbeat actually fires every 30–31 minutes in practice. The `schedule` field is ignored for heartbeats (operators may omit or leave empty).
+
+`schema_version` stays at `1` — the change is additive (existing files using `kind = "cron"` continue to work unchanged).
+
+### Added — Cron goose dispatch (`dispatch = "goose"`)
+
+Jobs can now route through `aria goose "<prompt>"` for local LLM execution (Qwen3.6-27B via LiteLLM, zero API cost). No agent attachment needed — useful for periodic computation that doesn't belong to any specific profile: auto-summaries, log digests, drift checks.
+
+```toml
+[[job]]
+name     = "nightly-fleet-summary"
+schedule = "0 22 * * *"
+dispatch = "goose"
+session  = "operator"     # metadata tag only when dispatch="goose"; not a real agent attachment
+prompt   = """
+Summarize today's fleet activity from /var/log/...
+"""
+```
+
+- Honors `MCD_GOOSE_BIN` env override; defaults to `aria` from PATH.
+- 5-minute subprocess timeout (goose runs are short-lived; for longer work use `dispatch = "signal"` to a real agent).
+- Failure surfaces in `mc agent cron history` with the actual goose stderr.
+
+### Fixed — Empty `systemd_service` in `unit_restarted` events
+
+The `SupervisorEvent::UnitRestarted` published by `agent.supervise.restart` was shipping with `systemd_service: ""`. The restart handler's blocking task resolved the service name internally but didn't return it to the event-publish path. Now threads the value through. Validated end-to-end on excalibur (work profile).
+
+### Internals
+
+- `cron_config::parse_duration("2h30m")` → `Duration` — accepts `Ns`/`Nm`/`Nh`/`Nd` and compound forms. Rejects empty, missing unit, unknown unit, and zero values
+- Loader requires `interval` when `kind = "heartbeat"`; rejects unknown `kind` / `dispatch` values with clear errors
+- `eval_job` branches on `kind` (cron vs heartbeat due-check) and `dispatch` (signal vs goose firing path)
+- Telemetry: cron fire log records the dispatch outcome regardless of mode; status field unchanged
+
+### Tests
+
+- `parse_duration_handles_compound` + `parse_duration_rejects_bad_input`
+- `accepts_heartbeat_with_interval` + `rejects_heartbeat_without_interval`
+- `accepts_goose_dispatch`
+
+mc 133/133, **mcd 285/285** (+3 from this PR), mc-controlplane 48/48 — all pass.
+
+### Migration
+
+None required — pure additive change. Existing `cron.toml` files with `kind = "cron"` and `dispatch = "signal"` work unchanged.
+
 ## [0.14.0] — 2026-05-20
 
 ### Added — Live fleet dashboard (`mc agent supervise watch`)

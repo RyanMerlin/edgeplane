@@ -234,31 +234,76 @@ fn validate(cfg: &CronConfig, path_for_errors: &Path) -> Result<()> {
         }
 
         match job.kind.as_str() {
-            "cron" => {}
-            "heartbeat" => bail!(
-                "{where_}: kind = \"heartbeat\" is not supported in mcd yet — \
-                 coming in a follow-up. For now, use kind = \"cron\" with an explicit schedule."
-            ),
-            other => bail!("{where_}: unknown kind = {other:?} (expected \"cron\")"),
+            "cron" => {
+                // Parse the cron expression to surface syntax errors at load time
+                // rather than at first tick. croner v3 uses FromStr.
+                let _cron: croner::Cron = job.schedule.parse().map_err(|e| {
+                    anyhow!("{where_}: schedule {:?} does not parse: {e}", job.schedule)
+                })?;
+            }
+            "heartbeat" => {
+                let raw = job.interval.as_deref().ok_or_else(|| {
+                    anyhow!("{where_}: kind = \"heartbeat\" requires `interval` (e.g. \"30m\", \"2h\", \"1d\")")
+                })?;
+                parse_duration(raw).map_err(|e| anyhow!("{where_}: interval {raw:?}: {e}"))?;
+                // schedule field is ignored for heartbeats but if it's present
+                // and obviously malformed, surface a hint rather than silently dropping.
+                // (Empty string is fine — operators may omit it.)
+            }
+            other => bail!("{where_}: unknown kind = {other:?} (expected \"cron\" or \"heartbeat\")"),
         }
 
         match job.dispatch.as_str() {
-            "signal" => {}
-            "goose" => bail!(
-                "{where_}: dispatch = \"goose\" is not supported in mcd yet. \
-                 For now, use dispatch = \"signal\" and have the agent shell to goose itself if needed."
+            "signal" | "goose" => {}
+            other => bail!(
+                "{where_}: unknown dispatch = {other:?} (expected \"signal\" or \"goose\")"
             ),
-            other => bail!("{where_}: unknown dispatch = {other:?} (expected \"signal\")"),
         }
-
-        // Parse the cron expression to surface syntax errors at load time
-        // rather than at first tick. croner v3 uses FromStr.
-        let _cron: croner::Cron = job.schedule.parse().map_err(|e| {
-            anyhow!("{where_}: schedule {:?} does not parse: {e}", job.schedule)
-        })?;
     }
 
     Ok(())
+}
+
+/// Parse a heartbeat interval string into a `Duration`.
+///
+/// Accepted forms: a sequence of `<integer><unit>` pairs concatenated with
+/// no spaces. Units are `s` (seconds), `m` (minutes), `h` (hours), `d` (days).
+/// Examples: `"30s"`, `"15m"`, `"2h"`, `"1d"`, `"2h30m"`, `"1d6h"`.
+///
+/// Returns an error for empty input, unknown units, or numeric overflow.
+pub fn parse_duration(raw: &str) -> Result<std::time::Duration> {
+    if raw.is_empty() {
+        bail!("empty");
+    }
+    let mut total_secs: u64 = 0;
+    let mut num: Option<u64> = None;
+    for c in raw.chars() {
+        if let Some(d) = c.to_digit(10) {
+            num = Some(num.unwrap_or(0).checked_mul(10).and_then(|n| n.checked_add(d as u64))
+                .ok_or_else(|| anyhow!("number overflow in {raw:?}"))?);
+        } else {
+            let n = num.take().ok_or_else(|| {
+                anyhow!("unit {c:?} with no preceding number in {raw:?}")
+            })?;
+            let mult: u64 = match c {
+                's' => 1,
+                'm' => 60,
+                'h' => 60 * 60,
+                'd' => 60 * 60 * 24,
+                other => bail!("unknown unit {other:?} in {raw:?} (expected s/m/h/d)"),
+            };
+            total_secs = total_secs
+                .checked_add(n.checked_mul(mult).ok_or_else(|| anyhow!("overflow in {raw:?}"))?)
+                .ok_or_else(|| anyhow!("overflow in {raw:?}"))?;
+        }
+    }
+    if num.is_some() {
+        bail!("trailing number with no unit in {raw:?}");
+    }
+    if total_secs == 0 {
+        bail!("interval evaluates to zero in {raw:?}");
+    }
+    Ok(std::time::Duration::from_secs(total_secs))
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -341,38 +386,79 @@ prompt = "x"
     }
 
     #[test]
-    fn rejects_heartbeat_kind() {
+    fn accepts_heartbeat_with_interval() {
         let raw = r#"
 schema_version = 1
 
 [[job]]
-name = "x"
-schedule = "0 0 * * *"
+name = "hb"
+schedule = ""
 prompt = "x"
 kind = "heartbeat"
 interval = "30m"
 "#;
-        let err = parse(raw, &p()).unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(msg.contains("heartbeat"), "msg: {msg}");
-        assert!(msg.contains("not supported"), "msg: {msg}");
+        let cfg = parse(raw, &p()).expect("heartbeat parses");
+        let job = &cfg.jobs[0];
+        assert_eq!(job.kind, "heartbeat");
+        assert_eq!(job.interval.as_deref(), Some("30m"));
     }
 
     #[test]
-    fn rejects_goose_dispatch() {
+    fn rejects_heartbeat_without_interval() {
         let raw = r#"
 schema_version = 1
 
 [[job]]
-name = "x"
+name = "hb"
+schedule = ""
+prompt = "x"
+kind = "heartbeat"
+"#;
+        let err = parse(raw, &p()).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("heartbeat"), "msg: {msg}");
+        assert!(msg.contains("interval"), "msg: {msg}");
+    }
+
+    #[test]
+    fn accepts_goose_dispatch() {
+        let raw = r#"
+schema_version = 1
+
+[[job]]
+name = "g"
 schedule = "0 0 * * *"
 prompt = "x"
 dispatch = "goose"
 "#;
-        let err = parse(raw, &p()).unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(msg.contains("goose"), "msg: {msg}");
-        assert!(msg.contains("not supported"), "msg: {msg}");
+        let cfg = parse(raw, &p()).expect("goose parses");
+        assert_eq!(cfg.jobs[0].dispatch, "goose");
+    }
+
+    #[test]
+    fn parse_duration_handles_compound() {
+        use std::time::Duration;
+        assert_eq!(parse_duration("30s").unwrap(), Duration::from_secs(30));
+        assert_eq!(parse_duration("15m").unwrap(), Duration::from_secs(15 * 60));
+        assert_eq!(parse_duration("2h").unwrap(), Duration::from_secs(2 * 60 * 60));
+        assert_eq!(parse_duration("1d").unwrap(), Duration::from_secs(24 * 60 * 60));
+        assert_eq!(
+            parse_duration("2h30m").unwrap(),
+            Duration::from_secs(2 * 60 * 60 + 30 * 60)
+        );
+        assert_eq!(
+            parse_duration("1d6h").unwrap(),
+            Duration::from_secs(24 * 60 * 60 + 6 * 60 * 60)
+        );
+    }
+
+    #[test]
+    fn parse_duration_rejects_bad_input() {
+        assert!(parse_duration("").is_err());
+        assert!(parse_duration("30").is_err()); // no unit
+        assert!(parse_duration("m30").is_err()); // unit before number
+        assert!(parse_duration("30x").is_err()); // unknown unit
+        assert!(parse_duration("0s").is_err()); // zero
     }
 
     #[test]

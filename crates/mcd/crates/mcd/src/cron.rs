@@ -29,7 +29,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use mcd_core::types::AgentSignal;
@@ -195,37 +195,65 @@ impl CronLoop {
     }
 
     /// Evaluate one job: compute next fire from last_fired_at, dispatch
-    /// if due, record fire.
+    /// if due, record fire. Branches on `job.kind` (cron vs heartbeat) and
+    /// `job.dispatch` (signal vs goose).
     async fn eval_job(&self, job: &CronJob, tz: Tz) -> Result<()> {
-        // Anchor for "what's the next fire after?"
-        // - If the job has fired before: anchor at last_fired_at (so we
-        //   look for the next scheduled time AFTER the last fire)
-        // - Otherwise: anchor at daemon-start (so jobs scheduled before
-        //   mcd started don't all fire on first tick)
         let state = self.read_state(&job.name).await?;
-        let anchor: DateTime<Tz> = match state.and_then(|s| s.last_fired_at) {
-            Some(s) => DateTime::parse_from_rfc3339(&s)
-                .with_context(|| format!("parsing last_fired_at {:?}", s))?
-                .with_timezone(&tz),
-            None => self.daemon_start.with_timezone(&tz),
+
+        let due = match job.kind.as_str() {
+            "cron" => {
+                // Anchor: last_fired_at if present, else daemon-start.
+                let anchor: DateTime<Tz> = match state.and_then(|s| s.last_fired_at) {
+                    Some(s) => DateTime::parse_from_rfc3339(&s)
+                        .with_context(|| format!("parsing last_fired_at {:?}", s))?
+                        .with_timezone(&tz),
+                    None => self.daemon_start.with_timezone(&tz),
+                };
+                let cron: croner::Cron = job
+                    .schedule
+                    .parse()
+                    .with_context(|| format!("schedule {:?}", job.schedule))?;
+                let next_fire = cron.find_next_occurrence(&anchor, false).with_context(|| {
+                    format!("find_next_occurrence for {:?} after {anchor}", job.name)
+                })?;
+                let now = Utc::now().with_timezone(&tz);
+                next_fire <= now
+            }
+            "heartbeat" => {
+                // Bootstrap: a heartbeat with no prior fire is due immediately
+                // (consistent with scheduling.md). Otherwise fire when
+                // now - last_fire >= interval.
+                let raw_interval = job.interval.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("heartbeat job {:?} missing interval", job.name)
+                })?;
+                let interval = crate::cron_config::parse_duration(raw_interval)
+                    .with_context(|| format!("parsing interval for {:?}", job.name))?;
+                match state.and_then(|s| s.last_fired_at) {
+                    None => true, // first fire — go now
+                    Some(s) => {
+                        let last = DateTime::parse_from_rfc3339(&s)
+                            .with_context(|| format!("parsing last_fired_at {:?}", s))?
+                            .with_timezone(&tz);
+                        let now = Utc::now().with_timezone(&tz);
+                        let elapsed = now.signed_duration_since(last).to_std().unwrap_or_default();
+                        elapsed >= interval
+                    }
+                }
+            }
+            other => bail!("unknown kind {other:?} for job {:?}", job.name),
         };
 
-        let cron: croner::Cron = job
-            .schedule
-            .parse()
-            .with_context(|| format!("schedule {:?}", job.schedule))?;
-        let next_fire = cron
-            .find_next_occurrence(&anchor, false)
-            .with_context(|| format!("find_next_occurrence for {:?} after {anchor}", job.name))?;
-        let now = Utc::now().with_timezone(&tz);
-
-        if next_fire > now {
-            return Ok(()); // not yet due
+        if !due {
+            return Ok(());
         }
 
         // Due: dispatch and record.
         let start = std::time::Instant::now();
-        let dispatch_result = self.dispatch_signal(job).await;
+        let dispatch_result = match job.dispatch.as_str() {
+            "signal" => self.dispatch_signal(job).await,
+            "goose" => self.dispatch_goose(job).await,
+            other => Err(anyhow::anyhow!("unknown dispatch {other:?} for job {:?}", job.name)),
+        };
         let duration_ms = start.elapsed().as_millis() as i64;
 
         let fired_at = Utc::now().to_rfc3339();
@@ -240,15 +268,19 @@ impl CronLoop {
 
         if status == "ok" {
             tracing::info!(
-                "cron: fired {} → {} (dispatch=signal, {duration_ms}ms)",
+                "cron: fired {} → {} (kind={}, dispatch={}, {duration_ms}ms)",
                 job.name,
-                job.session
+                job.session,
+                job.kind,
+                job.dispatch
             );
         } else {
             tracing::warn!(
-                "cron: fired {} → {} but failed (status={status}, {duration_ms}ms): {}",
+                "cron: fired {} → {} but failed (status={status}, kind={}, dispatch={}, {duration_ms}ms): {}",
                 job.name,
                 job.session,
+                job.kind,
+                job.dispatch,
                 error_message.as_deref().unwrap_or("?")
             );
         }
@@ -293,6 +325,35 @@ impl CronLoop {
                 },
             )
             .await
+    }
+
+    /// Dispatch the prompt via `aria goose "<prompt>"` — runs locally on the
+    /// node, no agent attachment needed. Useful for periodic computation that
+    /// doesn't belong to any specific profile (auto-summaries, log digests,
+    /// drift checks). `job.session` is treated as a metadata tag for telemetry
+    /// only; it does NOT need to match a supervised agent.
+    ///
+    /// Honors `MCD_GOOSE_BIN` env override; falls back to `aria` from PATH.
+    /// Timeout is 5 minutes — goose runs are intentionally short-lived; if
+    /// you need longer, use dispatch="signal" to a real agent.
+    async fn dispatch_goose(&self, job: &CronJob) -> Result<()> {
+        let bin = std::env::var("MCD_GOOSE_BIN").unwrap_or_else(|_| "aria".to_string());
+        let prompt = job.prompt.clone();
+        let name = job.name.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let output = std::process::Command::new(&bin)
+                .args(["goose", &prompt, "--timeout", "300"])
+                .output()
+                .with_context(|| format!("spawn `{bin} goose ...` for {name:?}"))?;
+            if !output.status.success() {
+                let code = output.status.code().unwrap_or(-1);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                bail!("goose exited {code}: {}", stderr.trim());
+            }
+            Ok(())
+        })
+        .await
+        .context("spawn_blocking panicked dispatching goose")?
     }
 
     async fn read_state(
