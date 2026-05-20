@@ -1,5 +1,6 @@
 pub mod cmd;
 pub mod agent_context;
+pub mod agent_cron;
 pub mod agent_ops;
 pub mod dispatch;
 pub mod attach;
