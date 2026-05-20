@@ -1,8 +1,48 @@
 # Changelog
 
-All notable changes to mc + mcd are recorded here. mc-controlplane has its own version cadence (currently 0.6.0).
+All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting with 0.11.0 the three binaries ship in lockstep — `/VERSION` is the source of truth and `scripts/set-version.sh <new>` bumps all three in one step.
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
+
+## [0.11.0] — 2026-05-20
+
+### Removed — Deprecation aliases (Phase 6.5)
+
+Cold removal of two deprecation aliases that have been live since v0.8.0:
+
+- **`mc signal <id>`** (top-level) → use `mc agent signal <id> --content "..."` (auto-resolves local vs controlplane, or pass `--remote` explicitly).
+- **`mc agent remote <verb>`** subtree → use `mc agent <verb> --remote`. The verb surfaces are equivalent; `--remote` forces the controlplane path that `remote <verb>` used to imply.
+
+Migration is mechanical; no behaviour change in the replacement commands. Operator scripts and systemd units that called either alias must update.
+
+### Changed — Unified versioning across all three binaries
+
+`mc`, `mcd`, and `mc-controlplane` now share a single version number:
+
+- `mc-controlplane` jumps **0.6.0 → 0.11.0** with no functional changes; the catch-up brings all three into lockstep.
+- `/VERSION` at repo root is the source of truth.
+- `scripts/set-version.sh <new>` updates all three `[workspace.package]` versions atomically.
+- New CI job `version-sync` (`.github/workflows/version-sync.yml`) asserts on every PR that `/VERSION` and the three Cargo.toml versions agree. Drift fails the build.
+
+Going forward every release moves all three binaries, even when only one changed; release notes per binary will note "no functional changes" where applicable. Trade: noisier changelogs in exchange for a single number operators reason about.
+
+### Migration
+
+```bash
+# Operator scripts: replace the alias forms.
+sed -i 's/mc signal /mc agent signal /g' <your-scripts>
+sed -i 's/mc agent remote message/mc agent signal --remote/g' <your-scripts>
+# (mc agent remote sessions/list/start/end → mc agent <verb> --remote)
+
+# Verify your binaries are on 0.11.0:
+mc --version            # 0.11.0
+mcd --version           # 0.11.0
+mc-controlplane --version   # 0.11.0
+```
+
+### Out of scope (Phase 6.6 — separate PR)
+
+- Renaming `integrations/` → `crates/` (the directory name is legacy from when this repo was Python-first; the rename touches CI, Helm, scripts, docs, and lands separately).
 
 ## [0.10.0] — 2026-05-20
 

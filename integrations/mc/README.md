@@ -122,10 +122,8 @@ mc [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 - `mc system backup [--target postgres|rustfs|all] [--reason <note>]`
 
 ### Remote control
-- `mc agent remote message --agent-id <id> --to-agent-id <id> --content '<payload>' [--message-type <type>]`
-- `mc agent remote sessions list --agent-id <id> [--limit N]`
-- `mc agent remote sessions start --agent-id <id> --context '<ctx>'`
-- `mc agent remote sessions end --agent-id <id> --session-id <id>`
+- `mc agent signal <id> --content '<payload>' --remote` (or omit `--remote` to auto-resolve local-first)
+- `mc agent list --remote` / `mc agent describe <id> --remote`
 
 ### Self-update
 - `mc system update self-update [--manifest-url URL]`

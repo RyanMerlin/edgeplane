@@ -2,7 +2,7 @@ use mc_controlplane::{build_app, AppConfig};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "mc-controlplane", about = "MissionControl API server")]
+#[command(name = "mc-controlplane", version, about = "MissionControl API server")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,

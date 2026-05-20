@@ -151,7 +151,7 @@ impl AgentRuntime for ZellijHostedRuntime {
     ) -> Result<BoxStream<'static, ProgressEvent>> {
         bail!(
             "ZellijHostedRuntime is persistent-only; inject_task is not supported. \
-             Use `mc signal` (AgentSignal::UserInput) to deliver a prompt."
+             Use `mc agent signal` (AgentSignal::UserInput) to deliver a prompt."
         )
     }
 

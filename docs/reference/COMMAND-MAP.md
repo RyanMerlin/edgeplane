@@ -139,12 +139,10 @@ ones with the same throttling aria-watchdog used (90s post-restart grace,
 `pause` and `restart` are orthogonal: a paused agent stays paused after
 a manual `restart`. Operators run `resume` separately.
 
-DEPRECATED — kept for muscle memory; removed in a future cleanup:
+REMOVED in 0.11.0 (Phase 6.5):
 
-- `mc signal <id>` (top-level) — alias for `mc agent signal --remote`.
-  Use `mc agent signal` instead.
-- `mc agent remote ...` — controlplane-only verbs. Use `mc agent <verb>`
-  with optional `--remote` instead.
+- `mc signal <id>` (top-level) — use `mc agent signal <id> --remote`.
+- `mc agent remote <verb>` — use `mc agent <verb> --remote`.
 
 Other agent surface:
 

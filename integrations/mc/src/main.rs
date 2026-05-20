@@ -107,6 +107,5 @@ async fn main() -> anyhow::Result<()> {
         OutputMode::Human
     };
 
-    let ctx = config.agent_context.clone();
-    mc::commands::run(opts.command, client, ctx, booster, config, output_mode).await
+    mc::commands::run(opts.command, client, booster, config, output_mode).await
 }

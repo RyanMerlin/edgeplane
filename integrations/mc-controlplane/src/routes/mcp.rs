@@ -533,7 +533,7 @@ async fn dispatch(
             // public_id generation, and ON CONFLICT semantics stay aligned
             // with the REST `POST /agents` path. Returning the resolved
             // public_id alongside the numeric id lets callers (e.g.
-            // `mc signal`) skip a follow-up GET /agents/{name} round-trip.
+            // `mc agent signal`) skip a follow-up GET /agents/{name} round-trip.
             match crate::routes::agents::upsert_agent_by_name(&state.db, &name, capabilities).await {
                 Ok(public_id) => {
                     // Look up the integer id once we have the row — the

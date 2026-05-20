@@ -1,5 +1,4 @@
 use crate::{
-    agent_context::AgentContext,
     auth,
     booster::AgentBooster,
     channel,
@@ -10,7 +9,7 @@ use crate::{
     discover,
     daemon_ctl, drift, evolve, governance, launch, maintenance, mcp_server, mcp_tools, ops, run,
     output::{self, OutputMode},
-    remote, runtime,
+    runtime,
     schema_pack::SchemaPack,
     secrets, update,
 };
@@ -34,8 +33,6 @@ pub enum McCommand {
     Status(StatusArgs),
     /// Shortcut for `mc system doctor`.
     Doctor(maintenance::DoctorArgs),
-    /// Send a one-shot prompt to a persistent ACP agent.
-    Signal(crate::signal::SignalArgs),
     /// Lightweight backend readiness check.
     Health(HealthArgs),
     /// Show binary + backend version details.
@@ -211,10 +208,6 @@ pub enum AgentCommand {
     List(crate::agent_ops::ListArgs),
     /// Describe a single agent — auto-resolves local vs controlplane.
     Describe(crate::agent_ops::DescribeArgs),
-    /// DEPRECATED — controlplane-only verbs. Prefer top-level `mc agent` verbs which
-    /// auto-resolve. Kept for muscle memory; will be removed in a future cleanup.
-    #[command(subcommand)]
-    Remote(remote::RemoteCommand),
     /// Resident node-agent control verbs.
     #[command(subcommand)]
     Node(runtime::NodeAgentCommand),
@@ -859,7 +852,6 @@ pub enum ApprovalCommand {
 pub async fn run(
     command: McCommand,
     client: MissionControlClient,
-    ctx: AgentContext,
     booster: AgentBooster,
     config: McConfig,
     output_mode: OutputMode,
@@ -867,7 +859,6 @@ pub async fn run(
     match command {
         McCommand::Status(args) => handle_status(args, client, &config, output_mode).await,
         McCommand::Doctor(args) => maintenance::run_doctor_command(&client, &config, &args).await,
-        McCommand::Signal(args) => crate::signal::run(args, &client).await,
         McCommand::Health(_args) => handle_health(client, output_mode).await,
         McCommand::Version(_args) => handle_version(client, &config, output_mode).await,
         McCommand::Config(_args) => handle_config(&config, output_mode),
@@ -2125,7 +2116,6 @@ async fn handle_agent(
         AgentCommand::Cancel(args) => crate::agent_ops::run_cancel(args, &client).await,
         AgentCommand::List(args) => crate::agent_ops::run_list(args, &client).await,
         AgentCommand::Describe(args) => crate::agent_ops::run_describe(args, &client).await,
-        AgentCommand::Remote(cmd) => remote::run(cmd, &client).await,
         AgentCommand::Node(cmd) => runtime::run_node_agent(cmd, &client).await,
         AgentCommand::Evolve(args) => evolve::run(args, &client).await,
         AgentCommand::Attach(args) => crate::attach::run(args, &client).await,

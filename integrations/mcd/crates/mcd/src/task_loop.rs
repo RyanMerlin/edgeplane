@@ -453,7 +453,7 @@ pub async fn run_message_relay(
                         .unwrap_or_else(|| v.to_string())
                 })
                 .unwrap_or_else(|| "unknown".to_string());
-            // channel: native peer messages use "channel"; mc signal messages use
+            // channel: native peer messages use "channel"; mc agent signal messages use
             // message_type ("signal", "command") with no channel field.
             let channel = msg
                 .get("channel")
@@ -464,9 +464,9 @@ pub async fn run_message_relay(
                         .unwrap_or("coordination")
                 })
                 .to_string();
-            // body: native peer messages use body_json; mc signal / mc agent remote message
-            // store text in the "content" field. Fall back gracefully so signal
-            // content is not silently dropped.
+            // body: native peer messages use body_json; mc agent signal stores text
+            // in the "content" field. Fall back gracefully so signal content is not
+            // silently dropped.
             let body: serde_json::Value = msg
                 .get("body_json")
                 .and_then(|v| v.as_str())
