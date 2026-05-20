@@ -383,6 +383,15 @@ pub struct ProfileShowArgs {
 pub struct DaemonUseArgs {
     /// Profile to activate. Omit to show the currently active profile.
     pub name: Option<String>,
+    /// Restart mcd without prompting after switching. Implies "yes" to the
+    /// interactive restart prompt. Use in scripts.
+    #[arg(short = 'y', long)]
+    pub yes: bool,
+    /// Don't prompt to restart mcd after switching; just print the
+    /// command. Mutually exclusive with `--yes`. Useful in CI/scripts
+    /// that handle the restart themselves.
+    #[arg(long, conflicts_with = "yes")]
+    pub no_restart: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -410,7 +419,7 @@ pub async fn handle(
         DaemonCommand::Attach(a) => handle_attach(a, client).await,
         DaemonCommand::Watch(a) => handle_watch(a, client).await,
         DaemonCommand::Profile(cmd) => handle_profile(cmd, client).await,
-        DaemonCommand::Use(a) => handle_use(a),
+        DaemonCommand::Use(a) => handle_use(a, config).await,
     }
 }
 
@@ -2361,7 +2370,7 @@ fn handle_profile_show(a: ProfileShowArgs) -> Result<()> {
     Ok(())
 }
 
-fn handle_use(a: DaemonUseArgs) -> Result<()> {
+async fn handle_use(a: DaemonUseArgs, config: &McConfig) -> Result<()> {
     let mut state = read_state_v2();
 
     match &a.name {
@@ -2369,6 +2378,7 @@ fn handle_use(a: DaemonUseArgs) -> Result<()> {
             // Show current active profile.
             let active = state["active_profile"].as_str().unwrap_or("<none>");
             println!("Active profile: {active}");
+            return Ok(());
         }
         Some(name) => {
             let exists = state["profiles"]
@@ -2380,13 +2390,62 @@ fn handle_use(a: DaemonUseArgs) -> Result<()> {
                     name
                 );
             }
+            let previous = state["active_profile"].as_str().unwrap_or("").to_string();
+            if previous == *name {
+                println!("Profile '{name}' is already active. No change.");
+                return Ok(());
+            }
             state["active_profile"] = serde_json::Value::String(name.clone());
             write_state(&state)?;
             println!("Switched to profile '{name}'.");
-            println!("Restart mcd for the change to take effect: mc daemon down && mc daemon up");
+
+            // Offer to restart mcd so the new profile takes effect. Skipping
+            // the restart leaves mcd attached to the previous profile until
+            // the operator restarts it.
+            let do_restart = if a.yes {
+                true
+            } else if a.no_restart {
+                false
+            } else {
+                prompt_yes_no_default(
+                    &format!("Do you want to restart mcd to use '{name}'?"),
+                    true,
+                )
+            };
+
+            if do_restart {
+                println!("Stopping mcd...");
+                let _ = handle_down();
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                println!("Starting mcd with profile '{name}'...");
+                handle_up(DaemonUpArgs { backend_url: None, yes: true }, config).await?;
+            } else {
+                println!(
+                    "Skipping restart. mcd is still attached to '{previous}'. \
+                     Restart manually with: mc daemon down && mc daemon up"
+                );
+            }
         }
     }
     Ok(())
+}
+
+/// Yes/no prompt with an explicit default. `default = true` means
+/// "pressing Enter with no input is yes" — UX shown as `[Y/n]`.
+/// `default = false` means Enter is no, shown as `[y/N]`.
+fn prompt_yes_no_default(question: &str, default: bool) -> bool {
+    use std::io::Write;
+    let suffix = if default { "[Y/n]" } else { "[y/N]" };
+    print!("{question} {suffix} ");
+    let _ = std::io::stdout().flush();
+    let mut input = String::new();
+    let _ = std::io::stdin().read_line(&mut input);
+    let trimmed = input.trim().to_lowercase();
+    if trimmed.is_empty() {
+        default
+    } else {
+        matches!(trimmed.as_str(), "y" | "yes")
+    }
 }
 
 fn prompt_yes_no(prompt: &str) -> bool {
