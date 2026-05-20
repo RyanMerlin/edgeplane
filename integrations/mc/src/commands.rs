@@ -226,6 +226,25 @@ pub enum AgentCommand {
     /// Cron jobs scheduled by mcd (Phase 4 daemon-absorption).
     #[command(subcommand)]
     Cron(CronCommand),
+    /// systemd-unit liveness supervision (Phase 5 daemon-absorption).
+    #[command(subcommand)]
+    Supervise(SuperviseCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SuperviseCommand {
+    /// List supervised agents and their current unit state.
+    List(crate::agent_supervise::ListArgs),
+    /// One agent's launch context + recent restart history.
+    Status(crate::agent_supervise::StatusArgs),
+    /// Manual `systemctl --user restart <agent>` (logged as reason=manual).
+    Restart(crate::agent_supervise::RestartArgs),
+    /// Pause the auto-restart loop for an agent (or all).
+    Pause(crate::agent_supervise::PauseResumeArgs),
+    /// Resume the auto-restart loop.
+    Resume(crate::agent_supervise::PauseResumeArgs),
+    /// Recent restart events across all (or one) agent.
+    History(crate::agent_supervise::HistoryArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -2116,6 +2135,14 @@ async fn handle_agent(
             CronCommand::Reload(a) => crate::agent_cron::run_reload(a).await,
             CronCommand::History(a) => crate::agent_cron::run_history(a).await,
             CronCommand::GcNow(a) => crate::agent_cron::run_gc_now(a).await,
+        },
+        AgentCommand::Supervise(cmd) => match cmd {
+            SuperviseCommand::List(a) => crate::agent_supervise::run_list(a).await,
+            SuperviseCommand::Status(a) => crate::agent_supervise::run_status(a).await,
+            SuperviseCommand::Restart(a) => crate::agent_supervise::run_restart(a).await,
+            SuperviseCommand::Pause(a) => crate::agent_supervise::run_pause(a).await,
+            SuperviseCommand::Resume(a) => crate::agent_supervise::run_resume(a).await,
+            SuperviseCommand::History(a) => crate::agent_supervise::run_history(a).await,
         },
     }
 }

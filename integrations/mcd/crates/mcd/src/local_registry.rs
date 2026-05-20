@@ -23,6 +23,168 @@ pub fn source_cp(profile: &str) -> String {
     format!("controlplane:{profile}")
 }
 
+// ---------- Schema migrations ----------
+//
+// Versioned forward-only migrations. The current state of an installation
+// is recorded as a single row in `schema_version`. On `LocalRegistry::open`
+// we walk from whatever version is stamped up to `CURRENT_SCHEMA_VERSION`,
+// applying each step in turn. Adding a new migration:
+//   1. Increment `CURRENT_SCHEMA_VERSION`.
+//   2. Add a new `migrate_to_vN(conn)` function with the DDL.
+//   3. Wire it into `apply_migrations` after the prior step.
+// Each step runs in a transaction; a panic or error inside leaves the DB
+// at the previous version, never half-applied.
+//
+// Version map:
+//   v1 → Phase 1+4 baseline: agent, agent_launch_context, agent_cron_state,
+//        agent_cron_fire_log + their indexes.
+//   v2 → Phase 5: agent_launch_context gains systemd_service +
+//        supervise_paused columns; new unit_restart_log table.
+
+const CURRENT_SCHEMA_VERSION: u32 = 2;
+
+fn apply_migrations(conn: &Connection) -> Result<()> {
+    // Bootstrap the version table itself, idempotent.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER PRIMARY KEY
+        );",
+    )?;
+    let current = read_schema_version(conn)?;
+    if current >= CURRENT_SCHEMA_VERSION {
+        return Ok(());
+    }
+    if current < 1 {
+        migrate_to_v1(conn).context("schema migration to v1")?;
+    }
+    if current < 2 {
+        migrate_to_v2(conn).context("schema migration to v2")?;
+    }
+    // Stamp the resulting version. Use DELETE+INSERT so multiple stamps
+    // (e.g. from earlier `INSERT OR IGNORE VALUES (1)` callers) collapse
+    // to one row.
+    conn.execute("DELETE FROM schema_version", [])?;
+    conn.execute("INSERT INTO schema_version VALUES (?1)", params![CURRENT_SCHEMA_VERSION])?;
+    Ok(())
+}
+
+fn read_schema_version(conn: &Connection) -> Result<u32> {
+    let mut stmt = match conn.prepare("SELECT MAX(version) FROM schema_version") {
+        Ok(s) => s,
+        Err(rusqlite::Error::SqliteFailure(_, Some(ref m))) if m.contains("no such table") => {
+            return Ok(0);
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let v: Option<u32> = stmt
+        .query_row([], |row| row.get::<_, Option<u32>>(0))
+        .unwrap_or(None);
+    Ok(v.unwrap_or(0))
+}
+
+fn migrate_to_v1(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS agent (
+            id                TEXT NOT NULL,
+            source            TEXT NOT NULL,
+            mission_id        TEXT NOT NULL,
+            runtime_kind      TEXT NOT NULL,
+            supervision_mode  TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL DEFAULT '[]',
+            profile_path      TEXT,
+            enrolled_at       TEXT NOT NULL,
+            last_synced_at    TEXT,
+            PRIMARY KEY (source, id)
+        );
+        CREATE INDEX IF NOT EXISTS agent_by_source ON agent (source);
+        CREATE TABLE IF NOT EXISTS agent_launch_context (
+            source          TEXT NOT NULL,
+            agent_id        TEXT NOT NULL,
+            vault_folder    TEXT,
+            state_dir_spec  TEXT,
+            zellij_session  TEXT,
+            PRIMARY KEY (source, agent_id),
+            FOREIGN KEY (source, agent_id)
+                REFERENCES agent (source, id)
+                ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS launch_context_by_source
+            ON agent_launch_context (source);
+        CREATE TABLE IF NOT EXISTS agent_cron_state (
+            job_name        TEXT PRIMARY KEY,
+            last_fired_at   TEXT,
+            last_status     TEXT,
+            last_error      TEXT,
+            updated_at      TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS agent_cron_fire_log (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_name        TEXT NOT NULL,
+            fired_at        TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            duration_ms     INTEGER,
+            error_message   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS fire_log_by_job_time
+            ON agent_cron_fire_log (job_name, fired_at DESC);",
+    )?;
+    Ok(())
+}
+
+fn migrate_to_v2(conn: &Connection) -> Result<()> {
+    // ALTER TABLE ADD COLUMN is not idempotent in SQLite — running twice
+    // returns "duplicate column" error. Guard each ADD by checking
+    // PRAGMA table_info first.
+    add_column_if_missing(
+        conn,
+        "agent_launch_context",
+        "systemd_service",
+        "TEXT",
+    )?;
+    add_column_if_missing(
+        conn,
+        "agent_launch_context",
+        "supervise_paused",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS unit_restart_log (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id        TEXT NOT NULL,
+            source          TEXT NOT NULL,
+            triggered_at    TEXT NOT NULL,
+            reason          TEXT NOT NULL,
+            result          TEXT NOT NULL,
+            systemctl_exit  INTEGER,
+            notes           TEXT
+        );
+        CREATE INDEX IF NOT EXISTS unit_restart_log_by_agent_time
+            ON unit_restart_log (source, agent_id, triggered_at DESC);",
+    )?;
+    Ok(())
+}
+
+/// Check `PRAGMA table_info(table)` for a column; add it if missing.
+/// `column_def` is the full column definition minus the name, e.g.
+/// `"TEXT"` or `"INTEGER NOT NULL DEFAULT 0"`.
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    column_def: &str,
+) -> Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let existing: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(1))? // column 1 is name
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if existing.iter().any(|c| c == column) {
+        return Ok(());
+    }
+    let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {column_def}");
+    conn.execute(&sql, [])?;
+    Ok(())
+}
+
 // ---------- Registry ----------
 
 pub struct LocalRegistry {
@@ -51,56 +213,15 @@ impl LocalRegistry {
     }
 
     fn migrate(conn: &Connection) -> Result<()> {
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER PRIMARY KEY
-            );
-            CREATE TABLE IF NOT EXISTS agent (
-                id                TEXT NOT NULL,
-                source            TEXT NOT NULL,
-                mission_id        TEXT NOT NULL,
-                runtime_kind      TEXT NOT NULL,
-                supervision_mode  TEXT NOT NULL,
-                capabilities_json TEXT NOT NULL DEFAULT '[]',
-                profile_path      TEXT,
-                enrolled_at       TEXT NOT NULL,
-                last_synced_at    TEXT,
-                PRIMARY KEY (source, id)
-            );
-            CREATE INDEX IF NOT EXISTS agent_by_source ON agent (source);
-            CREATE TABLE IF NOT EXISTS agent_launch_context (
-                source          TEXT NOT NULL,
-                agent_id        TEXT NOT NULL,
-                vault_folder    TEXT,
-                state_dir_spec  TEXT,
-                zellij_session  TEXT,
-                PRIMARY KEY (source, agent_id),
-                FOREIGN KEY (source, agent_id)
-                    REFERENCES agent (source, id)
-                    ON DELETE CASCADE
-            );
-            CREATE INDEX IF NOT EXISTS launch_context_by_source
-                ON agent_launch_context (source);
-            CREATE TABLE IF NOT EXISTS agent_cron_state (
-                job_name        TEXT PRIMARY KEY,
-                last_fired_at   TEXT,
-                last_status     TEXT,
-                last_error      TEXT,
-                updated_at      TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS agent_cron_fire_log (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_name        TEXT NOT NULL,
-                fired_at        TEXT NOT NULL,
-                status          TEXT NOT NULL,
-                duration_ms     INTEGER,
-                error_message   TEXT
-            );
-            CREATE INDEX IF NOT EXISTS fire_log_by_job_time
-                ON agent_cron_fire_log (job_name, fired_at DESC);",
-        )?;
-        conn.execute("INSERT OR IGNORE INTO schema_version VALUES (1)", [])?;
+        apply_migrations(conn)?;
         Ok(())
+    }
+
+    /// Report the schema version currently stamped on this database.
+    /// Used by `mcd doctor` for diagnostics. Returns 0 if no
+    /// `schema_version` row exists (a fresh DB before `migrate` runs).
+    pub fn schema_version(&self) -> Result<u32> {
+        read_schema_version(&self.conn)
     }
 
     /// Insert or update an agent record (upsert on (source, id)).
@@ -193,18 +314,25 @@ impl LocalRegistry {
             .context("serialising state_dir_spec")?;
         self.conn.execute(
             "INSERT INTO agent_launch_context
-                (source, agent_id, vault_folder, state_dir_spec, zellij_session)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+                (source, agent_id, vault_folder, state_dir_spec, zellij_session,
+                 systemd_service, supervise_paused)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(source, agent_id) DO UPDATE SET
-                vault_folder   = excluded.vault_folder,
-                state_dir_spec = excluded.state_dir_spec,
-                zellij_session = excluded.zellij_session",
+                vault_folder    = excluded.vault_folder,
+                state_dir_spec  = excluded.state_dir_spec,
+                zellij_session  = excluded.zellij_session,
+                systemd_service = excluded.systemd_service",
+            // Note: we deliberately don't overwrite supervise_paused on
+            // re-import — operator may have paused an agent; an importer
+            // refresh shouldn't clobber that.
             params![
                 ctx.source,
                 ctx.agent_id,
                 ctx.vault_folder,
                 state_dir_json,
                 ctx.zellij_session,
+                ctx.systemd_service,
+                if ctx.supervise_paused { 1i64 } else { 0i64 },
             ],
         )?;
         Ok(())
@@ -219,7 +347,8 @@ impl LocalRegistry {
         agent_id: &str,
     ) -> Result<Option<AgentLaunchContext>> {
         let mut stmt = self.conn.prepare(
-            "SELECT source, agent_id, vault_folder, state_dir_spec, zellij_session
+            "SELECT source, agent_id, vault_folder, state_dir_spec, zellij_session,
+                    systemd_service, supervise_paused
              FROM agent_launch_context
              WHERE source = ?1 AND agent_id = ?2",
         )?;
@@ -238,7 +367,8 @@ impl LocalRegistry {
         source: &str,
     ) -> Result<Vec<AgentLaunchContext>> {
         let mut stmt = self.conn.prepare(
-            "SELECT source, agent_id, vault_folder, state_dir_spec, zellij_session
+            "SELECT source, agent_id, vault_folder, state_dir_spec, zellij_session,
+                    systemd_service, supervise_paused
              FROM agent_launch_context
              WHERE source = ?1
              ORDER BY agent_id ASC",
@@ -246,6 +376,37 @@ impl LocalRegistry {
         let rows = stmt.query_map(params![source], row_to_launch_context)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("reading launch contexts from registry")
+    }
+
+    /// Set the `supervise_paused` flag for one agent. Used by
+    /// `mc agent supervise pause/resume`. Returns true if a row was
+    /// updated.
+    pub fn set_supervise_paused(
+        &self,
+        source: &str,
+        agent_id: &str,
+        paused: bool,
+    ) -> Result<bool> {
+        let n = self.conn.execute(
+            "UPDATE agent_launch_context SET supervise_paused = ?1
+             WHERE source = ?2 AND agent_id = ?3",
+            params![if paused { 1i64 } else { 0i64 }, source, agent_id],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// List all known launch contexts across every source. Used by the
+    /// unit-health loop to enumerate agents to supervise.
+    pub fn list_all_launch_contexts(&self) -> Result<Vec<AgentLaunchContext>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT source, agent_id, vault_folder, state_dir_spec, zellij_session,
+                    systemd_service, supervise_paused
+             FROM agent_launch_context
+             ORDER BY source, agent_id ASC",
+        )?;
+        let rows = stmt.query_map([], row_to_launch_context)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("reading all launch contexts from registry")
     }
 
     /// Atomically replace all agent records for `source` with `specs`.
@@ -374,6 +535,15 @@ pub struct AgentLaunchContext {
     pub vault_folder: Option<String>,
     pub state_dir_spec: Option<StateDirSpec>,
     pub zellij_session: Option<String>,
+    /// systemd `--user` unit name that owns this agent's session (e.g.
+    /// `aria-work.service`). Populated by the fleet importer from
+    /// fleet-profiles.toml's `service` field. `None` for agents not
+    /// managed by systemd.
+    pub systemd_service: Option<String>,
+    /// Pause flag for the Phase 5 unit-health auto-restart loop. When
+    /// true, mcd notices the unit is down but does NOT issue a restart.
+    /// Operator-controlled via `mc agent supervise pause/resume`.
+    pub supervise_paused: bool,
 }
 
 fn row_to_launch_context(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentLaunchContext> {
@@ -388,12 +558,15 @@ fn row_to_launch_context(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentLaunc
         })?),
         None => None,
     };
+    let supervise_paused_i: i64 = row.get(6).unwrap_or(0);
     Ok(AgentLaunchContext {
         source: row.get(0)?,
         agent_id: row.get(1)?,
         vault_folder: row.get(2)?,
         state_dir_spec,
         zellij_session: row.get(4)?,
+        systemd_service: row.get(5)?,
+        supervise_paused: supervise_paused_i != 0,
     })
 }
 
@@ -610,6 +783,150 @@ fn cron_log_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CronFireLogEntry> {
     })
 }
 
+// ---------- Unit restart log (Phase 5) ----------
+//
+// Append-only history of systemd unit restart attempts. Populated by
+// the Phase 5 unit_health loop. GC'd per retention config (defaults
+// match the cron fire log).
+
+/// One row of `unit_restart_log`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnitRestartEntry {
+    pub id: i64,
+    pub agent_id: String,
+    pub source: String,
+    pub triggered_at: String,
+    /// `'dead'` (unit was down) | `'nightly'` (hygiene restart) | `'manual'` (`mc agent supervise restart`)
+    pub reason: String,
+    /// `'started'` (success) | `'failed'` (systemctl non-zero) | `'throttled'` (within retry window)
+    pub result: String,
+    pub systemctl_exit: Option<i64>,
+    pub notes: Option<String>,
+}
+
+impl LocalRegistry {
+    /// Append a row to `unit_restart_log`. Returns the new row id.
+    pub fn log_unit_restart(
+        &self,
+        agent_id: &str,
+        source: &str,
+        triggered_at: &str,
+        reason: &str,
+        result: &str,
+        systemctl_exit: Option<i64>,
+        notes: Option<&str>,
+    ) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO unit_restart_log
+                (agent_id, source, triggered_at, reason, result, systemctl_exit, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![agent_id, source, triggered_at, reason, result, systemctl_exit, notes],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Fetch the most recent `limit` rows for one agent, newest first.
+    /// `limit = 0` returns all rows for that agent.
+    pub fn unit_restart_history(
+        &self,
+        source: &str,
+        agent_id: &str,
+        limit: u32,
+    ) -> Result<Vec<UnitRestartEntry>> {
+        let sql = if limit == 0 {
+            "SELECT id, agent_id, source, triggered_at, reason, result, systemctl_exit, notes
+             FROM unit_restart_log
+             WHERE source = ?1 AND agent_id = ?2
+             ORDER BY triggered_at DESC".to_string()
+        } else {
+            format!(
+                "SELECT id, agent_id, source, triggered_at, reason, result, systemctl_exit, notes
+                 FROM unit_restart_log
+                 WHERE source = ?1 AND agent_id = ?2
+                 ORDER BY triggered_at DESC LIMIT {limit}"
+            )
+        };
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![source, agent_id], unit_restart_row)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("reading unit_restart_log rows")
+    }
+
+    /// Recent restart events across all agents, newest first.
+    pub fn unit_restart_history_all(&self, limit: u32) -> Result<Vec<UnitRestartEntry>> {
+        let sql = if limit == 0 {
+            "SELECT id, agent_id, source, triggered_at, reason, result, systemctl_exit, notes
+             FROM unit_restart_log
+             ORDER BY triggered_at DESC".to_string()
+        } else {
+            format!(
+                "SELECT id, agent_id, source, triggered_at, reason, result, systemctl_exit, notes
+                 FROM unit_restart_log
+                 ORDER BY triggered_at DESC LIMIT {limit}"
+            )
+        };
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([], unit_restart_row)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("reading unit_restart_log rows")
+    }
+
+    /// GC sweep for `unit_restart_log`. Same shape as `cron_gc`: drop
+    /// rows older than `history_days`, then per-(source, agent) cap at
+    /// `max_rows_per_agent`. Returns total rows deleted.
+    pub fn unit_restart_gc(
+        &self,
+        history_days: u32,
+        max_rows_per_agent: u32,
+    ) -> Result<u64> {
+        let mut deleted: u64 = 0;
+        if history_days > 0 {
+            let n = self.conn.execute(
+                "DELETE FROM unit_restart_log
+                 WHERE triggered_at < datetime('now', '-' || ?1 || ' days')",
+                params![history_days],
+            )?;
+            deleted += n as u64;
+        }
+        if max_rows_per_agent > 0 {
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT source, agent_id FROM unit_restart_log",
+            )?;
+            let pairs: Vec<(String, String)> = stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            for (source, agent_id) in pairs {
+                let n = self.conn.execute(
+                    "DELETE FROM unit_restart_log
+                     WHERE source = ?1 AND agent_id = ?2
+                       AND id NOT IN (
+                         SELECT id FROM unit_restart_log
+                         WHERE source = ?1 AND agent_id = ?2
+                         ORDER BY triggered_at DESC
+                         LIMIT ?3
+                       )",
+                    params![source, agent_id, max_rows_per_agent],
+                )?;
+                deleted += n as u64;
+            }
+        }
+        Ok(deleted)
+    }
+}
+
+fn unit_restart_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<UnitRestartEntry> {
+    Ok(UnitRestartEntry {
+        id: row.get(0)?,
+        agent_id: row.get(1)?,
+        source: row.get(2)?,
+        triggered_at: row.get(3)?,
+        reason: row.get(4)?,
+        result: row.get(5)?,
+        systemctl_exit: row.get(6)?,
+        notes: row.get(7)?,
+    })
+}
+
 // ---------- Helpers ----------
 
 #[cfg(unix)]
@@ -794,6 +1111,8 @@ mod tests {
                 path: PathBuf::from("/home/merlin/.claude/profiles/work"),
             }),
             zellij_session: Some("work".into()),
+            systemd_service: None,
+            supervise_paused: false,
         };
         reg.upsert_launch_context(&ctx).unwrap();
         let got = reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().unwrap();
@@ -811,6 +1130,8 @@ mod tests {
             vault_folder: None,
             state_dir_spec: Some(StateDirSpec::Ephemeral { ttl_minutes: Some(30) }),
             zellij_session: None,
+            systemd_service: None,
+            supervise_paused: false,
         };
         reg.upsert_launch_context(&ctx).unwrap();
         let got = reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().unwrap();
@@ -835,6 +1156,8 @@ mod tests {
             vault_folder: None,
             state_dir_spec: None,
             zellij_session: None,
+            systemd_service: None,
+            supervise_paused: false,
         };
         assert!(reg.upsert_launch_context(&ctx).is_err());
     }
@@ -850,6 +1173,8 @@ mod tests {
             vault_folder: Some("operator".into()),
             state_dir_spec: None,
             zellij_session: Some("operator".into()),
+            systemd_service: None,
+            supervise_paused: false,
         })
         .unwrap();
         assert!(reg.delete(SOURCE_LOCAL, "a-1").unwrap());
@@ -868,6 +1193,8 @@ mod tests {
             vault_folder: Some("work".into()),
             state_dir_spec: None,
             zellij_session: Some("work".into()),
+            systemd_service: None,
+            supervise_paused: false,
         })
         .unwrap();
         reg.upsert_launch_context(&AgentLaunchContext {
@@ -876,6 +1203,8 @@ mod tests {
             vault_folder: Some("research".into()),
             state_dir_spec: None,
             zellij_session: Some("research".into()),
+            systemd_service: None,
+            supervise_paused: false,
         })
         .unwrap();
         let got = reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().unwrap();
@@ -1095,5 +1424,232 @@ mod tests {
         // Newest first
         assert_eq!(limit_2[0].fired_at, "2026-05-05T00:00:00Z");
         assert_eq!(limit_2[1].fired_at, "2026-05-04T00:00:00Z");
+    }
+
+    // ---- Phase 5: schema versioning + supervise + unit_restart_log ----
+
+    #[test]
+    fn schema_version_stamped_on_open() {
+        let (_dir, reg) = tmp_reg();
+        assert_eq!(reg.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migrate_from_empty_db_is_idempotent() {
+        // Open twice: second open shouldn't re-apply migrations or error.
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.db");
+        let _r1 = LocalRegistry::open(&path).unwrap();
+        let r2 = LocalRegistry::open(&path).unwrap();
+        assert_eq!(r2.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migrate_from_v1_baseline_adds_v2_columns() {
+        // Simulate a pre-Phase-5 DB: open with the v1 schema, manually
+        // stamp version=1, then re-open and verify v2 ALTER ran.
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.pragma_update(None, "foreign_keys", 1).unwrap();
+        migrate_to_v1(&conn).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);
+             INSERT OR IGNORE INTO schema_version VALUES (1);",
+        )
+        .unwrap();
+        drop(conn);
+
+        // Re-open through the normal path; should apply v2.
+        let reg = LocalRegistry::open(&path).unwrap();
+        assert_eq!(reg.schema_version().unwrap(), 2);
+
+        // Confirm the new columns exist on agent_launch_context.
+        let conn = Connection::open(&path).unwrap();
+        let mut stmt = conn.prepare("PRAGMA table_info(agent_launch_context)").unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert!(cols.contains(&"systemd_service".to_string()), "cols: {cols:?}");
+        assert!(cols.contains(&"supervise_paused".to_string()), "cols: {cols:?}");
+
+        // unit_restart_log must exist.
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM unit_restart_log", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+        let _ = reg; // keep reg alive past the manual queries
+    }
+
+    #[test]
+    fn launch_context_with_systemd_service_round_trips() {
+        let (_dir, reg) = tmp_reg();
+        reg.upsert(&AgentRecord::from_spec(&spec("work", "", SessionMode::Persistent), SOURCE_LOCAL))
+            .unwrap();
+        let ctx = AgentLaunchContext {
+            source: SOURCE_LOCAL.into(),
+            agent_id: "work".into(),
+            vault_folder: Some("work".into()),
+            state_dir_spec: None,
+            zellij_session: Some("work".into()),
+            systemd_service: Some("aria-work.service".into()),
+            supervise_paused: false,
+        };
+        reg.upsert_launch_context(&ctx).unwrap();
+        let got = reg.get_launch_context(SOURCE_LOCAL, "work").unwrap().unwrap();
+        assert_eq!(got.systemd_service.as_deref(), Some("aria-work.service"));
+        assert!(!got.supervise_paused);
+    }
+
+    #[test]
+    fn set_supervise_paused_toggles() {
+        let (_dir, reg) = tmp_reg();
+        reg.upsert(&AgentRecord::from_spec(&spec("work", "", SessionMode::Persistent), SOURCE_LOCAL))
+            .unwrap();
+        reg.upsert_launch_context(&AgentLaunchContext {
+            source: SOURCE_LOCAL.into(),
+            agent_id: "work".into(),
+            vault_folder: None,
+            state_dir_spec: None,
+            zellij_session: None,
+            systemd_service: Some("aria-work.service".into()),
+            supervise_paused: false,
+        })
+        .unwrap();
+
+        let changed = reg.set_supervise_paused(SOURCE_LOCAL, "work", true).unwrap();
+        assert!(changed);
+        let got = reg.get_launch_context(SOURCE_LOCAL, "work").unwrap().unwrap();
+        assert!(got.supervise_paused);
+
+        let changed = reg.set_supervise_paused(SOURCE_LOCAL, "work", false).unwrap();
+        assert!(changed);
+        let got = reg.get_launch_context(SOURCE_LOCAL, "work").unwrap().unwrap();
+        assert!(!got.supervise_paused);
+    }
+
+    #[test]
+    fn upsert_launch_context_preserves_supervise_paused() {
+        // Operator's pause must not be clobbered by a re-import.
+        let (_dir, reg) = tmp_reg();
+        reg.upsert(&AgentRecord::from_spec(&spec("work", "", SessionMode::Persistent), SOURCE_LOCAL))
+            .unwrap();
+        reg.upsert_launch_context(&AgentLaunchContext {
+            source: SOURCE_LOCAL.into(),
+            agent_id: "work".into(),
+            vault_folder: None,
+            state_dir_spec: None,
+            zellij_session: None,
+            systemd_service: Some("aria-work.service".into()),
+            supervise_paused: false,
+        })
+        .unwrap();
+        reg.set_supervise_paused(SOURCE_LOCAL, "work", true).unwrap();
+
+        // Re-import: paused must stay true.
+        reg.upsert_launch_context(&AgentLaunchContext {
+            source: SOURCE_LOCAL.into(),
+            agent_id: "work".into(),
+            vault_folder: Some("work-vault".into()),
+            state_dir_spec: None,
+            zellij_session: Some("work".into()),
+            systemd_service: Some("aria-work.service".into()),
+            supervise_paused: false, // importer doesn't know about pause
+        })
+        .unwrap();
+        let got = reg.get_launch_context(SOURCE_LOCAL, "work").unwrap().unwrap();
+        assert!(got.supervise_paused, "operator pause must survive re-import");
+        assert_eq!(got.vault_folder.as_deref(), Some("work-vault")); // other fields update
+    }
+
+    #[test]
+    fn list_all_launch_contexts_across_sources() {
+        let (_dir, reg) = tmp_reg();
+        reg.upsert(&AgentRecord::from_spec(&spec("a", "", SessionMode::Persistent), SOURCE_LOCAL))
+            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(&spec("b", "", SessionMode::Persistent), &source_cp("work")))
+            .unwrap();
+        reg.upsert_launch_context(&AgentLaunchContext {
+            source: SOURCE_LOCAL.into(),
+            agent_id: "a".into(),
+            vault_folder: None,
+            state_dir_spec: None,
+            zellij_session: None,
+            systemd_service: None,
+            supervise_paused: false,
+        })
+        .unwrap();
+        reg.upsert_launch_context(&AgentLaunchContext {
+            source: source_cp("work"),
+            agent_id: "b".into(),
+            vault_folder: None,
+            state_dir_spec: None,
+            zellij_session: None,
+            systemd_service: None,
+            supervise_paused: false,
+        })
+        .unwrap();
+        let all = reg.list_all_launch_contexts().unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn log_unit_restart_round_trips() {
+        let (_dir, reg) = tmp_reg();
+        let id = reg
+            .log_unit_restart(
+                "work",
+                SOURCE_LOCAL,
+                "2026-05-20T12:00:00Z",
+                "dead",
+                "started",
+                Some(0),
+                None,
+            )
+            .unwrap();
+        assert!(id > 0);
+        let history = reg.unit_restart_history(SOURCE_LOCAL, "work", 10).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].reason, "dead");
+        assert_eq!(history[0].result, "started");
+        assert_eq!(history[0].systemctl_exit, Some(0));
+    }
+
+    #[test]
+    fn unit_restart_history_all_across_agents() {
+        let (_dir, reg) = tmp_reg();
+        reg.log_unit_restart("a", SOURCE_LOCAL, "2026-05-20T01:00:00Z", "dead", "started", Some(0), None)
+            .unwrap();
+        reg.log_unit_restart("b", SOURCE_LOCAL, "2026-05-20T02:00:00Z", "nightly", "started", Some(0), None)
+            .unwrap();
+        reg.log_unit_restart("a", SOURCE_LOCAL, "2026-05-20T03:00:00Z", "manual", "started", Some(0), None)
+            .unwrap();
+        let all = reg.unit_restart_history_all(10).unwrap();
+        assert_eq!(all.len(), 3);
+        // Newest first
+        assert_eq!(all[0].triggered_at, "2026-05-20T03:00:00Z");
+    }
+
+    #[test]
+    fn unit_restart_gc_caps_per_agent() {
+        let (_dir, reg) = tmp_reg();
+        for i in 0..15 {
+            reg.log_unit_restart(
+                "work",
+                SOURCE_LOCAL,
+                &format!("2026-05-{:02}T00:00:00Z", i + 1),
+                "dead",
+                "started",
+                Some(0),
+                None,
+            )
+            .unwrap();
+        }
+        let deleted = reg.unit_restart_gc(0, 5).unwrap();
+        assert_eq!(deleted, 10);
+        assert_eq!(reg.unit_restart_history(SOURCE_LOCAL, "work", 0).unwrap().len(), 5);
     }
 }

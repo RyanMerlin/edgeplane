@@ -4,6 +4,84 @@ All notable changes to mc + mcd are recorded here. mc-controlplane has its own v
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [Unreleased] — Phase 5 daemon-absorption (will be 0.10.0)
+
+### Added — Watchdog absorption
+
+mcd absorbs the systemd-unit liveness loop that used to live in
+`aria-watchdog-rs`. After this release, `aria-rs` has zero long-running
+daemons — the lanes-decision goal is met.
+
+- **`UnitHealthLoop`** ticks every 60s. For each agent with
+  `systemd_service` set in `agent_launch_context`:
+  - Run `systemctl --user is-active <service>`.
+  - If dead and not in 90s post-restart grace and not throttled
+    (30-min default retry window): issue `systemctl --user restart`.
+  - Defaults match `aria-watchdog-rs` exactly (60s tick, 1800s retry,
+    90s grace, 03:00 nightly).
+- **Optional nightly restart at 03:00** — hygiene against memory
+  creep. Configurable hour or `None` to disable.
+- **Operator pause** — `supervise_paused` column on
+  `agent_launch_context`; persists across mcd restarts. Pause survives
+  re-import (the fleet importer does not clobber operator state).
+  Pause is orthogonal to `restart` — a paused agent stays paused
+  after `mc agent supervise restart`; resume separately.
+- **`SupervisorEvent` broadcast channel** in `mcd-core` for future
+  TUI / web-portal consumers. Variants:
+  `UnitDeadDetected | UnitRestarted | SupervisePaused | SuperviseResumed | NightlyRestartFired`.
+  Phase 5 ships the publisher; subscription via mgmt-gateway streaming
+  is a follow-up.
+
+### Added — `mc agent supervise` CLI
+
+- `mc agent supervise list [--json]`
+- `mc agent supervise status <id> [--limit N] [--json]`
+- `mc agent supervise restart <id>` — logged as `reason=manual`
+- `mc agent supervise pause [<id>] [--all]`
+- `mc agent supervise resume [<id>] [--all]`
+- `mc agent supervise history [--agent-id <id>] [-n N] [--json]`
+
+### Added — Versioned SQLite migrations
+
+Refactored `LocalRegistry::migrate(conn)` into a forward-only
+migration framework (`apply_migrations` walks from the stamped
+`schema_version` to `CURRENT_SCHEMA_VERSION`). Adding a new
+migration is "increment the constant, write `migrate_to_vN`, wire
+it into the walker." Each step runs in a transaction.
+
+- **v1** — Phase 1 + 4 baseline (agent, agent_launch_context,
+  agent_cron_*).
+- **v2** — Phase 5: `agent_launch_context` gains `systemd_service` +
+  `supervise_paused` columns; new `unit_restart_log` table.
+
+`add_column_if_missing` helper guards `ALTER TABLE ADD COLUMN` via
+`PRAGMA table_info` so migrations are idempotent on re-run.
+
+### Migration
+
+For nodes running the Aria fleet:
+
+```bash
+# Phase 5 mcd absorbs systemd unit liveness; aria-watchdog-rs is dead code.
+systemctl --user restart mcd
+systemctl --user disable --now aria-watchdog-rs.service
+mc agent supervise list      # verify all 6 fleet agents show "active"
+```
+
+### Deprecated
+
+- `aria watchdog` + `aria-watchdog-rs.service` — fully superseded by
+  mcd's `unit_health` loop. Full removal in Phase 6.
+
+### Out of scope (Phase 6)
+
+- aria-rs `aria fleet` + `aria cron` source removal (Phase 6)
+- aria-watchdog-rs source removal (Phase 6)
+- Home Assistant notifications from aria-watchdog (operator-specific;
+  optional follow-up if needed — broadcast channel exists)
+- Streaming subscription to `SupervisorEvent` via mgmt-gateway
+  (broadcast publisher exists; consumer wiring is a follow-up)
+
 ## [0.9.0] — 2026-05-20
 
 ### Added — Phase 4 daemon-absorption (PR #31)

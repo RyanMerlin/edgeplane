@@ -166,6 +166,59 @@ pub struct LaunchContext {
     pub zellij_session: Option<String>,
 }
 
+/// Events emitted by mcd's unit-health (Phase 5 watchdog) loop. Broadcast
+/// over a `tokio::sync::broadcast::Sender<SupervisorEvent>` so multiple
+/// consumers (mgmt-gateway streaming, future TUI, controlplane web
+/// portal) can subscribe without contending.
+///
+/// `at` is RFC3339 UTC. Wire format is JSON via serde — mgmt-gateway
+/// emits newline-delimited JSON frames.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SupervisorEvent {
+    /// systemctl is-active reported failed/inactive for an agent we
+    /// supervise. Emitted once per dead-detection (not every tick).
+    UnitDeadDetected {
+        agent_id: String,
+        source: String,
+        systemd_service: String,
+        at: String,
+    },
+    /// mcd issued `systemctl --user restart`. `result` is "started"
+    /// (success), "failed" (systemctl non-zero), or "throttled"
+    /// (within retry window — no restart actually fired).
+    UnitRestarted {
+        agent_id: String,
+        source: String,
+        systemd_service: String,
+        reason: String, // "dead" | "nightly" | "manual"
+        result: String, // "started" | "failed" | "throttled"
+        exit_code: Option<i64>,
+        at: String,
+    },
+    /// Operator paused the supervision loop for this agent via
+    /// `mc agent supervise pause`. Auto-restart is suspended until
+    /// they `resume`.
+    SupervisePaused {
+        agent_id: String,
+        source: String,
+        at: String,
+    },
+    /// Operator resumed.
+    SuperviseResumed {
+        agent_id: String,
+        source: String,
+        at: String,
+    },
+    /// The configurable nightly restart hour fired for one agent.
+    NightlyRestartFired {
+        agent_id: String,
+        source: String,
+        systemd_service: String,
+        at: String,
+    },
+}
+
 /// A handle to a running agent runtime process.
 #[derive(Debug)]
 pub struct AgentHandle {

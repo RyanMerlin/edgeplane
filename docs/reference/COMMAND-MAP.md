@@ -103,6 +103,42 @@ the controlplane if the agent isn't known locally. Use `--local` /
   <session>`; with `--web` prints the `zellij web` URL. ACP →
   WebSocket session/update stream (unchanged).
 
+### `mc agent cron` — scheduled prompts (Phase 4, v0.9)
+
+mcd owns `~/.mc/mcd/cron.toml` (same schema as the legacy `aria-cron.toml`)
+and runs its own 1-minute tick loop. Edit the file in `$EDITOR`; CLI is
+inspection + reload only.
+
+- `mc agent cron list [--json]` — all jobs from file + last-fire status.
+- `mc agent cron describe <name> [--limit N] [--json]` — one job + recent
+  fires.
+- `mc agent cron reload` — poke mcd to re-parse the file.
+- `mc agent cron history [--name <n>] [-n N] [--json]` — recent fires
+  across all (or one) job.
+- `mc agent cron gc-now [--history-days N] [--max-rows-per-job N]` —
+  force a retention sweep.
+
+### `mc agent supervise` — systemd unit liveness (Phase 5, v0.10)
+
+mcd polls each fleet agent's systemd unit every 60s and restarts dead
+ones with the same throttling aria-watchdog used (90s post-restart grace,
+30-min retry throttle). Plus an optional nightly restart at 03:00.
+
+- `mc agent supervise list [--json]` — supervised agents + live unit
+  state.
+- `mc agent supervise status <id> [--limit N] [--json]` — one agent +
+  recent restart history.
+- `mc agent supervise restart <id>` — manual `systemctl --user restart`
+  (logged as `reason=manual`).
+- `mc agent supervise pause [<id>] [--all]` — disable auto-restart for
+  this agent (or all supervised ones).
+- `mc agent supervise resume [<id>] [--all]` — re-enable auto-restart.
+- `mc agent supervise history [--agent-id <id>] [-n N] [--json]` —
+  recent restart events from `unit_restart_log`.
+
+`pause` and `restart` are orthogonal: a paused agent stays paused after
+a manual `restart`. Operators run `resume` separately.
+
 DEPRECATED — kept for muscle memory; removed in a future cleanup:
 
 - `mc signal <id>` (top-level) — alias for `mc agent signal --remote`.

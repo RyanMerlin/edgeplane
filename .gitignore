@@ -188,7 +188,7 @@ web/.svelte-kit/
 
 # Rust build artifacts
 integrations/mc/target/
-integrations/mc-mesh/target/
+integrations/mcd/target/
 integrations/mc-controlplane/target/
 
 # Local broker credentials (generated for docker compose)

@@ -50,6 +50,11 @@ pub struct AgentOpsHandle {
     /// Path to `cron.toml` for the `agent.cron.list/describe` handlers
     /// to re-parse on demand. `None` when cron is not wired.
     pub cron_config_path: Option<PathBuf>,
+    /// Broadcast sender for Phase 5 SupervisorEvents. `None` when the
+    /// unit-health loop wasn't spawned (test harnesses). Subscribers
+    /// can clone this and call `.subscribe()` to get a receiver.
+    pub supervisor_events:
+        Option<tokio::sync::broadcast::Sender<mcd_core::types::SupervisorEvent>>,
 }
 
 impl MgmtGateway {
@@ -320,6 +325,30 @@ async fn dispatch_jsonrpc(
         },
         "agent.cron.gc_now" => match agent_ops {
             Some(ops) => handle_agent_cron_gc_now(ops, id, &params).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.supervise.list" => match agent_ops {
+            Some(ops) => handle_supervise_list(ops, id).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.supervise.status" => match agent_ops {
+            Some(ops) => handle_supervise_status(ops, id, &params).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.supervise.restart" => match agent_ops {
+            Some(ops) => handle_supervise_restart(ops, id, &params).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.supervise.pause" => match agent_ops {
+            Some(ops) => handle_supervise_pause_or_resume(ops, id, &params, true).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.supervise.resume" => match agent_ops {
+            Some(ops) => handle_supervise_pause_or_resume(ops, id, &params, false).await,
+            None => jsonrpc_error(id, -32603, "agent ops not wired"),
+        },
+        "agent.supervise.history" => match agent_ops {
+            Some(ops) => handle_supervise_history(ops, id, &params).await,
             None => jsonrpc_error(id, -32603, "agent ops not wired"),
         },
         _ => jsonrpc_error(id, -32601, "method not found"),
@@ -797,6 +826,293 @@ async fn handle_agent_cron_gc_now(
     }
 }
 
+// ─── agent.supervise.* handlers (Phase 5) ─────────────────────────────────
+
+/// `agent.supervise.list` — every agent with a `systemd_service` set,
+/// joined with the live `systemctl is-active` state. Output:
+///   { "agents": [ { agent_id, source, systemd_service, supervise_paused,
+///                   unit_state: "active"|"inactive"|"failed"|... } ] }
+async fn handle_supervise_list(ops: &Arc<AgentOpsHandle>, id: Value) -> Value {
+    let registry_path = ops.registry_path.clone();
+    let result = crate::unit_health::list_supervised(registry_path).await;
+    match result {
+        Ok(rows) => {
+            let agents: Vec<Value> = rows
+                .into_iter()
+                .map(|(ctx, state)| {
+                    serde_json::json!({
+                        "agent_id": ctx.agent_id,
+                        "source": ctx.source,
+                        "systemd_service": ctx.systemd_service,
+                        "supervise_paused": ctx.supervise_paused,
+                        "unit_state": state,
+                    })
+                })
+                .collect();
+            jsonrpc_result(id, serde_json::json!({ "agents": agents }))
+        }
+        Err(e) => jsonrpc_error(id, -32001, &format!("supervise list failed: {e:#}")),
+    }
+}
+
+/// `agent.supervise.status` — one agent's launch context + recent restart
+/// history. Params: `{ "agent_id": "<id>", "limit"?: <int, default 5> }`.
+async fn handle_supervise_status(
+    ops: &Arc<AgentOpsHandle>,
+    id: Value,
+    params: &Value,
+) -> Value {
+    let agent_id = match params.get("agent_id").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => return jsonrpc_error(id, -32602, "missing param: agent_id"),
+    };
+    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as u32;
+    let registry_path = ops.registry_path.clone();
+    let lookup_id = agent_id.clone();
+
+    let info = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<Value>> {
+        let reg = LocalRegistry::open(&registry_path)?;
+        let all = reg.list_all_launch_contexts()?;
+        let Some(ctx) = all.into_iter().find(|c| c.agent_id == lookup_id) else {
+            return Ok(None);
+        };
+        let history = reg.unit_restart_history(&ctx.source, &ctx.agent_id, limit)?;
+        Ok(Some(serde_json::json!({
+            "agent_id": ctx.agent_id,
+            "source": ctx.source,
+            "systemd_service": ctx.systemd_service,
+            "supervise_paused": ctx.supervise_paused,
+            "history": history.iter().map(|h| serde_json::json!({
+                "triggered_at": h.triggered_at,
+                "reason": h.reason,
+                "result": h.result,
+                "systemctl_exit": h.systemctl_exit,
+                "notes": h.notes,
+            })).collect::<Vec<_>>(),
+        })))
+    })
+    .await;
+
+    match info {
+        Ok(Ok(Some(mut v))) => {
+            // Add the live unit state (calls systemctl).
+            if let Some(svc) = v
+                .get("systemd_service")
+                .and_then(|s| s.as_str())
+                .map(String::from)
+            {
+                let unit_state = tokio::process::Command::new("systemctl")
+                    .args(["--user", "is-active", &svc])
+                    .output()
+                    .await
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .unwrap_or_else(|_| "unreachable".to_string());
+                if let Value::Object(m) = &mut v {
+                    m.insert("unit_state".into(), Value::String(unit_state));
+                }
+            }
+            jsonrpc_result(id, v)
+        }
+        Ok(Ok(None)) => jsonrpc_error(id, -32004, &format!("agent {agent_id:?} not found")),
+        Ok(Err(e)) => jsonrpc_error(id, -32001, &format!("supervise status failed: {e:#}")),
+        Err(e) => jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
+    }
+}
+
+/// `agent.supervise.restart` — manual restart trigger. Params:
+///   `{ "agent_id": "<id>" }`. Logged as reason="manual".
+async fn handle_supervise_restart(
+    ops: &Arc<AgentOpsHandle>,
+    id: Value,
+    params: &Value,
+) -> Value {
+    let agent_id = match params.get("agent_id").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => return jsonrpc_error(id, -32602, "missing param: agent_id"),
+    };
+    let registry_path = ops.registry_path.clone();
+    let events_tx = ops.supervisor_events.clone();
+    let lookup_id = agent_id.clone();
+
+    // Look up + restart on a blocking thread (subprocess + SQLite).
+    let outcome = tokio::task::spawn_blocking(move || -> anyhow::Result<(String, String, i32)> {
+        let reg = LocalRegistry::open(&registry_path)?;
+        let ctx = reg
+            .list_all_launch_contexts()?
+            .into_iter()
+            .find(|c| c.agent_id == lookup_id)
+            .ok_or_else(|| anyhow::anyhow!("agent {lookup_id:?} not found"))?;
+        let service = ctx
+            .systemd_service
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("agent {lookup_id:?} has no systemd_service"))?;
+        let exit = std::process::Command::new("systemctl")
+            .args(["--user", "restart", &service])
+            .output()?;
+        let code = exit.status.code().unwrap_or(-1);
+        let result = if code == 0 { "started" } else { "failed" };
+        reg.log_unit_restart(
+            &ctx.agent_id,
+            &ctx.source,
+            &chrono::Utc::now().to_rfc3339(),
+            "manual",
+            result,
+            Some(code as i64),
+            None,
+        )?;
+        Ok((ctx.agent_id, ctx.source, code))
+    })
+    .await;
+
+    match outcome {
+        Ok(Ok((agent_id, source, exit))) => {
+            // Best-effort event publish.
+            if let Some(tx) = events_tx {
+                let _ = tx.send(mcd_core::types::SupervisorEvent::UnitRestarted {
+                    agent_id: agent_id.clone(),
+                    source: source.clone(),
+                    systemd_service: String::new(), // resolved inside the blocking task
+                    reason: "manual".into(),
+                    result: if exit == 0 { "started".into() } else { "failed".into() },
+                    exit_code: Some(exit as i64),
+                    at: chrono::Utc::now().to_rfc3339(),
+                });
+            }
+            jsonrpc_result(
+                id,
+                serde_json::json!({
+                    "agent_id": agent_id,
+                    "source": source,
+                    "exit_code": exit,
+                    "result": if exit == 0 { "started" } else { "failed" },
+                }),
+            )
+        }
+        Ok(Err(e)) => jsonrpc_error(id, -32004, &format!("restart failed: {e:#}")),
+        Err(e) => jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
+    }
+}
+
+/// `agent.supervise.pause` (paused=true) or `.resume` (paused=false).
+/// Params: `{ "agent_id"?: "<id>", "all"?: true }`. Exactly one must be set.
+async fn handle_supervise_pause_or_resume(
+    ops: &Arc<AgentOpsHandle>,
+    id: Value,
+    params: &Value,
+    paused: bool,
+) -> Value {
+    let all = params.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
+    let agent_id = params.get("agent_id").and_then(|v| v.as_str()).map(String::from);
+    if !all && agent_id.is_none() {
+        return jsonrpc_error(id, -32602, "must specify agent_id or all=true");
+    }
+    if all && agent_id.is_some() {
+        return jsonrpc_error(id, -32602, "specify either agent_id or all=true, not both");
+    }
+
+    let registry_path = ops.registry_path.clone();
+    let events_tx = ops.supervisor_events.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<(String, String)>> {
+        let reg = LocalRegistry::open(&registry_path)?;
+        let mut affected = Vec::new();
+        if all {
+            for ctx in reg.list_all_launch_contexts()? {
+                if ctx.systemd_service.is_some() && reg.set_supervise_paused(&ctx.source, &ctx.agent_id, paused)? {
+                    affected.push((ctx.source, ctx.agent_id));
+                }
+            }
+        } else if let Some(name) = agent_id {
+            for ctx in reg.list_all_launch_contexts()?.into_iter().filter(|c| c.agent_id == name) {
+                if reg.set_supervise_paused(&ctx.source, &ctx.agent_id, paused)? {
+                    affected.push((ctx.source, ctx.agent_id));
+                }
+            }
+        }
+        Ok(affected)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(affected)) => {
+            // Publish events for each.
+            if let Some(tx) = events_tx {
+                for (source, agent_id) in &affected {
+                    let ev = if paused {
+                        mcd_core::types::SupervisorEvent::SupervisePaused {
+                            agent_id: agent_id.clone(),
+                            source: source.clone(),
+                            at: chrono::Utc::now().to_rfc3339(),
+                        }
+                    } else {
+                        mcd_core::types::SupervisorEvent::SuperviseResumed {
+                            agent_id: agent_id.clone(),
+                            source: source.clone(),
+                            at: chrono::Utc::now().to_rfc3339(),
+                        }
+                    };
+                    let _ = tx.send(ev);
+                }
+            }
+            jsonrpc_result(
+                id,
+                serde_json::json!({
+                    "paused": paused,
+                    "affected": affected.iter().map(|(s, a)| serde_json::json!({ "source": s, "agent_id": a })).collect::<Vec<_>>(),
+                    "count": affected.len(),
+                }),
+            )
+        }
+        Ok(Err(e)) => jsonrpc_error(id, -32001, &format!("pause/resume failed: {e:#}")),
+        Err(e) => jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
+    }
+}
+
+/// `agent.supervise.history` — recent restart events across all agents
+/// (or filtered to one). Params:
+///   `{ "agent_id"?: "<id>", "limit"?: <int, default 20> }`
+async fn handle_supervise_history(
+    ops: &Arc<AgentOpsHandle>,
+    id: Value,
+    params: &Value,
+) -> Value {
+    let agent_id = params.get("agent_id").and_then(|v| v.as_str()).map(String::from);
+    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
+    let registry_path = ops.registry_path.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
+        let reg = LocalRegistry::open(&registry_path)?;
+        let rows = if let Some(name) = agent_id {
+            // Need to resolve source first.
+            let all = reg.list_all_launch_contexts()?;
+            let Some(ctx) = all.into_iter().find(|c| c.agent_id == name) else {
+                return Ok(serde_json::json!({ "restarts": [] }));
+            };
+            reg.unit_restart_history(&ctx.source, &ctx.agent_id, limit)?
+        } else {
+            reg.unit_restart_history_all(limit)?
+        };
+        Ok(serde_json::json!({
+            "restarts": rows.iter().map(|r| serde_json::json!({
+                "agent_id": r.agent_id,
+                "source": r.source,
+                "triggered_at": r.triggered_at,
+                "reason": r.reason,
+                "result": r.result,
+                "systemctl_exit": r.systemctl_exit,
+                "notes": r.notes,
+            })).collect::<Vec<_>>(),
+        }))
+    })
+    .await;
+
+    match result {
+        Ok(Ok(v)) => jsonrpc_result(id, v),
+        Ok(Err(e)) => jsonrpc_error(id, -32001, &format!("supervise history failed: {e:#}")),
+        Err(e) => jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
+    }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 fn jsonrpc_result(id: Value, result: Value) -> Value {
@@ -1036,6 +1352,7 @@ mod tests {
             registry_path,
             cron: None,
             cron_config_path: None,
+            supervisor_events: None,
         });
 
         let resp = dispatch(
@@ -1068,6 +1385,7 @@ mod tests {
             registry_path,
             cron: None,
             cron_config_path: None,
+            supervisor_events: None,
         });
 
         let resp = dispatch(
@@ -1096,6 +1414,7 @@ mod tests {
             registry_path,
             cron: None,
             cron_config_path: None,
+            supervisor_events: None,
         });
 
         let resp = dispatch(
@@ -1127,6 +1446,7 @@ mod tests {
             registry_path,
             cron: None,
             cron_config_path: None,
+            supervisor_events: None,
         });
 
         let resp = dispatch(

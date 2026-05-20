@@ -8,6 +8,26 @@ mcd is the work-first agent coordination daemon. Think Temporal, not RKE2:
 
 The daemon (`mcd`) runs a headless attach gateway. The work loop (`mc run <runtime>`) connects to a mission, claims tasks, and supervises agent child processes.
 
+### Absorbed responsibilities (daemon-absorption plan)
+
+Across v0.8–v0.10, mcd absorbed the daemon-side responsibilities that
+used to live in `aria-rs` (`aria fleet`, `aria cron`, `aria watchdog`).
+aria-rs is now a pure toolchain — no long-running processes:
+
+- **v0.8 Phase 2–3 — Fleet agents + CLI**: the `ZellijHosted` runtime
+  drives long-running profile agents (operator, work, research, …)
+  through `zellij action paste + send-keys`. `mc agent signal/cancel/
+  attach/list/describe` is the surface.
+- **v0.9 Phase 4 — Cron**: `~/.mc/mcd/cron.toml` is mcd's scheduling
+  config; mcd ticks every minute and dispatches via the same signal
+  path. `mc agent cron list/describe/reload/history/gc-now` is the
+  surface.
+- **v0.10 Phase 5 — Watchdog**: mcd polls each agent's systemd unit
+  and restarts dead ones with throttling + nightly hygiene. Events
+  publish to a broadcast channel for future TUI/web consumers. `mc
+  agent supervise list/status/restart/pause/resume/history` is the
+  surface.
+
 ---
 
 ## Install on a node
