@@ -16,6 +16,7 @@
 
 use anyhow::{Context, Result};
 use std::process::Command;
+use std::sync::OnceLock;
 
 /// Pane id used for the primary terminal in Aria fleet profiles. Matches
 /// the default first pane Zellij creates when a session starts. Hard-coded
@@ -39,7 +40,7 @@ impl ZellijSession {
     /// Strips `ZELLIJ*` env vars so this works correctly even when mcd was
     /// started from inside another Zellij session.
     pub fn is_alive(&self) -> bool {
-        match Command::new("zellij")
+        match Command::new(zellij_binary())
             .args(["list-sessions", "--short"])
             .env_remove("ZELLIJ")
             .env_remove("ZELLIJ_SESSION_NAME")
@@ -139,11 +140,53 @@ impl ZellijSession {
 }
 
 fn build_cmd(argv: &[String]) -> Command {
-    let mut cmd = Command::new("zellij");
+    let mut cmd = Command::new(zellij_binary());
     for a in argv {
         cmd.arg(a);
     }
     cmd
+}
+
+/// Resolve the `zellij` binary. Probes candidate paths once, caches
+/// the result for the process lifetime. Falls back to bare `"zellij"`
+/// when nothing else works so the resulting `Command` still attempts
+/// PATH lookup (and surfaces a useful error from the child process).
+///
+/// systemd `--user` services start with a stripped PATH that omits
+/// `~/.cargo/bin` and `~/.local/bin` — the two places users typically
+/// install zellij. `which::which` is unreliable inside these services
+/// for the same reason. Probe explicitly.
+pub fn zellij_binary() -> &'static str {
+    static RESOLVED: OnceLock<String> = OnceLock::new();
+    RESOLVED
+        .get_or_init(|| {
+            for candidate in zellij_candidates() {
+                if std::process::Command::new(&candidate)
+                    .arg("--version")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false)
+                {
+                    return candidate;
+                }
+            }
+            "zellij".to_string()
+        })
+        .as_str()
+}
+
+/// Candidate locations to probe, in priority order: bare `zellij` (for
+/// the case where PATH is set), then `~/.cargo/bin/zellij` (cargo install
+/// default), then `~/.local/bin/zellij`, then system paths.
+pub fn zellij_candidates() -> Vec<String> {
+    let mut out = vec!["zellij".to_string()];
+    if let Some(home) = dirs::home_dir() {
+        out.push(home.join(".cargo/bin/zellij").to_string_lossy().into_owned());
+        out.push(home.join(".local/bin/zellij").to_string_lossy().into_owned());
+    }
+    out.push("/usr/local/bin/zellij".into());
+    out.push("/usr/bin/zellij".into());
+    out
 }
 
 // ── Screen classification ───────────────────────────────────────────────

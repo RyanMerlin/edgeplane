@@ -751,6 +751,22 @@ impl Spawner {
                 }));
             }
             SessionMode::Persistent => {
+                // ZellijHosted agents are externally managed: their Zellij
+                // session is owned by systemd + aria-watchdog, mcd doesn't
+                // need a session supervisor or message-relay loop. Signals
+                // route via the mgmt_gateway `agent.local.signal` method
+                // (Phase 3), which looks the agent up in the supervisor's
+                // map (populated above by `supervisor.spawn`). No loops
+                // needed; the agent record is the entire surface.
+                if spec.runtime_kind == "zellij_hosted" {
+                    tracing::info!(
+                        "ZellijHosted agent {} registered; no session supervisor needed \
+                         (signals route via mgmt_gateway agent.local.signal)",
+                        spec.agent_id
+                    );
+                    return Some(RunningAgent::new(spec.clone(), handles));
+                }
+
                 let supervisor_jh = if spec.runtime_kind == "claude_agent_acp" {
                     let opts = acp_spawn_opts
                         .clone()
