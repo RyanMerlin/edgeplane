@@ -17,30 +17,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Assert VERSION matches all three workspaces
+        shell: bash
         run: |
           set -euo pipefail
-          expected=$(cat VERSION | tr -d '[:space:]')
-          if [[ -z "$expected" ]]; then
+          expected=$(tr -d '[:space:]' < VERSION)
+          if [ -z "$expected" ]; then
             echo "::error::VERSION file is empty"
             exit 1
           fi
           fail=0
           for crate in mc mcd mc-controlplane; do
             toml="crates/$crate/Cargo.toml"
-            actual=$(python3 -c "
-import re, sys
-text = open('$toml').read()
-m = re.search(r'\[workspace\.package\][^\[]*?\nversion\s*=\s*\"([^\"]+)\"', text, re.DOTALL)
-print(m.group(1) if m else '')
-")
-            if [[ "$actual" != "$expected" ]]; then
+            # Extract the version line under [workspace.package]. awk prints
+            # the value between the first pair of double quotes on the first
+            # "version =" line after the [workspace.package] header.
+            actual=$(awk '
+              /^\[workspace\.package\]/ { in_section = 1; next }
+              /^\[/ && in_section { in_section = 0 }
+              in_section && /^version[[:space:]]*=/ {
+                match($0, /"[^"]+"/)
+                print substr($0, RSTART+1, RLENGTH-2)
+                exit
+              }
+            ' "$toml")
+            if [ "$actual" != "$expected" ]; then
               echo "::error::$toml workspace.package version is '$actual', expected '$expected' (from /VERSION)"
               fail=1
             else
               echo "ok: $crate = $actual"
             fi
           done
-          if [[ $fail -ne 0 ]]; then
+          if [ "$fail" -ne 0 ]; then
             echo ""
             echo "Run: ./scripts/set-version.sh $expected"
             echo "to sync all three workspaces to /VERSION."
