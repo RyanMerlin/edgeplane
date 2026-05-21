@@ -196,6 +196,19 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         });
     }
 
+    // Phase 3 — Triage loop.
+    // Examines unscoped ready tasks in the intake kluster and either routes
+    // them to a profile (via child meshtask) or surfaces them for human
+    // triage in `mc-engineer/inbox.md`. Runs independently of P2 at a slower
+    // cadence (default 60s vs 30s). Gated by `task_worker_triage_enabled`.
+    if cfg.task_worker_triage_enabled {
+        let triage_client = Arc::clone(&client);
+        let triage_config = cfg.clone();
+        tokio::spawn(async move {
+            task_worker::run_triage_loop(triage_client, triage_config).await;
+        });
+    }
+
     let policy = match cfg.offline_policy.as_str() {
         "safe_readonly" => OfflinePolicy::SafeReadonly,
         "autonomous" => OfflinePolicy::Autonomous { max_ttl_secs: 300 },

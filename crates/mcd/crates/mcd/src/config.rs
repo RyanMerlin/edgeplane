@@ -90,6 +90,40 @@ pub struct DaemonConfig {
     /// Default: `"claude"`.
     #[serde(default = "default_task_worker_subagent_command")]
     pub task_worker_subagent_command: String,
+
+    // ── Task worker triage (P3) ────────────────────────────────────────────
+    //
+    // Controls the triage loop that examines unscoped tasks in the intake
+    // kluster and either routes them to a profile (via child meshtask) or
+    // surfaces them for human triage in `mc-engineer/inbox.md`.
+
+    /// Enable the triage loop (P3). Set to `false` to disable without
+    /// disabling the P2 claimer loop. Default: `true`.
+    #[serde(default = "default_triage_enabled")]
+    pub task_worker_triage_enabled: bool,
+
+    /// How often (seconds) the triage loop polls the intake kluster for
+    /// unscoped tasks. Deliberately slower than P2's claim interval.
+    /// Default: 60.
+    #[serde(default = "default_triage_poll_interval_secs")]
+    pub task_worker_triage_poll_interval_secs: u64,
+
+    /// Minimum goose confidence score to auto-route a task to a profile.
+    /// Tasks below this threshold are surfaced to `mc-engineer/inbox.md`
+    /// for human triage. Range: 0.0–1.0. Default: 0.85.
+    #[serde(default = "default_triage_confidence_threshold")]
+    pub task_worker_triage_confidence_threshold: f64,
+
+    /// Maximum number of tasks to triage per cycle. Caps goose subprocess
+    /// load; remaining tasks are picked up on the next poll. Default: 5.
+    #[serde(default = "default_max_triage_per_cycle")]
+    pub task_worker_max_triage_per_cycle: usize,
+
+    /// Timeout (seconds) for each `aria goose` subprocess call during triage.
+    /// If goose exceeds this, the task is treated as low-confidence and
+    /// surfaced for human triage. Default: 30.
+    #[serde(default = "default_goose_timeout_secs")]
+    pub task_worker_goose_timeout_secs: u64,
 }
 
 fn default_task_worker_enabled() -> bool {
@@ -106,6 +140,26 @@ fn default_task_worker_max_concurrent() -> usize {
 
 fn default_task_worker_subagent_command() -> String {
     "claude".to_string()
+}
+
+fn default_triage_enabled() -> bool {
+    true
+}
+
+fn default_triage_poll_interval_secs() -> u64 {
+    60
+}
+
+fn default_triage_confidence_threshold() -> f64 {
+    0.85
+}
+
+fn default_max_triage_per_cycle() -> usize {
+    5
+}
+
+fn default_goose_timeout_secs() -> u64 {
+    30
 }
 
 fn default_attach_bind() -> String {
@@ -214,6 +268,11 @@ impl DaemonConfig {
             task_worker_poll_interval_secs: default_task_worker_poll_interval_secs(),
             task_worker_max_concurrent: default_task_worker_max_concurrent(),
             task_worker_subagent_command: default_task_worker_subagent_command(),
+            task_worker_triage_enabled: default_triage_enabled(),
+            task_worker_triage_poll_interval_secs: default_triage_poll_interval_secs(),
+            task_worker_triage_confidence_threshold: default_triage_confidence_threshold(),
+            task_worker_max_triage_per_cycle: default_max_triage_per_cycle(),
+            task_worker_goose_timeout_secs: default_goose_timeout_secs(),
         });
         cfg.resolve_credentials();
         cfg

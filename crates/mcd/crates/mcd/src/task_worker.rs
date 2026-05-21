@@ -1,6 +1,8 @@
-//! Ephemeral task subagent claimer loop (Phase 2).
+//! Ephemeral task subagent claimer loop (Phase 2) and triage loop (Phase 3).
 //!
-//! This module polls the MissionControl controlplane for `MeshTask` rows whose
+//! # Phase 2 — claimer loop
+//!
+//! Polls the MissionControl controlplane for `MeshTask` rows whose
 //! `claim_policy` contains a `target_profile` matching one of the profiles this
 //! mcd instance supervises. For each match (up to `max_concurrent_subagents`),
 //! it:
@@ -13,29 +15,42 @@
 //!   6. On subprocess exit: completes the AgentRun + MeshTask, deletes the
 //!      ephemeral MeshAgent, removes the worktree.
 //!
+//! # Phase 3 — triage loop
+//!
+//! A second long-running tokio task that examines unscoped tasks in the intake
+//! kluster (tasks with no `target_profile` in `claim_policy` and no prior triage
+//! attempt). For each such task, it applies three-tier routing:
+//!
+//!   1. **Rule tier**: if the task already has a `target_profile` in
+//!      `claim_policy`, it's scoped — skip (P2 handles it).
+//!   2. **Goose categorization**: call `aria goose` with a structured prompt
+//!      listing the task description and supervised profiles. Parse the returned
+//!      `{"target_profile": "...", "confidence": 0.0–1.0, "reason": "..."}`.
+//!   3. **Route or surface**:
+//!      - Confidence ≥ threshold AND profile in supervised set →
+//!        create child meshtask with `claim_policy = {"target_profile": "<name>"}`;
+//!        claim + complete the intake task (status = `finished`).
+//!      - Otherwise → block the intake task (status = `blocked`), append an
+//!        entry to `mc-engineer/inbox.md` for human triage.
+//!
 //! # Soft-fail philosophy
 //!
-//! Individual task failures log a warning and continue. The poll loop itself
-//! never crashes the daemon — controlplane unreachable is logged as a warning
-//! and the poll retries after the configured interval. The daemon stays alive
-//! through any transient API error.
+//! Individual task failures log a warning and continue. Neither loop crashes the
+//! daemon — controlplane unreachable is logged as a warning and retried on the
+//! next poll interval. The daemon stays alive through any transient API error or
+//! goose subprocess failure.
 //!
 //! # Concurrency
 //!
-//! A `tokio::sync::Semaphore` caps active subagent processes at
+//! P2: A `tokio::sync::Semaphore` caps active subagent processes at
 //! `config.task_worker_max_concurrent`. Tasks beyond the cap stay `ready` in
 //! the queue and are picked up when a slot frees.
 //!
-//! # What this module does NOT do (per Phase 2 scope)
+//! P3: Triage is sequential within a cycle (one goose call at a time) and capped
+//! at `config.task_worker_max_triage_per_cycle`. A `tokio::sync::Mutex<bool>`
+//! prevents overlapping triage cycles if a cycle exceeds the poll interval.
 //!
-//! - No triage logic: tasks without `target_profile` in claim_policy are skipped.
-//!   P3 will handle triage for unscoped tasks.
-//! - No capability enforcement (`--allowed-tools`): subagents get the full claude
-//!   tool surface. P4 will restrict based on `required_capabilities`.
-//! - No actual `git worktree add`: worktrees are plain directories for now.
-//!   Real git worktree allocation is a P2 refinement.
-//!
-//! # HTTP endpoint surface used
+//! # HTTP endpoint surface used (P2)
 //!
 //! - `GET /missions` — discover all missions for kluster scanning.
 //! - `GET /missions/{id}/k` — list klusters per mission.
@@ -46,6 +61,24 @@
 //! - `POST /runs/{run_id}/complete` — complete AgentRun on subprocess exit.
 //! - `POST /work/tasks/{task_id}/complete` — complete MeshTask.
 //! - `DELETE /work/agents/{agent_id}` — delete ephemeral MeshAgent (Decision #1).
+//!
+//! # HTTP endpoint surface used (P3 triage)
+//!
+//! - `GET /missions` → `GET /missions/{id}/k` → find intake kluster by name.
+//! - `GET /work/klusters/{intake_kluster_id}/tasks?status=ready` — list unscoped tasks.
+//! - `POST /work/klusters/{intake_kluster_id}/tasks` — create child meshtask.
+//! - `POST /work/missions/{mission_id}/agents/enroll` — enroll temporary triage agent.
+//! - `POST /work/tasks/{intake_task_id}/claim` — claim intake task before completing.
+//! - `POST /work/tasks/{intake_task_id}/complete` — mark intake task finished (routed).
+//! - `POST /work/tasks/{intake_task_id}/block` — mark intake task blocked (low-confidence).
+//! - `DELETE /work/agents/{agent_id}` — delete temporary triage agent.
+//!
+//! # Note: complete_task status constraint
+//!
+//! The controlplane's `complete_task` handler only transitions from
+//! `claimed`/`running`/`waiting_review`. Since the intake task starts as `ready`,
+//! we must claim it first (with a temporary triage agent) before completing.
+//! `block_task` has no such constraint — it transitions from any status.
 //!
 //! # Cross-kluster scan trade-off
 //!
@@ -676,6 +709,658 @@ pub fn worktree_path_for_task(task_id: &str) -> PathBuf {
     mcd_core::paths::mc_home_dir().join("worktrees").join(task_id)
 }
 
+// ── Phase 3: Triage loop ──────────────────────────────────────────────────────
+
+/// Parsed result from a goose categorization call.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CategorizationResult {
+    pub target_profile: String,
+    /// 0.0–1.0 confidence that the routing is correct.
+    pub confidence: f64,
+    /// One-line reason from goose for the routing decision.
+    pub reason: String,
+}
+
+/// Entry point for the P3 triage loop. Spawned alongside the P2 claimer loop
+/// by `daemon.rs`. Loops forever at a slower cadence than P2 (default 60s vs
+/// 30s), examining unscoped ready tasks in the intake kluster.
+///
+/// Uses a `Mutex<bool>` to prevent overlapping triage cycles — if a cycle
+/// takes longer than the poll interval, the next tick is skipped silently.
+pub async fn run_triage_loop(client: Arc<BackendClient>, config: DaemonConfig) {
+    if !config.task_worker_triage_enabled {
+        tracing::info!("triage: disabled by config, not starting triage loop");
+        return;
+    }
+
+    let poll_interval =
+        std::time::Duration::from_secs(config.task_worker_triage_poll_interval_secs);
+    let cycle_running = Arc::new(tokio::sync::Mutex::new(false));
+
+    tracing::info!(
+        "triage: starting loop (interval={}s, max_per_cycle={}, confidence_threshold={:.2})",
+        config.task_worker_triage_poll_interval_secs,
+        config.task_worker_max_triage_per_cycle,
+        config.task_worker_triage_confidence_threshold,
+    );
+
+    loop {
+        tokio::time::sleep(poll_interval).await;
+
+        // Skip if a previous cycle is still running.
+        let mut guard = cycle_running.lock().await;
+        if *guard {
+            tracing::debug!("triage: previous cycle still in flight, skipping tick");
+            continue;
+        }
+        *guard = true;
+        drop(guard); // release lock before async work
+
+        let supervised = discover_supervised_profiles();
+        if supervised.is_empty() {
+            tracing::debug!(
+                "triage: no supervised profiles in local registry, skipping triage cycle"
+            );
+        } else {
+            triage_cycle(&client, &config, &supervised).await;
+        }
+
+        *cycle_running.lock().await = false;
+    }
+}
+
+/// One triage cycle: find unscoped ready tasks in the intake kluster and
+/// attempt to route or surface each one.
+async fn triage_cycle(
+    client: &Arc<BackendClient>,
+    config: &DaemonConfig,
+    supervised: &HashSet<String>,
+) {
+    // Resolve intake kluster.
+    let (intake_kluster_id, intake_mission_id) =
+        match resolve_intake_kluster(client).await {
+            Some(pair) => pair,
+            None => {
+                tracing::debug!(
+                    "triage: intake kluster not found, skipping cycle \
+                     (bootstrap may not have run yet)"
+                );
+                return;
+            }
+        };
+
+    // Fetch ready tasks from the intake kluster.
+    let tasks: Vec<Value> = match client
+        .get(&format!(
+            "/work/klusters/{intake_kluster_id}/tasks?status=ready"
+        ))
+        .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(
+                "triage: GET /work/klusters/{intake_kluster_id}/tasks failed: {e:#}"
+            );
+            return;
+        }
+    };
+
+    // Filter to unscoped tasks only (no target_profile, not already triaged).
+    let unscoped: Vec<Value> = tasks
+        .into_iter()
+        .filter(|t| should_triage(t, supervised))
+        .take(config.task_worker_max_triage_per_cycle)
+        .collect();
+
+    if unscoped.is_empty() {
+        tracing::debug!("triage: no unscoped tasks in intake kluster");
+        return;
+    }
+
+    tracing::info!(
+        "triage: {} unscoped task(s) to triage in intake kluster {intake_kluster_id}",
+        unscoped.len()
+    );
+
+    for task in &unscoped {
+        triage_one(
+            client,
+            config,
+            task,
+            &intake_kluster_id,
+            &intake_mission_id,
+            supervised,
+        )
+        .await;
+    }
+}
+
+/// Triage one unscoped task. Calls goose to categorize, then either:
+/// - Routes via child meshtask + marks intake task finished (high confidence).
+/// - Blocks the intake task + surfaces to vault inbox (low confidence).
+async fn triage_one(
+    client: &Arc<BackendClient>,
+    config: &DaemonConfig,
+    task: &Value,
+    intake_kluster_id: &str,
+    intake_mission_id: &str,
+    supervised: &HashSet<String>,
+) {
+    let task_id = match task.get("id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => {
+            tracing::warn!("triage: task missing id, skipping");
+            return;
+        }
+    };
+    let title = task
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no title)");
+
+    tracing::info!("triage: categorizing task={task_id} title='{title}'");
+
+    // Step 1: Build prompt and call goose.
+    let prompt = build_categorization_prompt(task, supervised);
+    let categorization = call_goose_categorize(&prompt, config).await;
+
+    // Step 2: Decide routing.
+    let should_route = match &categorization {
+        Some(r) => should_route_to_profile(r, config.task_worker_triage_confidence_threshold, supervised),
+        None => false,
+    };
+
+    if should_route {
+        let result = categorization.as_ref().unwrap();
+        tracing::info!(
+            "triage: routing task={task_id} to profile='{}' (confidence={:.2}, reason='{}')",
+            result.target_profile,
+            result.confidence,
+            result.reason,
+        );
+        route_task(client, config, task, intake_kluster_id, intake_mission_id, &result.target_profile).await;
+    } else {
+        let reason_summary = categorization
+            .as_ref()
+            .map(|r| format!("confidence={:.2} reason='{}'", r.confidence, r.reason))
+            .unwrap_or_else(|| "goose categorization failed".to_string());
+
+        tracing::info!(
+            "triage: low-confidence for task={task_id} — blocking + surfacing ({reason_summary})"
+        );
+        surface_to_inbox(client, task, &categorization, intake_kluster_id).await;
+    }
+}
+
+/// Route a task: create child meshtask, claim intake task, complete intake task.
+///
+/// State machine note: `complete_task` requires status = `claimed`/`running`.
+/// Since the intake task starts as `ready`, we must claim it (with a temporary
+/// triage agent) before completing. The temporary agent is deleted after.
+async fn route_task(
+    client: &Arc<BackendClient>,
+    config: &DaemonConfig,
+    intake_task: &Value,
+    intake_kluster_id: &str,
+    intake_mission_id: &str,
+    target_profile: &str,
+) {
+    let intake_task_id = match intake_task.get("id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => {
+            tracing::warn!("triage: route_task called with task missing id");
+            return;
+        }
+    };
+
+    // ── Step 1: Create child meshtask in the intake kluster ────────────────
+    //
+    // Child task carries the work; intake task becomes the routing record.
+    // claim_policy routes to the target profile. parent_task_id links back.
+
+    let child_claim_policy = serde_json::json!({ "target_profile": target_profile }).to_string();
+    let child_body = serde_json::json!({
+        "title": intake_task.get("title").and_then(|v| v.as_str()).unwrap_or("(untitled)"),
+        "description": intake_task.get("description").and_then(|v| v.as_str()).unwrap_or(""),
+        "input_json": intake_task.get("input_json").and_then(|v| v.as_str()).unwrap_or("{}"),
+        "claim_policy": child_claim_policy,
+        "parent_task_id": intake_task_id,
+        "priority": intake_task.get("priority").and_then(|v| v.as_i64()).unwrap_or(0),
+    });
+
+    let child_resp: Value = match client
+        .post(
+            &format!("/work/klusters/{intake_kluster_id}/tasks"),
+            &child_body,
+        )
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(
+                "triage: create child task failed for intake={intake_task_id}: {e:#}. \
+                 Falling back to vault surface."
+            );
+            // Fall back to blocking + surfacing rather than leaving task unhandled.
+            surface_to_inbox_low_confidence(client, intake_task, "child task creation failed", intake_kluster_id).await;
+            return;
+        }
+    };
+
+    let child_id = child_resp.get("id").and_then(|v| v.as_str()).unwrap_or("(unknown)");
+    tracing::debug!(
+        "triage: created child task={child_id} for intake={intake_task_id} → profile={target_profile}"
+    );
+
+    // ── Step 2: Enroll a temporary triage agent so we can claim the intake task ─
+
+    let enroll_body = serde_json::json!({
+        "agent_name": "triage-worker",
+        "runtime_kind": "claude_headless",
+        "runtime_version": concat!("triage-v", env!("CARGO_PKG_VERSION")),
+        "capabilities": ["triage"],
+        "labels": {
+            "role": "triage-agent",
+            "ephemeral": true,
+            "intake_task_id": intake_task_id,
+        }
+    });
+
+    let enroll_resp: Value = match client
+        .post(
+            &format!("/work/missions/{intake_mission_id}/agents/enroll"),
+            &enroll_body,
+        )
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(
+                "triage: enroll triage agent failed for intake={intake_task_id}: {e:#}. \
+                 Child task created (id={child_id}) but intake task left in ready state."
+            );
+            return;
+        }
+    };
+
+    let triage_agent_id = match enroll_resp.get("id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            tracing::warn!(
+                "triage: enroll response missing id for intake={intake_task_id}: {enroll_resp}"
+            );
+            return;
+        }
+    };
+
+    // ── Step 3: Claim the intake task ──────────────────────────────────────
+
+    let claim_body = serde_json::json!({ "agent_id": triage_agent_id });
+    if let Err(e) = client
+        .raw_post(&format!("/work/tasks/{intake_task_id}/claim"), &claim_body)
+        .await
+    {
+        tracing::warn!(
+            "triage: claim intake task={intake_task_id} failed: {e:#}. \
+             Child task created (id={child_id}). Cleaning up triage agent."
+        );
+        delete_agent_soft(client, &triage_agent_id, intake_task_id).await;
+        return;
+    }
+
+    // ── Step 4: Complete the intake task (status: claimed → finished) ──────
+
+    let complete_body = serde_json::json!({ "agent_id": triage_agent_id });
+    if let Err(e) = client
+        .raw_post(&format!("/work/tasks/{intake_task_id}/complete"), &complete_body)
+        .await
+    {
+        tracing::warn!(
+            "triage: complete intake task={intake_task_id} failed: {e:#}. \
+             Task may be stuck in 'claimed' state. Child task={child_id} exists."
+        );
+    } else {
+        tracing::info!(
+            "triage: intake task={intake_task_id} marked finished (routed to profile={target_profile}, \
+             child={child_id})"
+        );
+    }
+
+    // ── Step 5: Delete the temporary triage agent ──────────────────────────
+
+    delete_agent_soft(client, &triage_agent_id, intake_task_id).await;
+
+    // ── Step 6: Ignore goose_timeout_secs here — used by call_goose_categorize ─
+    let _ = config.task_worker_goose_timeout_secs; // suppress unused warning
+}
+
+/// Block the intake task and append an entry to `mc-engineer/inbox.md`.
+async fn surface_to_inbox(
+    client: &Arc<BackendClient>,
+    intake_task: &Value,
+    categorization: &Option<CategorizationResult>,
+    intake_kluster_id: &str,
+) {
+    let reason = categorization
+        .as_ref()
+        .map(|r| format!(
+            "goose confidence={:.2}, target='{}', reason='{}'",
+            r.confidence, r.target_profile, r.reason
+        ))
+        .unwrap_or_else(|| "goose categorization returned no result".to_string());
+    surface_to_inbox_low_confidence(client, intake_task, &reason, intake_kluster_id).await;
+}
+
+/// Internal helper: block the intake task and write to the vault inbox.
+async fn surface_to_inbox_low_confidence(
+    client: &Arc<BackendClient>,
+    intake_task: &Value,
+    reason: &str,
+    _intake_kluster_id: &str,
+) {
+    let task_id = intake_task
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(unknown)");
+    let title = intake_task
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no title)");
+    let description = intake_task
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let desc_excerpt: String = description.chars().take(200).collect();
+
+    // Block the intake task (transitions from any status to 'blocked').
+    // No request body needed — block_task has no body parameter.
+    if let Err(e) = client
+        .raw_post(&format!("/work/tasks/{task_id}/block"), &serde_json::json!({}))
+        .await
+    {
+        tracing::warn!(
+            "triage: block intake task={task_id} failed: {e:#}. \
+             Task left in ready state — will be re-triaged next cycle."
+        );
+        // Don't write to inbox if block failed — next cycle will retry.
+        return;
+    }
+
+    tracing::info!(
+        "triage: intake task={task_id} blocked (needs human triage). Writing to inbox."
+    );
+
+    // Write to mc-engineer/inbox.md via `aria vault note append`.
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
+    let entry = format!(
+        "### {now} — task `{task_id}`\n\
+         **Title:** {title}\n\
+         **Excerpt:** {desc_excerpt}\n\
+         **Triage note:** {reason}\n\
+         **To route:** edit claim_policy to add `target_profile`, then `POST /work/tasks/{task_id}/unblock`\n"
+    );
+
+    let vault_result = tokio::process::Command::new("aria")
+        .args([
+            "vault",
+            "note",
+            "append",
+            "--path",
+            "mc-engineer/inbox.md",
+            "--section",
+            "Triage Inbox",
+            &entry,
+        ])
+        .output()
+        .await;
+
+    match vault_result {
+        Ok(out) if out.status.success() => {
+            tracing::debug!("triage: inbox entry written for task={task_id}");
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!(
+                "triage: aria vault note append failed for task={task_id} (exit={}): {}",
+                out.status,
+                stderr.chars().take(200).collect::<String>()
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                "triage: could not spawn aria vault note append for task={task_id}: {e:#}"
+            );
+        }
+    }
+}
+
+/// Resolve the intake kluster id and its parent mission id.
+///
+/// Walks missions → klusters, looking for a kluster named `INTAKE_KLUSTER_NAME`.
+/// Returns `None` if the intake kluster doesn't exist yet (bootstrap hasn't run)
+/// or if the controlplane is unreachable.
+async fn resolve_intake_kluster(client: &Arc<BackendClient>) -> Option<(String, String)> {
+    use crate::bootstrap::INTAKE_KLUSTER_NAME;
+
+    let missions: Vec<Value> = match client.get("/missions").await {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!("triage: GET /missions failed: {e:#}");
+            return None;
+        }
+    };
+
+    for mission in &missions {
+        let mission_id = mission.get("id").and_then(|v| v.as_str())?;
+
+        let klusters: Vec<Value> = match client
+            .get(&format!("/missions/{mission_id}/k"))
+            .await
+        {
+            Ok(k) => k,
+            Err(_) => continue,
+        };
+
+        for k in &klusters {
+            if k.get("name").and_then(|v| v.as_str()) == Some(INTAKE_KLUSTER_NAME)
+                && let Some(kid) = k.get("id").and_then(|v| v.as_str())
+            {
+                return Some((kid.to_string(), mission_id.to_string()));
+            }
+        }
+    }
+
+    None
+}
+
+/// Call `aria goose` with the categorization prompt and parse the response.
+///
+/// The `aria goose` response shape is:
+///   `{"ok": bool, "data": <string | object>, ...}`
+///
+/// If `ok=false`, returns `None` (low-confidence fallback).
+/// If `data` is a JSON string, attempts to parse it as `CategorizationResult`.
+/// If `data` is already an object, uses it directly.
+pub async fn call_goose_categorize(
+    prompt: &str,
+    config: &DaemonConfig,
+) -> Option<CategorizationResult> {
+    let timeout_secs = config.task_worker_goose_timeout_secs;
+
+    let output = tokio::process::Command::new("aria")
+        .args(["goose", prompt, "--timeout", &timeout_secs.to_string()])
+        .output()
+        .await
+        .map_err(|e| {
+            tracing::warn!("triage: could not spawn 'aria goose': {e:#}");
+            e
+        })
+        .ok()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::warn!(
+            "triage: aria goose exited with status={} stderr={}",
+            output.status,
+            stderr.chars().take(200).collect::<String>()
+        );
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_goose_response(&stdout)
+}
+
+/// Parse the JSON output of `aria goose` into a `CategorizationResult`.
+///
+/// Exposed as `pub` for unit testing without spawning subprocesses.
+pub fn parse_goose_response(raw: &str) -> Option<CategorizationResult> {
+    let outer: Value = serde_json::from_str(raw.trim())
+        .map_err(|e| {
+            tracing::warn!("triage: could not parse goose response as JSON: {e:#} (raw={raw})");
+            e
+        })
+        .ok()?;
+
+    // Check `ok` field.
+    if outer.get("ok").and_then(|v| v.as_bool()) == Some(false) {
+        tracing::warn!(
+            "triage: goose reported ok=false: {}",
+            outer.get("error").and_then(|v| v.as_str()).unwrap_or("(no error field)")
+        );
+        return None;
+    }
+
+    // `data` may be a JSON string (goose wraps the reply) or an object.
+    let data = outer.get("data")?;
+    let inner: Value = if let Some(s) = data.as_str() {
+        // Goose returned data as a JSON-encoded string — parse it.
+        serde_json::from_str(s)
+            .map_err(|e| {
+                tracing::warn!(
+                    "triage: data field is a string but not valid JSON: {e:#} (data={s})"
+                );
+                e
+            })
+            .ok()?
+    } else {
+        // data is already an object.
+        data.clone()
+    };
+
+    let target_profile = inner
+        .get("target_profile")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from)?;
+
+    let confidence = inner
+        .get("confidence")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+
+    let reason = inner
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no reason)")
+        .to_string();
+
+    Some(CategorizationResult {
+        target_profile,
+        confidence,
+        reason,
+    })
+}
+
+/// Build the categorization prompt for goose.
+///
+/// Instructs goose to return a JSON object with `target_profile`, `confidence`,
+/// and `reason`. Includes the task's title and description and the list of
+/// supervised profiles so goose can make an informed routing decision.
+pub fn build_categorization_prompt(task: &Value, supervised: &HashSet<String>) -> String {
+    let title = task
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no title)");
+    let description = task
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let desc_excerpt: String = description.chars().take(500).collect();
+
+    // Sort profiles for deterministic prompt output (aids testing).
+    let mut profiles: Vec<&str> = supervised.iter().map(String::as_str).collect();
+    profiles.sort_unstable();
+    let profiles_list = profiles.join(", ");
+
+    format!(
+        "You are a task router for an AI agent fleet. Categorize this task and return ONLY a \
+        JSON object (no markdown, no explanation) with fields: \
+        \"target_profile\" (string), \"confidence\" (float 0.0-1.0), \"reason\" (one-line string).\n\n\
+        Available profiles: {profiles_list}\n\n\
+        Task title: {title}\n\
+        Task description: {desc_excerpt}\n\n\
+        Which profile should handle this task? If you are not confident (< 0.85), \
+        set a low confidence score. Only output the JSON object."
+    )
+}
+
+/// Decide if a task needs triage.
+///
+/// A task should be triaged if:
+/// - It has no `target_profile` in `claim_policy` (unscoped).
+/// - Its `claim_policy` does not identify it as already-scoped for a supervised profile.
+/// - The task does not have `status='blocked'` (blocked = already surfaced, awaiting human).
+///
+/// Note: the query already filters by `status=ready`, so `status` checking is
+/// belt-and-suspenders (the response should only include ready tasks, but we
+/// guard here for future use).
+pub fn should_triage(task: &Value, supervised: &HashSet<String>) -> bool {
+    // Skip if already scoped (P2 handles it).
+    let claim_policy = task
+        .get("claim_policy")
+        .and_then(|v| v.as_str())
+        .unwrap_or("{}");
+    if parse_target_profile_from_claim_policy(claim_policy).is_some() {
+        return false;
+    }
+
+    // Skip if already blocked (prior low-confidence triage — awaiting human).
+    let status = task
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("ready");
+    if status == "blocked" {
+        return false;
+    }
+
+    // Skip if supervised set is empty (no profiles to route to).
+    if supervised.is_empty() {
+        return false;
+    }
+
+    true
+}
+
+/// Decide whether a categorization result warrants auto-routing.
+///
+/// Returns `true` iff:
+/// - `confidence >= threshold`
+/// - `target_profile` is in `supervised_profiles` (non-empty after trim).
+pub fn should_route_to_profile(
+    result: &CategorizationResult,
+    threshold: f64,
+    supervised: &HashSet<String>,
+) -> bool {
+    if result.confidence < threshold {
+        return false;
+    }
+    if result.target_profile.trim().is_empty() {
+        return false;
+    }
+    supervised.contains(&result.target_profile)
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -857,5 +1542,229 @@ mod tests {
             "description": "Fallback",
         });
         assert_eq!(build_prompt(&task), "Object-style prompt");
+    }
+
+    // ── P3 triage: parse_goose_response ──────────────────────────────────
+
+    #[test]
+    fn parse_goose_response_valid_string_data() {
+        // Happy path: aria goose returns data as a JSON-encoded string.
+        let raw = r#"{"ok":true,"data":"{\"target_profile\":\"research\",\"confidence\":0.9,\"reason\":\"Looks like research work\"}"}"#;
+        let result = parse_goose_response(raw).unwrap();
+        assert_eq!(result.target_profile, "research");
+        assert!((result.confidence - 0.9).abs() < 1e-6);
+        assert_eq!(result.reason, "Looks like research work");
+    }
+
+    #[test]
+    fn parse_goose_response_data_already_object() {
+        // Some goose versions return data as a JSON object, not a string.
+        let raw = r#"{"ok":true,"data":{"target_profile":"work","confidence":0.95,"reason":"Work task"}}"#;
+        let result = parse_goose_response(raw).unwrap();
+        assert_eq!(result.target_profile, "work");
+        assert!((result.confidence - 0.95).abs() < 1e-6);
+        assert_eq!(result.reason, "Work task");
+    }
+
+    #[test]
+    fn parse_goose_response_ok_false_returns_none() {
+        let raw = r#"{"ok":false,"error":"LiteLLM 429 rate limit"}"#;
+        assert!(parse_goose_response(raw).is_none());
+    }
+
+    #[test]
+    fn parse_goose_response_invalid_outer_json_returns_none() {
+        assert!(parse_goose_response("this is not json").is_none());
+    }
+
+    #[test]
+    fn parse_goose_response_invalid_inner_json_returns_none() {
+        // data is a string but not valid JSON.
+        let raw = r#"{"ok":true,"data":"not-valid-json-either"}"#;
+        assert!(parse_goose_response(raw).is_none());
+    }
+
+    #[test]
+    fn parse_goose_response_missing_target_profile_returns_none() {
+        let raw = r#"{"ok":true,"data":{"confidence":0.9,"reason":"something"}}"#;
+        assert!(parse_goose_response(raw).is_none());
+    }
+
+    #[test]
+    fn parse_goose_response_empty_target_profile_returns_none() {
+        let raw = r#"{"ok":true,"data":{"target_profile":"","confidence":0.9,"reason":"x"}}"#;
+        assert!(parse_goose_response(raw).is_none());
+    }
+
+    // ── P3 triage: should_route_to_profile ───────────────────────────────
+
+    #[test]
+    fn should_route_above_threshold_with_supervised_profile() {
+        let result = CategorizationResult {
+            target_profile: "research".to_string(),
+            confidence: 0.9,
+            reason: "Clearly research".to_string(),
+        };
+        let supervised: HashSet<String> =
+            ["operator", "research", "work"].iter().map(|s| s.to_string()).collect();
+        assert!(should_route_to_profile(&result, 0.85, &supervised));
+    }
+
+    #[test]
+    fn should_route_below_threshold_returns_false() {
+        let result = CategorizationResult {
+            target_profile: "research".to_string(),
+            confidence: 0.5,
+            reason: "Uncertain".to_string(),
+        };
+        let supervised: HashSet<String> =
+            ["research"].iter().map(|s| s.to_string()).collect();
+        assert!(!should_route_to_profile(&result, 0.85, &supervised));
+    }
+
+    #[test]
+    fn should_route_above_threshold_unsupervised_profile_returns_false() {
+        let result = CategorizationResult {
+            target_profile: "some-other-profile".to_string(),
+            confidence: 0.99,
+            reason: "Very confident but unknown profile".to_string(),
+        };
+        let supervised: HashSet<String> =
+            ["operator", "research"].iter().map(|s| s.to_string()).collect();
+        assert!(!should_route_to_profile(&result, 0.85, &supervised));
+    }
+
+    #[test]
+    fn should_route_exact_threshold_boundary() {
+        let result = CategorizationResult {
+            target_profile: "operator".to_string(),
+            confidence: 0.85,
+            reason: "At threshold".to_string(),
+        };
+        let supervised: HashSet<String> =
+            ["operator"].iter().map(|s| s.to_string()).collect();
+        // Exactly at threshold: >= 0.85 should route.
+        assert!(should_route_to_profile(&result, 0.85, &supervised));
+    }
+
+    #[test]
+    fn should_route_just_below_threshold_boundary() {
+        let result = CategorizationResult {
+            target_profile: "operator".to_string(),
+            confidence: 0.849,
+            reason: "Just below threshold".to_string(),
+        };
+        let supervised: HashSet<String> =
+            ["operator"].iter().map(|s| s.to_string()).collect();
+        assert!(!should_route_to_profile(&result, 0.85, &supervised));
+    }
+
+    #[test]
+    fn should_route_empty_supervised_set_returns_false() {
+        let result = CategorizationResult {
+            target_profile: "research".to_string(),
+            confidence: 0.99,
+            reason: "Very confident".to_string(),
+        };
+        assert!(!should_route_to_profile(&result, 0.85, &HashSet::new()));
+    }
+
+    // ── P3 triage: should_triage ──────────────────────────────────────────
+
+    #[test]
+    fn task_already_triaged_scoped_skip() {
+        // A task with target_profile already set is scoped — P2's job.
+        let task = json!({
+            "id": "t-triaged",
+            "status": "ready",
+            "claim_policy": r#"{"target_profile":"research"}"#,
+        });
+        let supervised: HashSet<String> = ["research"].iter().map(|s| s.to_string()).collect();
+        assert!(!should_triage(&task, &supervised));
+    }
+
+    #[test]
+    fn task_blocked_is_skipped() {
+        // Blocked = already surfaced for human triage.
+        let task = json!({
+            "id": "t-blocked",
+            "status": "blocked",
+            "claim_policy": "{}",
+        });
+        let supervised: HashSet<String> = ["operator"].iter().map(|s| s.to_string()).collect();
+        assert!(!should_triage(&task, &supervised));
+    }
+
+    #[test]
+    fn task_unscoped_ready_needs_triage() {
+        let task = json!({
+            "id": "t-unscoped",
+            "status": "ready",
+            "claim_policy": "{}",
+        });
+        let supervised: HashSet<String> = ["operator"].iter().map(|s| s.to_string()).collect();
+        assert!(should_triage(&task, &supervised));
+    }
+
+    #[test]
+    fn task_missing_claim_policy_needs_triage() {
+        // No claim_policy field at all — treat as unscoped.
+        let task = json!({ "id": "t-nopolicy", "status": "ready" });
+        let supervised: HashSet<String> = ["operator"].iter().map(|s| s.to_string()).collect();
+        assert!(should_triage(&task, &supervised));
+    }
+
+    #[test]
+    fn should_triage_empty_supervised_set_returns_false() {
+        let task = json!({ "id": "t-x", "status": "ready", "claim_policy": "{}" });
+        assert!(!should_triage(&task, &HashSet::new()));
+    }
+
+    // ── P3 triage: build_categorization_prompt ────────────────────────────
+
+    #[test]
+    fn build_categorization_prompt_includes_task_title_and_description() {
+        let task = json!({
+            "id": "t-1",
+            "title": "Analyze Q2 data",
+            "description": "Run analysis on the Q2 dataset and produce a report.",
+        });
+        let supervised: HashSet<String> = ["research"].iter().map(|s| s.to_string()).collect();
+        let prompt = build_categorization_prompt(&task, &supervised);
+        assert!(prompt.contains("Analyze Q2 data"), "prompt should include task title");
+        assert!(
+            prompt.contains("Run analysis on the Q2 dataset"),
+            "prompt should include task description"
+        );
+    }
+
+    #[test]
+    fn build_categorization_prompt_lists_supervised_profiles() {
+        let task = json!({ "id": "t-2", "title": "Some task", "description": "" });
+        let supervised: HashSet<String> =
+            ["operator", "research", "work"].iter().map(|s| s.to_string()).collect();
+        let prompt = build_categorization_prompt(&task, &supervised);
+        assert!(prompt.contains("operator"), "prompt should list 'operator' profile");
+        assert!(prompt.contains("research"), "prompt should list 'research' profile");
+        assert!(prompt.contains("work"), "prompt should list 'work' profile");
+    }
+
+    #[test]
+    fn build_categorization_prompt_requests_json_output() {
+        let task = json!({ "id": "t-3", "title": "Task", "description": "" });
+        let supervised: HashSet<String> = ["operator"].iter().map(|s| s.to_string()).collect();
+        let prompt = build_categorization_prompt(&task, &supervised);
+        assert!(
+            prompt.contains("target_profile"),
+            "prompt should mention 'target_profile' field"
+        );
+        assert!(
+            prompt.contains("confidence"),
+            "prompt should mention 'confidence' field"
+        );
+        assert!(
+            prompt.contains("JSON"),
+            "prompt should ask for JSON output"
+        );
     }
 }
