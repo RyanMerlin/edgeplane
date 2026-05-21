@@ -35,7 +35,12 @@ pub struct RunCheckpoint {
 #[derive(Deserialize)]
 pub struct StartRunRequest {
     pub runtime_kind: String,
+    // Accept both the historic short names and the column-aligned names.
+    // The fields bind to agentrun.mesh_agent_id / mesh_task_id server-side;
+    // callers following column naming should not silently drop to NULL.
+    #[serde(alias = "mesh_agent_id")]
     pub agent_id: Option<String>,
+    #[serde(alias = "mesh_task_id")]
     pub task_id: Option<String>,
     pub idempotency_key: Option<String>,
     pub runtime_session_id: Option<String>,

@@ -194,3 +194,35 @@ async fn test_node_notify_route_registered() {
     assert_ne!(status, 404, "/runtime/nodes/{{id}}/notify should be registered");
     assert_ne!(status, 200, "unauthenticated request must not succeed");
 }
+
+// Admin DELETE /work/agents/{id} for ephemeral subagent cleanup.
+// See docs/design/ephemeral-task-subagents.md.
+#[tokio::test]
+async fn test_delete_agent_route_registered() {
+    let res = server().delete("/work/agents/test-agent-id").await;
+    let status = res.status_code().as_u16();
+    assert_ne!(status, 404, "DELETE /work/agents/{{id}} should be registered");
+    assert_ne!(status, 200, "unauthenticated request must not succeed");
+    assert_ne!(status, 204, "unauthenticated request must not succeed");
+}
+
+// StartRunRequest accepts both `agent_id`/`task_id` and the column-aligned
+// aliases `mesh_agent_id`/`mesh_task_id`. Without the aliases, callers using
+// column names silently get NULL FKs on agentrun.
+#[test]
+fn test_start_run_request_accepts_mesh_aliases() {
+    use mc_controlplane::models::run::StartRunRequest;
+    let json = r#"{"runtime_kind":"claude_headless","mesh_agent_id":"a1","mesh_task_id":"t1"}"#;
+    let req: StartRunRequest = serde_json::from_str(json).expect("must deserialize");
+    assert_eq!(req.agent_id.as_deref(), Some("a1"));
+    assert_eq!(req.task_id.as_deref(), Some("t1"));
+}
+
+#[test]
+fn test_start_run_request_still_accepts_short_names() {
+    use mc_controlplane::models::run::StartRunRequest;
+    let json = r#"{"runtime_kind":"claude_headless","agent_id":"a1","task_id":"t1"}"#;
+    let req: StartRunRequest = serde_json::from_str(json).expect("must deserialize");
+    assert_eq!(req.agent_id.as_deref(), Some("a1"));
+    assert_eq!(req.task_id.as_deref(), Some("t1"));
+}

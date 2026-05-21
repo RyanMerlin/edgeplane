@@ -101,7 +101,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/work/agents/{agent_id}/heartbeat", post(agent_heartbeat))
         .route("/work/agents/{agent_id}/status", post(set_agent_status))
         .route("/work/agents/{agent_id}/profile", patch(update_agent_profile))
-        .route("/work/agents/{agent_id}", get(get_agent))
+        .route("/work/agents/{agent_id}", get(get_agent).delete(delete_agent))
         .route("/work/agents/{agent_id}/messages", get(get_agent_messages))
         .route("/work/agents/{agent_id}/notify", get(agent_notify_ws))
         // Kluster messages + stream
@@ -1780,6 +1780,66 @@ async fn agent_heartbeat(
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
+}
+
+/// Delete a meshagent row. Authorized for admin OR the subject that enrolled
+/// the agent (meshagent.enrolled_by_subject). FK behavior on `agentrun` is
+/// `ON DELETE SET NULL`, so audit rows survive.
+///
+/// Distinct from `revoke_node_agent` (DELETE /runtime/nodes/{node_id}/agents/{agent_id})
+/// which requires the agent to be assigned to a registered runtime node owned by
+/// the caller. This endpoint exists for the ephemeral-subagent model where the
+/// spawner needs to clean up its own meshagent rows independent of node assignment.
+async fn delete_agent(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(agent_id): Path<String>,
+) -> impl IntoResponse {
+    let row = sqlx::query(
+        "SELECT enrolled_by_subject, node_id, mission_id FROM meshagent WHERE id=$1",
+    )
+    .bind(&agent_id)
+    .fetch_optional(&state.db)
+    .await;
+    let (enrolled_by, node_id, mission_id): (String, Option<String>, String) = match row {
+        Ok(Some(r)) => (
+            r.get("enrolled_by_subject"),
+            r.get::<Option<String>, _>("node_id"),
+            r.get("mission_id"),
+        ),
+        Ok(None) => return not_found("Agent not found"),
+        Err(e) => {
+            tracing::error!("delete_agent lookup: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    if enrolled_by != principal.subject && !principal.is_admin {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    if let Err(e) = sqlx::query("DELETE FROM meshagent WHERE id=$1")
+        .bind(&agent_id)
+        .execute(&state.db)
+        .await
+    {
+        tracing::error!("delete_agent delete: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    if let Some(node) = node_id {
+        broadcast_assignment_changed(
+            &node,
+            serde_json::json!({
+                "type": "agent.deleted",
+                "agent_id": agent_id,
+                "mission_id": mission_id,
+            }),
+        )
+        .await;
+    }
+
+    StatusCode::NO_CONTENT.into_response()
 }
 
 async fn set_agent_status(
