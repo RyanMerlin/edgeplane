@@ -5,6 +5,7 @@ mod acp_session_supervisor;
 mod attach_gateway;
 mod attach_registry;
 mod attach_ws;
+mod bootstrap;
 mod config;
 mod cron;
 mod cron_config;

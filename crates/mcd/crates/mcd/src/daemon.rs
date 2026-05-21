@@ -25,6 +25,7 @@ use crate::acp_session_supervisor::{self, AcpSupervisorConfig};
 use crate::attach_gateway;
 use crate::attach_registry::AttachRegistry;
 use crate::attach_ws;
+use crate::bootstrap;
 use crate::config::{DaemonConfig, SessionMode};
 use crate::fleet_import::SOURCE_FLEET_IMPORT;
 use crate::local_registry::{LocalRegistry, SOURCE_LOCAL, source_cp};
@@ -148,6 +149,37 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     }
 
     let client = Arc::new(BackendClient::new(&cfg.backend_url, &cfg.token));
+
+    // Bootstrap: idempotently provision `home-{hostname}` mission + `intake`
+    // kluster for per-node coordination. Runs after fleet_import (which
+    // establishes the agent registry) and after the client is constructed.
+    // Soft-fail: controlplane unreachable is logged as a warning; mcd continues.
+    match bootstrap::run(&client).await {
+        Ok(summary) => {
+            if summary.mission_created || summary.kluster_created {
+                tracing::info!(
+                    "bootstrap: provisioned home mission={} kluster={} \
+                     (mission_created={}, kluster_created={})",
+                    summary.mission_id,
+                    summary.kluster_id,
+                    summary.mission_created,
+                    summary.kluster_created,
+                );
+            } else {
+                tracing::debug!(
+                    "bootstrap: home mission and intake kluster already exist \
+                     (mission={}, kluster={})",
+                    summary.mission_id,
+                    summary.kluster_id,
+                );
+            }
+        }
+        Err(e) => {
+            // run() itself is soft-fail and returns Ok on connectivity errors,
+            // but handle the unexpected Err case for completeness.
+            tracing::warn!("bootstrap: unexpected error: {e:#}. Continuing.");
+        }
+    }
 
     let policy = match cfg.offline_policy.as_str() {
         "safe_readonly" => OfflinePolicy::SafeReadonly,
