@@ -14,9 +14,10 @@ Every entity below cites both the philosophy doc (definition) and the schema (st
 **A bounded organizational objective.** The high-level "what we are doing and why." Carries the northstar narrative, owners, governance scope.
 
 - Philosophy: line 98–106 ("A Mission is: A bounded objective; A scoped knowledge domain; A policy surface; A permission boundary; A tool/skill profile")
-- Schema: `public.mission` (0001) — has `northstar_md`, `owners`, `contributors`, `visibility`, `status`, `kind`
-- Migration 0006 adds `kind` (`'work'` | `'home'`). Work missions are regular objectives; home missions are per-node coordination inboxes (`home-{tailscale_hostname}`) that anchor a node's persistent agent. Same table, two distinct lifecycles — filter by `kind` in UI/API.
+- Schema: `public.mission` (0001) — has `northstar_md`, `owners`, `contributors`, `visibility`, `status`
 - Owns: many klusters (`kluster.mission_id`)
+
+> **DEPRECATED:** `Mission.kind` (migration 0006, values `'work'` | `'home'`) is soft-deprecated as of 2026-05-21. The column was set in exactly one code path (`provision_home_for_node` in `routes/runtime.rs`) and read by zero — a write-only tag that leaked an Aria-specific operational pattern into the schema. New code MUST NOT write or filter on `kind`. The column stays for now (migrations are forward-only); a future migration may drop it. Operational coordination missions are just regular missions; convention names them (e.g. `aria-fleet-ops`) and `Agent.home_mission_id` still points at them as before — that FK was never constrained to `kind='home'` anyway.
 
 Missions do **not** complete. They scope. Tasks complete.
 

@@ -118,15 +118,23 @@ async fn create_kluster(
     }
 
     let now = Utc::now().naive_utc();
+    // If workstream_md is provided, stamp the created_by/at metadata too so
+    // it's not orphaned. If it's empty (the historic default), leave the
+    // workstream metadata empty as before.
+    let ws_created_by: &str = if payload.workstream_md.is_empty() { "" } else { principal.subject.as_str() };
+    let ws_created_at: Option<chrono::NaiveDateTime> = if payload.workstream_md.is_empty() { None } else { Some(now) };
     match sqlx::query_as::<_, Kluster>(
         r#"INSERT INTO kluster
             (id, mission_id, name, description, owners, contributors, tags, status,
              workstream_md, workstream_version, workstream_created_by, workstream_modified_by,
              workstream_created_at, workstream_modified_at, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'',1,'','',NULL,NULL,$9,$9) RETURNING *"#
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10,$10,$11,$11,$12,$12) RETURNING *"#
     )
     .bind(&id).bind(&mission_id).bind(&payload.name).bind(&payload.description)
     .bind(&payload.owners).bind(&payload.contributors).bind(&payload.tags).bind(&payload.status)
+    .bind(&payload.workstream_md)
+    .bind(ws_created_by)
+    .bind(ws_created_at)
     .bind(now)
     .fetch_one(&state.db).await {
         Ok(k) => (StatusCode::OK, Json(k)).into_response(),

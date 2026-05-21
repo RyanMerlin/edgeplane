@@ -34,6 +34,11 @@ pub struct KlusterCreate {
     #[serde(default = "default_active")]
     pub status: String,
     pub mission_id: Option<String>,
+    /// Workstream narrative for the kluster. Optional at create time;
+    /// callers can also PATCH it later. The kluster's `workstream_version`
+    /// starts at 1 regardless.
+    #[serde(default)]
+    pub workstream_md: String,
 }
 
 #[derive(Debug, Deserialize)]

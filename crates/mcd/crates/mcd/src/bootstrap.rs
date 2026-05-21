@@ -1,28 +1,41 @@
-//! Idempotent startup bootstrap for per-node coordination state.
+//! Idempotent startup bootstrap for fleet operational state.
 //!
-//! Called once after fleet_import during daemon startup. Provisions two
-//! entities in the MissionControl controlplane (if they don't already exist):
+//! Called once after fleet_import during daemon startup. Ensures two entities
+//! exist in the MissionControl controlplane:
 //!
-//!   1. `home-{hostname}` mission — per-node coordination inbox (`kind='home'`
-//!      at the DB level; the API doesn't expose `kind` in create/list so we
-//!      rely on the naming convention to identify home missions).
+//!   1. The fleet operations mission (default name `aria-fleet-ops`,
+//!      overridable via `MC_OPS_MISSION_NAME` env var). Single global mission
+//!      that holds operational coordination work — *not* per-node. This is
+//!      a regular mission; we deliberately do NOT use the `Mission.kind`
+//!      column, which is being soft-deprecated (write-only with no readers).
 //!
 //!   2. `intake` kluster under that mission — universal landing zone for
-//!      unscoped dispatched work; the spawner triages from here.
+//!      unscoped dispatched work. The spawner (P2) triages from here to the
+//!      right destination kluster via child meshtasks with `parent_task_id`
+//!      pointing at the intake task.
 //!
-//! Idempotent: re-running on an already-bootstrapped node logs at DEBUG and
-//! returns `Ok(())` without modifying anything.
+//! Idempotent: re-running when both already exist logs at DEBUG and returns
+//! `Ok(())` without modifying anything.
 //!
 //! Soft-fail: if the controlplane is unreachable or returns unexpected errors,
 //! the function logs a warning and returns `Ok(())` — the daemon continues
-//! starting normally. Bootstrap will retry on the next daemon startup.
+//! starting normally. Bootstrap retries on the next daemon startup.
 //!
 //! See `docs/design/ephemeral-task-subagents.md` § Decision 5 for the
-//! architectural rationale.
+//! architectural rationale, including why we walked back the per-node
+//! `kind='home'` model in favor of a single fleet-ops mission.
 
 use anyhow::Result;
 use mcd_core::client::BackendClient;
 use serde_json::Value;
+
+/// Default name for the fleet operations mission. Overridable via the
+/// `MC_OPS_MISSION_NAME` env var if a deployment wants a different name.
+pub const DEFAULT_OPS_MISSION_NAME: &str = "aria-fleet-ops";
+
+/// Name of the intake kluster. Convention, not configurable — the spawner
+/// looks for this exact name when triaging unscoped dispatched work.
+pub const INTAKE_KLUSTER_NAME: &str = "intake";
 
 /// Summary of what the bootstrap run did — returned for the caller's log line.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -33,29 +46,19 @@ pub struct BootstrapSummary {
     pub kluster_id: String,
 }
 
-/// Resolve the node name to use for `home-{hostname}` provisioning.
+/// Resolve the fleet ops mission name.
 ///
 /// Priority:
-///   1. `MC_NODE_ID` env var (explicit override — useful in tests and CI)
-///   2. Short Tailscale hostname (first label of the FQDN, e.g. "excalibur"
-///      from "excalibur.my-tailnet.ts.net")
-///   3. OS hostname (`hostname` command / `gethostname`)
-pub fn resolve_node_name() -> String {
-    // 1. Explicit env override.
-    if let Ok(v) = std::env::var("MC_NODE_ID") {
+///   1. `MC_OPS_MISSION_NAME` env var (deployment override).
+///   2. `DEFAULT_OPS_MISSION_NAME` ("aria-fleet-ops").
+pub fn resolve_ops_mission_name() -> String {
+    if let Ok(v) = std::env::var("MC_OPS_MISSION_NAME") {
         let trimmed = v.trim();
         if !trimmed.is_empty() {
             return trimmed.to_string();
         }
     }
-
-    // 2. Tailscale short hostname.
-    if let Some(ts_name) = tailscale_short_hostname() {
-        return ts_name;
-    }
-
-    // 3. OS hostname.
-    os_hostname()
+    DEFAULT_OPS_MISSION_NAME.to_string()
 }
 
 /// Run the bootstrap sequence against `client`.
@@ -63,24 +66,21 @@ pub fn resolve_node_name() -> String {
 /// Returns `Ok(BootstrapSummary)` on success. Returns `Ok` with a warning log
 /// on any controlplane connectivity or API error (soft-fail).
 pub async fn run(client: &BackendClient) -> Result<BootstrapSummary> {
-    let node_name = resolve_node_name();
-    let mission_name = format!("home-{node_name}");
+    let mission_name = resolve_ops_mission_name();
 
-    tracing::debug!("bootstrap: node_name={node_name}, provisioning mission={mission_name}");
+    tracing::debug!("bootstrap: ensuring fleet ops mission '{mission_name}' + intake kluster");
 
-    // Step 1: resolve or create the home mission.
     let (mission_id, mission_created) = match resolve_or_create_mission(client, &mission_name).await {
         Ok(pair) => pair,
         Err(e) => {
             tracing::warn!(
-                "bootstrap: could not provision home mission '{mission_name}': {e:#}. \
+                "bootstrap: could not provision fleet ops mission '{mission_name}': {e:#}. \
                  Continuing without bootstrap — will retry on next startup."
             );
             return Ok(BootstrapSummary::default());
         }
     };
 
-    // Step 2: resolve or create the intake kluster under that mission.
     let (kluster_id, kluster_created) =
         match resolve_or_create_intake_kluster(client, &mission_id, &mission_name).await {
             Ok(pair) => pair,
@@ -114,8 +114,6 @@ async fn resolve_or_create_mission(
     client: &BackendClient,
     mission_name: &str,
 ) -> Result<(String, bool)> {
-    // List all missions and search for one with the right name.
-    // The API returns an array of mission objects with at minimum `id` and `name`.
     let missions: Vec<Value> = client
         .get("/missions")
         .await
@@ -132,20 +130,17 @@ async fn resolve_or_create_mission(
             if id.is_empty() {
                 anyhow::bail!("mission '{mission_name}' found but has no id field");
             }
-            tracing::debug!("bootstrap: home mission exists (id={id})");
+            tracing::debug!("bootstrap: ops mission exists (id={id})");
             return Ok((id, false));
         }
     }
 
-    // Not found — create it.
-    tracing::info!("bootstrap: creating home mission '{mission_name}'");
+    tracing::info!("bootstrap: creating fleet ops mission '{mission_name}'");
     let body = serde_json::json!({
         "name": mission_name,
-        "northstar_md": format!(
-            "Per-node coordination inbox for {mission_name}. \
-             Unscoped dispatched work lands in the intake kluster; \
-             the spawner triages from here to the right destination kluster."
-        ),
+        "northstar_md": "Fleet operations coordination. Holds the intake kluster (landing zone \
+            for unscoped dispatched work) and per-node / per-profile operational klusters. \
+            Not a strategic workstream — operational scope.",
         "visibility": "private",
         "owners": "",   // defaults to caller's subject on the server side
     });
@@ -161,7 +156,7 @@ async fn resolve_or_create_mission(
         .ok_or_else(|| anyhow::anyhow!("POST /missions response missing 'id' field: {created}"))?
         .to_string();
 
-    tracing::info!("bootstrap: home mission created (id={id})");
+    tracing::info!("bootstrap: fleet ops mission created (id={id})");
     Ok((id, true))
 }
 
@@ -180,7 +175,7 @@ async fn resolve_or_create_intake_kluster(
 
     for k in &klusters {
         let name = k.get("name").and_then(|n| n.as_str()).unwrap_or("");
-        if name == "intake" {
+        if name == INTAKE_KLUSTER_NAME {
             let id = k
                 .get("id")
                 .and_then(|i| i.as_str())
@@ -194,18 +189,19 @@ async fn resolve_or_create_intake_kluster(
         }
     }
 
-    // Not found — create it.
     tracing::info!(
         "bootstrap: creating intake kluster under mission '{mission_name}' ({mission_id})"
     );
+    // NB: `workstream_md` is sent but `KlusterCreate` currently doesn't accept it
+    // (silently dropped by serde). Track and fix as a separate controlplane API
+    // patch; the kluster still gets created correctly.
     let body = serde_json::json!({
-        "name": "intake",
-        "owners": "",  // defaults to caller's subject
+        "name": INTAKE_KLUSTER_NAME,
+        "owners": "",
         "workstream_md": "Universal landing zone for unscoped dispatched work. \
-            Spawner triages from here to the right destination kluster via \
-            child meshtasks (parent_task_id points at the intake task; \
-            intake task gets status 'dispatched'). \
-            See docs/design/ephemeral-task-subagents.md § Decision 5.",
+            Spawner triages from here via child meshtasks (parent_task_id points \
+            back at the intake task; intake task is marked status='dispatched' \
+            once routed). See docs/design/ephemeral-task-subagents.md § Decision 5.",
     });
 
     let created: Value = client
@@ -227,184 +223,101 @@ async fn resolve_or_create_intake_kluster(
     Ok((id, true))
 }
 
-// ── Node name helpers ─────────────────────────────────────────────────────────
-
-/// Attempt to get the short hostname from Tailscale (first label of FQDN).
-fn tailscale_short_hostname() -> Option<String> {
-    let out = std::process::Command::new("tailscale")
-        .args(["status", "--json"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let v: Value = serde_json::from_slice(&out.stdout).ok()?;
-    let fqdn = v
-        .get("Self")
-        .and_then(|s| s.get("DNSName"))
-        .and_then(|n| n.as_str())?;
-    // Strip trailing dot; take first label.
-    let short = fqdn
-        .trim_end_matches('.')
-        .split('.')
-        .next()?
-        .trim();
-    if short.is_empty() { None } else { Some(short.to_string()) }
-}
-
-/// OS hostname via the `hostname` command (matches `MachineInfo::detect`).
-fn os_hostname() -> String {
-    std::process::Command::new("hostname")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| {
-            std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".into())
-        })
-}
-
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Verify that `resolve_node_name` honours the `MC_NODE_ID` env override.
+    /// Verify that `resolve_ops_mission_name` honours the env override.
     #[test]
-    fn resolve_node_name_env_override() {
+    fn resolve_ops_mission_name_env_override() {
         // SAFETY: single-threaded test runner; no concurrent env access.
-        unsafe { std::env::set_var("MC_NODE_ID", "test-node-override"); }
-        let name = resolve_node_name();
-        unsafe { std::env::remove_var("MC_NODE_ID"); }
-        assert_eq!(name, "test-node-override");
+        unsafe { std::env::set_var("MC_OPS_MISSION_NAME", "fleet-ops-test"); }
+        let name = resolve_ops_mission_name();
+        unsafe { std::env::remove_var("MC_OPS_MISSION_NAME"); }
+        assert_eq!(name, "fleet-ops-test");
     }
 
-    /// Verify that `resolve_node_name` trims whitespace from the env override.
+    /// Verify that whitespace-only env values fall through to the default.
     #[test]
-    fn resolve_node_name_env_override_trimmed() {
-        unsafe { std::env::set_var("MC_NODE_ID", "  spaced  "); }
-        let name = resolve_node_name();
-        unsafe { std::env::remove_var("MC_NODE_ID"); }
-        assert_eq!(name, "spaced");
+    fn resolve_ops_mission_name_whitespace_falls_through() {
+        unsafe { std::env::set_var("MC_OPS_MISSION_NAME", "   "); }
+        let name = resolve_ops_mission_name();
+        unsafe { std::env::remove_var("MC_OPS_MISSION_NAME"); }
+        assert_eq!(name, DEFAULT_OPS_MISSION_NAME);
     }
 
-    /// Verify that an empty `MC_NODE_ID` falls through to OS hostname.
+    /// Verify that the default name is the documented constant.
     #[test]
-    fn resolve_node_name_empty_env_falls_through() {
-        unsafe { std::env::set_var("MC_NODE_ID", ""); }
-        let name = resolve_node_name();
-        unsafe { std::env::remove_var("MC_NODE_ID"); }
-        // It should be non-empty (either from tailscale or gethostname).
-        assert!(!name.is_empty());
-        // It should NOT be the empty env value.
-        assert_ne!(name, "");
+    fn default_ops_mission_name_is_aria_fleet_ops() {
+        assert_eq!(DEFAULT_OPS_MISSION_NAME, "aria-fleet-ops");
     }
 
-    /// Verify `os_hostname` returns a non-empty string on this machine.
-    #[test]
-    fn os_hostname_non_empty() {
-        let h = os_hostname();
-        assert!(!h.is_empty(), "os_hostname() should always return something");
-    }
-
-    // ── Idempotency logic tests (mock HTTP via serde_json) ────────────────────
-    //
-    // We can't easily mock the BackendClient's HTTP layer without a full mock
-    // server, so we test the core idempotency logic by constructing the
-    // same JSON shapes the API would return and calling the parsing branch
-    // inline. The "already exists → no-op" and "not found → POST" branches
-    // are the critical invariants.
-
+    /// Parsing: finds mission by exact name match in the list response.
     #[test]
     fn mission_list_parse_finds_by_name() {
-        // Simulate what the API returns for GET /missions.
-        let missions = serde_json::json!([
-            {"id": "m-old", "name": "some-other-mission"},
-            {"id": "m-home", "name": "home-excalibur"},
+        let resp = serde_json::json!([
+            {"id": "mission-a", "name": "Some Other Mission"},
+            {"id": "mission-b", "name": "aria-fleet-ops"},
+            {"id": "mission-c", "name": "Another"},
         ]);
-        let arr = missions.as_array().unwrap();
-        let target = "home-excalibur";
-
-        let found = arr.iter().find_map(|m| {
-            let name = m.get("name").and_then(|n| n.as_str())?;
-            if name == target {
-                m.get("id").and_then(|i| i.as_str()).map(String::from)
-            } else {
-                None
-            }
-        });
-
-        assert_eq!(found.as_deref(), Some("m-home"));
+        let arr = resp.as_array().unwrap();
+        let found = arr
+            .iter()
+            .find(|m| m.get("name").and_then(|n| n.as_str()) == Some("aria-fleet-ops"))
+            .and_then(|m| m.get("id").and_then(|i| i.as_str()));
+        assert_eq!(found, Some("mission-b"));
     }
 
+    /// Parsing: returns None when no mission matches.
     #[test]
     fn mission_list_parse_returns_none_when_absent() {
-        let missions = serde_json::json!([
-            {"id": "m-1", "name": "alpha"},
-            {"id": "m-2", "name": "beta"},
+        let resp = serde_json::json!([
+            {"id": "mission-a", "name": "Other"},
         ]);
-        let arr = missions.as_array().unwrap();
-        let target = "home-excalibur";
-
-        let found = arr.iter().find_map(|m| {
-            let name = m.get("name").and_then(|n| n.as_str())?;
-            if name == target {
-                m.get("id").and_then(|i| i.as_str()).map(String::from)
-            } else {
-                None
-            }
-        });
-
+        let arr = resp.as_array().unwrap();
+        let found = arr
+            .iter()
+            .find(|m| m.get("name").and_then(|n| n.as_str()) == Some("aria-fleet-ops"));
         assert!(found.is_none());
     }
 
+    /// Parsing: finds the intake kluster among others.
     #[test]
     fn kluster_list_parse_finds_intake() {
-        let klusters = serde_json::json!([
-            {"id": "k-1", "name": "sprint-23"},
+        let resp = serde_json::json!([
+            {"id": "k-other", "name": "research"},
             {"id": "k-intake", "name": "intake"},
         ]);
-        let arr = klusters.as_array().unwrap();
-
-        let found = arr.iter().find_map(|k| {
-            let name = k.get("name").and_then(|n| n.as_str())?;
-            if name == "intake" {
-                k.get("id").and_then(|i| i.as_str()).map(String::from)
-            } else {
-                None
-            }
-        });
-
-        assert_eq!(found.as_deref(), Some("k-intake"));
+        let arr = resp.as_array().unwrap();
+        let found = arr
+            .iter()
+            .find(|k| k.get("name").and_then(|n| n.as_str()) == Some(INTAKE_KLUSTER_NAME))
+            .and_then(|k| k.get("id").and_then(|i| i.as_str()));
+        assert_eq!(found, Some("k-intake"));
     }
 
+    /// Parsing: no intake kluster present.
     #[test]
     fn kluster_list_parse_returns_none_when_absent() {
-        let klusters = serde_json::json!([
-            {"id": "k-1", "name": "sprint-23"},
+        let resp = serde_json::json!([
+            {"id": "k-other", "name": "research"},
         ]);
-        let arr = klusters.as_array().unwrap();
-
-        let found = arr.iter().find_map(|k| {
-            let name = k.get("name").and_then(|n| n.as_str())?;
-            if name == "intake" {
-                k.get("id").and_then(|i| i.as_str()).map(String::from)
-            } else {
-                None
-            }
-        });
-
+        let arr = resp.as_array().unwrap();
+        let found = arr
+            .iter()
+            .find(|k| k.get("name").and_then(|n| n.as_str()) == Some(INTAKE_KLUSTER_NAME));
         assert!(found.is_none());
     }
 
+    /// Default summary represents "no work done."
     #[test]
     fn bootstrap_summary_default_is_no_creates() {
         let s = BootstrapSummary::default();
         assert!(!s.mission_created);
         assert!(!s.kluster_created);
-        assert!(s.mission_id.is_empty());
-        assert!(s.kluster_id.is_empty());
+        assert_eq!(s.mission_id, "");
+        assert_eq!(s.kluster_id, "");
     }
 }

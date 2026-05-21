@@ -186,7 +186,36 @@ Aside from these two, the schema-level FK behavior (`ON DELETE SET NULL` on `age
 **Accept this identity model and proceed to:**
 
 1. ~~Schema audit~~ — done. Zero migrations needed.
-2. Build a 50-line shell prototype that walks through the lifecycle once end-to-end (submit_mesh_task → enroll_mesh_agent → claim_mesh_task → spawn `claude -p` in a per-task worktree → complete_mesh_task → delete MeshAgent → verify AgentRun survives with `mesh_agent_id=NULL`). Validates the model before any Rust code.
-3. If prototype works: scope the `mcd::task_worker` module. Estimate 200–400 lines.
+2. ~~Build a 50-line shell prototype that walks through the lifecycle once end-to-end~~ — done; `scripts/proto/ephemeral-subagent.sh` validated the model.
+3. ~~If prototype works: scope the `mcd::task_worker` module.~~ — phased into P1-P4 below.
 4. Wire `fleet-self-health` as the first production caller.
-5. Follow-up: extend MCP tools (`submit_mesh_task`, `enroll_mesh_agent`) with the missing fields once we have cross-host callers.
+5. ~~Follow-up: extend MCP tools~~ — walked back. CLI is the right surface for these; see decision log.
+
+---
+
+## Decision log (post-review 2026-05-21)
+
+After walking through the open questions, the following were locked:
+
+| # | Decision | Why |
+|---|----------|-----|
+| 1 | **Delete MeshAgent on completion.** Not archive. | FK `ON DELETE SET NULL` on `agentrun.mesh_agent_id` preserves audit trail automatically. Status whitelist doesn't include "archived" anyway. |
+| 2 | **No resume tokens in v1.** Fresh AISession per task. | Subagents chain via artifacts (S3-stored) + `parent_run_id` audit, not session state. YAGNI on cross-session resume. |
+| 3 | **Restrict capabilities** via dispatcher-declared `required_capabilities`, enforced via `claude -p --allowed-tools`. | Forces dispatchers to declare blast radius. Limits damage from buggy automation. |
+| 4 | **`mcd::task_worker` module**, per-node sharding by supervised profiles. | mcd is the supervisor; spawning is supervision. Per-node naturally shards without a central coordinator. |
+| 5 | **One fleet-ops mission + one `intake` kluster**, spawner-as-triage. | Walked back the per-node `home-{hostname}` model — `Mission.kind` was a write-only column with zero readers (leaked Aria-specific operational pattern into MC's schema). Replaced with a single mission (`aria-fleet-ops` by default, overridable via `MC_OPS_MISSION_NAME`) holding one `intake` kluster. **Triage** in spawner: rule (target_profile set → claim) → goose categorization at confidence >0.85 → vault surface to `mc-engineer/inbox.md` for low-confidence cases. Non-interruptive throughout. |
+| S2 | **Routing creates child meshtasks**, not kluster_id rebinds. | Intake task stays in intake kluster as routing log (status=`dispatched`); child meshtask under the routed kluster carries the work. Uses existing `parent_task_id` schema, no new mutations. |
+| MCP | **Don't extend the MCP tool surface** for write operations. | Every MCP tool definition costs context tokens in every session forever. CLI (`mc daemon task submit` etc.) is the same effort with zero context tax. The spawner calls HTTP directly anyway. |
+
+**Soft-deprecated:** `Mission.kind` column. New code MUST NOT write or filter on it. Existing `provision_home_for_node` in `routes/runtime.rs` still writes `kind='home'` but is dormant (no runtime nodes registered) — flagged as cleanup follow-up.
+
+---
+
+## Implementation phasing
+
+| Phase | Scope | Status |
+|-------|-------|--------|
+| **P1: Bootstrap** | mcd auto-provisions `aria-fleet-ops` mission + `intake` kluster on startup. Idempotent, soft-fail. | ✓ done — `crates/mcd/crates/mcd/src/bootstrap.rs` |
+| **P2: Claimer loop** | `mcd::task_worker` polls open meshtasks, claims via lease, spawns `claude -p` in a per-task worktree, completes the task. Handles tasks with explicit `target_profile` only. | Next |
+| **P3: Triage logic** | Three-tier triage (rule → goose → vault surface). Introduces parent/child task pattern for intake routing. | After P2 |
+| **P4: Capability enforcement** | `required_capabilities` → `--allowed-tools` translation. Coarse vocabulary: `shell:read/write`, `fs:read/write`, `vault:read/write`, `mc:read/write`, `web:fetch`, `gh:read/write`. | After P2 |
