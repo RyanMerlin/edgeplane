@@ -124,6 +124,26 @@ pub struct DaemonConfig {
     /// surfaced for human triage. Default: 30.
     #[serde(default = "default_goose_timeout_secs")]
     pub task_worker_goose_timeout_secs: u64,
+
+    // ── Task worker capability enforcement (P4) ────────────────────────────
+    //
+    // Controls how `required_capabilities` on a MeshTask are translated into
+    // `--allowed-tools` restrictions on the spawned `claude -p` subprocess.
+
+    /// When `true` (strict mode): tasks that declare no `required_capabilities`
+    /// are immediately failed with an error — the dispatcher must declare blast
+    /// radius. When `false` (default, lenient mode): tasks with no capabilities
+    /// fall back to `task_worker_default_capabilities`. Default: `false`.
+    #[serde(default = "default_strict_capabilities")]
+    pub task_worker_strict_capabilities: bool,
+
+    /// Capability set applied when strict mode is off and a task declares no
+    /// `required_capabilities`. Must be valid entries in the v1 capability
+    /// vocabulary (`shell:read`, `fs:read`, `fs:write`, etc.). If any entry
+    /// is invalid, the spawner logs a warning and falls back to `["fs:read"]`
+    /// only. Default: `["fs:read", "shell:read"]`.
+    #[serde(default = "default_default_capabilities")]
+    pub task_worker_default_capabilities: Vec<String>,
 }
 
 fn default_task_worker_enabled() -> bool {
@@ -160,6 +180,14 @@ fn default_max_triage_per_cycle() -> usize {
 
 fn default_goose_timeout_secs() -> u64 {
     30
+}
+
+fn default_strict_capabilities() -> bool {
+    false
+}
+
+fn default_default_capabilities() -> Vec<String> {
+    vec!["fs:read".to_string(), "shell:read".to_string()]
 }
 
 fn default_attach_bind() -> String {
@@ -273,6 +301,8 @@ impl DaemonConfig {
             task_worker_triage_confidence_threshold: default_triage_confidence_threshold(),
             task_worker_max_triage_per_cycle: default_max_triage_per_cycle(),
             task_worker_goose_timeout_secs: default_goose_timeout_secs(),
+            task_worker_strict_capabilities: default_strict_capabilities(),
+            task_worker_default_capabilities: default_default_capabilities(),
         });
         cfg.resolve_credentials();
         cfg

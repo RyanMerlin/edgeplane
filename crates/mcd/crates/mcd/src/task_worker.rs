@@ -99,6 +99,7 @@ use mcd_core::client::BackendClient;
 use serde_json::Value;
 use tokio::sync::Semaphore;
 
+use crate::capabilities::{parse_required_capabilities, resolve_capabilities};
 use crate::config::DaemonConfig;
 use crate::fleet_import::SOURCE_FLEET_IMPORT;
 use crate::local_registry::LocalRegistry;
@@ -481,6 +482,78 @@ async fn run_task_lifecycle(client: &BackendClient, config: &DaemonConfig, task:
 
     let prompt = build_prompt(task);
 
+    // ── Step 5a: Resolve capability set → --allowed-tools ─────────────────
+    //
+    // `required_capabilities` is a TEXT column on MeshTask, expected to hold
+    // a JSON array of coarse capability names (e.g. `["fs:read","shell:write"]`).
+    //
+    // Translation: each name maps to a set of `--allowed-tools` fragments via
+    // the v1 capability vocabulary in `crate::capabilities`. Subsuming
+    // capabilities (e.g. `vault:write` ⊇ `vault:read`) are expanded to the
+    // full union; the result is deduplicated and sorted for determinism.
+    //
+    // Strict mode (config.task_worker_strict_capabilities = true):
+    //   Missing or empty required_capabilities → fail the task immediately.
+    //   Forces dispatchers to declare blast radius.
+    //
+    // Lenient mode (default, strict = false):
+    //   Missing or empty required_capabilities → use
+    //   config.task_worker_default_capabilities (default: ["fs:read","shell:read"]).
+    //   If defaults are also invalid, fall back to fs:read only.
+
+    let raw_caps = task
+        .get("required_capabilities")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let parsed_caps = match parse_required_capabilities(raw_caps) {
+        Ok(caps) => caps,
+        Err(e) => {
+            tracing::warn!(
+                "task_worker: required_capabilities parse error for task={task_id}: {e:#}. \
+                 Failing task."
+            );
+            complete_task_failed(client, task_id, &agent_id).await;
+            delete_agent_soft(client, &agent_id, task_id).await;
+            if let Err(rm_err) = std::fs::remove_dir_all(&worktree) {
+                tracing::warn!(
+                    "task_worker: could not remove worktree {}: {rm_err:#}",
+                    worktree.display()
+                );
+            }
+            return;
+        }
+    };
+
+    let allowed_tools = match resolve_capabilities(
+        &parsed_caps,
+        config.task_worker_strict_capabilities,
+        &config.task_worker_default_capabilities,
+    ) {
+        Ok(tools) => tools,
+        Err(e) => {
+            tracing::warn!(
+                "task_worker: capability resolution failed for task={task_id}: {e:#}. \
+                 Failing task."
+            );
+            complete_task_failed(client, task_id, &agent_id).await;
+            delete_agent_soft(client, &agent_id, task_id).await;
+            if let Err(rm_err) = std::fs::remove_dir_all(&worktree) {
+                tracing::warn!(
+                    "task_worker: could not remove worktree {}: {rm_err:#}",
+                    worktree.display()
+                );
+            }
+            return;
+        }
+    };
+
+    let allowed_tools_str = allowed_tools.to_cli_string();
+    tracing::info!(
+        "task_worker: task={task_id} allowed_tools=[{}]",
+        allowed_tools_str
+    );
+
     // ── Step 6: Spawn `claude -p` subprocess ─────────────────────────────
 
     tracing::info!(
@@ -489,8 +562,8 @@ async fn run_task_lifecycle(client: &BackendClient, config: &DaemonConfig, task:
         worktree.display()
     );
 
-    let spawn_result = tokio::process::Command::new(&config.task_worker_subagent_command)
-        .arg("-p")
+    let mut cmd = tokio::process::Command::new(&config.task_worker_subagent_command);
+    cmd.arg("-p")
         .arg(&prompt)
         .arg("--output-format")
         .arg("json")
@@ -498,9 +571,19 @@ async fn run_task_lifecycle(client: &BackendClient, config: &DaemonConfig, task:
         // Strip mcd-internal env vars so the child doesn't inherit the secrets
         // gateway binding; see CLAUDE.md feedback on claude-code-acp runtime.
         .env_remove("MC_SECRETS_SOCKET")
-        .env_remove("MC_SECRETS_SESSION")
-        .output()
-        .await;
+        .env_remove("MC_SECRETS_SESSION");
+
+    // Add --allowed-tools only when the capability set is non-empty.
+    // An empty set (task declared `required_capabilities = []`) means no tools
+    // are allowed — the claude CLI defaults to all tools when the flag is
+    // absent, so we must pass an explicit empty string in that case.
+    // However, `claude --allowed-tools ""` is equivalent to no allowed tools
+    // per the CLI docs, and an empty capabilities set is a valid but unusual
+    // configuration (the subagent can still output via stdout). We always pass
+    // the flag so the restriction is explicit rather than silently omitted.
+    cmd.arg("--allowed-tools").arg(&allowed_tools_str);
+
+    let spawn_result = cmd.output().await;
 
     // ── Step 7: Cleanup regardless of spawn outcome ───────────────────────
     //

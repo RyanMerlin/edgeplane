@@ -6,6 +6,7 @@ mod attach_gateway;
 mod attach_registry;
 mod attach_ws;
 mod bootstrap;
+mod capabilities;
 mod config;
 mod cron;
 mod cron_config;
