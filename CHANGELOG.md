@@ -4,6 +4,55 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.7] — 2026-05-21
+
+### Added — Capability enforcement (P4) — completes the ephemeral subagent build
+
+`mcd::capabilities` — translates `meshtask.required_capabilities` into a `claude -p --allowed-tools` flag at subagent spawn time. The final phase of the ephemeral task subagent build (see `docs/design/ephemeral-task-subagents.md` § Decision 3). Per-task tool surface is now restricted to what the dispatcher declared.
+
+**Capability vocabulary (v1, hardcoded):**
+
+| Capability | Coverage |
+|------------|----------|
+| `shell:read` | Read-only shell: `ls`, `cat`, `head`, `tail`, `grep`, `find`, `pwd`, `echo`, `date` |
+| `shell:write` | Full bash (`Bash(*)`) |
+| `fs:read` | `Read`, `Glob`, `Grep` |
+| `fs:write` | `Read`, `Write`, `Edit`, `Glob`, `Grep` |
+| `vault:read` | `aria vault note read`, `aria vault note list`, `aria vault search` |
+| `vault:write` | Subsumes vault:read + `aria vault note write/create/patch/append` |
+| `mc:read` | `mc agent ls`, `mc daemon agent ls`, `mc daemon task ls`, `mc agent cron list/describe`, `mc status` |
+| `mc:write` | Subsumes mc:read + `mc daemon task submit`, `mc daemon agent enroll`, `mc agent signal` |
+| `web:fetch` | `WebFetch`, `WebSearch` |
+| `gh:read` | `gh repo view`, `gh issue view/list`, `gh pr view/list`, `gh run list/view`, `gh api` |
+| `gh:write` | Subsumes gh:read + `gh issue create/comment`, `gh pr create/comment` |
+
+Required-capabilities format: JSON array of strings in the `meshtask.required_capabilities` TEXT column, e.g. `'["fs:read","vault:write"]'`. Subsuming caps deduplicate automatically.
+
+**Strict vs lenient mode** (new config flag `task_worker_strict_capabilities`, default `false`):
+- **Lenient (default):** missing or empty `required_capabilities` → use `task_worker_default_capabilities` (default `["fs:read", "shell:read"]` — read-only fs + read-only shell). Safe default for casual dispatchers.
+- **Strict:** missing or empty → FAIL the task with reason "task missing required_capabilities — dispatcher must declare blast radius." The long-term target — forces dispatchers to think before submitting work.
+
+**Unknown capability** → task fails immediately with `unknown capability: <name>` error. No silent passthrough.
+
+**Verified `--allowed-tools` syntax** via `claude --help`: accepts both `--allowed-tools` and `--allowedTools`; comma OR space-separated; `Bash(<prefix> *)` form for granular Bash subcommand restriction, `Bash(*)` for unrestricted bash.
+
+**Audit:** the resolved tool set is logged at INFO level at each subagent spawn — a per-task record of "this subagent was allowed to call X, Y, Z."
+
+### Status — ephemeral task subagent build complete
+
+All four phases shipped:
+- ✅ P1 (bootstrap) — 0.15.4
+- ✅ P2 (claimer loop) — 0.15.5
+- ✅ P3 (triage) — 0.15.6
+- ✅ P4 (capability enforcement) — 0.15.7 (this)
+
+The end-to-end loop: dispatcher submits meshtask → triage routes (via goose categorization if unscoped) → claim → spawn ephemeral `claude -p` subagent with restricted tool surface → complete → MeshAgent deleted (FK preserves AgentRun audit). Each phase remains independently disable-able via config. Activation comes when something dispatches tagged work into the intake kluster.
+
+**Open follow-ups** (not blocking; tracked elsewhere):
+- `dispatch = "bash"` cron tier (vault note in `mc-engineer/projects/`)
+- `provision_home_for_node` cleanup (still writes `kind='home'` dormant)
+- Admin `POST /work/tasks/{id}/triaged` endpoint to simplify the P3 4-call routing dance
+
 ## [0.15.6] — 2026-05-21
 
 ### Added — Triage loop (P3)
