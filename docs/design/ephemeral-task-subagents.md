@@ -1,8 +1,9 @@
 # Ephemeral Task Subagents — Identity Model
 
-**Status:** Proposal (2026-05-21)
+**Status:** Shipped 2026-05-21 (mcd 0.15.4–0.15.7). All four phases complete.
 **Author:** Aria (mc-engineer) with Merlin
 **Supersedes:** signal-injection pattern for delegated work
+**Implementation:** `crates/mcd/crates/mcd/src/{bootstrap,task_worker,capabilities}.rs`
 
 ---
 

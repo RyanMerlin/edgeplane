@@ -96,6 +96,8 @@ See `MeshAgent` (below) for the discoverable, runtime-bound projection.
 
 Why two tables: `agent` is identity (who); `meshagent` is presence + capability (where + what they can do right now). One agent identity can have multiple meshagent rows over time as it enrolls on different nodes.
 
+**Ephemeral usage pattern (`mcd::task_worker`, shipped 0.15.5–0.15.7):** the same `Agent` identity holds the persistent fleet operator MeshAgent AND N transient task-subagent MeshAgents simultaneously. Each spawned subagent gets its own MeshAgent row (`labels.role=task-subagent, ephemeral=true`), claims one task, runs, and is DELETEd on completion. Audit trail survives via `agentrun.mesh_agent_id` FK (`ON DELETE SET NULL`). See `docs/design/ephemeral-task-subagents.md`.
+
 ---
 
 ## Session entities — three layers, separate concerns
