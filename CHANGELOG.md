@@ -4,6 +4,22 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.4] — 2026-05-21
+
+### Added
+
+- **mcd bootstrap module** — `crates/mcd/crates/mcd/src/bootstrap.rs`. On daemon startup (after `fleet_import`), idempotently ensures a fleet operations mission (default `aria-fleet-ops`, overridable via `MC_OPS_MISSION_NAME`) and an `intake` kluster under it exist in the controlplane. Soft-fails on controlplane unreachable. Unblocks Phase 2 of the ephemeral task subagent build (`docs/design/ephemeral-task-subagents.md`).
+- **`KlusterCreate.workstream_md`** — `crates/mc-controlplane/src/models/kluster.rs` accepts the workstream narrative on creation (optional, default empty). `create_kluster` handler now persists it and stamps the workstream metadata fields (created_by / created_at) when provided. Previously the field was silently dropped by serde.
+
+### Deprecated
+
+- **`Mission.kind`** (column added in migration 0006). Soft-deprecated. Audit determined the column was set by exactly one code path (`provision_home_for_node`) and read by zero — a write-only tag leaking an Aria-specific operational pattern into MC's schema. New code MUST NOT write or filter on it. `Agent.home_mission_id` was never constrained to `kind='home'` and is unaffected. See `docs/architecture/entities.md` § Mission and `docs/design/ephemeral-task-subagents.md` decision log.
+
+### Architecture
+
+- **Walked back per-node `home-{hostname}` missions** in favor of a single fleet-level operations mission. Per-node coordination, when needed in a multi-node future, will use per-node *klusters* under one mission instead of per-node missions. Cleaner aggregation, single source of truth.
+- **Decision log added** to `docs/design/ephemeral-task-subagents.md` capturing locks from the review session: ephemeral delete (not archive), no resume tokens v1, restricted capabilities via `--allowed-tools`, mcd module for the spawner, fleet-ops + intake replacing per-node home, child meshtasks for routing, and CLI (not MCP) for missing write surfaces.
+
 ## [0.15.3] — 2026-05-21
 
 ### Added
