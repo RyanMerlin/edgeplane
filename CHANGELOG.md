@@ -4,6 +4,20 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.3] — 2026-05-21
+
+### Added
+
+- **`DELETE /work/agents/{agent_id}`** — admin-or-owner endpoint to delete a meshagent row directly, independent of runtime-node assignment. Unblocks the ephemeral task subagent model (see `docs/design/ephemeral-task-subagents.md`) where the spawner needs to clean up its own meshagents without runtimenode bookkeeping. Authorized for `principal.is_admin` OR `meshagent.enrolled_by_subject == principal.subject`. FK on `agentrun.mesh_agent_id` is `ON DELETE SET NULL`, so the audit trail survives. `crates/mc-controlplane/src/routes/work.rs`.
+
+### Fixed
+
+- **`/runs` POST silently dropped column-named FK fields.** `StartRunRequest` declared `agent_id` / `task_id` but bound to `agentrun.mesh_agent_id` / `mesh_task_id` columns server-side. Callers using column names (which is the natural convention) got NULL FKs because serde dropped the unknown keys. Added `#[serde(alias = "mesh_agent_id")]` / `#[serde(alias = "mesh_task_id")]`; both naming conventions now work. `crates/mc-controlplane/src/models/run.rs`.
+
+### Documented
+
+- **Ephemeral task subagent identity model** — full design + schema audit + lifecycle walkthrough at `docs/design/ephemeral-task-subagents.md`. Companion prototype that walks the lifecycle end-to-end against a live controlplane at `scripts/proto/ephemeral-subagent.sh`. Resolves the architectural question of how MC spawns dispatched work without polluting persistent profile sessions.
+
 ## [0.15.2] — 2026-05-20
 
 ### Fixed
