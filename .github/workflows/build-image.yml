@@ -69,12 +69,16 @@ jobs:
         if: ${{ github.ref_type == 'branch' }}
         run: |
           SHORT_SHA=${{ steps.sha.outputs.short }}
+          # docker/metadata-action `type=sha` publishes `:sha-<short>` (default prefix).
+          # The gitops manifest must match that exact tag — bare `:<short>`
+          # produces an ImagePullBackOff.
+          IMAGE_TAG="sha-${SHORT_SHA}"
           git clone https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/RyanMerlin/gitops-merlinlabs.git /tmp/gitops
           cd /tmp/gitops
           DEPLOY=merlinlabs/applications/missioncontrol/mc-controlplane-deployment.yaml
-          sed -i "s|ghcr.io/ryanmerlin/missioncontrol:[a-zA-Z0-9._-]*|ghcr.io/ryanmerlin/missioncontrol:${SHORT_SHA}|g" "$DEPLOY"
+          sed -i "s|ghcr.io/ryanmerlin/missioncontrol:[a-zA-Z0-9._-]*|ghcr.io/ryanmerlin/missioncontrol:${IMAGE_TAG}|g" "$DEPLOY"
           git config user.email "ci@ryanmerlin.dev"
           git config user.name "MC CI"
           git add "$DEPLOY"
-          git diff --staged --quiet || git commit -m "chore(deploy): bump mc-controlplane to ${SHORT_SHA}"
+          git diff --staged --quiet || git commit -m "chore(deploy): bump mc-controlplane to ${IMAGE_TAG}"
           git push
