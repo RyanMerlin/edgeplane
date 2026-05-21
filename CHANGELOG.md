@@ -4,6 +4,35 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.5] — 2026-05-21
+
+### Added — Ephemeral task subagent claimer loop (P2)
+
+`mcd::task_worker` — long-running tokio task spawned at daemon startup that polls the controlplane for claimable meshtasks, enrolls ephemeral MeshAgents, spawns `claude -p` subprocesses in per-task worktrees, and cleans up on completion. See `docs/design/ephemeral-task-subagents.md` § Decision 4 (mcd module, per-node sharding) and § Decision 1 (delete MeshAgent on completion).
+
+**Behavior:**
+- Polls every `task_worker_poll_interval_secs` (default 30) for meshtasks with status='ready' whose `claim_policy` contains `{"target_profile": "<name>"}` matching a profile supervised on this node.
+- Enrolls an ephemeral MeshAgent under the parent profile's identity (`labels.role=task-subagent, labels.ephemeral=true, labels.task_id=<id>`).
+- Claims the task, opens an `AgentRun`, spawns `claude -p` with cwd = `~/.mc/worktrees/<task_id>/`, captures the result, completes the AgentRun and meshtask, deletes the MeshAgent (FK preserves AgentRun audit).
+- Concurrency cap at `task_worker_max_concurrent` (default 3).
+- Soft-fail throughout — any task error logs a warning and continues; daemon never crashes.
+
+**Scope limit:** P2 only handles tasks with `target_profile` set explicitly. Tasks landing in the `intake` kluster without that field are skipped (P3 triage handles those).
+
+**No capability enforcement yet:** subagents currently receive the full claude tool surface. P4 will restrict via `claude -p --allowed-tools` driven by `required_capabilities`.
+
+**New config keys (with `#[serde(default)]`, no migration needed):**
+- `task_worker_enabled: bool` (default `true`)
+- `task_worker_poll_interval_secs: u64` (default `30`)
+- `task_worker_max_concurrent: usize` (default `3`)
+- `task_worker_subagent_command: String` (default `"claude"`)
+
+The loop is dormant in practice until something dispatches `target_profile`-tagged tasks — polls find nothing, sleep, repeat. Activation comes when P3 wires triage or a dispatcher (e.g. future health-fold-into-briefing) submits tagged work.
+
+### Documented
+
+- `ExecutionSession` step removed from the lifecycle diagram in the design doc. The entity exists in the controlplane (`routes/runtime.rs:423`) but is shaped for attachable PTY sessions with attach tokens — overkill for headless `claude -p`. AgentRun + OS process is sufficient audit. Prototype confirmed this empirically.
+
 ## [0.15.4] — 2026-05-21
 
 ### Added

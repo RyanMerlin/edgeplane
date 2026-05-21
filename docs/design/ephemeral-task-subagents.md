@@ -76,7 +76,9 @@ The ephemeral nature is in the runtime projection, not the audit trail.
           )
           → ephemeral MeshAgent row
        b. claim_mesh_task(mesh_task_id, mesh_agent_id) → lease
-       c. Start ExecutionSession (compute lease)
+       c. (Skipped — ExecutionSession entity is designed for attachable PTY
+          sessions with attach_token/lease. Headless `claude -p` subprocesses
+          don't need it; the AgentRun audit row + the OS process are sufficient.)
        d. Start AISession (fresh claude session) with cwd = profile dir,
           extra context = task prompt, allowed tools = parent's capability set
        e. Create AgentRun(mesh_agent_id, mesh_task_id, runtime_session_id,
