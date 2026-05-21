@@ -74,7 +74,18 @@ pub async fn run_list(args: ListArgs) -> Result<()> {
     for j in jobs {
         let name = j.get("name").and_then(|v| v.as_str()).unwrap_or("?");
         let agent = j.get("session").and_then(|v| v.as_str()).unwrap_or("?");
-        let sched = j.get("schedule").and_then(|v| v.as_str()).unwrap_or("?");
+        let kind = j.get("kind").and_then(|v| v.as_str()).unwrap_or("cron");
+        let sched_owned = match kind {
+            "heartbeat" => {
+                let iv = j.get("interval").and_then(|v| v.as_str()).unwrap_or("?");
+                format!("heartbeat: {iv}")
+            }
+            _ => j
+                .get("schedule")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string(),
+        };
         let last = j
             .get("last_fired_at")
             .and_then(|v| v.as_str())
@@ -83,7 +94,7 @@ pub async fn run_list(args: ListArgs) -> Result<()> {
         let enabled = j.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
         let enabled_s = if enabled { "yes" } else { "NO" };
         println!(
-            "{name:<24} {agent:<14} {sched:<18} {last:<22} {status:<10} {enabled_s}"
+            "{name:<24} {agent:<14} {sched_owned:<18} {last:<22} {status:<10} {enabled_s}"
         );
     }
     Ok(())
@@ -101,7 +112,12 @@ pub async fn run_describe(args: DescribeArgs) -> Result<()> {
     }
     println!("name:          {}", str_or(&resp, "name", "?"));
     println!("agent:         {}", str_or(&resp, "session", "?"));
-    println!("schedule:      {}", str_or(&resp, "schedule", "?"));
+    let kind = resp.get("kind").and_then(|v| v.as_str()).unwrap_or("cron");
+    println!("kind:          {kind}");
+    match kind {
+        "heartbeat" => println!("interval:      {}", str_or(&resp, "interval", "?")),
+        _ => println!("schedule:      {}", str_or(&resp, "schedule", "?")),
+    }
     println!("dispatch:      {}", str_or(&resp, "dispatch", "?"));
     println!(
         "enabled:       {}",

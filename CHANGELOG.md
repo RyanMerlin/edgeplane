@@ -4,6 +4,21 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.1] — 2026-05-20
+
+### Fixed
+
+- **`mcd.service` unit now sets `Environment=PATH=`** explicitly, so `dispatch = "goose"` cron jobs can find the `aria` binary (and any other tool installed under `~/.cargo/bin` or `~/.local/bin`). systemd user services get a minimal PATH by default, which was breaking goose-dispatch fires silently. `crates/mcd/systemd/mcd.service`.
+
+### Changed
+
+- **Heartbeat cron jobs no longer require a `schedule = ""` field.** `CronJob::schedule` is now `#[serde(default)]`; heartbeat jobs can omit the field entirely. Cron jobs explicitly reject empty `schedule` with a clear error message. Existing files with `schedule = ""` on heartbeat jobs continue to parse unchanged. `crates/mcd/.../cron_config.rs`.
+- **`mc agent cron list` and `describe` now render heartbeat cadence.** Heartbeat jobs show `heartbeat: 30m` in the SCHEDULE column instead of empty; describe surfaces a dedicated `kind:` line and switches between `schedule:` and `interval:` accordingly. The `agent.cron.list` / `agent.cron.describe` JSON-RPC responses now include `kind` and `interval`. `crates/mc/src/agent_cron.rs`, `crates/mcd/.../mgmt_gateway.rs`.
+
+### Known issues (not fixed in this release)
+
+- Some cron-tier jobs (briefing, kb-curate, youtube-digest, vault-mirror, evolve, vault-lint, ai-pulse-daily, realestate-pipeline) have never fired through mcd. Separately, `pub-queue-check` fires every 30 minutes despite a `0 9 * * *` schedule. Both look like croner 5-field schedule semantics not matching what `eval_job` assumes. Filed for investigation; workaround is manual trigger.
+
 ## [0.15.0] — 2026-05-20
 
 ### Added — Cron heartbeat tier (`kind = "heartbeat"`)

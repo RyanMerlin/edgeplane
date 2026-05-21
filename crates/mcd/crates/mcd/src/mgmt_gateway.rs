@@ -729,6 +729,8 @@ async fn handle_agent_cron_list(ops: &Arc<AgentOpsHandle>, id: Value) -> Value {
                 serde_json::json!({
                     "name": j.name,
                     "schedule": j.schedule,
+                    "kind": j.kind,
+                    "interval": j.interval,
                     "session": j.session,
                     "dispatch": j.dispatch,
                     "enabled": j.enabled,
@@ -791,6 +793,8 @@ async fn handle_agent_cron_describe(
         Ok(serde_json::json!({
             "name": job.name,
             "schedule": job.schedule,
+            "kind": job.kind,
+            "interval": job.interval,
             "session": job.session,
             "dispatch": job.dispatch,
             "enabled": job.enabled,

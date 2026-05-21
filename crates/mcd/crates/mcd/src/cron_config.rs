@@ -123,6 +123,9 @@ pub struct CronJob {
     pub name: String,
 
     /// 5-field cron expression evaluated in the file's `timezone`.
+    /// Required for `kind = "cron"`; omitted (or empty) for `kind = "heartbeat"`,
+    /// which uses `interval` instead.
+    #[serde(default)]
     pub schedule: String,
 
     /// Target agent's local id (e.g. `"operator"`, `"work"`). The agent
@@ -235,6 +238,9 @@ fn validate(cfg: &CronConfig, path_for_errors: &Path) -> Result<()> {
 
         match job.kind.as_str() {
             "cron" => {
+                if job.schedule.is_empty() {
+                    bail!("{where_}: kind = \"cron\" requires a non-empty `schedule`");
+                }
                 // Parse the cron expression to surface syntax errors at load time
                 // rather than at first tick. croner v3 uses FromStr.
                 let _cron: croner::Cron = job.schedule.parse().map_err(|e| {
@@ -401,6 +407,37 @@ interval = "30m"
         let job = &cfg.jobs[0];
         assert_eq!(job.kind, "heartbeat");
         assert_eq!(job.interval.as_deref(), Some("30m"));
+    }
+
+    #[test]
+    fn accepts_heartbeat_without_schedule_field() {
+        // schedule field is optional for heartbeats — operators should be able
+        // to omit it rather than write `schedule = ""`.
+        let raw = r#"
+schema_version = 1
+
+[[job]]
+name = "hb"
+prompt = "x"
+kind = "heartbeat"
+interval = "30m"
+"#;
+        let cfg = parse(raw, &p()).expect("heartbeat parses without schedule field");
+        assert_eq!(cfg.jobs[0].schedule, "");
+    }
+
+    #[test]
+    fn rejects_cron_without_schedule() {
+        let raw = r#"
+schema_version = 1
+
+[[job]]
+name = "c"
+prompt = "x"
+"#;
+        let err = parse(raw, &p()).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("requires a non-empty `schedule`"), "msg: {msg}");
     }
 
     #[test]
