@@ -488,6 +488,53 @@ mod tests {
     // The one thing we DO test here is the schedule-anchor math via
     // croner — that's where subtle bugs hide.
 
+    /// Regression: a daily 9 AM job should NOT be considered due when the last
+    /// fire was earlier the same day (afternoon UTC). This guards against a
+    /// recurrence of the "pub-queue-check fires every 30 min" symptom seen on
+    /// 2026-05-20, which turned out to be a transient schedule change, not an
+    /// eval bug — but the regression test is cheap insurance.
+    #[test]
+    fn daily_9am_with_recent_afternoon_anchor_is_not_due() {
+        let tz: Tz = "America/Denver".parse().unwrap();
+        let cron: croner::Cron = "0 9 * * *".parse().unwrap();
+        // Last fired at 13:30 Denver (afternoon)
+        let last: DateTime<Tz> = "2026-05-20T19:30:35+00:00"
+            .parse::<DateTime<chrono::FixedOffset>>()
+            .unwrap()
+            .with_timezone(&tz);
+        let next = cron.find_next_occurrence(&last, false).unwrap();
+        // Now: 1 minute after the last fire
+        let now: DateTime<Tz> = "2026-05-20T19:31:00+00:00"
+            .parse::<DateTime<chrono::FixedOffset>>()
+            .unwrap()
+            .with_timezone(&tz);
+        assert!(next > now, "next-fire {next} should be after now {now}");
+        // Specifically: next fire should be tomorrow 09:00 Denver.
+        assert_eq!(next.format("%Y-%m-%d %H:%M").to_string(), "2026-05-21 09:00");
+    }
+
+    /// Regression: a 05:30 daily job whose anchor is daemon_start at 14:20
+    /// the previous afternoon should be due at any time on or after 05:30
+    /// the next morning. This guards against the "briefing never fires"
+    /// symptom from 2026-05-20.
+    #[test]
+    fn daily_530am_with_prior_afternoon_anchor_is_due_next_morning() {
+        let tz: Tz = "America/Denver".parse().unwrap();
+        let cron: croner::Cron = "30 5 * * *".parse().unwrap();
+        let anchor: DateTime<Tz> = "2026-05-17T20:20:00+00:00"
+            .parse::<DateTime<chrono::FixedOffset>>()
+            .unwrap()
+            .with_timezone(&tz);
+        let next = cron.find_next_occurrence(&anchor, false).unwrap();
+        assert_eq!(next.format("%Y-%m-%d %H:%M").to_string(), "2026-05-18 05:30");
+        // At 07:00 the next morning, next_fire <= now should hold.
+        let now: DateTime<Tz> = "2026-05-18T13:00:00+00:00"
+            .parse::<DateTime<chrono::FixedOffset>>()
+            .unwrap()
+            .with_timezone(&tz);
+        assert!(next <= now, "next-fire {next} should be due by {now}");
+    }
+
     #[test]
     fn next_occurrence_after_last_fire_is_strict_next() {
         let tz: Tz = "America/Denver".parse().unwrap();

@@ -4,6 +4,20 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.2] — 2026-05-20
+
+### Fixed
+
+- **CI: `build-image.yml` was bumping the gitops manifest to the wrong tag.** `docker/metadata-action` with `type=sha` publishes images as `:sha-<short>` (default prefix), but the workflow's gitops `sed` was rewriting the image to `:<short>` (no prefix). Every recent CI-driven deployment landed on an image that didn't exist (ImagePullBackOff). The fix matches the actual published tag.
+
+### Added
+
+- **Cron eval regression tests** for two scenarios that we'd flagged as suspected bugs on 2026-05-20 but turned out to be uptime / config-edit artifacts (no eval bug). Tests guard against the same symptom shape reappearing:
+  - `daily_9am_with_recent_afternoon_anchor_is_not_due`
+  - `daily_530am_with_prior_afternoon_anchor_is_due_next_morning`
+
+  See `mc-engineer/projects/2026-05-20-...-mcd-cron-eval-bugs-...md` (vault) for the diagnosis trail.
+
 ## [0.15.1] — 2026-05-20
 
 ### Fixed
@@ -14,10 +28,6 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
 
 - **Heartbeat cron jobs no longer require a `schedule = ""` field.** `CronJob::schedule` is now `#[serde(default)]`; heartbeat jobs can omit the field entirely. Cron jobs explicitly reject empty `schedule` with a clear error message. Existing files with `schedule = ""` on heartbeat jobs continue to parse unchanged. `crates/mcd/.../cron_config.rs`.
 - **`mc agent cron list` and `describe` now render heartbeat cadence.** Heartbeat jobs show `heartbeat: 30m` in the SCHEDULE column instead of empty; describe surfaces a dedicated `kind:` line and switches between `schedule:` and `interval:` accordingly. The `agent.cron.list` / `agent.cron.describe` JSON-RPC responses now include `kind` and `interval`. `crates/mc/src/agent_cron.rs`, `crates/mcd/.../mgmt_gateway.rs`.
-
-### Known issues (not fixed in this release)
-
-- Some cron-tier jobs (briefing, kb-curate, youtube-digest, vault-mirror, evolve, vault-lint, ai-pulse-daily, realestate-pipeline) have never fired through mcd. Separately, `pub-queue-check` fires every 30 minutes despite a `0 9 * * *` schedule. Both look like croner 5-field schedule semantics not matching what `eval_job` assumes. Filed for investigation; workaround is manual trigger.
 
 ## [0.15.0] — 2026-05-20
 
