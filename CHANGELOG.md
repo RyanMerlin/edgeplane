@@ -4,6 +4,41 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.6] — 2026-05-21
+
+### Added — Triage loop (P3)
+
+`mcd::task_worker::run_triage_loop` — a second long-running tokio task spawned alongside the P2 claim loop. Picks up unscoped tasks from the intake kluster (created by P1 bootstrap), categorizes them via local Qwen3.6-27B (via `aria goose`), and either routes them to the appropriate profile or surfaces them for human review.
+
+**Three-tier triage** (per `docs/design/ephemeral-task-subagents.md` § Decision 5):
+1. **Rule (P2):** task has `claim_policy.target_profile` set → P2's claim loop handles it directly. Skipped by triage.
+2. **Goose (P3):** task is in intake kluster, status=`ready`, no `target_profile`. Triage builds a categorization prompt listing supervised profiles, invokes `aria goose "<prompt>" --timeout 30`, parses the response. If `confidence >= triage_confidence_threshold` (default `0.85`) AND target_profile is supervised on this node → ROUTE.
+3. **Surface (P3):** low confidence, missing target_profile, unparseable response, or unsupervised profile → BLOCK + write to `mc-engineer/inbox.md`.
+
+**Routing mechanic** (per § Decision 5 / S2 — child task, NOT kluster_id rebind):
+- Create child meshtask in the same intake kluster with `claim_policy.target_profile` set, `parent_task_id` pointing at the intake task.
+- Mark intake task `status=finished` so it's not re-triaged. Because the controlplane's `complete_task` requires the task to be in `claimed`/`running`/`waiting_review` state, the triage loop briefly enrolls a temp agent, claims the intake task, completes it, then deletes the temp agent (FK preserves audit). 4 extra HTTP calls per route; acceptable at triage scale (max 5/cycle).
+- The child task lives in the intake kluster (per Decision 5 — we walked back per-profile scratch klusters). P2's claim loop picks it up by polling for `target_profile`-set tasks across all klusters.
+
+**Surface mechanic** (low-confidence path):
+- `aria vault note append --path mc-engineer/inbox.md --section "Triage Inbox" "<entry>"` with timestamp + task id + title + goose's reasoning. Append, not overwrite.
+- Intake task transitioned to `status=blocked` via `POST /work/tasks/{id}/block` (which has no status-precondition, unlike complete). Blocked tasks are skipped by both loops on subsequent polls. Human resolves by editing `claim_policy.target_profile` and unblocking.
+
+**Skip-already-triaged check:** the triage filter is "status=ready AND no target_profile in claim_policy." Once routed (finished) or surfaced (blocked), the intake task no longer matches → no re-triage. No metadata flag needed.
+
+**New config keys (with `#[serde(default)]`):**
+- `task_worker_triage_enabled: bool` (default `true`)
+- `task_worker_triage_poll_interval_secs: u64` (default `60` — half the claim cadence)
+- `task_worker_triage_confidence_threshold: f64` (default `0.85`)
+- `task_worker_max_triage_per_cycle: usize` (default `5`)
+- `task_worker_goose_timeout_secs: u64` (default `30`)
+
+**Activation conditions:** triage activates when any dispatcher submits an unscoped meshtask into the intake kluster. The combined P2+P3 system is now feature-complete except for capability enforcement (P4). All upstream wiring (`fleet-self-health`, future health-fold-into-briefing, etc.) is still TBD.
+
+### Finding (controlplane API quirk worth flagging)
+
+`POST /work/tasks/{id}/complete` requires the task to be in `claimed`/`running`/`waiting_review` state — cannot complete a `ready` task directly. Triage works around this via the temp-agent + claim + complete sequence. A direct admin transition endpoint (`POST /work/tasks/{id}/triaged` or similar) would simplify, but isn't critical at current scale.
+
 ## [0.15.5] — 2026-05-21
 
 ### Added — Ephemeral task subagent claimer loop (P2)
