@@ -118,6 +118,18 @@ impl BackendClient {
         Ok(resp.json().await?)
     }
 
+    /// DELETE request; expects a 200/204 response. Returns the raw Response so
+    /// the caller can check the status code if needed.
+    pub async fn delete(&self, path: &str) -> Result<Response> {
+        Ok(self
+            .inner
+            .delete(self.url(path))
+            .header("Authorization", self.auth_header())
+            .send()
+            .await?
+            .error_for_status()?)
+    }
+
     /// Fetch the mission roster — concise agent list for prompt injection.
     pub async fn get_mission_roster(&self, mission_id: &str) -> Result<Vec<serde_json::Value>> {
         self.get(&format!("/missions/{mission_id}/roster")).await

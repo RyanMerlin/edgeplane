@@ -61,6 +61,51 @@ pub struct DaemonConfig {
     /// not an error — mcd just skips the import.
     #[serde(default)]
     pub fleet_profiles_file: Option<PathBuf>,
+
+    // ── Task worker (P2) ───────────────────────────────────────────────────
+    //
+    // Controls the `task_worker` module that polls for claimable MeshTasks,
+    // enrolls ephemeral subagents, spawns `claude -p`, and cleans up on exit.
+    // All fields have defaults so existing configs need no changes.
+
+    /// Whether the task worker polling loop is active. Set to `false` to
+    /// disable ephemeral subagent spawning on this node (useful during
+    /// rollout or debugging). Default: `true`.
+    #[serde(default = "default_task_worker_enabled")]
+    pub task_worker_enabled: bool,
+
+    /// How often (seconds) the task worker polls for claimable tasks.
+    /// Default: 30.
+    #[serde(default = "default_task_worker_poll_interval_secs")]
+    pub task_worker_poll_interval_secs: u64,
+
+    /// Maximum number of ephemeral subagent processes that may run concurrently
+    /// on this node. Tasks beyond this cap remain in `ready` status and are
+    /// picked up when a slot frees. Default: 3.
+    #[serde(default = "default_task_worker_max_concurrent")]
+    pub task_worker_max_concurrent: usize,
+
+    /// Binary name (or full path) used to spawn the `claude -p` subagent.
+    /// Override if `claude` is not in PATH or if you want a wrapper script.
+    /// Default: `"claude"`.
+    #[serde(default = "default_task_worker_subagent_command")]
+    pub task_worker_subagent_command: String,
+}
+
+fn default_task_worker_enabled() -> bool {
+    true
+}
+
+fn default_task_worker_poll_interval_secs() -> u64 {
+    30
+}
+
+fn default_task_worker_max_concurrent() -> usize {
+    3
+}
+
+fn default_task_worker_subagent_command() -> String {
+    "claude".to_string()
 }
 
 fn default_attach_bind() -> String {
@@ -165,6 +210,10 @@ impl DaemonConfig {
             attach_bind_addr: default_attach_bind(),
             home_mission_id: None,
             fleet_profiles_file: None,
+            task_worker_enabled: default_task_worker_enabled(),
+            task_worker_poll_interval_secs: default_task_worker_poll_interval_secs(),
+            task_worker_max_concurrent: default_task_worker_max_concurrent(),
+            task_worker_subagent_command: default_task_worker_subagent_command(),
         });
         cfg.resolve_credentials();
         cfg

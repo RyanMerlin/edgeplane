@@ -36,6 +36,7 @@ use crate::session_supervisor;
 use crate::state;
 use crate::supervisor::{SpawnOverrides, Supervisor};
 use crate::task_loop;
+use crate::task_worker;
 
 /// Config passed from the CLI, overrides any file-based config.
 pub struct CliOverrides {
@@ -179,6 +180,20 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
             // but handle the unexpected Err case for completeness.
             tracing::warn!("bootstrap: unexpected error: {e:#}. Continuing.");
         }
+    }
+
+    // Phase 2 — Ephemeral task subagent claimer loop.
+    // Polls for claimable MeshTasks, spawns `claude -p` subagents, cleans up
+    // on completion. Runs as an independent background tokio task; daemon
+    // continues if it exits unexpectedly (which it shouldn't — the loop is
+    // soft-fail internally). Gated by `task_worker_enabled` so it can be
+    // disabled without restarting by toggling the config.
+    {
+        let tw_client = Arc::clone(&client);
+        let tw_config = cfg.clone();
+        tokio::spawn(async move {
+            task_worker::run(tw_client, tw_config).await;
+        });
     }
 
     let policy = match cfg.offline_policy.as_str() {
