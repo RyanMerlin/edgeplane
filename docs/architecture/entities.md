@@ -17,7 +17,7 @@ Every entity below cites both the philosophy doc (definition) and the schema (st
 - Schema: `public.mission` (0001) — has `northstar_md`, `owners`, `contributors`, `visibility`, `status`
 - Owns: many klusters (`kluster.mission_id`)
 
-> **DEPRECATED:** `Mission.kind` (migration 0006, values `'work'` | `'home'`) is soft-deprecated as of 2026-05-21. The column was set in exactly one code path (`provision_home_for_node` in `routes/runtime.rs`) and read by zero — a write-only tag that leaked an Aria-specific operational pattern into the schema. New code MUST NOT write or filter on `kind`. The column stays for now (migrations are forward-only); a future migration may drop it. Operational coordination missions are just regular missions; convention names them (e.g. `aria-fleet-ops`) and `Agent.home_mission_id` still points at them as before — that FK was never constrained to `kind='home'` anyway.
+> **DEPRECATED:** `Mission.kind` (migration 0006, values `'work'` | `'home'`) is soft-deprecated as of 2026-05-21. The column was set in exactly one code path (`provision_home_for_node` in `routes/runtime.rs`) and read by zero — a write-only tag that leaked an Aria-specific operational pattern into the schema. New code MUST NOT write or filter on `kind`. The column stays for now (migrations are forward-only); a future migration may drop it. Operational coordination missions are just regular missions; mcd's bootstrap creates a default mission named `home` (per `bootstrap::DEFAULT_HOME_MISSION_NAME`, overridable via `MC_HOME_MISSION_NAME` env). `Agent.home_mission_id` still points at home missions as before — that FK was never constrained to `kind='home'` anyway.
 
 Missions do **not** complete. They scope. Tasks complete.
 

@@ -1,13 +1,16 @@
-//! Idempotent startup bootstrap for fleet operational state.
+//! Idempotent startup bootstrap for operational state.
 //!
 //! Called once after fleet_import during daemon startup. Ensures two entities
 //! exist in the MissionControl controlplane:
 //!
-//!   1. The fleet operations mission (default name `aria-fleet-ops`,
-//!      overridable via `MC_OPS_MISSION_NAME` env var). Single global mission
-//!      that holds operational coordination work — *not* per-node. This is
-//!      a regular mission; we deliberately do NOT use the `Mission.kind`
+//!   1. The default "home" mission (name `home`, overridable via
+//!      `MC_HOME_MISSION_NAME` env var). Single global mission — *not* per-node.
+//!      It's a regular mission; we deliberately do NOT use the `Mission.kind`
 //!      column, which is being soft-deprecated (write-only with no readers).
+//!      The name is `home` because that's what the mission IS — the default
+//!      home for unscoped operational work and the natural target for any
+//!      agent's `home_mission_id`. A deployment can override with whatever
+//!      naming convention it prefers via the env var.
 //!
 //!   2. `intake` kluster under that mission — universal landing zone for
 //!      unscoped dispatched work. The spawner (P2) triages from here to the
@@ -30,8 +33,8 @@ use mcd_core::client::BackendClient;
 use serde_json::Value;
 
 /// Default name for the fleet operations mission. Overridable via the
-/// `MC_OPS_MISSION_NAME` env var if a deployment wants a different name.
-pub const DEFAULT_OPS_MISSION_NAME: &str = "aria-fleet-ops";
+/// `MC_HOME_MISSION_NAME` env var if a deployment wants a different name.
+pub const DEFAULT_HOME_MISSION_NAME: &str = "home";
 
 /// Name of the intake kluster. Convention, not configurable — the spawner
 /// looks for this exact name when triaging unscoped dispatched work.
@@ -46,19 +49,19 @@ pub struct BootstrapSummary {
     pub kluster_id: String,
 }
 
-/// Resolve the fleet ops mission name.
+/// Resolve the home mission name.
 ///
 /// Priority:
-///   1. `MC_OPS_MISSION_NAME` env var (deployment override).
-///   2. `DEFAULT_OPS_MISSION_NAME` ("aria-fleet-ops").
-pub fn resolve_ops_mission_name() -> String {
-    if let Ok(v) = std::env::var("MC_OPS_MISSION_NAME") {
+///   1. `MC_HOME_MISSION_NAME` env var (deployment override).
+///   2. `DEFAULT_HOME_MISSION_NAME` ("home").
+pub fn resolve_home_mission_name() -> String {
+    if let Ok(v) = std::env::var("MC_HOME_MISSION_NAME") {
         let trimmed = v.trim();
         if !trimmed.is_empty() {
             return trimmed.to_string();
         }
     }
-    DEFAULT_OPS_MISSION_NAME.to_string()
+    DEFAULT_HOME_MISSION_NAME.to_string()
 }
 
 /// Run the bootstrap sequence against `client`.
@@ -66,15 +69,15 @@ pub fn resolve_ops_mission_name() -> String {
 /// Returns `Ok(BootstrapSummary)` on success. Returns `Ok` with a warning log
 /// on any controlplane connectivity or API error (soft-fail).
 pub async fn run(client: &BackendClient) -> Result<BootstrapSummary> {
-    let mission_name = resolve_ops_mission_name();
+    let mission_name = resolve_home_mission_name();
 
-    tracing::debug!("bootstrap: ensuring fleet ops mission '{mission_name}' + intake kluster");
+    tracing::debug!("bootstrap: ensuring home mission '{mission_name}' + intake kluster");
 
     let (mission_id, mission_created) = match resolve_or_create_mission(client, &mission_name).await {
         Ok(pair) => pair,
         Err(e) => {
             tracing::warn!(
-                "bootstrap: could not provision fleet ops mission '{mission_name}': {e:#}. \
+                "bootstrap: could not provision home mission '{mission_name}': {e:#}. \
                  Continuing without bootstrap — will retry on next startup."
             );
             return Ok(BootstrapSummary::default());
@@ -135,11 +138,11 @@ async fn resolve_or_create_mission(
         }
     }
 
-    tracing::info!("bootstrap: creating fleet ops mission '{mission_name}'");
+    tracing::info!("bootstrap: creating home mission '{mission_name}'");
     let body = serde_json::json!({
         "name": mission_name,
-        "northstar_md": "Fleet operations coordination. Holds the intake kluster (landing zone \
-            for unscoped dispatched work) and per-node / per-profile operational klusters. \
+        "northstar_md": "Default home mission. Holds the intake kluster (landing zone \
+            for unscoped dispatched work) and any other operational klusters. \
             Not a strategic workstream — operational scope.",
         "visibility": "private",
         "owners": "",   // defaults to caller's subject on the server side
@@ -156,7 +159,7 @@ async fn resolve_or_create_mission(
         .ok_or_else(|| anyhow::anyhow!("POST /missions response missing 'id' field: {created}"))?
         .to_string();
 
-    tracing::info!("bootstrap: fleet ops mission created (id={id})");
+    tracing::info!("bootstrap: home mission created (id={id})");
     Ok((id, true))
 }
 
@@ -229,29 +232,29 @@ async fn resolve_or_create_intake_kluster(
 mod tests {
     use super::*;
 
-    /// Verify that `resolve_ops_mission_name` honours the env override.
+    /// Verify that `resolve_home_mission_name` honours the env override.
     #[test]
-    fn resolve_ops_mission_name_env_override() {
+    fn resolve_home_mission_name_env_override() {
         // SAFETY: single-threaded test runner; no concurrent env access.
-        unsafe { std::env::set_var("MC_OPS_MISSION_NAME", "fleet-ops-test"); }
-        let name = resolve_ops_mission_name();
-        unsafe { std::env::remove_var("MC_OPS_MISSION_NAME"); }
+        unsafe { std::env::set_var("MC_HOME_MISSION_NAME", "fleet-ops-test"); }
+        let name = resolve_home_mission_name();
+        unsafe { std::env::remove_var("MC_HOME_MISSION_NAME"); }
         assert_eq!(name, "fleet-ops-test");
     }
 
     /// Verify that whitespace-only env values fall through to the default.
     #[test]
-    fn resolve_ops_mission_name_whitespace_falls_through() {
-        unsafe { std::env::set_var("MC_OPS_MISSION_NAME", "   "); }
-        let name = resolve_ops_mission_name();
-        unsafe { std::env::remove_var("MC_OPS_MISSION_NAME"); }
-        assert_eq!(name, DEFAULT_OPS_MISSION_NAME);
+    fn resolve_home_mission_name_whitespace_falls_through() {
+        unsafe { std::env::set_var("MC_HOME_MISSION_NAME", "   "); }
+        let name = resolve_home_mission_name();
+        unsafe { std::env::remove_var("MC_HOME_MISSION_NAME"); }
+        assert_eq!(name, DEFAULT_HOME_MISSION_NAME);
     }
 
     /// Verify that the default name is the documented constant.
     #[test]
-    fn default_ops_mission_name_is_aria_fleet_ops() {
-        assert_eq!(DEFAULT_OPS_MISSION_NAME, "aria-fleet-ops");
+    fn default_home_mission_name_is_home() {
+        assert_eq!(DEFAULT_HOME_MISSION_NAME, "home");
     }
 
     /// Parsing: finds mission by exact name match in the list response.
@@ -259,13 +262,13 @@ mod tests {
     fn mission_list_parse_finds_by_name() {
         let resp = serde_json::json!([
             {"id": "mission-a", "name": "Some Other Mission"},
-            {"id": "mission-b", "name": "aria-fleet-ops"},
+            {"id": "mission-b", "name": "home"},
             {"id": "mission-c", "name": "Another"},
         ]);
         let arr = resp.as_array().unwrap();
         let found = arr
             .iter()
-            .find(|m| m.get("name").and_then(|n| n.as_str()) == Some("aria-fleet-ops"))
+            .find(|m| m.get("name").and_then(|n| n.as_str()) == Some("home"))
             .and_then(|m| m.get("id").and_then(|i| i.as_str()));
         assert_eq!(found, Some("mission-b"));
     }
@@ -279,7 +282,7 @@ mod tests {
         let arr = resp.as_array().unwrap();
         let found = arr
             .iter()
-            .find(|m| m.get("name").and_then(|n| n.as_str()) == Some("aria-fleet-ops"));
+            .find(|m| m.get("name").and_then(|n| n.as_str()) == Some("home"));
         assert!(found.is_none());
     }
 

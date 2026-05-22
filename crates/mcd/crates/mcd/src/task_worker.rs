@@ -30,8 +30,10 @@
 //!      - Confidence ≥ threshold AND profile in supervised set →
 //!        create child meshtask with `claim_policy = {"target_profile": "<name>"}`;
 //!        claim + complete the intake task (status = `finished`).
-//!      - Otherwise → block the intake task (status = `blocked`), append an
-//!        entry to `mc-engineer/inbox.md` for human triage.
+//!      - Otherwise → block the intake task (status = `blocked`). If
+//!        `task_worker_surface_command` is configured, additionally invoke
+//!        it with `<task_id> <title> <reason>` appended; otherwise discovery
+//!        is via `mc task ls --status blocked` (MC-native).
 //!
 //! # Soft-fail philosophy
 //!
@@ -920,7 +922,7 @@ async fn triage_cycle(
 
 /// Triage one unscoped task. Calls goose to categorize, then either:
 /// - Routes via child meshtask + marks intake task finished (high confidence).
-/// - Blocks the intake task + surfaces to vault inbox (low confidence).
+/// - Blocks the intake task + optionally invokes the surface command (low confidence).
 async fn triage_one(
     client: &Arc<BackendClient>,
     config: &DaemonConfig,
@@ -971,7 +973,7 @@ async fn triage_one(
         tracing::info!(
             "triage: low-confidence for task={task_id} — blocking + surfacing ({reason_summary})"
         );
-        surface_to_inbox(client, task, &categorization, intake_kluster_id).await;
+        surface_to_inbox(client, task, &categorization, intake_kluster_id, config.task_worker_surface_command.as_ref()).await;
     }
 }
 
@@ -1025,7 +1027,7 @@ async fn route_task(
                  Falling back to vault surface."
             );
             // Fall back to blocking + surfacing rather than leaving task unhandled.
-            surface_to_inbox_low_confidence(client, intake_task, "child task creation failed", intake_kluster_id).await;
+            surface_to_inbox_low_confidence(client, intake_task, "child task creation failed", intake_kluster_id, config.task_worker_surface_command.as_ref()).await;
             return;
         }
     };
@@ -1117,12 +1119,13 @@ async fn route_task(
     let _ = config.task_worker_goose_timeout_secs; // suppress unused warning
 }
 
-/// Block the intake task and append an entry to `mc-engineer/inbox.md`.
+/// Block the intake task and (optionally) invoke the surface command.
 async fn surface_to_inbox(
     client: &Arc<BackendClient>,
     intake_task: &Value,
     categorization: &Option<CategorizationResult>,
     intake_kluster_id: &str,
+    surface_command: Option<&Vec<String>>,
 ) {
     let reason = categorization
         .as_ref()
@@ -1131,15 +1134,24 @@ async fn surface_to_inbox(
             r.confidence, r.target_profile, r.reason
         ))
         .unwrap_or_else(|| "goose categorization returned no result".to_string());
-    surface_to_inbox_low_confidence(client, intake_task, &reason, intake_kluster_id).await;
+    surface_to_inbox_low_confidence(client, intake_task, &reason, intake_kluster_id, surface_command).await;
 }
 
-/// Internal helper: block the intake task and write to the vault inbox.
+/// Internal helper: block the intake task and (optionally) invoke a
+/// deployment-configured surface command.
+///
+/// MC itself is decoupled from any particular human-interface convention.
+/// The default behavior is just `status=blocked` — operators discover via
+/// `mc task ls --status blocked`. Deployments that want to chain an external
+/// alert (vault note, Slack, GitHub Issue, email, etc.) set
+/// `config.task_worker_surface_command`; mcd shells out with
+/// `<task_id> <title> <reason>` appended after the configured args.
 async fn surface_to_inbox_low_confidence(
     client: &Arc<BackendClient>,
     intake_task: &Value,
     reason: &str,
     _intake_kluster_id: &str,
+    surface_command: Option<&Vec<String>>,
 ) {
     let task_id = intake_task
         .get("id")
@@ -1149,14 +1161,9 @@ async fn surface_to_inbox_low_confidence(
         .get("title")
         .and_then(|v| v.as_str())
         .unwrap_or("(no title)");
-    let description = intake_task
-        .get("description")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let desc_excerpt: String = description.chars().take(200).collect();
 
     // Block the intake task (transitions from any status to 'blocked').
-    // No request body needed — block_task has no body parameter.
+    // block_task has no request body.
     if let Err(e) = client
         .raw_post(&format!("/work/tasks/{task_id}/block"), &serde_json::json!({}))
         .await
@@ -1165,53 +1172,46 @@ async fn surface_to_inbox_low_confidence(
             "triage: block intake task={task_id} failed: {e:#}. \
              Task left in ready state — will be re-triaged next cycle."
         );
-        // Don't write to inbox if block failed — next cycle will retry.
         return;
     }
 
     tracing::info!(
-        "triage: intake task={task_id} blocked (needs human triage). Writing to inbox."
+        "triage: intake task={task_id} blocked (needs human triage). reason={reason}"
     );
 
-    // Write to mc-engineer/inbox.md via `aria vault note append`.
-    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
-    let entry = format!(
-        "### {now} — task `{task_id}`\n\
-         **Title:** {title}\n\
-         **Excerpt:** {desc_excerpt}\n\
-         **Triage note:** {reason}\n\
-         **To route:** edit claim_policy to add `target_profile`, then `POST /work/tasks/{task_id}/unblock`\n"
-    );
+    // Optional surface hook — deployment-configured external alert.
+    let Some(cmd) = surface_command else {
+        return;
+    };
+    if cmd.is_empty() {
+        return;
+    }
 
-    let vault_result = tokio::process::Command::new("aria")
-        .args([
-            "vault",
-            "note",
-            "append",
-            "--path",
-            "mc-engineer/inbox.md",
-            "--section",
-            "Triage Inbox",
-            &entry,
-        ])
+    let program = &cmd[0];
+    let base_args: Vec<&str> = cmd.iter().skip(1).map(String::as_str).collect();
+    let extra_args = [task_id, title, reason];
+
+    let surface_result = tokio::process::Command::new(program)
+        .args(&base_args)
+        .args(extra_args)
         .output()
         .await;
 
-    match vault_result {
+    match surface_result {
         Ok(out) if out.status.success() => {
-            tracing::debug!("triage: inbox entry written for task={task_id}");
+            tracing::debug!("triage: surface command ok for task={task_id}");
         }
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
             tracing::warn!(
-                "triage: aria vault note append failed for task={task_id} (exit={}): {}",
+                "triage: surface command for task={task_id} failed (exit={}): {}",
                 out.status,
                 stderr.chars().take(200).collect::<String>()
             );
         }
         Err(e) => {
             tracing::warn!(
-                "triage: could not spawn aria vault note append for task={task_id}: {e:#}"
+                "triage: could not spawn surface command '{program}' for task={task_id}: {e:#}"
             );
         }
     }

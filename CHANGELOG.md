@@ -4,6 +4,32 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.8] — 2026-05-21
+
+### Changed — Aria/MC separation (second walk-back)
+
+Decoupled mcd from Aria-specific defaults. Same kind of cleanup as the `Mission.kind='home'` walk-back in 0.15.4: MC is a generic platform; Aria is one consumer. Defaults must not leak the consumer's identity into the platform.
+
+**Bootstrap default mission name renamed.**
+- `DEFAULT_HOME_MISSION_NAME`: `"aria-fleet-ops"` → `"home"`. The word "home" is generic, conceptually correct (this IS the default home for unscoped work), and aligns with the existing `Agent.home_mission_id` column.
+- Env override renamed: `MC_OPS_MISSION_NAME` → `MC_HOME_MISSION_NAME`.
+- Aria deployments that want to keep the old name set `MC_HOME_MISSION_NAME=aria-fleet-ops` in their mcd env.
+
+**Triage surface decoupled from Aria vault.**
+- P3's triage previously hardcoded `aria vault note append --path mc-engineer/inbox.md ...` for the low-confidence surface. That baked Aria's vault layout and a specific Aria profile name into MC's default behavior.
+- New: mcd always marks the intake task as `blocked` (the MC-native surface — discoverable via `mc task ls --status blocked`). If a deployment configures `task_worker_surface_command: Option<Vec<String>>`, mcd ALSO invokes that command with `<task_id> <title> <reason>` appended, so deployments can chain external alerts (vault notes, Slack, GitHub Issues, email) without MC encoding any particular interface.
+- Aria's mcd config keeps current behavior with:
+  ```toml
+  task_worker_surface_command = [
+    "aria", "vault", "note", "append",
+    "--path", "mc-engineer/inbox.md",
+    "--section", "Triage Inbox"
+  ]
+  ```
+  but that's a deployment concern, not an MC default.
+
+**Net result:** MC ships generic. Aria configures its specifics in env + mcd config. The platform/consumer boundary is now honest.
+
 ## [0.15.7] — 2026-05-21
 
 ### Added — Capability enforcement (P4) — completes the ephemeral subagent build

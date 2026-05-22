@@ -159,7 +159,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         Ok(summary) => {
             if summary.mission_created || summary.kluster_created {
                 tracing::info!(
-                    "bootstrap: provisioned fleet ops mission={} intake kluster={} \
+                    "bootstrap: provisioned home mission={} intake kluster={} \
                      (mission_created={}, kluster_created={})",
                     summary.mission_id,
                     summary.kluster_id,
@@ -168,7 +168,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
                 );
             } else {
                 tracing::debug!(
-                    "bootstrap: fleet ops mission and intake kluster already exist \
+                    "bootstrap: home mission and intake kluster already exist \
                      (mission={}, kluster={})",
                     summary.mission_id,
                     summary.kluster_id,

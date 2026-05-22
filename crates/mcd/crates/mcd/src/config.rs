@@ -95,7 +95,8 @@ pub struct DaemonConfig {
     //
     // Controls the triage loop that examines unscoped tasks in the intake
     // kluster and either routes them to a profile (via child meshtask) or
-    // surfaces them for human triage in `mc-engineer/inbox.md`.
+    // marks them as blocked + optionally invokes a deployment-specific
+    // surface command to alert a human.
 
     /// Enable the triage loop (P3). Set to `false` to disable without
     /// disabling the P2 claimer loop. Default: `true`.
@@ -109,8 +110,8 @@ pub struct DaemonConfig {
     pub task_worker_triage_poll_interval_secs: u64,
 
     /// Minimum goose confidence score to auto-route a task to a profile.
-    /// Tasks below this threshold are surfaced to `mc-engineer/inbox.md`
-    /// for human triage. Range: 0.0–1.0. Default: 0.85.
+    /// Tasks below this threshold are marked `blocked` and (optionally)
+    /// surfaced via `task_worker_surface_command`. Range: 0.0–1.0. Default: 0.85.
     #[serde(default = "default_triage_confidence_threshold")]
     pub task_worker_triage_confidence_threshold: f64,
 
@@ -124,6 +125,31 @@ pub struct DaemonConfig {
     /// surfaced for human triage. Default: 30.
     #[serde(default = "default_goose_timeout_secs")]
     pub task_worker_goose_timeout_secs: u64,
+
+    /// Optional command (program + args) invoked when the triage loop blocks
+    /// a task for human review. The command receives 3 additional args
+    /// appended at the end: `<task_id> <title> <reason>`. Stdout/stderr is
+    /// captured to the mcd log; exit code is logged.
+    ///
+    /// If `None` (default), mcd only marks the task as `blocked` — operators
+    /// discover via `mc task ls --status blocked` (MC-native discovery).
+    ///
+    /// Example deployment that surfaces to an external system:
+    /// ```toml
+    /// task_worker_surface_command = ["/home/merlin/.mc/triage-surface.sh"]
+    /// # or inline:
+    /// task_worker_surface_command = [
+    ///   "aria", "vault", "note", "append",
+    ///   "--path", "mc-engineer/inbox.md",
+    ///   "--section", "Triage Inbox"
+    /// ]
+    /// ```
+    ///
+    /// The command should be a deployment-specific concern; MC itself ships
+    /// without any default surface so it remains decoupled from Aria, Slack,
+    /// vault paths, or any particular human-interface convention.
+    #[serde(default)]
+    pub task_worker_surface_command: Option<Vec<String>>,
 
     // ── Task worker capability enforcement (P4) ────────────────────────────
     //
@@ -303,6 +329,7 @@ impl DaemonConfig {
             task_worker_goose_timeout_secs: default_goose_timeout_secs(),
             task_worker_strict_capabilities: default_strict_capabilities(),
             task_worker_default_capabilities: default_default_capabilities(),
+            task_worker_surface_command: None,
         });
         cfg.resolve_credentials();
         cfg
