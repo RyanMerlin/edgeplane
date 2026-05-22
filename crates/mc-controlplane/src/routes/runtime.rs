@@ -721,142 +721,11 @@ async fn list_channels() -> impl IntoResponse {
 
 // ── Node registration ─────────────────────────────────────────────────────────
 
-/// Slug-safe form of a hostname for use in stable mission IDs.
-/// Lowercases, replaces any char outside [a-z0-9-] with '-', and trims
-/// repeated/leading/trailing dashes.
-pub(crate) fn slug_hostname(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut prev_dash = false;
-    for c in input.chars() {
-        let mapped = if c.is_ascii_alphanumeric() {
-            c.to_ascii_lowercase()
-        } else {
-            '-'
-        };
-        if mapped == '-' {
-            if !prev_dash && !out.is_empty() {
-                out.push('-');
-            }
-            prev_dash = true;
-        } else {
-            out.push(mapped);
-            prev_dash = false;
-        }
-    }
-    // Trim trailing dash.
-    while out.ends_with('-') {
-        out.pop();
-    }
-    out
-}
-
-/// Provision the per-node home mission + default routing agent.
-///
-/// Creates `home-{slug(hostname)}` mission (kind='home') and enrolls a
-/// persistent agent of `runtime_kind` for routing/triage/dispatch work.
-/// Both steps are idempotent — re-running for the same node returns the
-/// existing rows. Returns `(mission_id, agent_id)`.
-///
-/// Called by `register_node` when the registration includes a tailscale
-/// hostname. Phase 6 step 1.
-pub(crate) async fn provision_home_for_node(
-    db: &sqlx::PgPool,
-    owner_subject: &str,
-    node_id: &str,
-    hostname: &str,
-    runtime_kind: &str,
-) -> Result<(String, String), sqlx::Error> {
-    let slug = slug_hostname(hostname);
-    if slug.is_empty() {
-        // Defensive: caller should validate, but if hostname is unusable
-        // we can't form a stable mission id. Skip provisioning.
-        return Err(sqlx::Error::Protocol(
-            "cannot provision home mission: hostname slug is empty".into(),
-        ));
-    }
-    let mission_id = format!("home-{slug}");
-    let now = Utc::now().naive_utc();
-
-    // ---- Mission row (idempotent) ----
-    // ON CONFLICT DO NOTHING — if the mission already exists for any reason
-    // we'll just reuse it. The PK is `id`.
-    let description = format!("Node-level coordination inbox for {hostname}");
-    let _ = sqlx::query(
-        r#"INSERT INTO mission
-            (id, name, description, owners, contributors, tags, visibility, status,
-             northstar_md, northstar_version, northstar_created_by, northstar_modified_by,
-             northstar_created_at, northstar_modified_at, created_at, updated_at,
-             owner_subject, kind)
-           VALUES ($1,$1,$2,$3,'','','private','active',
-                   '',1,'','',NULL,NULL,$4,$4,
-                   $3,'home')
-           ON CONFLICT (id) DO NOTHING"#,
-    )
-    .bind(&mission_id)
-    .bind(&description)
-    .bind(owner_subject)
-    .bind(now)
-    .execute(db)
-    .await?;
-
-    // ---- Agent row (idempotent on mission_id + node_id + runtime_kind) ----
-    let existing: Option<String> = sqlx::query_scalar(
-        "SELECT id FROM meshagent \
-         WHERE mission_id=$1 AND node_id=$2 AND runtime_kind=$3 \
-         LIMIT 1",
-    )
-    .bind(&mission_id)
-    .bind(node_id)
-    .bind(runtime_kind)
-    .fetch_optional(db)
-    .await?;
-
-    if let Some(agent_id) = existing {
-        return Ok((mission_id, agent_id));
-    }
-
-    let agent_id = Uuid::new_v4().to_string();
-    let caps_json = serde_json::to_string(&[
-        "routing",
-        "triage",
-        "dispatch",
-        "overlap_check",
-    ])
-    .unwrap_or_else(|_| "[]".to_string());
-
-    // The home-coordinator agent gets a deterministic identity name —
-    // `home-{slug}-coordinator` — so the `agent` row and its `public_id` are
-    // stable across re-provisions. Failures here are reported as a sqlx
-    // error so the calling provisioning flow surfaces them consistently.
-    let coord_name = format!("home-{slug}-coordinator");
-    let agent_public_id =
-        crate::routes::agents::upsert_agent_by_name(db, &coord_name, &caps_json)
-            .await
-            .map_err(|e| sqlx::Error::Protocol(format!("link home agent: {e}")))?;
-
-    sqlx::query(
-        "INSERT INTO meshagent \
-         (id, mission_id, node_id, runtime_kind, runtime_version, capabilities, labels, \
-          status, current_task_id, enrolled_by_subject, enrolled_at, last_heartbeat_at, \
-          runtime_node_id, profile_json, machine_json, runtime_json, supervision_mode, \
-          agent_public_id) \
-         VALUES ($1,$2,$3,$4,'',$5,'{}', \
-                 'online',NULL,$6,$7,NULL, \
-                 $3,NULL,NULL,NULL,'persistent',$8)",
-    )
-    .bind(&agent_id)        // $1 id
-    .bind(&mission_id)      // $2 mission_id
-    .bind(node_id)          // $3 node_id (also runtime_node_id)
-    .bind(runtime_kind)     // $4 runtime_kind
-    .bind(&caps_json)       // $5 capabilities (TEXT, JSON-encoded)
-    .bind(owner_subject)    // $6 enrolled_by_subject
-    .bind(now)              // $7 enrolled_at
-    .bind(&agent_public_id) // $8 agent_public_id link
-    .execute(db)
-    .await?;
-
-    Ok((mission_id, agent_id))
-}
+// `slug_hostname` + `provision_home_for_node` removed in 0.15.9. The per-node
+// `home-{hostname}` mission pattern + `Mission.kind='home'` write was walked
+// back across 0.15.4 / 0.15.8; the bootstrap module in mcd now ensures a
+// single global `home` mission instead. This helper had zero remaining callers
+// after the cleanup.
 
 async fn register_node(
     State(state): State<Arc<AppState>>,
@@ -1017,46 +886,11 @@ async fn register_node(
     )
     .await;
 
-    // 9. Provision home mission (Phase 6). Pick the best hostname source:
-    //    Tailscale FQDN's leaf > the registration `hostname` > `node_name`.
-    //    The slug helper sanitises whatever we give it.
-    let home_hostname = body
-        .tailscale_fqdn
-        .as_deref()
-        .and_then(|f| f.split('.').next())
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            if !body.hostname.is_empty() {
-                body.hostname.clone()
-            } else {
-                body.node_name.clone()
-            }
-        });
-    let home_provisioned = match provision_home_for_node(
-        &state.db,
-        subject,
-        &node_id,
-        &home_hostname,
-        "goose",
-    )
-    .await
-    {
-        Ok((mid, aid)) => Some(serde_json::json!({"mission_id": mid, "agent_id": aid})),
-        Err(e) => {
-            // Soft-fail: home provisioning shouldn't block node registration.
-            // The operator can run `mc daemon agent enroll-home` to retry.
-            tracing::warn!("register_node: home-mission provisioning failed: {e}");
-            None
-        }
-    };
-
     // Return node fields + attach_secret (plaintext, this response only).
+    // Per-node home-mission auto-provisioning was removed in 0.15.9 — mcd's
+    // bootstrap module owns the single-global `home` mission now.
     let mut resp = row_to_node(&node_row);
     resp["attach_secret"] = serde_json::Value::String(attach_secret);
-    if let Some(hp) = home_provisioned {
-        resp["home"] = hp;
-    }
     (StatusCode::CREATED, Json(resp)).into_response()
 }
 
@@ -2738,56 +2572,6 @@ mod attach_proxy_tests {
         // Different inputs produce different signatures.
         assert_ne!(sig, sign_attach_token("s3cret", "agent-2", 1_700_000_000));
         assert_ne!(sig, sign_attach_token("other", "agent-1", 1_700_000_000));
-    }
-}
-
-#[cfg(test)]
-mod home_mission_tests {
-    use super::slug_hostname;
-
-    #[test]
-    fn plain_hostname_unchanged() {
-        assert_eq!(slug_hostname("excalibur"), "excalibur");
-    }
-
-    #[test]
-    fn uppercase_is_lowered() {
-        assert_eq!(slug_hostname("Excalibur"), "excalibur");
-    }
-
-    #[test]
-    fn dots_become_dashes() {
-        assert_eq!(slug_hostname("node.tailnet.ts.net"), "node-tailnet-ts-net");
-    }
-
-    #[test]
-    fn collapses_repeated_dashes() {
-        assert_eq!(slug_hostname("node...local"), "node-local");
-        assert_eq!(slug_hostname("a__b__c"), "a-b-c");
-    }
-
-    #[test]
-    fn trims_trailing_dashes() {
-        assert_eq!(slug_hostname("hostname---"), "hostname");
-        assert_eq!(slug_hostname("node."), "node");
-    }
-
-    #[test]
-    fn leading_invalid_chars_dropped() {
-        // Leading non-alnum produces no dash since `out.is_empty()`.
-        assert_eq!(slug_hostname("...foo"), "foo");
-    }
-
-    #[test]
-    fn empty_input_yields_empty() {
-        assert_eq!(slug_hostname(""), "");
-        assert_eq!(slug_hostname("..."), "");
-    }
-
-    #[test]
-    fn alphanumeric_mix_preserved() {
-        assert_eq!(slug_hostname("node-01"), "node-01");
-        assert_eq!(slug_hostname("cloud0"), "cloud0");
     }
 }
 

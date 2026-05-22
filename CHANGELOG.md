@@ -4,6 +4,21 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.9] — 2026-05-21
+
+### Removed — Dead `provision_home_for_node` helper (per-node home mission carcass)
+
+Deleted `provision_home_for_node` and its helper `slug_hostname` from `crates/mc-controlplane/src/routes/runtime.rs`, plus the test module `home_mission_tests` and the callsite in `register_node`. All were dead code after the walk-back of the per-node home-mission pattern across 0.15.4 and 0.15.8.
+
+The helper was:
+- Set `Mission.kind='home'` (a column we soft-deprecated in 0.15.4)
+- Auto-created `home-{slug(hostname)}` missions on node registration (a pattern we walked back in favor of mcd's bootstrap module creating a single global `home` mission)
+- Has had zero in-production callers since no runtime nodes have ever been registered against this deployment
+
+Net diff: -160 lines from `routes/runtime.rs`. No new tests; the deleted ones tested deleted code.
+
+**Not removed in this commit (separate follow-up):** `mc daemon agent enroll-home` CLI subcommand in `crates/mc/src/daemon_ctl.rs`. It's a standalone mirror that writes to the local registry directly (doesn't go through the controlplane helper we deleted), so it still compiles and "works" — but it encodes the same retired per-node pattern. Should be retired or repurposed in a follow-up. The mcd-side references to it (in `daemon.rs` comments) are pointers at this still-functional CLI command.
+
 ## [0.15.8] — 2026-05-21
 
 ### Changed — Aria/MC separation (second walk-back)
