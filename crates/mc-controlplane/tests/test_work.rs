@@ -195,6 +195,17 @@ async fn test_node_notify_route_registered() {
     assert_ne!(status, 200, "unauthenticated request must not succeed");
 }
 
+// Admin POST /work/tasks/{id}/dispatched — terminal-from-ready transition
+// for the triage routing path (replaces the 4-call temp-agent dance).
+#[tokio::test]
+async fn test_dispatch_task_route_registered() {
+    let res = server().post("/work/tasks/test-task-id/dispatched").await;
+    let status = res.status_code().as_u16();
+    assert_ne!(status, 404, "POST /work/tasks/{{id}}/dispatched should be registered");
+    assert_ne!(status, 200, "unauthenticated request must not succeed");
+    assert_ne!(status, 204, "unauthenticated request must not succeed");
+}
+
 // Admin DELETE /work/agents/{id} for ephemeral subagent cleanup.
 // See docs/design/ephemeral-task-subagents.md.
 #[tokio::test]

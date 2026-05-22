@@ -89,6 +89,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/work/tasks/{task_id}/fail", post(fail_task))
         .route("/work/tasks/{task_id}/block", post(block_task))
         .route("/work/tasks/{task_id}/unblock", post(unblock_task))
+        .route("/work/tasks/{task_id}/dispatched", post(dispatch_task))
         .route("/work/tasks/{task_id}/gates", get(list_gates).post(create_gate))
         .route("/work/tasks/{task_id}/gates/{gate_id}/resolve", post(resolve_gate))
         // Missions
@@ -1256,6 +1257,71 @@ async fn block_task(
         Ok(r) => Json(row_to_task(&r)).into_response(),
         Err(e) => {
             tracing::error!("block_task: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// Mark a `ready` task as dispatched — terminal status `finished`, no claim
+/// needed. Exists specifically for the triage routing pattern: the triage
+/// layer creates a child meshtask under the routed kluster (which carries
+/// the work), and the intake task itself needs to transition to terminal
+/// without the claim-then-complete dance that `complete_task` requires.
+///
+/// Authorization: admin OR the task's `created_by_subject`. (Different from
+/// `complete_task`, which is for the agent that claimed the task — here the
+/// caller is the triage layer, not a task executor.)
+///
+/// Idempotent on already-finished tasks: returns the existing row.
+async fn dispatch_task(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(task_id): Path<String>,
+) -> impl IntoResponse {
+    let row = sqlx::query("SELECT status, created_by_subject FROM meshtask WHERE id=$1")
+        .bind(&task_id)
+        .fetch_optional(&state.db)
+        .await;
+    let (status, created_by): (String, String) = match row {
+        Ok(Some(r)) => (r.get("status"), r.get("created_by_subject")),
+        Ok(None) => return not_found("Task not found"),
+        Err(e) => {
+            tracing::error!("dispatch_task lookup: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    if created_by != principal.subject && !principal.is_admin {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if status == "finished" {
+        // Idempotent: re-fetch and return.
+        let r = sqlx::query("SELECT * FROM meshtask WHERE id=$1")
+            .bind(&task_id)
+            .fetch_one(&state.db)
+            .await;
+        return match r {
+            Ok(row) => Json(row_to_task(&row)).into_response(),
+            Err(e) => { tracing::error!("dispatch_task re-fetch: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        };
+    }
+    if status != "ready" {
+        return bad_request(&format!(
+            "dispatch_task requires status='ready' (got '{status}'); use complete_task for claimed/running tasks"
+        ));
+    }
+
+    let now = Utc::now().naive_utc();
+    match sqlx::query(
+        "UPDATE meshtask SET status='finished', updated_at=$2 WHERE id=$1 RETURNING *",
+    )
+    .bind(&task_id)
+    .bind(now)
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(r) => Json(row_to_task(&r)).into_response(),
+        Err(e) => {
+            tracing::error!("dispatch_task: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }

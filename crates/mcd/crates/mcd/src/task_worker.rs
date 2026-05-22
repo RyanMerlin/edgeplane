@@ -69,18 +69,10 @@
 //! - `GET /missions` → `GET /missions/{id}/k` → find intake kluster by name.
 //! - `GET /work/klusters/{intake_kluster_id}/tasks?status=ready` — list unscoped tasks.
 //! - `POST /work/klusters/{intake_kluster_id}/tasks` — create child meshtask.
-//! - `POST /work/missions/{mission_id}/agents/enroll` — enroll temporary triage agent.
-//! - `POST /work/tasks/{intake_task_id}/claim` — claim intake task before completing.
-//! - `POST /work/tasks/{intake_task_id}/complete` — mark intake task finished (routed).
+//! - `POST /work/tasks/{intake_task_id}/dispatched` — mark intake task finished (routed).
+//!   Single admin-or-owner call; transitions `ready` → `finished` without a claim.
+//!   Shipped in 0.15.10 specifically to replace the 4-call temp-agent dance.
 //! - `POST /work/tasks/{intake_task_id}/block` — mark intake task blocked (low-confidence).
-//! - `DELETE /work/agents/{agent_id}` — delete temporary triage agent.
-//!
-//! # Note: complete_task status constraint
-//!
-//! The controlplane's `complete_task` handler only transitions from
-//! `claimed`/`running`/`waiting_review`. Since the intake task starts as `ready`,
-//! we must claim it first (with a temporary triage agent) before completing.
-//! `block_task` has no such constraint — it transitions from any status.
 //!
 //! # Cross-kluster scan trade-off
 //!
@@ -1037,85 +1029,30 @@ async fn route_task(
         "triage: created child task={child_id} for intake={intake_task_id} → profile={target_profile}"
     );
 
-    // ── Step 2: Enroll a temporary triage agent so we can claim the intake task ─
-
-    let enroll_body = serde_json::json!({
-        "agent_name": "triage-worker",
-        "runtime_kind": "claude_headless",
-        "runtime_version": concat!("triage-v", env!("CARGO_PKG_VERSION")),
-        "capabilities": ["triage"],
-        "labels": {
-            "role": "triage-agent",
-            "ephemeral": true,
-            "intake_task_id": intake_task_id,
-        }
-    });
-
-    let enroll_resp: Value = match client
-        .post(
-            &format!("/work/missions/{intake_mission_id}/agents/enroll"),
-            &enroll_body,
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!(
-                "triage: enroll triage agent failed for intake={intake_task_id}: {e:#}. \
-                 Child task created (id={child_id}) but intake task left in ready state."
-            );
-            return;
-        }
-    };
-
-    let triage_agent_id = match enroll_resp.get("id").and_then(|v| v.as_str()) {
-        Some(id) => id.to_string(),
-        None => {
-            tracing::warn!(
-                "triage: enroll response missing id for intake={intake_task_id}: {enroll_resp}"
-            );
-            return;
-        }
-    };
-
-    // ── Step 3: Claim the intake task ──────────────────────────────────────
-
-    let claim_body = serde_json::json!({ "agent_id": triage_agent_id });
+    // ── Step 2: Mark intake task as dispatched (single admin call) ─────────
+    //
+    // As of 0.15.10, `POST /work/tasks/{id}/dispatched` transitions a `ready`
+    // task to `finished` for admin-or-owner — no claim needed. Replaces the
+    // 4-call dance (enroll temp agent + claim + complete + delete agent) that
+    // we used in 0.15.6–0.15.9 because `complete_task` requires a claimed
+    // status. Single call now.
     if let Err(e) = client
-        .raw_post(&format!("/work/tasks/{intake_task_id}/claim"), &claim_body)
+        .raw_post(&format!("/work/tasks/{intake_task_id}/dispatched"), &serde_json::json!({}))
         .await
     {
         tracing::warn!(
-            "triage: claim intake task={intake_task_id} failed: {e:#}. \
-             Child task created (id={child_id}). Cleaning up triage agent."
+            "triage: dispatch intake task={intake_task_id} failed: {e:#}. \
+             Child task created (id={child_id}) but intake task left in ready state — will re-triage next cycle."
         );
-        delete_agent_soft(client, &triage_agent_id, intake_task_id).await;
         return;
     }
 
-    // ── Step 4: Complete the intake task (status: claimed → finished) ──────
+    tracing::info!(
+        "triage: intake task={intake_task_id} marked finished (routed to profile={target_profile}, \
+         child={child_id}, mission={intake_mission_id})"
+    );
 
-    let complete_body = serde_json::json!({ "agent_id": triage_agent_id });
-    if let Err(e) = client
-        .raw_post(&format!("/work/tasks/{intake_task_id}/complete"), &complete_body)
-        .await
-    {
-        tracing::warn!(
-            "triage: complete intake task={intake_task_id} failed: {e:#}. \
-             Task may be stuck in 'claimed' state. Child task={child_id} exists."
-        );
-    } else {
-        tracing::info!(
-            "triage: intake task={intake_task_id} marked finished (routed to profile={target_profile}, \
-             child={child_id})"
-        );
-    }
-
-    // ── Step 5: Delete the temporary triage agent ──────────────────────────
-
-    delete_agent_soft(client, &triage_agent_id, intake_task_id).await;
-
-    // ── Step 6: Ignore goose_timeout_secs here — used by call_goose_categorize ─
+    // ── Step 3: Ignore goose_timeout_secs here — used by call_goose_categorize ─
     let _ = config.task_worker_goose_timeout_secs; // suppress unused warning
 }
 

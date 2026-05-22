@@ -4,6 +4,16 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.10] — 2026-05-21
+
+### Added — `POST /work/tasks/{id}/dispatched` admin transition endpoint
+
+Single-call transition `ready` → `finished` for admin or task owner. Designed specifically for the triage routing pattern: the triage layer creates a child meshtask under the routed kluster (which carries the work) and the intake task itself needs to transition to a terminal state without the claim-then-complete dance that `complete_task` requires (because `complete_task` only allows `claimed`/`running`/`waiting_review` transitions). Idempotent on already-finished tasks.
+
+### Changed — P3 triage `route_task` now uses the new endpoint
+
+Replaces the 4-call temp-agent dance (enroll triage agent + claim + complete + delete agent) with a single `POST /work/tasks/{id}/dispatched`. Net diff: `-70` lines in `task_worker.rs`, no behavior change, no Goose-side migration needed. The intake task's terminal state is still `finished`; the child task still carries the work; `parent_task_id` chain still intact.
+
 ## [0.15.9] — 2026-05-21
 
 ### Removed — Dead `provision_home_for_node` helper (per-node home mission carcass)
