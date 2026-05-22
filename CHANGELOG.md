@@ -4,6 +4,40 @@ All notable changes to mc, mcd, and mc-controlplane are recorded here. Starting 
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.15.11] — 2026-05-21
+
+### Added — `dispatch = "bash"` cron tier
+
+Third dispatch mode for mcd cron jobs, alongside the existing `signal` (inject prompt into a profile session) and `goose` (run prompt through local Qwen3.6-27B). `dispatch = "bash"` treats the `prompt` field as a literal shell script and executes via `bash -c`. No session, no signal, no LLM round-trip, no prompt-injection cost — pure subprocess execution.
+
+Designed for the cron jobs that have always been pure shell work — `aria vault mirror`, `aria browser screenshot`, `mc mesh msg list` etc. Previously these had to be wrapped in either a `signal` dispatch (overkill, polluted a profile session) or a `goose` dispatch (waste, LLM categorizing trivial output). Now they have a tier that matches what they actually are.
+
+**Execution:**
+- Command: `bash -c "<prompt>"`
+- Captured: stdout/stderr → mcd cron log; exit code → cron history (`last_status: "ok"` / `"failed"`)
+- Timeout: 5 minutes (same as goose)
+- Env: standard env + `MC_CRON_JOB_NAME`, `MC_CRON_FIRE_TS`, `MC_CRON_DISPATCH=bash`
+- Works with both `kind = "cron"` and `kind = "heartbeat"` timing tiers
+
+**Migrated `vault-mirror` job** as validation:
+```toml
+# Before:
+[[job]]
+name     = "vault-mirror"
+schedule = "0 3 * * *"
+session  = "operator"
+prompt   = "Bash: aria vault mirror — log any errors to .learnings/ERRORS.md, no output needed on success"
+
+# After:
+[[job]]
+name     = "vault-mirror"
+schedule = "0 3 * * *"
+dispatch = "bash"
+prompt   = """aria vault mirror 2>>/home/merlin/code/aria/.learnings/ERRORS.md"""
+```
+
+Other candidates (`mesh-inbox-sweep`, `browser-session-refresh`) can migrate when their owners are ready.
+
 ## [0.15.10] — 2026-05-21
 
 ### Added — `POST /work/tasks/{id}/dispatched` admin transition endpoint

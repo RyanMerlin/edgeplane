@@ -1544,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "mc-controlplane"
-version = "0.15.10"
+version = "0.15.11"
 dependencies = [
  "anyhow",
  "axum",
