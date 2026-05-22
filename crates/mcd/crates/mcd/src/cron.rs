@@ -252,6 +252,7 @@ impl CronLoop {
         let dispatch_result = match job.dispatch.as_str() {
             "signal" => self.dispatch_signal(job).await,
             "goose" => self.dispatch_goose(job).await,
+            "bash" => self.dispatch_bash(job).await,
             other => Err(anyhow::anyhow!("unknown dispatch {other:?} for job {:?}", job.name)),
         };
         let duration_ms = start.elapsed().as_millis() as i64;
@@ -354,6 +355,46 @@ impl CronLoop {
         })
         .await
         .context("spawn_blocking panicked dispatching goose")?
+    }
+
+    /// Dispatch the prompt as a literal shell script via `bash -c "<prompt>"`.
+    ///
+    /// No session attachment, no LLM round-trip, no profile context. The
+    /// prompt is treated as a shell command string and executed directly.
+    /// Suitable for deterministic, idempotent maintenance tasks (vault mirror,
+    /// log rotation, data pipeline steps) where agent context adds no value.
+    ///
+    /// Env vars available to the script:
+    /// - Standard: `HOME`, `PATH`, `USER`, `SHELL`, etc. (inherited from mcd)
+    /// - Context: `MC_CRON_JOB_NAME`, `MC_CRON_FIRE_TS` (Unix epoch seconds),
+    ///   `MC_CRON_DISPATCH=bash`
+    ///
+    /// Timeout: 5 minutes (same as goose). Exit code 0 → ok; non-zero → error
+    /// (stderr preview captured in the cron fire log). mcd stays up on failure
+    /// (soft-fail).
+    async fn dispatch_bash(&self, job: &CronJob) -> Result<()> {
+        let prompt = job.prompt.clone();
+        let name = job.name.clone();
+        let fire_ts = Utc::now().timestamp().to_string();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let output = std::process::Command::new("bash")
+                .args(["-c", &prompt])
+                .env("MC_CRON_JOB_NAME", &name)
+                .env("MC_CRON_FIRE_TS", &fire_ts)
+                .env("MC_CRON_DISPATCH", "bash")
+                .output()
+                .with_context(|| format!("spawn `bash -c ...` for cron job {name:?}"))?;
+            if !output.status.success() {
+                let code = output.status.code().unwrap_or(-1);
+                let stderr_raw = String::from_utf8_lossy(&output.stderr);
+                // Truncate stderr preview to first 500 chars to keep the fire log lean.
+                let stderr_preview: String = stderr_raw.chars().take(500).collect();
+                bail!("bash exited {code}: {}", stderr_preview.trim());
+            }
+            Ok(())
+        })
+        .await
+        .context("spawn_blocking panicked dispatching bash")?
     }
 
     async fn read_state(

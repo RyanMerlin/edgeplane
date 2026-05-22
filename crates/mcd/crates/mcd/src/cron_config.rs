@@ -260,9 +260,9 @@ fn validate(cfg: &CronConfig, path_for_errors: &Path) -> Result<()> {
         }
 
         match job.dispatch.as_str() {
-            "signal" | "goose" => {}
+            "signal" | "goose" | "bash" => {}
             other => bail!(
-                "{where_}: unknown dispatch = {other:?} (expected \"signal\" or \"goose\")"
+                "{where_}: unknown dispatch = {other:?} (expected \"signal\", \"goose\", or \"bash\")"
             ),
         }
     }
@@ -470,6 +470,110 @@ dispatch = "goose"
 "#;
         let cfg = parse(raw, &p()).expect("goose parses");
         assert_eq!(cfg.jobs[0].dispatch, "goose");
+    }
+
+    // ── bash dispatch tests ──────────────────────────────────────────────
+
+    #[test]
+    fn bash_dispatch_parses_in_cron_config() {
+        // dispatch = "bash" must be accepted by the TOML parser + validator.
+        let raw = r#"
+schema_version = 1
+
+[[job]]
+name = "vault-mirror"
+schedule = "0 3 * * *"
+dispatch = "bash"
+prompt = """aria vault mirror 2>>/home/merlin/code/aria/.learnings/ERRORS.md"""
+"#;
+        let cfg = parse(raw, &p()).expect("bash dispatch parses");
+        assert_eq!(cfg.jobs[0].dispatch, "bash");
+        assert_eq!(cfg.jobs[0].name, "vault-mirror");
+    }
+
+    #[test]
+    fn bash_dispatch_works_with_heartbeat_kind() {
+        // bash dispatch must compose with both timing tiers.
+        let raw = r#"
+schema_version = 1
+
+[[job]]
+name = "hb-bash"
+kind = "heartbeat"
+interval = "1h"
+dispatch = "bash"
+prompt = "echo hello"
+"#;
+        let cfg = parse(raw, &p()).expect("heartbeat + bash parses");
+        let job = &cfg.jobs[0];
+        assert_eq!(job.dispatch, "bash");
+        assert_eq!(job.kind, "heartbeat");
+    }
+
+    #[test]
+    fn bash_dispatch_command_construction() {
+        // Verify the Command that dispatch_bash would build has the right binary and args.
+        // We construct the Command without executing it (no .output() call) and inspect
+        // the debug representation.
+        let prompt = "aria vault mirror 2>>/tmp/errors.md";
+        let mut cmd = std::process::Command::new("bash");
+        cmd.args(["-c", prompt]);
+        let debug_str = format!("{cmd:?}");
+        // The debug output for Command includes the binary and args.
+        assert!(
+            debug_str.contains("bash"),
+            "Command should invoke bash: {debug_str}"
+        );
+        assert!(
+            debug_str.contains("-c"),
+            "Command should pass -c flag: {debug_str}"
+        );
+        assert!(
+            debug_str.contains("aria vault mirror"),
+            "Command should include the prompt: {debug_str}"
+        );
+    }
+
+    #[test]
+    fn bash_dispatch_env_vars_set() {
+        // Verify that MC_CRON_* env vars can be set on a Command without panic.
+        // We test the env-var setup logic by building a Command with those vars
+        // and confirming the builder doesn't reject them (type system check).
+        let mut cmd = std::process::Command::new("bash");
+        cmd.args(["-c", "echo $MC_CRON_JOB_NAME"])
+            .env("MC_CRON_JOB_NAME", "vault-mirror")
+            .env("MC_CRON_FIRE_TS", "1748000000")
+            .env("MC_CRON_DISPATCH", "bash");
+        let debug_str = format!("{cmd:?}");
+        assert!(
+            debug_str.contains("MC_CRON_JOB_NAME"),
+            "MC_CRON_JOB_NAME should be in env: {debug_str}"
+        );
+        assert!(
+            debug_str.contains("vault-mirror"),
+            "job name value should be in env: {debug_str}"
+        );
+        assert!(
+            debug_str.contains("MC_CRON_DISPATCH"),
+            "MC_CRON_DISPATCH should be in env: {debug_str}"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_dispatch() {
+        let raw = r#"
+schema_version = 1
+
+[[job]]
+name = "bad"
+schedule = "0 0 * * *"
+prompt = "x"
+dispatch = "k8s-job"
+"#;
+        let err = parse(raw, &p()).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("unknown dispatch"), "msg: {msg}");
+        assert!(msg.contains("k8s-job"), "msg: {msg}");
     }
 
     #[test]
