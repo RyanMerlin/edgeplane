@@ -281,6 +281,6 @@ All auth types work with `edgeplane launch` for gemini/openclaw/custom. Codex/Cl
 If Codex shows `MCP startup incomplete (failed: edgeplane)`:
 
 - Ensure `edgeplane daemon` is running on `127.0.0.1:8765`.
-- Use shim defaults (`MC_MCP_MODE=shim`, `MC_STARTUP_PREFLIGHT=none`).
+- Use shim defaults (`EP_MCP_MODE=shim`, `EP_STARTUP_PREFLIGHT=none`).
 - Ensure your MCP env vars are `MC_*` (not `EDGEPLANE_*`).
 - Run `edgeplane auth whoami` to verify auth is working before launching an agent.

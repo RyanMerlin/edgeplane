@@ -34,7 +34,7 @@ trap cleanup EXIT INT TERM
 log() { echo "[demo] $*"; }
 
 # ---- REST helper ----
-mc_api() {
+ep_api() {
     local method="$1" path="$2" body="${3:-}"
     if [[ "$method" == "GET" ]]; then
         curl -sf \
@@ -50,39 +50,39 @@ mc_api() {
 }
 
 task_status() {
-    mc_api GET "/work/tasks/${1}" \
+    ep_api GET "/work/tasks/${1}" \
       | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))"
 }
 
 # ---- 1. Create domain ----
 log "Creating domain…"
-DOMAIN=$(mc_api POST "/domains" \
+DOMAIN=$(ep_api POST "/domains" \
     "{\"name\":\"demo-mesh-$(date +%s)\",\"owners\":\"demo@example.com\"}")
 DOMAIN_ID=$(echo "$DOMAIN" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Domain: $DOMAIN_ID"
 
 # ---- 2. Create mission ----
 log "Creating mission…"
-MISSION=$(mc_api POST "/domains/${DOMAIN_ID}/m" \
+MISSION=$(ep_api POST "/domains/${DOMAIN_ID}/m" \
     "{\"name\":\"demo-m\",\"owners\":\"demo@example.com\"}")
 MISSION_ID=$(echo "$MISSION" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Mission: $MISSION_ID"
 
 # ---- 3. Seed tasks A → B → C ----
 log "Creating task A (no deps)…"
-A_ID=$(mc_api POST "/work/missions/${MISSION_ID}/tasks" \
+A_ID=$(ep_api POST "/work/missions/${MISSION_ID}/tasks" \
     "{\"title\":\"A - foundation\",\"description\":\"First task\"}" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['id'])")
 log "Task A: $A_ID"
 
 log "Creating task B (depends on A)…"
-B_ID=$(mc_api POST "/work/missions/${MISSION_ID}/tasks" \
+B_ID=$(ep_api POST "/work/missions/${MISSION_ID}/tasks" \
     "{\"title\":\"B - middle\",\"description\":\"Depends on A\",\"depends_on\":[\"${A_ID}\"]}" \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Task B: $B_ID"
 
 log "Creating task C (depends on B)…"
-C_ID=$(mc_api POST "/work/missions/${MISSION_ID}/tasks" \
+C_ID=$(ep_api POST "/work/missions/${MISSION_ID}/tasks" \
     "{\"title\":\"C - final\",\"description\":\"Depends on B\",\"depends_on\":[\"${B_ID}\"]}" \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Task C: $C_ID"

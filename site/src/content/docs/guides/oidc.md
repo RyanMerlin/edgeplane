@@ -17,8 +17,8 @@ OIDC_CLIENT_ID=<oidc-client-id>
 OIDC_CLIENT_SECRET=<optional-for-confidential-clients>
 OIDC_REDIRECT_URI=https://<edgeplane-host>/auth/oidc/callback
 OIDC_SCOPES=openid profile email
-MC_ADMIN_SUBJECTS=<comma-separated-subjects>
-MC_ADMIN_EMAILS=<comma-separated-emails>
+EP_ADMIN_SUBJECTS=<comma-separated-subjects>
+EP_ADMIN_EMAILS=<comma-separated-emails>
 # optional — auto-discovered if omitted
 # OIDC_JWKS_URL=https://<your-idp>/application/o/<provider-slug>/jwks/
 ```
@@ -124,7 +124,7 @@ stringData:
   OIDC_CLIENT_ID: "..."
   OIDC_CLIENT_SECRET: "..."
   EP_TOKEN: "..."
-  MC_ADMIN_EMAILS: "..."
+  EP_ADMIN_EMAILS: "..."
 ```
 
 Mount in the deployment:

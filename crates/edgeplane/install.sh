@@ -1,12 +1,12 @@
 #!/bin/sh
 set -eu
 
-PREFIX="${MC_INSTALL_PREFIX:-/usr/local}"
+PREFIX="${EP_INSTALL_PREFIX:-/usr/local}"
 BIN_SRC="${EP_BINARY_PATH:-$(command -v edgeplane || true)}"
 SERVICE_NAME="edgeplane-node.service"
-CONFIG_DIR="${MC_CONFIG_DIR:-/etc/edgeplane}"
+CONFIG_DIR="${EP_CONFIG_DIR:-/etc/edgeplane}"
 ENV_FILE="${CONFIG_DIR}/${SERVICE_NAME}.env"
-SYSTEMD_DIR="${MC_SYSTEMD_DIR:-/etc/systemd/system}"
+SYSTEMD_DIR="${EP_SYSTEMD_DIR:-/etc/systemd/system}"
 
 info() { echo "[INFO] $*" ; }
 warn() { echo "[WARN] $*" >&2 ; }
@@ -29,14 +29,14 @@ if [ ! -f "${ENV_FILE}" ]; then
 # Edgeplane node settings
 # Required:
 # EP_BASE_URL=https://edgeplane.example.com
-# MC_NODE_BOOTSTRAP_TOKEN=...
+# EP_NODE_BOOTSTRAP_TOKEN=...
 # Optional:
-# MC_NODE_NAME=$(hostname -s)
-# MC_NODE_HOSTNAME=$(hostname -f)
-# MC_NODE_TRUST_TIER=trusted
-# MC_NODE_POLL_SECONDS=30
-# MC_NODE_HEARTBEAT_SECONDS=15
-# MC_NODE_UPGRADE_MANIFEST_URL=https://edgeplane.example.com/releases/latest.json
+# EP_NODE_NAME=$(hostname -s)
+# EP_NODE_HOSTNAME=$(hostname -f)
+# EP_NODE_TRUST_TIER=trusted
+# EP_NODE_POLL_SECONDS=30
+# EP_NODE_HEARTBEAT_SECONDS=15
+# EP_NODE_UPGRADE_MANIFEST_URL=https://edgeplane.example.com/releases/latest.json
 # EP_HOME=/var/lib/edgeplane
 EOF
   chmod 0600 "${ENV_FILE}"

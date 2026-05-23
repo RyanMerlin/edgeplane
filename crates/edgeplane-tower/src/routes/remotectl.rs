@@ -378,7 +378,7 @@ async fn create_launch(
            (id, owner_subject, transport, target_id, target_host, target_namespace,
             agent_kind, agent_profile, runtime_session_id, session_token_id,
             capability_scope, status, last_heartbeat_at, exit_code, error_message,
-            log_tail, mc_binary_path, agent_binary_path, k8s_job_name, mc_version,
+            log_tail, ep_binary_path, agent_binary_path, k8s_job_name, ep_version,
             created_at, updated_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'launching',NULL,NULL,'','','','','','',
                    $12,$12)

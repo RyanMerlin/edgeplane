@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MC_MANIFEST_PATH="${ROOT_DIR}/crates/edgeplane/Cargo.toml"
+EP_MANIFEST_PATH="${ROOT_DIR}/crates/edgeplane/Cargo.toml"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -33,7 +33,7 @@ done
 export PATH="$TEST_BIN:$PATH"
 
 run_mc() {
-    cargo run --quiet --manifest-path "$MC_MANIFEST_PATH" -- "$@"
+    cargo run --quiet --manifest-path "$EP_MANIFEST_PATH" -- "$@"
 }
 
 assert_exists() {

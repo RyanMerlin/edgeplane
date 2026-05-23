@@ -216,11 +216,11 @@ JSON
       "env": {
         "EP_BASE_URL": $endpoint_json,
         "EP_TOKEN": $token_json,
-        "MC_MCP_MODE": "shim",
-        "MC_DAEMON_HOST": "127.0.0.1",
-        "MC_DAEMON_PORT": "8765",
-        "MC_FAIL_OPEN_ON_LIST": "1",
-        "MC_STARTUP_PREFLIGHT": "none"
+        "EP_MCP_MODE": "shim",
+        "EP_DAEMON_HOST": "127.0.0.1",
+        "EP_DAEMON_PORT": "8765",
+        "EP_FAIL_OPEN_ON_LIST": "1",
+        "EP_STARTUP_PREFLIGHT": "none"
       }
     }
   }
@@ -234,11 +234,11 @@ JSON
       "command": "edgeplane-mcp",
       "env": {
         "EP_BASE_URL": $endpoint_json,
-        "MC_MCP_MODE": "shim",
-        "MC_DAEMON_HOST": "127.0.0.1",
-        "MC_DAEMON_PORT": "8765",
-        "MC_FAIL_OPEN_ON_LIST": "1",
-        "MC_STARTUP_PREFLIGHT": "none"
+        "EP_MCP_MODE": "shim",
+        "EP_DAEMON_HOST": "127.0.0.1",
+        "EP_DAEMON_PORT": "8765",
+        "EP_FAIL_OPEN_ON_LIST": "1",
+        "EP_STARTUP_PREFLIGHT": "none"
       }
     }
   }

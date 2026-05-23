@@ -303,14 +303,14 @@ impl AgentRuntime for ClaudeCodeRuntime {
             .stderr(std::process::Stdio::piped());
 
         // Propagate the edgeplaned capability socket path so agents can reach `edgeplaned run`.
-        if let Ok(socket) = std::env::var("MC_MESH_SOCKET") {
-            cmd.env("MC_MESH_SOCKET", socket);
+        if let Ok(socket) = std::env::var("EP_MESH_SOCKET") {
+            cmd.env("EP_MESH_SOCKET", socket);
         }
 
         // Inject edgeplane binary dir so agents can invoke `edgeplane` without an absolute path.
-        let mc_dir = crate::shared::mc_bin_dir();
-        if !mc_dir.is_empty() {
-            cmd.env("PATH", crate::shared::prepend_to_path(&mc_dir, &std::env::var("PATH").unwrap_or_default()));
+        let ep_dir = crate::shared::ep_bin_dir();
+        if !ep_dir.is_empty() {
+            cmd.env("PATH", crate::shared::prepend_to_path(&ep_dir, &std::env::var("PATH").unwrap_or_default()));
         }
 
         let mut child = cmd.spawn()?;

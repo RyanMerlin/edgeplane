@@ -1,6 +1,6 @@
 use crate::{
-    config::{McConfig, mc_home_dir},
-    mc_info, mc_ok, mc_warn,
+    config::{McConfig, ep_home_dir},
+    ep_info, ep_ok, ep_warn,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use clap::ValueEnum;
@@ -69,9 +69,9 @@ pub async fn run_launch(
     }
 
     if report.repaired {
-        mc_ok!("{}: repaired drift", profile);
+        ep_ok!("{}: repaired drift", profile);
     } else {
-        mc_ok!("{}: ready", profile);
+        ep_ok!("{}: ready", profile);
     }
 
     let paths = claude_paths(&profile);
@@ -79,9 +79,9 @@ pub async fn run_launch(
     let use_resume = !new && has_resume;
 
     if use_resume {
-        mc_info!("{}: resuming", profile);
+        ep_info!("{}: resuming", profile);
     } else {
-        mc_info!("{}: starting new session", profile);
+        ep_info!("{}: starting new session", profile);
     }
 
     let mut launch_args = Vec::<String>::new();
@@ -91,7 +91,7 @@ pub async fn run_launch(
 
     let status = run_claude_process(&launch_args, &paths.runtime_home, config, &profile)?;
     if !status.success() && use_resume {
-        mc_warn!("{}: resume failed; retrying with new session", profile);
+        ep_warn!("{}: resume failed; retrying with new session", profile);
         let retry_status = run_claude_process(&[], &paths.runtime_home, config, &profile)?;
         if !retry_status.success() {
             bail!("claude exited with status {}", retry_status);
@@ -207,7 +207,7 @@ pub async fn run_hook(event: String, config: &McConfig) -> Result<()> {
 
     let base = config.base_url.as_str().trim_end_matches('/');
     let url = format!("{}{}", base, endpoint);
-    let token = std::env::var("MC_AGENT_TOKEN")
+    let token = std::env::var("EP_AGENT_TOKEN")
         .ok()
         .or_else(|| config.token.clone());
 
@@ -229,19 +229,19 @@ pub async fn run_hook(event: String, config: &McConfig) -> Result<()> {
                 }
                 Ok(())
             } else {
-                mc_warn!("claude hook {} returned HTTP {}", endpoint, status);
+                ep_warn!("claude hook {} returned HTTP {}", endpoint, status);
                 Ok(())
             }
         }
         Err(err) => {
-            mc_warn!("claude hook {} failed: {}", endpoint, err);
+            ep_warn!("claude hook {} failed: {}", endpoint, err);
             Ok(())
         }
     }
 }
 
 pub fn claude_paths(profile: &str) -> ClaudePaths {
-    let runtime_root = mc_home_dir()
+    let runtime_root = ep_home_dir()
         .join("profiles")
         .join(profile)
         .join("claude")
@@ -309,7 +309,7 @@ fn inspect_profile(profile: &str, config: &McConfig, fix: bool) -> Result<Claude
 
     if !paths.claude_config_path.exists() {
         issues.push(issue(
-            "MC_MCP_CONFIG_MISSING",
+            "EP_MCP_CONFIG_MISSING",
             "error",
             ".claude.json missing in runtime home",
             true,
@@ -318,7 +318,7 @@ fn inspect_profile(profile: &str, config: &McConfig, fix: bool) -> Result<Claude
 
     if !paths.settings_path.exists() {
         issues.push(issue(
-            "MC_HOOKS_MISSING",
+            "EP_HOOKS_MISSING",
             "error",
             "settings.json missing in runtime home",
             true,
@@ -357,7 +357,7 @@ fn inspect_profile(profile: &str, config: &McConfig, fix: bool) -> Result<Claude
         }
         if !paths.claude_config_path.exists() {
             issues.push(issue(
-                "MC_MCP_CONFIG_MISSING",
+                "EP_MCP_CONFIG_MISSING",
                 "error",
                 ".claude.json missing in runtime home",
                 true,
@@ -365,7 +365,7 @@ fn inspect_profile(profile: &str, config: &McConfig, fix: bool) -> Result<Claude
         }
         if !paths.settings_path.exists() {
             issues.push(issue(
-                "MC_HOOKS_MISSING",
+                "EP_HOOKS_MISSING",
                 "error",
                 "settings.json missing in runtime home",
                 true,
@@ -487,7 +487,7 @@ fn patch_mcp_config(config_path: &Path, config: &McConfig) -> Result<bool> {
         .as_object_mut()
         .ok_or_else(|| anyhow!("{} mcpServers is not an object", config_path.display()))?;
 
-    let mc_command = std::env::current_exe()
+    let ep_command = std::env::current_exe()
         .ok()
         .filter(|p| p.is_file())
         .map(|p| p.display().to_string())
@@ -496,7 +496,7 @@ fn patch_mcp_config(config_path: &Path, config: &McConfig) -> Result<bool> {
     mcp_servers.insert(
         "edgeplane".to_string(),
         json!({
-            "command": mc_command,
+            "command": ep_command,
             "args": ["serve"],
             "env": {
                 "EP_BASE_URL": config.base_url.as_str().trim_end_matches('/')
@@ -603,7 +603,7 @@ fn is_managed_hook(entry: &Value) -> bool {
 
 fn write_hook_wrappers(hooks_dir: &Path) -> Result<bool> {
     fs::create_dir_all(hooks_dir)?;
-    let mc_bin = std::env::current_exe()
+    let ep_bin = std::env::current_exe()
         .ok()
         .filter(|p| p.is_file())
         .map(|p| p.display().to_string())
@@ -620,7 +620,7 @@ fn write_hook_wrappers(hooks_dir: &Path) -> Result<bool> {
         let path = hooks_dir.join(name);
         let body = format!(
             "#!/usr/bin/env sh\nset -eu\nexec \"{}\" claude hook {}\n",
-            mc_bin, event
+            ep_bin, event
         );
         let current = fs::read_to_string(&path).unwrap_or_default();
         if current != body {
@@ -762,11 +762,11 @@ fn run_claude_process(
     let mut cmd = resolved_command("claude");
     cmd.args(extra_args);
     cmd.env("HOME", runtime_home);
-    cmd.env("MC_AGENT_PROFILE", profile);
+    cmd.env("EP_AGENT_PROFILE", profile);
 
     if let Some(token) = &config.token {
         if !token.trim().is_empty() {
-            cmd.env("MC_AGENT_TOKEN", token);
+            cmd.env("EP_AGENT_TOKEN", token);
         }
     }
 
@@ -791,7 +791,7 @@ pub fn resolved_command(name: &str) -> std::process::Command {
     std::process::Command::new(binary)
 }
 
-/// Blocking launch helper for SoloSupervisor — sets MC_MESH_AGENT_ID / MC_RUN_ID env vars.
+/// Blocking launch helper for SoloSupervisor — sets EP_MESH_AGENT_ID / EP_RUN_ID env vars.
 pub fn launch_claude_blocking(
     extra_args: &[String],
     runtime_home: &Path,
@@ -805,20 +805,20 @@ pub fn launch_claude_blocking(
     let mut cmd = resolved_command("claude");
     cmd.args(extra_args);
     cmd.env("HOME", runtime_home);
-    cmd.env("MC_AGENT_PROFILE", profile);
-    cmd.env("MC_MESH_AGENT_ID", agent_id);
+    cmd.env("EP_AGENT_PROFILE", profile);
+    cmd.env("EP_MESH_AGENT_ID", agent_id);
     if let Some(rid) = run_id {
-        cmd.env("MC_RUN_ID", rid);
+        cmd.env("EP_RUN_ID", rid);
     }
     if let Some(tid) = task_id {
-        cmd.env("MC_MESH_TASK_ID", tid);
+        cmd.env("EP_MESH_TASK_ID", tid);
     }
     if let Some(p) = task_md_path {
-        cmd.env("MC_TASK_MD_PATH", p);
+        cmd.env("EP_TASK_MD_PATH", p);
     }
     if let Some(token) = &config.token {
         if !token.trim().is_empty() {
-            cmd.env("MC_AGENT_TOKEN", token);
+            cmd.env("EP_AGENT_TOKEN", token);
         }
     }
     let runtime_local_bin = runtime_home.join(".local").join("bin");

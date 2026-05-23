@@ -2,33 +2,33 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_ROOT="${MC_PRESSURE_OUT_ROOT:-$ROOT_DIR/artifacts/pressure}"
-RUN_ID="${MC_PRESSURE_RUN_ID:-$(date +%Y%m%d%H%M%S)}"
-MODE="${MC_PRESSURE_MODE:-agent}" # agent | playbook
-WORKERS="${MC_PRESSURE_WORKERS:-5}"
-DURATION_SEC="${MC_PRESSURE_DURATION_SEC:-600}"
-MODEL="${MC_PRESSURE_MODEL:-gpt-5.1-codex-mini}"
+OUT_ROOT="${EP_PRESSURE_OUT_ROOT:-$ROOT_DIR/artifacts/pressure}"
+RUN_ID="${EP_PRESSURE_RUN_ID:-$(date +%Y%m%d%H%M%S)}"
+MODE="${EP_PRESSURE_MODE:-agent}" # agent | playbook
+WORKERS="${EP_PRESSURE_WORKERS:-5}"
+DURATION_SEC="${EP_PRESSURE_DURATION_SEC:-600}"
+MODEL="${EP_PRESSURE_MODEL:-gpt-5.1-codex-mini}"
 BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
-MCP_CMD="${MC_PRESSURE_MCP_COMMAND:-edgeplane}"
-SHIM_HOST="${MC_DAEMON_HOST:-127.0.0.1}"
-SHIM_PORT="${MC_DAEMON_PORT:-8765}"
+MCP_CMD="${EP_PRESSURE_MCP_COMMAND:-edgeplane}"
+SHIM_HOST="${EP_DAEMON_HOST:-127.0.0.1}"
+SHIM_PORT="${EP_DAEMON_PORT:-8765}"
 STACK_PROFILE="${EP_STACK_PROFILE:-full}"
-UNSANDBOXED="${MC_PRESSURE_UNSANDBOXED:-0}"
-AUTOSTART_DAEMON="${MC_PRESSURE_AUTOSTART_DAEMON:-1}"
+UNSANDBOXED="${EP_PRESSURE_UNSANDBOXED:-0}"
+AUTOSTART_DAEMON="${EP_PRESSURE_AUTOSTART_DAEMON:-1}"
 DAEMON_PID=""
 WORKER_PIDS=()
-INTERVAL_MS="${MC_PRESSURE_INTERVAL_MS:-200}"
-ON_429_SLEEP_MS="${MC_PRESSURE_ON_429_SLEEP_MS:-1000}"
-TOKENS_CSV="${MC_PRESSURE_TOKENS:-}"
+INTERVAL_MS="${EP_PRESSURE_INTERVAL_MS:-200}"
+ON_429_SLEEP_MS="${EP_PRESSURE_ON_429_SLEEP_MS:-1000}"
+TOKENS_CSV="${EP_PRESSURE_TOKENS:-}"
 REPORT_VERSION="1.0.0"
-SCENARIO_FILE="${MC_PRESSURE_SCENARIO_FILE:-$ROOT_DIR/scripts/pressure-scenarios/reliability-trio.json}"
-AGENT_STARTUP_TIMEOUT_SEC="${MC_PRESSURE_AGENT_STARTUP_TIMEOUT_SEC:-120}"
-AGENT_TOOL_TIMEOUT_SEC="${MC_PRESSURE_AGENT_TOOL_TIMEOUT_SEC:-120}"
-AGENT_ITER_SLEEP_MS="${MC_PRESSURE_AGENT_ITER_SLEEP_MS:-500}"
-AGENT_EXEC_TIMEOUT_SEC="${MC_PRESSURE_AGENT_EXEC_TIMEOUT_SEC:-300}"
-AGENT_DRIVER="${MC_PRESSURE_AGENT_DRIVER:-daemon}" # daemon | codex
-DIAGNOSTIC_SAMPLE_LIMIT="${MC_PRESSURE_DIAGNOSTIC_SAMPLE_LIMIT:-5}"
-AGENT_ON_429_SLEEP_MS="${MC_PRESSURE_AGENT_ON_429_SLEEP_MS:-1000}"
+SCENARIO_FILE="${EP_PRESSURE_SCENARIO_FILE:-$ROOT_DIR/scripts/pressure-scenarios/reliability-trio.json}"
+AGENT_STARTUP_TIMEOUT_SEC="${EP_PRESSURE_AGENT_STARTUP_TIMEOUT_SEC:-120}"
+AGENT_TOOL_TIMEOUT_SEC="${EP_PRESSURE_AGENT_TOOL_TIMEOUT_SEC:-120}"
+AGENT_ITER_SLEEP_MS="${EP_PRESSURE_AGENT_ITER_SLEEP_MS:-500}"
+AGENT_EXEC_TIMEOUT_SEC="${EP_PRESSURE_AGENT_EXEC_TIMEOUT_SEC:-300}"
+AGENT_DRIVER="${EP_PRESSURE_AGENT_DRIVER:-daemon}" # daemon | codex
+DIAGNOSTIC_SAMPLE_LIMIT="${EP_PRESSURE_DIAGNOSTIC_SAMPLE_LIMIT:-5}"
+AGENT_ON_429_SLEEP_MS="${EP_PRESSURE_AGENT_ON_429_SLEEP_MS:-1000}"
 PLAYBOOK_SKIP_CLEANUP="${EP_PLAYBOOK_SKIP_CLEANUP:-0}"
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -45,15 +45,15 @@ if [[ -z "${EP_TOKEN:-}" ]]; then
 fi
 
 if [[ "$MODE" == "agent" && "$AGENT_DRIVER" == "codex" ]] && ! command -v codex >/dev/null 2>&1; then
-  echo "codex is required for MC_PRESSURE_MODE=agent" >&2
+  echo "codex is required for EP_PRESSURE_MODE=agent" >&2
   exit 1
 fi
 if [[ "$MODE" == "agent" && "$AGENT_DRIVER" == "codex" ]] && ! command -v timeout >/dev/null 2>&1; then
-  echo "timeout is required for MC_PRESSURE_MODE=agent" >&2
+  echo "timeout is required for EP_PRESSURE_MODE=agent" >&2
   exit 1
 fi
 if [[ ! -f "$SCENARIO_FILE" ]]; then
-  echo "MC_PRESSURE_SCENARIO_FILE not found: $SCENARIO_FILE" >&2
+  echo "EP_PRESSURE_SCENARIO_FILE not found: $SCENARIO_FILE" >&2
   exit 2
 fi
 
@@ -113,7 +113,7 @@ fi
 if ! curl -fsS "http://${SHIM_HOST}:${SHIM_PORT}/v1/health" >/dev/null 2>&1; then
   if [[ "$AUTOSTART_DAEMON" == "1" ]]; then
     if ! command -v edgeplane >/dev/null 2>&1; then
-      echo "edgeplane is required when MC_PRESSURE_AUTOSTART_DAEMON=1" >&2
+      echo "edgeplane is required when EP_PRESSURE_AUTOSTART_DAEMON=1" >&2
       exit 1
     fi
     echo "shim not reachable; auto-starting edgeplane daemon"
@@ -204,7 +204,7 @@ EOF
         -c "mcp_servers.edgeplane.args=[\"serve\"]" \
         -c "mcp_servers.edgeplane.startup_timeout_sec=${AGENT_STARTUP_TIMEOUT_SEC}" \
         -c "mcp_servers.edgeplane.tool_timeout_sec=${AGENT_TOOL_TIMEOUT_SEC}" \
-        -c "mcp_servers.edgeplane.env={MC_MCP_MODE=\"shim\",MC_DAEMON_HOST=\"$SHIM_HOST\",MC_DAEMON_PORT=\"$SHIM_PORT\",MC_FAIL_OPEN_ON_LIST=\"1\",MC_STARTUP_PREFLIGHT=\"none\",EP_BASE_URL=\"$BASE_URL\",EP_TOKEN=\"${worker_token}\",EDGEPLANE_BASE_URL=\"$BASE_URL\",EDGEPLANE_TOKEN=\"${worker_token}\",EDGEPLANE_STARTUP_PREFLIGHT=\"none\",EDGEPLANE_FAIL_OPEN_ON_LIST=\"1\"}" \
+        -c "mcp_servers.edgeplane.env={EP_MCP_MODE=\"shim\",EP_DAEMON_HOST=\"$SHIM_HOST\",EP_DAEMON_PORT=\"$SHIM_PORT\",EP_FAIL_OPEN_ON_LIST=\"1\",EP_STARTUP_PREFLIGHT=\"none\",EP_BASE_URL=\"$BASE_URL\",EP_TOKEN=\"${worker_token}\",EDGEPLANE_BASE_URL=\"$BASE_URL\",EDGEPLANE_TOKEN=\"${worker_token}\",EDGEPLANE_STARTUP_PREFLIGHT=\"none\",EDGEPLANE_FAIL_OPEN_ON_LIST=\"1\"}" \
         -o "$iter_msg" "$prompt" >"$iter_log" 2>"$worker_dir/iter-${attempts}.stderr"; then
         if rg -q "RESULT: ok" "$iter_msg"; then
           successes=$((successes + 1))
@@ -309,7 +309,7 @@ for i in $(seq 1 "$WORKERS"); do
     worker_token="$(echo "${token_list[$idx]}" | xargs)"
   fi
   if [[ -z "$worker_token" ]]; then
-    echo "worker $i has empty token; set EP_TOKEN or MC_PRESSURE_TOKENS" >&2
+    echo "worker $i has empty token; set EP_TOKEN or EP_PRESSURE_TOKENS" >&2
     exit 2
   fi
   if [[ "$MODE" == "agent" ]]; then

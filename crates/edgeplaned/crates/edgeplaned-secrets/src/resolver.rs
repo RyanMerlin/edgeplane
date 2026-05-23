@@ -107,7 +107,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_env_present() {
-        let var = "MC_MESH_TEST_ENV_PRESENT_99";
+        let var = "EP_MESH_TEST_ENV_PRESENT_99";
         std::env::set_var(var, "env-value");
         let sources = vec![CredentialSource {
             inject_as: "INJECTED".to_string(),
@@ -122,7 +122,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_env_missing_is_error() {
-        let var = "MC_MESH_TEST_ENV_ABSENT_ZZZZZ";
+        let var = "EP_MESH_TEST_ENV_ABSENT_ZZZZZ";
         std::env::remove_var(var);
         let sources = vec![CredentialSource {
             inject_as: "TARGET".to_string(),

@@ -138,7 +138,7 @@ fn check_lock() -> Finding {
 ///   singleton lock; if yes, this is expected and reported as OK.
 /// - Other error → ERROR.
 async fn check_ports() -> Vec<Finding> {
-    let mgmt_port: u16 = std::env::var("MC_MESH_MGMT_PORT")
+    let mgmt_port: u16 = std::env::var("EP_MESH_MGMT_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(7731);

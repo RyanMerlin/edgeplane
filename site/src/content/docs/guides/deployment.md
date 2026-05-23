@@ -30,7 +30,7 @@ OIDC_REQUIRED=false
 EP_TOKEN=<static-token-for-mcp>
 OIDC_ISSUER_URL=https://<your-idp-host>/application/o/<provider-slug>/
 OIDC_AUDIENCE=<oidc-client-id>
-MC_ADMIN_EMAILS=<comma-separated-admin-emails>
+EP_ADMIN_EMAILS=<comma-separated-admin-emails>
 
 # Database
 DATABASE_URL=postgresql://edgeplane:password@localhost/edgeplane
@@ -38,22 +38,22 @@ DB_POOL_SIZE=20
 DB_MAX_OVERFLOW=10
 DB_POOL_PRE_PING=true
 DB_POOL_RECYCLE_SECONDS=3600
-MC_DB_RUNTIME_MIGRATIONS=false
+EP_DB_RUNTIME_MIGRATIONS=false
 
 # S3-compatible object storage (optional, for artifact/doc content)
-MC_OBJECT_STORAGE_ENDPOINT=http://<s3-host>:<port>
-MC_OBJECT_STORAGE_REGION=us-east-1
-MC_OBJECT_STORAGE_BUCKET=edgeplane
-MC_OBJECT_STORAGE_SECURE=false
-MC_OBJECT_STORAGE_ACCESS_KEY=<access-key>
-MC_OBJECT_STORAGE_ACCESS_SECRET=<secret>
+EP_OBJECT_STORAGE_ENDPOINT=http://<s3-host>:<port>
+EP_OBJECT_STORAGE_REGION=us-east-1
+EP_OBJECT_STORAGE_BUCKET=edgeplane
+EP_OBJECT_STORAGE_SECURE=false
+EP_OBJECT_STORAGE_ACCESS_KEY=<access-key>
+EP_OBJECT_STORAGE_ACCESS_SECRET=<secret>
 
 # Request limits (optional)
-MC_REQUEST_TIMEOUT_SECONDS=30
-MC_RATE_LIMIT_DEFAULT_CAPACITY=240
-MC_RATE_LIMIT_SEARCH_CAPACITY=60
-MC_RATE_LIMIT_WRITE_CAPACITY=120
-MC_RATE_LIMIT_APPROVAL_CAPACITY=30
+EP_REQUEST_TIMEOUT_SECONDS=30
+EP_RATE_LIMIT_DEFAULT_CAPACITY=240
+EP_RATE_LIMIT_SEARCH_CAPACITY=60
+EP_RATE_LIMIT_WRITE_CAPACITY=120
+EP_RATE_LIMIT_APPROVAL_CAPACITY=30
 ```
 
 ### 3. systemd service
@@ -105,8 +105,8 @@ Provide secrets via environment before startup:
 
 ```bash
 export POSTGRES_PASSWORD=<password>
-export MC_OBJECT_STORAGE_ACCESS_KEY=<key>
-export MC_OBJECT_STORAGE_ACCESS_SECRET=<secret>
+export EP_OBJECT_STORAGE_ACCESS_KEY=<key>
+export EP_OBJECT_STORAGE_ACCESS_SECRET=<secret>
 docker compose up
 ```
 
@@ -166,7 +166,7 @@ After deployment:
 - [ ] `GET /health` returns 200 without auth
 - [ ] `GET /readyz` returns 200 (DB ready, S3 reachable if configured)
 - [ ] `edgeplane health --json` returns connected from operator workstation
-- [ ] Bearer token callers are not admins unless their subject/email is in `MC_ADMIN_SUBJECTS` or `MC_ADMIN_EMAILS`
+- [ ] Bearer token callers are not admins unless their subject/email is in `EP_ADMIN_SUBJECTS` or `EP_ADMIN_EMAILS`
 - [ ] Create + delete mission paths work with expected authorization
 
 ## See Also

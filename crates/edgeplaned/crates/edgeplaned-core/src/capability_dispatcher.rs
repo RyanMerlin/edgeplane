@@ -72,7 +72,7 @@ pub struct CapabilityDispatcher {
     receipt_store: Option<Arc<ReceiptStore>>,
     /// When set, credentials are delivered via the secrets gateway socket
     /// instead of being injected directly as env vars. Agents receive
-    /// `MC_SECRETS_SOCKET` and `MC_SECRETS_SESSION` in their environment.
+    /// `EP_SECRETS_SOCKET` and `EP_SECRETS_SESSION` in their environment.
     session_store: Option<Arc<SessionStore>>,
     secrets_socket_path: Option<std::path::PathBuf>,
 }
@@ -231,10 +231,10 @@ impl CapabilityDispatcher {
                 let session_id = store.create(credentials.env_vars);
                 let env = vec![
                     (
-                        "MC_SECRETS_SOCKET".to_string(),
+                        "EP_SECRETS_SOCKET".to_string(),
                         socket.to_string_lossy().to_string(),
                     ),
-                    ("MC_SECRETS_SESSION".to_string(), session_id.clone()),
+                    ("EP_SECRETS_SESSION".to_string(), session_id.clone()),
                 ];
                 let cleanup = Some((Arc::clone(store), session_id));
                 (env, cleanup)

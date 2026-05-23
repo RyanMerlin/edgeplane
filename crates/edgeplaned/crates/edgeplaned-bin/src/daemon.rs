@@ -1211,7 +1211,7 @@ fn yaml_specs(cfg: &DaemonConfig) -> Vec<AgentSpec> {
 /// arise if some unrelated process is on 8009 or 7731 — we want that loud,
 /// not silently degraded.
 async fn probe_required_ports(cfg: &DaemonConfig, allow_degraded: bool) -> Result<()> {
-    let mgmt_port: u16 = std::env::var("MC_MESH_MGMT_PORT")
+    let mgmt_port: u16 = std::env::var("EP_MESH_MGMT_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(7731);

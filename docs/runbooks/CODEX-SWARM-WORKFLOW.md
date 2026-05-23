@@ -53,7 +53,7 @@ Open 2-5 additional Codex sessions.
 
 Each session should:
 
-- use Edgeplane MCP shim (`MC_MCP_MODE=shim`, daemon `127.0.0.1:8765`)
+- use Edgeplane MCP shim (`EP_MCP_MODE=shim`, daemon `127.0.0.1:8765`)
 - target the same `mission_id`/`kluster_id`
 - pick one task and move it through: `proposed -> in_progress -> blocked|done`
 - include concise updates in task descriptions

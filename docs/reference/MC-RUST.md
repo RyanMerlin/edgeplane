@@ -120,7 +120,7 @@ Socket paths (`~/.ep/`):
 
 ### Secrets Broker (inside agent subprocesses)
 
-edgeplaned injects `MC_SECRETS_SOCKET` and `MC_SECRETS_SESSION` instead of raw credentials.
+edgeplaned injects `EP_SECRETS_SOCKET` and `EP_SECRETS_SESSION` instead of raw credentials.
 
 ```bash
 VALUE=$(edgeplaned get-secret MY_API_KEY)
@@ -129,8 +129,8 @@ VALUE=$(edgeplaned get-secret MY_API_KEY)
 Or speak the protocol directly:
 
 ```bash
-echo '{"op":"get","session":"'$MC_SECRETS_SESSION'","name":"MY_API_KEY"}' \
-  | nc -U "$MC_SECRETS_SOCKET"
+echo '{"op":"get","session":"'$EP_SECRETS_SESSION'","name":"MY_API_KEY"}' \
+  | nc -U "$EP_SECRETS_SOCKET"
 ```
 
 ## edgeplane-tower

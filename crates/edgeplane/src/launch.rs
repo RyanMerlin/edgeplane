@@ -21,8 +21,8 @@
 use crate::{
     auth,
     client::EdgeplaneClient,
-    config::{McConfig, mc_home_dir},
-    mc_info, mc_ok, mc_warn, ui,
+    config::{McConfig, ep_home_dir},
+    ep_info, ep_ok, ep_warn, ui,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Args;
@@ -171,34 +171,34 @@ impl AgentDriver for ClaudeDriver {
         target_home: &Path,
         _target_mc_home: &Path,
     ) -> Result<()> {
-        let mc_entry = render_json_mcp_entry(
+        let ep_entry = render_json_mcp_entry(
             include_str!("../../../distribution/templates/claude.mcp.json.tmpl"),
             "embedded claude template",
             base_url,
             token,
             embed_token,
         );
-        let mc_entry = absolutize_mc_command(mc_entry);
+        let ep_entry = absolutize_mc_command(ep_entry);
         let config_path = target_home.join(".claude.json");
-        write_json_edgeplane_entry(&config_path, mc_entry.clone())?;
-        mc_ok!("claude MCP config written → {}", config_path.display());
+        write_json_edgeplane_entry(&config_path, ep_entry.clone())?;
+        ep_ok!("claude MCP config written → {}", config_path.display());
 
         // Inject MC lifecycle hooks (profile-update, session registration, audit) into settings.json.
         let settings_path = target_home.join(".claude").join("settings.json");
         if let Err(e) = inject_mc_lifecycle_hooks(&settings_path, base_url) {
-            mc_warn!("could not inject MC lifecycle hooks: {}", e);
+            ep_warn!("could not inject MC lifecycle hooks: {}", e);
         }
 
         // Write hook shell scripts into the instance home.
         if let Err(e) = write_hook_scripts(target_home) {
-            mc_warn!("could not write hook scripts: {}", e);
+            ep_warn!("could not write hook scripts: {}", e);
         }
 
         if let Some(global_home) = dirs::home_dir() {
             let global_path = global_home.join(".claude.json");
             if global_path != config_path {
-                write_json_edgeplane_entry(&global_path, mc_entry)?;
-                mc_info!(
+                write_json_edgeplane_entry(&global_path, ep_entry)?;
+                ep_info!(
                     "claude global MCP config updated → {}",
                     global_path.display()
                 );
@@ -225,7 +225,7 @@ impl AgentDriver for ClaudeDriver {
                 })?;
                 #[cfg(not(unix))]
                 std::fs::copy(&real_claude, &claude_link)?;
-                mc_info!("claude self-link → {}", claude_link.display());
+                ep_info!("claude self-link → {}", claude_link.display());
             }
         }
 
@@ -328,8 +328,8 @@ fn inject_mc_lifecycle_hooks(settings_path: &Path, backend_url: &str) -> Result<
                 "hooks": [{
                     "type": "http",
                     "url": url,
-                    "headers": {"Authorization": "Bearer $MC_AGENT_TOKEN"},
-                    "allowedEnvVars": ["MC_AGENT_TOKEN"],
+                    "headers": {"Authorization": "Bearer $EP_AGENT_TOKEN"},
+                    "allowedEnvVars": ["EP_AGENT_TOKEN"],
                     "timeout": 10
                 }]
             }));
@@ -379,8 +379,8 @@ fn inject_mc_lifecycle_hooks(settings_path: &Path, backend_url: &str) -> Result<
                 "hooks": [{
                     "type": "http",
                     "url": url,
-                    "headers": {"Authorization": "Bearer $MC_AGENT_TOKEN"},
-                    "allowedEnvVars": ["MC_AGENT_TOKEN"],
+                    "headers": {"Authorization": "Bearer $EP_AGENT_TOKEN"},
+                    "allowedEnvVars": ["EP_AGENT_TOKEN"],
                     "timeout": 10
                 }]
             }));
@@ -412,8 +412,8 @@ fn inject_mc_lifecycle_hooks(settings_path: &Path, backend_url: &str) -> Result<
                 "hooks": [{
                     "type": "http",
                     "url": url,
-                    "headers": {"Authorization": "Bearer $MC_AGENT_TOKEN"},
-                    "allowedEnvVars": ["MC_AGENT_TOKEN"],
+                    "headers": {"Authorization": "Bearer $EP_AGENT_TOKEN"},
+                    "allowedEnvVars": ["EP_AGENT_TOKEN"],
                     "timeout": 5
                 }]
             }));
@@ -487,15 +487,15 @@ fn write_hook_scripts(target_home: &Path) -> Result<()> {
             perms.set_mode(0o755);
             fs::set_permissions(&path, perms)?;
         }
-        mc_info!("hook script written → {}", path.display());
+        ep_info!("hook script written → {}", path.display());
     }
 
     Ok(())
 }
 
 #[cfg(test)]
-fn write_json_edgeplane_entry(config_path: &Path, mc_entry: serde_json::Value) -> Result<()> {
-    write_json_mcp_entry(config_path, "edgeplane", mc_entry)
+fn write_json_edgeplane_entry(config_path: &Path, ep_entry: serde_json::Value) -> Result<()> {
+    write_json_mcp_entry(config_path, "edgeplane", ep_entry)
 }
 
 #[cfg(test)]
@@ -558,14 +558,14 @@ impl AgentDriver for GeminiDriver {
             serde_json::Value::Object(Default::default())
         };
 
-        let mc_entry = render_json_mcp_entry(
+        let ep_entry = render_json_mcp_entry(
             include_str!("../../../distribution/templates/gemini.mcp.json.tmpl"),
             "embedded gemini template",
             base_url,
             token,
             embed_token,
         );
-        let mc_entry = absolutize_mc_command(mc_entry);
+        let ep_entry = absolutize_mc_command(ep_entry);
 
         root.as_object_mut()
             .ok_or_else(|| anyhow!("~/.gemini/settings.json is not a JSON object"))?
@@ -573,15 +573,15 @@ impl AgentDriver for GeminiDriver {
             .or_insert_with(|| serde_json::Value::Object(Default::default()))
             .as_object_mut()
             .ok_or_else(|| anyhow!("~/.gemini/settings.json mcpServers is not an object"))?
-            .insert("edgeplane".to_string(), mc_entry.clone());
+            .insert("edgeplane".to_string(), ep_entry.clone());
 
         std::fs::write(&config_path, serde_json::to_string_pretty(&root)?)?;
-        mc_ok!("gemini MCP config written → {}", config_path.display());
+        ep_ok!("gemini MCP config written → {}", config_path.display());
         if let Err(e) = seed_gemini_auth_state(target_home) {
-            mc_warn!("could not seed Gemini auth state: {}", e);
+            ep_warn!("could not seed Gemini auth state: {}", e);
         }
-        if let Err(e) = write_gemini_project_config(&mc_entry) {
-            mc_warn!("could not write project Gemini MCP config: {}", e);
+        if let Err(e) = write_gemini_project_config(&ep_entry) {
+            ep_warn!("could not write project Gemini MCP config: {}", e);
         }
         Ok(())
     }
@@ -593,7 +593,7 @@ impl AgentDriver for GeminiDriver {
     }
 }
 
-fn write_gemini_project_config(mc_entry: &serde_json::Value) -> Result<()> {
+fn write_gemini_project_config(ep_entry: &serde_json::Value) -> Result<()> {
     let current_dir = std::env::current_dir().context("unable to locate current directory")?;
     let config_path = current_dir.join(".gemini").join("settings.json");
     if let Some(parent) = config_path.parent() {
@@ -607,7 +607,7 @@ fn write_gemini_project_config(mc_entry: &serde_json::Value) -> Result<()> {
         serde_json::Value::Object(Default::default())
     };
     let project_entry = {
-        let mut entry = mc_entry.clone();
+        let mut entry = ep_entry.clone();
         if let Some(obj) = entry.as_object_mut() {
             obj.remove("env");
         }
@@ -621,7 +621,7 @@ fn write_gemini_project_config(mc_entry: &serde_json::Value) -> Result<()> {
         .ok_or_else(|| anyhow!("{} mcpServers is not an object", config_path.display()))?
         .insert("edgeplane".to_string(), project_entry);
     std::fs::write(&config_path, serde_json::to_string_pretty(&root)?)?;
-    mc_ok!(
+    ep_ok!(
         "gemini project MCP config written → {}",
         config_path.display()
     );
@@ -758,15 +758,15 @@ fn install_acp_config(
     std::fs::create_dir_all(&config_dir)?;
     let out = config_dir.join(format!("{}.acp.json", name));
     let mut config = serde_json::json!({
-        "mc_base_url": base_url,
+        "ep_base_url": base_url,
     });
     if embed_token {
-        config["mc_token"] = serde_json::json!(token);
+        config["ep_token"] = serde_json::json!(token);
     }
-    // When not embedding, mc_token is intentionally absent; the ACP client
+    // When not embedding, ep_token is intentionally absent; the ACP client
     // must read EP_TOKEN from the process environment at runtime.
     std::fs::write(&out, serde_json::to_string_pretty(&config)?)?;
-    mc_ok!("ACP config written → {}", out.display());
+    ep_ok!("ACP config written → {}", out.display());
     Ok(())
 }
 
@@ -774,7 +774,7 @@ fn install_acp_config(
 
 pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) -> Result<()> {
     let selected_agent = resolve_agent_choice(args.agent.clone())?;
-    let base_mc_home = mc_home_dir();
+    let base_mc_home = ep_home_dir();
     fs::create_dir_all(&base_mc_home)?;
 
     let profile_name =
@@ -805,7 +805,7 @@ pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) 
         &profile_name,
         &runtime_session_id,
     ) {
-        mc_warn!("could not write edgeplane/context.json: {}", e);
+        ep_warn!("could not write edgeplane/context.json: {}", e);
     }
     upsert_launch_session(
         &base_mc_home,
@@ -837,8 +837,8 @@ pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) 
     //    is already set (static token path).
     let login_client_holder: Option<EdgeplaneClient> = if config.token.is_none() {
         if auth::load_saved_session(config.base_url.as_str()).is_none() {
-            mc_warn!("no valid session found for {}", config.base_url.as_str());
-            mc_info!("running `edgeplane auth login` to authenticate...");
+            ep_warn!("no valid session found for {}", config.base_url.as_str());
+            ep_info!("running `edgeplane auth login` to authenticate...");
             auth::login(
                 auth::LoginArgs {
                     ttl_hours: 8,
@@ -872,7 +872,7 @@ pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) 
             .get_json("/mcp/health")
             .await
             .context("auth preflight failed — check EP_TOKEN and EP_BASE_URL")?;
-        mc_ok!("preflight passed");
+        ep_ok!("preflight passed");
         return Ok(());
     }
 
@@ -922,8 +922,8 @@ pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) 
     // SAFETY: single-threaded at this point; env is set immediately before exec.
     unsafe {
         std::env::set_var("EP_HOME", &instance_mc_home);
-        std::env::set_var("MC_AGENT_PROFILE", &profile_name);
-        std::env::set_var("MC_RUNTIME_SESSION_ID", &runtime_session_id);
+        std::env::set_var("EP_AGENT_PROFILE", &profile_name);
+        std::env::set_var("EP_RUNTIME_SESSION_ID", &runtime_session_id);
         std::env::set_var("EP_INSTANCE_HOME", &instance_home);
     }
     let launch_agent_base = config
@@ -978,8 +978,8 @@ async fn mcp_connectivity_preflight(client: &EdgeplaneClient) {
     // Health check.
     match client.get_json("/mcp/health").await {
         Err(e) => {
-            mc_warn!("MCP preflight: backend unreachable ({})", e);
-            mc_warn!(
+            ep_warn!("MCP preflight: backend unreachable ({})", e);
+            ep_warn!(
                 "MCP preflight: tools will load once backend is available (retry loop active)"
             );
             return;
@@ -1000,17 +1000,17 @@ async fn mcp_connectivity_preflight(client: &EdgeplaneClient) {
                 _ => 0,
             };
             if count > 0 {
-                mc_ok!(
+                ep_ok!(
                     "MCP preflight: backend reachable, {} tools available",
                     count
                 );
                 tools_count = count;
             } else {
-                mc_warn!("MCP preflight: backend reachable but returned 0 tools");
+                ep_warn!("MCP preflight: backend reachable but returned 0 tools");
             }
         }
         Err(e) => {
-            mc_warn!("MCP preflight: tools fetch failed ({})", e);
+            ep_warn!("MCP preflight: tools fetch failed ({})", e);
         }
     }
 
@@ -1053,18 +1053,18 @@ async fn mcp_connectivity_preflight(client: &EdgeplaneClient) {
 ///   4. Default → embed
 fn resolve_embed_token(no_embed_flag: bool, token: &str) -> bool {
     if no_embed_flag {
-        mc_info!("--no-embed-token: EP_TOKEN will NOT be written to agent config");
-        mc_info!("token will be injected into the agent process at exec time");
+        ep_info!("--no-embed-token: EP_TOKEN will NOT be written to agent config");
+        ep_info!("token will be injected into the agent process at exec time");
         return false;
     }
     if crate::auth::is_session_token(token) {
-        mc_info!("session token (mcs_*) detected — will NOT be embedded in agent config");
-        mc_info!("session token will be injected into the agent process at exec time");
+        ep_info!("session token (mcs_*) detected — will NOT be embedded in agent config");
+        ep_info!("session token will be injected into the agent process at exec time");
         return false;
     }
     if token.is_empty() {
-        mc_warn!("EP_TOKEN is not set — implying --no-embed-token");
-        mc_warn!("ensure EP_TOKEN is present in the environment when the agent runs");
+        ep_warn!("EP_TOKEN is not set — implying --no-embed-token");
+        ep_warn!("ensure EP_TOKEN is present in the environment when the agent runs");
         return false;
     }
     true
@@ -1111,20 +1111,20 @@ fn initialize_profile_overlay(
         if global_path.exists() {
             if should_force_profile_refresh(rel) {
                 seed_profile_path(&global_path, &profile_path)?;
-                mc_info!(
+                ep_info!(
                     "refreshed profile auth from global {}",
                     global_path.display()
                 );
             } else if !profile_path.exists() {
                 seed_profile_path(&global_path, &profile_path)?;
-                mc_info!(
+                ep_info!(
                     "seeded profile config from global {}",
                     global_path.display()
                 );
             } else if global_path.is_dir() && profile_path.is_dir() {
                 let copied = merge_missing_dir_entries(&global_path, &profile_path)?;
                 if copied > 0 {
-                    mc_info!(
+                    ep_info!(
                         "merged {} missing profile entries from global {}",
                         copied,
                         global_path.display()
@@ -1333,7 +1333,7 @@ fn session_index_path(base_mc_home: &Path) -> PathBuf {
 }
 
 pub(crate) fn sessions_for_profile(profile: &str) -> Vec<LaunchSessionRecord> {
-    read_launch_sessions(&mc_home_dir())
+    read_launch_sessions(&ep_home_dir())
         .unwrap_or_default()
         .into_iter()
         .filter(|s| s.profile == profile)
@@ -1476,9 +1476,9 @@ async fn fetch_and_stage_agent_config(
     {
         let out_path = staging_dir.join(format!("{}.manifest.json", config_key));
         std::fs::write(&out_path, serde_json::to_string_pretty(agent_cfg)?)?;
-        mc_info!("manifest staged → {}", out_path.display());
+        ep_info!("manifest staged → {}", out_path.display());
     } else {
-        mc_warn!(
+        ep_warn!(
             "no agent_configs.{} in manifest — using embedded template",
             config_key
         );
@@ -1504,12 +1504,12 @@ fn exec_agent(
     // in the config file — covering session tokens, --no-embed-token, and the
     // standard embedded-token path uniformly.
     //
-    // MC_AGENT_TOKEN is an alias used by Claude Code native hooks (SessionStart,
+    // EP_AGENT_TOKEN is an alias used by Claude Code native hooks (SessionStart,
     // SessionEnd, PostToolUse). It is listed in `allowedEnvVars` in the hook
     // config so Claude Code will forward it in HTTP hook Authorization headers.
     if !token.is_empty() {
         cmd.env("EP_TOKEN", token);
-        cmd.env("MC_AGENT_TOKEN", token);
+        cmd.env("EP_AGENT_TOKEN", token);
     }
     cmd.env("HOME", agent_home);
     #[cfg(windows)]
@@ -1530,9 +1530,9 @@ fn exec_agent(
     }
 
     cmd.env("EP_HOME", instance_mc_home);
-    cmd.env("MC_RUNTIME_SESSION_ID", runtime_session_id);
+    cmd.env("EP_RUNTIME_SESSION_ID", runtime_session_id);
     cmd.env("EP_INSTANCE_HOME", instance_home);
-    cmd.env("MC_AGENT_PROFILE", profile_name);
+    cmd.env("EP_AGENT_PROFILE", profile_name);
 
     #[cfg(unix)]
     {
@@ -1557,7 +1557,7 @@ async fn enforce_profile_pin(
     profile_name: &str,
     allow_pin_mismatch: bool,
 ) -> Result<()> {
-    let profile_root = mc_home_dir().join("profiles").join(profile_name);
+    let profile_root = ep_home_dir().join("profiles").join(profile_name);
     let pin_path = profile_root.join("pin.json");
     if !pin_path.exists() {
         return Ok(());

@@ -42,7 +42,7 @@ jobs:
         run: |
           pushd infra/terraform/environments/azure
           terraform output -raw kube_admin_config_raw > /tmp/kubeconfig
-          terraform output -raw resource_group_name > /tmp/mc_rg
+          terraform output -raw resource_group_name > /tmp/ep_rg
           terraform output -raw postgres_hostname > /tmp/postgres_host
           popd
           mkdir -p ~/.kube
@@ -53,7 +53,7 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           EP_TOKEN: ${{ secrets.EP_TOKEN }}
         run: |
-          RESOURCE_GROUP=$(cat /tmp/mc_rg)
+          RESOURCE_GROUP=$(cat /tmp/ep_rg)
           az aks get-credentials --name edgeplane-aks --resource-group "$RESOURCE_GROUP" --file ~/.kube/azure_kubeconfig --overwrite-existing
           export KUBECONFIG=~/.kube/azure_kubeconfig
           POSTGRES_HOST=$(cat /tmp/postgres_host)

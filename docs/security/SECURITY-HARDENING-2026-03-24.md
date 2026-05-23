@@ -17,7 +17,7 @@ Kluster: `326cf69b71fb` (`web ui 1.0`)
 
 2. Auth hardening
 - OIDC-required mode no longer defaults to static-token fallback for `/mcp`.
-- Optional fallback paths are explicit via `MC_ALLOW_TOKEN_FALLBACK_PATHS`.
+- Optional fallback paths are explicit via `EP_ALLOW_TOKEN_FALLBACK_PATHS`.
 
 3. Browser/session security
 - Web auth moved off localStorage token persistence.
@@ -26,7 +26,7 @@ Kluster: `326cf69b71fb` (`web ui 1.0`)
 
 4. CSRF protection
 - Cookie-authenticated mutating requests require CSRF token match:
-  - cookie: `mc_csrf_token`
+  - cookie: `ep_csrf_token`
   - header: `X-CSRF-Token`
 
 5. Security headers

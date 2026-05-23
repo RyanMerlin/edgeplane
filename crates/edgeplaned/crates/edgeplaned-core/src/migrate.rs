@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
-use crate::paths::{mc_home_dir, mcd_dir};
+use crate::paths::{ep_home_dir, mcd_dir};
 
 const SENTINEL: &str = ".migrated-v1";
 
@@ -28,7 +28,7 @@ pub fn migrate_once() {
 
     info!("edgeplaned: running first-boot path migration…");
 
-    let edgeplane = mc_home_dir();
+    let edgeplane = ep_home_dir();
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
 
     // ── Daemon state files (scattered ~/.ep/edgeplane-mesh.* → ~/.ep/edgeplaned/) ────────
@@ -46,23 +46,23 @@ pub fn migrate_once() {
 
     // ── ~/.edgeplane → ~/.edgeplane (edgeplane CLI config) ────────────────────────────
 
-    let mc_ctrl = home.join(".edgeplane");
-    if mc_ctrl.exists() {
-        move_file(mc_ctrl.join("config.json"), edgeplane.join("config.json"), "edgeplane config");
-        move_file(mc_ctrl.join("session.json"), edgeplane.join("session.json"), "edgeplane session");
-        move_dir(mc_ctrl.join("sync"), edgeplane.join("sync"), "edgeplane sync");
+    let ep_ctrl = home.join(".edgeplane");
+    if ep_ctrl.exists() {
+        move_file(ep_ctrl.join("config.json"), edgeplane.join("config.json"), "edgeplane config");
+        move_file(ep_ctrl.join("session.json"), edgeplane.join("session.json"), "edgeplane session");
+        move_dir(ep_ctrl.join("sync"), edgeplane.join("sync"), "edgeplane sync");
 
         // Remove stale legacy edgeplaned artifacts left by old installs.
-        let _ = std::fs::remove_file(mc_ctrl.join("edgeplane-mesh.sock"));
-        let _ = std::fs::remove_file(mc_ctrl.join("edgeplane-mesh.yaml"));
-        let _ = std::fs::remove_dir_all(mc_ctrl.join("edgeplane-mesh"));
+        let _ = std::fs::remove_file(ep_ctrl.join("edgeplane-mesh.sock"));
+        let _ = std::fs::remove_file(ep_ctrl.join("edgeplane-mesh.yaml"));
+        let _ = std::fs::remove_dir_all(ep_ctrl.join("edgeplane-mesh"));
 
         // Remove ~/.edgeplane if now empty.
-        if is_dir_empty(&mc_ctrl) {
-            if let Err(e) = std::fs::remove_dir(&mc_ctrl) {
-                warn!("migrate: could not remove empty {}: {e}", mc_ctrl.display());
+        if is_dir_empty(&ep_ctrl) {
+            if let Err(e) = std::fs::remove_dir(&ep_ctrl) {
+                warn!("migrate: could not remove empty {}: {e}", ep_ctrl.display());
             } else {
-                info!("migrate: removed {}", mc_ctrl.display());
+                info!("migrate: removed {}", ep_ctrl.display());
             }
         } else {
             warn!(
@@ -192,14 +192,14 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let (home, edgeplane, edgeplaned) = fake_home(&tmp);
         fs::create_dir_all(&edgeplaned).unwrap();
-        let mc_ctrl = home.join(".edgeplane");
-        fs::create_dir_all(&mc_ctrl).unwrap();
-        fs::write(mc_ctrl.join("config.json"), b"{\"server\":\"http://edgeplane\"}").unwrap();
+        let ep_ctrl = home.join(".edgeplane");
+        fs::create_dir_all(&ep_ctrl).unwrap();
+        fs::write(ep_ctrl.join("config.json"), b"{\"server\":\"http://edgeplane\"}").unwrap();
 
-        move_file(mc_ctrl.join("config.json"), edgeplane.join("config.json"), "edgeplane config");
+        move_file(ep_ctrl.join("config.json"), edgeplane.join("config.json"), "edgeplane config");
 
         assert!(edgeplane.join("config.json").exists());
-        assert!(!mc_ctrl.join("config.json").exists());
-        assert!(is_dir_empty(&mc_ctrl));
+        assert!(!ep_ctrl.join("config.json").exists());
+        assert!(is_dir_empty(&ep_ctrl));
     }
 }

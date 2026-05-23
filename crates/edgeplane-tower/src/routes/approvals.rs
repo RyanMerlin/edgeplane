@@ -43,12 +43,12 @@ fn clamp_expires(seconds: Option<i64>) -> i64 {
 
 /// Generates an HMAC-SHA256 signed approval token compatible with the Python backend.
 /// Format: base64url(payload_json).base64url(hmac_sig)
-/// Secret from MC_APPROVAL_TOKEN_SECRET env var.
+/// Secret from EP_APPROVAL_TOKEN_SECRET env var.
 fn generate_approval_token(payload: &serde_json::Value) -> Result<String, String> {
-    let secret = std::env::var("MC_APPROVAL_TOKEN_SECRET")
-        .map_err(|_| "MC_APPROVAL_TOKEN_SECRET not set".to_string())?;
+    let secret = std::env::var("EP_APPROVAL_TOKEN_SECRET")
+        .map_err(|_| "EP_APPROVAL_TOKEN_SECRET not set".to_string())?;
     if secret.trim().is_empty() {
-        return Err("MC_APPROVAL_TOKEN_SECRET is empty".to_string());
+        return Err("EP_APPROVAL_TOKEN_SECRET is empty".to_string());
     }
     let payload_json = serde_json::to_string(payload)
         .map_err(|e| e.to_string())?;

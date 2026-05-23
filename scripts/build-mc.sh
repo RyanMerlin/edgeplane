@@ -2,15 +2,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MC_DIR="$ROOT_DIR/crates/edgeplane"
-TARGET_BIN="${MC_TARGET_BIN:-$HOME/.local/bin/edgeplane}"
+EP_DIR="$ROOT_DIR/crates/edgeplane"
+TARGET_BIN="${EP_TARGET_BIN:-$HOME/.local/bin/edgeplane}"
 
 echo "[edgeplane-build] building release binary..."
-cargo build --release --manifest-path "$MC_DIR/Cargo.toml"
+cargo build --release --manifest-path "$EP_DIR/Cargo.toml"
 
 echo "[edgeplane-build] installing to $TARGET_BIN"
 mkdir -p "$(dirname "$TARGET_BIN")"
-cp "$MC_DIR/target/release/edgeplane" "$TARGET_BIN"
+cp "$EP_DIR/target/release/edgeplane" "$TARGET_BIN"
 chmod +x "$TARGET_BIN"
 
 echo "[edgeplane-build] done"

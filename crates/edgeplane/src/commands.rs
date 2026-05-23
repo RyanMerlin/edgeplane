@@ -1003,7 +1003,7 @@ struct ActiveWorkspaceState {
 }
 
 fn active_workspace_path() -> PathBuf {
-    crate::config::mc_home_dir().join("active_workspace.json")
+    crate::config::ep_home_dir().join("active_workspace.json")
 }
 
 fn load_active_workspace() -> ActiveWorkspaceState {
@@ -1085,7 +1085,7 @@ async fn handle_version(
 ) -> Result<()> {
     let backend = client.get_json("/mcp/health").await.ok();
     let payload = json!({
-        "mc_version": env!("CARGO_PKG_VERSION"),
+        "ep_version": env!("CARGO_PKG_VERSION"),
         "base_url": config.base_url.as_str(),
         "backend_health": backend,
     });
@@ -1105,7 +1105,7 @@ fn handle_config(config: &McConfig, output_mode: OutputMode) -> Result<()> {
             "profile_name": config.agent_context.profile_name,
         },
         "paths": {
-            "mc_home": crate::config::mc_home_dir(),
+            "ep_home": crate::config::ep_home_dir(),
             "skills_home": crate::config::skills_home_dir(),
             "agent_id_file": crate::config::agent_id_file(),
         }
@@ -1218,9 +1218,9 @@ async fn handle_release(
 
 fn handle_logs(args: LogsArgs, output_mode: OutputMode) -> Result<()> {
     let candidates = [
-        crate::config::mc_home_dir().join("daemon.log"),
-        crate::config::mc_home_dir().join("logs/daemon.log"),
-        crate::config::mc_home_dir().join("logs/edgeplane.log"),
+        crate::config::ep_home_dir().join("daemon.log"),
+        crate::config::ep_home_dir().join("logs/daemon.log"),
+        crate::config::ep_home_dir().join("logs/edgeplane.log"),
     ];
     let mut entries = Vec::new();
     for path in candidates {
@@ -1718,8 +1718,8 @@ async fn handle_secrets(
                 "EP_TOKEN",
                 "MQTT_PASSWORD",
                 "POSTGRES_PASSWORD",
-                "MC_OBJECT_STORAGE_ACCESS_KEY",
-                "MC_OBJECT_STORAGE_ACCESS_SECRET",
+                "EP_OBJECT_STORAGE_ACCESS_KEY",
+                "EP_OBJECT_STORAGE_ACCESS_SECRET",
             ];
             for name in standard_names {
                 if keep_existing && cfg.refs.contains_key(name) {
@@ -1928,7 +1928,7 @@ async fn handle_secrets_provider(
 }
 
 fn handle_infisical_profiles(command: InfisicalProfileCommand, output_mode: OutputMode) -> Result<()> {
-    let path = crate::config::mc_home_dir().join("infisical_profiles.json");
+    let path = crate::config::ep_home_dir().join("infisical_profiles.json");
     let mut map = if path.exists() {
         let raw = fs::read_to_string(&path)?;
         serde_json::from_str::<edgeplaned_secrets::InfisicalProfileMap>(&raw)
@@ -2734,7 +2734,7 @@ async fn handle_profile(
             apply,
             allow_pin_mismatch,
         } => {
-            let profile_root = crate::config::mc_home_dir().join("profiles").join(&name);
+            let profile_root = crate::config::ep_home_dir().join("profiles").join(&name);
             let mut pull_args = json!({ "name": name });
             if let Some(pinned_sha) = read_local_pinned_sha(&profile_root)? {
                 if !allow_pin_mismatch {
@@ -2805,7 +2805,7 @@ async fn handle_profile(
             }
         }
         ProfileCommand::Pin { name, sha256 } => {
-            let profile_root = crate::config::mc_home_dir().join("profiles").join(&name);
+            let profile_root = crate::config::ep_home_dir().join("profiles").join(&name);
             fs::create_dir_all(&profile_root)?;
             let pin = json!({
                 "profile": name,
@@ -2865,7 +2865,7 @@ async fn handle_profile(
                 .and_then(|v| v.get("sha256"))
                 .cloned()
                 .unwrap_or(Value::Null);
-            let profile_root = crate::config::mc_home_dir().join("profiles").join(&name);
+            let profile_root = crate::config::ep_home_dir().join("profiles").join(&name);
             let local_pin_path = profile_root.join("pin.json");
             let local_state_path = profile_root.join("state.json");
             let local_pin = if local_pin_path.exists() {
@@ -2929,7 +2929,7 @@ async fn handle_profile(
                 .unwrap_or("unknown");
 
             // 3. Store bundle tarball and extract into the live profile directory.
-            let profile_root = crate::config::mc_home_dir().join("profiles").join(&name);
+            let profile_root = crate::config::ep_home_dir().join("profiles").join(&name);
             let bundles = profile_root.join("bundles");
             fs::create_dir_all(&bundles)?;
             let tar_path = bundles.join(format!("{}.tar", sha));
@@ -2951,9 +2951,9 @@ async fn handle_profile(
             let active_sessions = crate::launch::sessions_for_profile(&name);
             let mut notified = 0usize;
             for session in &active_sessions {
-                let mc_dir = PathBuf::from(&session.instance_home).join("edgeplane");
-                if mc_dir.exists() {
-                    if fs::write(mc_dir.join("profile-updated"), &marker_json).is_ok() {
+                let ep_dir = PathBuf::from(&session.instance_home).join("edgeplane");
+                if ep_dir.exists() {
+                    if fs::write(ep_dir.join("profile-updated"), &marker_json).is_ok() {
                         notified += 1;
                     }
                 }
@@ -3072,7 +3072,7 @@ fn validate_init_base_url(config: &McConfig) -> Result<()> {
 }
 
 fn write_synced_profile_state(profile_name: &str) -> Result<()> {
-    let profile_root = crate::config::mc_home_dir()
+    let profile_root = crate::config::ep_home_dir()
         .join("profiles")
         .join(profile_name);
     fs::create_dir_all(&profile_root)?;
@@ -3095,7 +3095,7 @@ fn bootstrap_local_profile(
     output_mode: OutputMode,
 ) -> Result<()> {
     let json_output = output_mode.is_machine();
-    let profile_root = crate::config::mc_home_dir()
+    let profile_root = crate::config::ep_home_dir()
         .join("profiles")
         .join(profile_name);
     fs::create_dir_all(&profile_root)?;

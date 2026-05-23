@@ -35,7 +35,7 @@ let pausedUntil = 0;
 function buildUrl(token?: string) {
   const base = '/events/stream';
   if (!token) return base;
-  return `${base}?mc_token=${encodeURIComponent(token)}`;
+  return `${base}?ep_token=${encodeURIComponent(token)}`;
 }
 
 export function startMatrixStream(token?: string) {

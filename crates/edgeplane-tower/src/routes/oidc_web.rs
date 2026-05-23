@@ -78,11 +78,11 @@ impl OidcConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_DEVICE_EXPIRES);
-        let session_ttl_hours = std::env::var("MC_SESSION_TTL_HOURS")
+        let session_ttl_hours = std::env::var("EP_SESSION_TTL_HOURS")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_TTL_HOURS);
-        let session_cookie_secure = std::env::var("MC_SESSION_COOKIE_SECURE")
+        let session_cookie_secure = std::env::var("EP_SESSION_COOKIE_SECURE")
             .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(true);
 
@@ -231,7 +231,7 @@ fn session_cookie(token: &str, expires_at: chrono::NaiveDateTime, secure: bool) 
     let expires = expires_at.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
     let secure_flag = if secure { "; Secure" } else { "" };
     format!(
-        "mc_session_token={token}; HttpOnly{secure_flag}; SameSite=Lax; Path=/; Expires={expires}"
+        "ep_session_token={token}; HttpOnly{secure_flag}; SameSite=Lax; Path=/; Expires={expires}"
     )
 }
 
@@ -1409,7 +1409,7 @@ async fn logout() -> impl IntoResponse {
             (header::LOCATION, "/".to_string()),
             (
                 header::SET_COOKIE,
-                "mc_session_token=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0".to_string(),
+                "ep_session_token=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0".to_string(),
             ),
         ],
     )

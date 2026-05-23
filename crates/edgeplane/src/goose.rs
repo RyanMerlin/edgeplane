@@ -5,7 +5,7 @@
 //! inference through the cluster-internal LiteLLM proxy and injects the standard `MC_*`
 //! environment variables so the running agent can report progress back to Edgeplane.
 use crate::{
-    config::{McConfig, mc_home_dir},
+    config::{McConfig, ep_home_dir},
     task_md,
 };
 use anyhow::{Context, Result, bail};
@@ -19,7 +19,7 @@ pub struct GoosePaths {
 }
 
 pub fn goose_paths(profile: &str) -> GoosePaths {
-    let profile_root = mc_home_dir()
+    let profile_root = ep_home_dir()
         .join("profiles")
         .join("goose")
         .join(profile);
@@ -115,23 +115,23 @@ fn run_goose_process(
 }
 
 fn which_goose() -> Result<PathBuf> {
-    // MC_GOOSE_BIN overrides PATH lookup (useful when goose lives in ~/.local/bin)
-    if let Ok(p) = std::env::var("MC_GOOSE_BIN") {
+    // EP_GOOSE_BIN overrides PATH lookup (useful when goose lives in ~/.local/bin)
+    if let Ok(p) = std::env::var("EP_GOOSE_BIN") {
         let path = PathBuf::from(&p);
         if path.is_file() {
             return Ok(path);
         }
     }
-    which::which("goose").context("goose not found on PATH; set MC_GOOSE_BIN to override")
+    which::which("goose").context("goose not found on PATH; set EP_GOOSE_BIN to override")
 }
 
 fn litellm_host() -> String {
-    std::env::var("MC_LITELLM_HOST")
+    std::env::var("EP_LITELLM_HOST")
         .unwrap_or_else(|_| "http://litellm:4000".to_string())
 }
 
 fn goose_model() -> String {
-    std::env::var("MC_GOOSE_MODEL")
+    std::env::var("EP_GOOSE_MODEL")
         .unwrap_or_else(|_| "local-agent".to_string())
 }
 
@@ -151,7 +151,7 @@ fn apply_env(
     cmd.env("GOOSE_MODEL", goose_model());
     cmd.env("GOOSE_MODE", "Auto");
 
-    if let Ok(api_key) = std::env::var("MC_LITELLM_API_KEY") {
+    if let Ok(api_key) = std::env::var("EP_LITELLM_API_KEY") {
         if !api_key.is_empty() {
             cmd.env("LITELLM_API_KEY", api_key);
         }
@@ -160,22 +160,22 @@ fn apply_env(
     cmd.env("EP_BASE_URL", config.base_url.as_str());
     if let Some(token) = &config.token {
         if !token.trim().is_empty() {
-            cmd.env("MC_AGENT_TOKEN", token);
+            cmd.env("EP_AGENT_TOKEN", token);
         }
     }
-    cmd.env("MC_AGENT_PROFILE", profile);
+    cmd.env("EP_AGENT_PROFILE", profile);
 
     if let Some(id) = agent_id {
-        cmd.env("MC_MESH_AGENT_ID", id);
+        cmd.env("EP_MESH_AGENT_ID", id);
     }
     if let Some(rid) = run_id {
-        cmd.env("MC_RUN_ID", rid);
+        cmd.env("EP_RUN_ID", rid);
     }
     if let Some(tid) = task_id {
-        cmd.env("MC_MESH_TASK_ID", tid);
+        cmd.env("EP_MESH_TASK_ID", tid);
     }
     if let Some(p) = task_md_path {
-        cmd.env("MC_TASK_MD_PATH", p);
+        cmd.env("EP_TASK_MD_PATH", p);
     }
 }
 
@@ -232,10 +232,10 @@ mod tests {
     #[test]
     fn litellm_host_default_is_cluster_address() {
         // Confirm the fallback constant without mutating env (safe, no-parallel-test concern).
-        let host = std::env::var("MC_LITELLM_HOST")
+        let host = std::env::var("EP_LITELLM_HOST")
             .unwrap_or_else(|_| "http://litellm:4000".to_string());
         // If the env var is not set, we expect the cluster default.
-        if std::env::var("MC_LITELLM_HOST").is_err() {
+        if std::env::var("EP_LITELLM_HOST").is_err() {
             assert_eq!(host, "http://litellm:4000");
         }
     }

@@ -366,8 +366,8 @@ impl CronLoop {
     ///
     /// Env vars available to the script:
     /// - Standard: `HOME`, `PATH`, `USER`, `SHELL`, etc. (inherited from edgeplaned)
-    /// - Context: `MC_CRON_JOB_NAME`, `MC_CRON_FIRE_TS` (Unix epoch seconds),
-    ///   `MC_CRON_DISPATCH=bash`
+    /// - Context: `EP_CRON_JOB_NAME`, `EP_CRON_FIRE_TS` (Unix epoch seconds),
+    ///   `EP_CRON_DISPATCH=bash`
     ///
     /// Timeout: 5 minutes (same as goose). Exit code 0 → ok; non-zero → error
     /// (stderr preview captured in the cron fire log). edgeplaned stays up on failure
@@ -379,9 +379,9 @@ impl CronLoop {
         tokio::task::spawn_blocking(move || -> Result<()> {
             let output = std::process::Command::new("bash")
                 .args(["-c", &prompt])
-                .env("MC_CRON_JOB_NAME", &name)
-                .env("MC_CRON_FIRE_TS", &fire_ts)
-                .env("MC_CRON_DISPATCH", "bash")
+                .env("EP_CRON_JOB_NAME", &name)
+                .env("EP_CRON_FIRE_TS", &fire_ts)
+                .env("EP_CRON_DISPATCH", "bash")
                 .output()
                 .with_context(|| format!("spawn `bash -c ...` for cron job {name:?}"))?;
             if !output.status.success() {

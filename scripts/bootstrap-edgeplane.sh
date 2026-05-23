@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PREFIX="${MC_INSTALL_PREFIX:-$HOME/.local/bin}"
-TARGET="${MC_INSTALL_TARGET:-$PREFIX/edgeplane}"
-ENV_FILE="${MC_ENV_FILE:-$HOME/.edgeplane-agent.env}"
-AUTO_SHELL_HOOK="${MC_INSTALL_SHELL_HOOK:-1}"
-BASE_URL="${MC_RELEASE_BASE_URL:-https://github.com/RyanMerlin/edgeplane/releases/latest/download}"
+PREFIX="${EP_INSTALL_PREFIX:-$HOME/.local/bin}"
+TARGET="${EP_INSTALL_TARGET:-$PREFIX/edgeplane}"
+ENV_FILE="${EP_ENV_FILE:-$HOME/.edgeplane-agent.env}"
+AUTO_SHELL_HOOK="${EP_INSTALL_SHELL_HOOK:-1}"
+BASE_URL="${EP_RELEASE_BASE_URL:-https://github.com/RyanMerlin/edgeplane/releases/latest/download}"
 
 append_shell_hook() {
   local rc_file="$1"
@@ -133,7 +133,7 @@ mkdir -p "$(dirname "$ENV_FILE")"
 if [[ ! -f "$ENV_FILE" ]]; then
   cat >"$ENV_FILE" <<EOF
 # Edgeplane shell environment
-export MC_INSTALL_PREFIX="$PREFIX"
+export EP_INSTALL_PREFIX="$PREFIX"
 export EP_BASE_URL="${EP_BASE_URL:-https://edgeplane.example.com}"
 export EP_TOKEN="${EP_TOKEN:-}"
 EOF
@@ -152,7 +152,7 @@ if [[ "$AUTO_SHELL_HOOK" == "1" ]]; then
   echo "auto env loading enabled from $ENV_FILE"
 else
   echo "Optional: enable auto env loading into new shells"
-  echo "  MC_INSTALL_SHELL_HOOK=1 MC_ENV_FILE=$ENV_FILE bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh)"
+  echo "  EP_INSTALL_SHELL_HOOK=1 EP_ENV_FILE=$ENV_FILE bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh)"
 fi
 
 echo ""

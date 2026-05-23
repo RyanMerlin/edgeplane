@@ -1,14 +1,14 @@
 use crate::{
-    config::{McConfig, mc_home_dir},
-    mc_info, mc_ok,
+    config::{McConfig, ep_home_dir},
+    ep_info, ep_ok,
 };
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const MC_CODEX_MARKER_BEGIN: &str = "# edgeplane-codex: edgeplane managed block (begin)";
-const MC_CODEX_MARKER_END: &str = "# edgeplane-codex: edgeplane managed block (end)";
+const EP_CODEX_MARKER_BEGIN: &str = "# edgeplane-codex: edgeplane managed block (begin)";
+const EP_CODEX_MARKER_END: &str = "# edgeplane-codex: edgeplane managed block (end)";
 
 #[derive(Debug, Clone)]
 pub struct CodexPaths {
@@ -80,14 +80,14 @@ pub async fn run_launch(
     }
 
     if report.repaired {
-        mc_ok!("{}: repaired drift", profile);
+        ep_ok!("{}: repaired drift", profile);
     } else {
-        mc_ok!("{}: ready", profile);
+        ep_ok!("{}: ready", profile);
     }
 
     let paths = codex_paths(&profile);
     if new {
-        mc_info!("{}: starting new session", profile);
+        ep_info!("{}: starting new session", profile);
         let status = run_codex_process(
             &build_new_session_args(),
             &paths.runtime_home,
@@ -100,11 +100,11 @@ pub async fn run_launch(
         return Ok(());
     }
 
-    mc_info!("{}: resuming", profile);
+    ep_info!("{}: resuming", profile);
     let resume_status =
         run_codex_process(&build_resume_args(), &paths.runtime_home, config, &profile)?;
     if !resume_status.success() {
-        mc_info!("{}: resume unavailable; starting new session", profile);
+        ep_info!("{}: resume unavailable; starting new session", profile);
         let fresh_status = run_codex_process(
             &build_new_session_args(),
             &paths.runtime_home,
@@ -234,7 +234,7 @@ pub async fn run_exec(
 }
 
 pub fn codex_paths(profile: &str) -> CodexPaths {
-    let profile_root = mc_home_dir().join("profiles").join("codex").join(profile);
+    let profile_root = ep_home_dir().join("profiles").join("codex").join(profile);
     let runtime_home = profile_root.join("codex-home");
     CodexPaths {
         config_path: runtime_home.join("config.toml"),
@@ -293,7 +293,7 @@ fn inspect_profile(profile: &str, config: &McConfig, repair: bool) -> Result<Cod
 
     if !paths.config_path.exists() {
         issues.push(issue(
-            "MC_CONFIG_MISSING",
+            "EP_CONFIG_MISSING",
             "error",
             "config.toml missing",
             true,
@@ -309,7 +309,7 @@ fn inspect_profile(profile: &str, config: &McConfig, repair: bool) -> Result<Cod
         let raw = fs::read_to_string(&paths.config_path).unwrap_or_default();
         if !raw.contains("[mcp_servers.edgeplane]") {
             issues.push(issue(
-                "MC_MCP_CONFIG_MISSING",
+                "EP_MCP_CONFIG_MISSING",
                 "error",
                 "Edgeplane MCP entry missing from config.toml",
                 true,
@@ -324,7 +324,7 @@ fn inspect_profile(profile: &str, config: &McConfig, repair: bool) -> Result<Cod
             let expected = format!("command = \"{}\"", escape_toml(&desired_command));
             if !raw.contains(&expected) {
                 issues.push(issue(
-                    "MC_MCP_COMMAND_DRIFT",
+                    "EP_MCP_COMMAND_DRIFT",
                     "error",
                     "edgeplane MCP command is not pinned to the installed edgeplane binary",
                     true,
@@ -442,7 +442,7 @@ fn collect_profile_issues(
 
     if !paths.config_path.exists() {
         issues.push(issue(
-            "MC_CONFIG_MISSING",
+            "EP_CONFIG_MISSING",
             "error",
             "config.toml missing",
             true,
@@ -451,7 +451,7 @@ fn collect_profile_issues(
         let raw = fs::read_to_string(&paths.config_path).unwrap_or_default();
         if !raw.contains("[mcp_servers.edgeplane]") {
             issues.push(issue(
-                "MC_MCP_CONFIG_MISSING",
+                "EP_MCP_CONFIG_MISSING",
                 "error",
                 "Edgeplane MCP entry missing from config.toml",
                 true,
@@ -461,7 +461,7 @@ fn collect_profile_issues(
             let expected = format!("command = \"{}\"", escape_toml(&desired_command));
             if !raw.contains(&expected) {
                 issues.push(issue(
-                    "MC_MCP_COMMAND_DRIFT",
+                    "EP_MCP_COMMAND_DRIFT",
                     "error",
                     "edgeplane MCP command is not pinned to the installed edgeplane binary",
                     true,
@@ -488,7 +488,7 @@ fn is_codex_login_available(runtime_home: &Path, profile: &str) -> Result<bool> 
     cmd.arg("login")
         .arg("status")
         .env("CODEX_HOME", runtime_home)
-        .env("MC_AGENT_PROFILE", profile);
+        .env("EP_AGENT_PROFILE", profile);
     let status = cmd
         .status()
         .context("failed to execute `codex login status`")?;
@@ -578,11 +578,11 @@ fn strip_mc_managed_block(existing: &str) -> String {
     let mut skip = false;
 
     for line in existing.lines() {
-        if line.trim() == MC_CODEX_MARKER_BEGIN {
+        if line.trim() == EP_CODEX_MARKER_BEGIN {
             skip = true;
             continue;
         }
-        if line.trim() == MC_CODEX_MARKER_END {
+        if line.trim() == EP_CODEX_MARKER_END {
             skip = false;
             continue;
         }
@@ -595,15 +595,15 @@ fn strip_mc_managed_block(existing: &str) -> String {
 }
 
 fn render_mc_managed_block(base_url: &str) -> String {
-    let mc_command = desired_mc_command();
+    let ep_command = desired_mc_command();
 
     let mut buf = String::new();
-    buf.push_str(MC_CODEX_MARKER_BEGIN);
+    buf.push_str(EP_CODEX_MARKER_BEGIN);
     buf.push('\n');
     buf.push_str("approval_policy = \"on-request\"\n");
     buf.push_str("sandbox_mode = \"workspace-write\"\n\n");
     buf.push_str("[mcp_servers.edgeplane]\n");
-    buf.push_str(&format!("command = \"{}\"\n", escape_toml(&mc_command)));
+    buf.push_str(&format!("command = \"{}\"\n", escape_toml(&ep_command)));
     buf.push_str("args = [\"serve\"]\n");
     buf.push_str("startup_timeout_sec = 30\n");
     buf.push_str("tool_timeout_sec = 60\n");
@@ -612,7 +612,7 @@ fn render_mc_managed_block(base_url: &str) -> String {
         escape_toml(base_url)
     ));
 
-    buf.push_str(MC_CODEX_MARKER_END);
+    buf.push_str(EP_CODEX_MARKER_END);
     buf.push('\n');
     buf
 }
@@ -626,11 +626,11 @@ fn run_codex_process(
     let mut cmd = resolved_command("codex");
     cmd.args(args);
     cmd.env("CODEX_HOME", runtime_home);
-    cmd.env("MC_AGENT_PROFILE", profile);
+    cmd.env("EP_AGENT_PROFILE", profile);
     cmd.env("EP_BASE_URL", config.base_url.as_str());
     if let Some(token) = &config.token {
         if !token.trim().is_empty() {
-            cmd.env("MC_AGENT_TOKEN", token);
+            cmd.env("EP_AGENT_TOKEN", token);
         }
     }
 
@@ -646,7 +646,7 @@ pub fn resolved_command(name: &str) -> std::process::Command {
     std::process::Command::new(binary)
 }
 
-/// Blocking launch helper for SoloSupervisor — sets MC_MESH_AGENT_ID / MC_RUN_ID env vars.
+/// Blocking launch helper for SoloSupervisor — sets EP_MESH_AGENT_ID / EP_RUN_ID env vars.
 pub fn launch_codex_blocking(
     args: &[String],
     runtime_home: &Path,
@@ -660,21 +660,21 @@ pub fn launch_codex_blocking(
     let mut cmd = resolved_command("codex");
     cmd.args(args);
     cmd.env("CODEX_HOME", runtime_home);
-    cmd.env("MC_AGENT_PROFILE", profile);
+    cmd.env("EP_AGENT_PROFILE", profile);
     cmd.env("EP_BASE_URL", config.base_url.as_str());
-    cmd.env("MC_MESH_AGENT_ID", agent_id);
+    cmd.env("EP_MESH_AGENT_ID", agent_id);
     if let Some(rid) = run_id {
-        cmd.env("MC_RUN_ID", rid);
+        cmd.env("EP_RUN_ID", rid);
     }
     if let Some(tid) = task_id {
-        cmd.env("MC_MESH_TASK_ID", tid);
+        cmd.env("EP_MESH_TASK_ID", tid);
     }
     if let Some(p) = task_md_path {
-        cmd.env("MC_TASK_MD_PATH", p);
+        cmd.env("EP_TASK_MD_PATH", p);
     }
     if let Some(token) = &config.token {
         if !token.trim().is_empty() {
-            cmd.env("MC_AGENT_TOKEN", token);
+            cmd.env("EP_AGENT_TOKEN", token);
         }
     }
     cmd.status().context("failed to execute codex")
@@ -832,7 +832,7 @@ b = 2
             repaired: false,
             status: "repairable".to_string(),
             issues: vec![CodexDoctorIssue {
-                code: "MC_CONFIG_MISSING".to_string(),
+                code: "EP_CONFIG_MISSING".to_string(),
                 severity: "error".to_string(),
                 detail: "config.toml missing".to_string(),
                 fixable: true,

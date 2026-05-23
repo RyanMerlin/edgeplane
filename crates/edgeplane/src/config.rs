@@ -111,7 +111,7 @@ pub struct SavedConfig {
 }
 
 pub fn config_file_path() -> PathBuf {
-    mc_home_dir().join("config.json")
+    ep_home_dir().join("config.json")
 }
 
 pub fn load_saved_config() -> SavedConfig {
@@ -139,21 +139,21 @@ pub fn save_config(cfg: &SavedConfig) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn mc_home_dir() -> PathBuf {
+pub fn ep_home_dir() -> PathBuf {
     expand_home_path(&env::var("EP_HOME").unwrap_or_else(|_| "~/.edgeplane".into()))
 }
 
 pub fn servers_file_path() -> PathBuf {
-    mc_home_dir().join("servers")
+    ep_home_dir().join("servers")
 }
 
 /// Resolution order:
-/// 1. MC_SERVERS env var (manual override)
+/// 1. EP_SERVERS env var (manual override)
 /// 2. ~/.ep/servers file (written by `edgeplane discover` or edgeplane-tower bootstrap)
 /// 3. EP_BASE_URL env var (legacy single-server compat)
 /// 4. localhost:8008 (development fallback)
 pub fn load_server_list() -> Vec<String> {
-    if let Ok(val) = env::var("MC_SERVERS") {
+    if let Ok(val) = env::var("EP_SERVERS") {
         return parse_server_list(&val);
     }
     let path = servers_file_path();
@@ -197,17 +197,17 @@ fn parse_server_list(s: &str) -> Vec<String> {
 }
 
 pub fn skills_home_dir() -> PathBuf {
-    mc_home_dir().join("skills")
+    ep_home_dir().join("skills")
 }
 
 pub fn ensure_mc_dirs() -> std::io::Result<()> {
-    fs::create_dir_all(mc_home_dir())?;
+    fs::create_dir_all(ep_home_dir())?;
     fs::create_dir_all(skills_home_dir())?;
     Ok(())
 }
 
 pub fn agent_id_file() -> PathBuf {
-    mc_home_dir().join("agent_id")
+    ep_home_dir().join("agent_id")
 }
 
 fn read_agent_id_from_disk() -> Option<String> {

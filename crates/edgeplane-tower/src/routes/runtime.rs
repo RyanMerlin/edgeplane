@@ -529,7 +529,7 @@ pub fn router() -> Router<Arc<AppState>> {
             get(execution_session_pty),
         )
         // Mesh agent attach proxy: browser WS → controlplane → edgeplaned node WS.
-        // The browser uses ?mc_token=<bearer> for auth; controlplane signs a
+        // The browser uses ?ep_token=<bearer> for auth; controlplane signs a
         // short-lived HMAC token to dial the mesh node.
         .route(
             "/runtime/nodes/{node_id}/agents/{agent_id}/attach",
@@ -685,9 +685,9 @@ async fn rotate_join_token(
 // ── Release / channel endpoints ───────────────────────────────────────────────
 
 async fn get_release_manifest() -> impl IntoResponse {
-    let version = std::env::var("MC_RUNTIME_RELEASE_VERSION")
+    let version = std::env::var("EP_RUNTIME_RELEASE_VERSION")
         .unwrap_or_else(|_| "0.2.0".to_string());
-    let base_url = std::env::var("MC_RUNTIME_RELEASE_BASE_URL")
+    let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL")
         .unwrap_or_else(|_| {
             "https://github.com/RyanMerlin/edgeplane/releases/latest/download"
                 .to_string()
@@ -701,7 +701,7 @@ async fn get_release_manifest() -> impl IntoResponse {
 }
 
 async fn download_release() -> impl IntoResponse {
-    let base_url = std::env::var("MC_RUNTIME_RELEASE_BASE_URL")
+    let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL")
         .unwrap_or_else(|_| {
             "https://github.com/RyanMerlin/edgeplane/releases/latest/download"
                 .to_string()
@@ -1093,10 +1093,10 @@ fn build_install_script(base_url: &str, env_lines: &str) -> String {
     format!(
         r#"#!/bin/sh
 set -eu
-mc_bin='{base_url}/runtime/releases/latest/download'
-if [ -n "$mc_bin" ]; then
+ep_bin='{base_url}/runtime/releases/latest/download'
+if [ -n "$ep_bin" ]; then
   install -d /usr/local/bin
-  curl -fsSL "$mc_bin" -o /usr/local/bin/edgeplane
+  curl -fsSL "$ep_bin" -o /usr/local/bin/edgeplane
   chmod 0755 /usr/local/bin/edgeplane
 elif ! command -v edgeplane >/dev/null 2>&1; then
   echo '[ERROR] edgeplane binary not found and release artifact could not be resolved' >&2
@@ -1142,7 +1142,7 @@ async fn get_node_install_bundle(
     principal: Principal,
     Path(node_id): Path<String>,
 ) -> impl IntoResponse {
-    let base_url = std::env::var("MC_RUNTIME_RELEASE_BASE_URL").unwrap_or_else(|_| {
+    let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL").unwrap_or_else(|_| {
         "https://github.com/RyanMerlin/edgeplane/releases/latest/download".to_string()
     });
 
@@ -1211,15 +1211,15 @@ async fn get_node_install_bundle(
     // Build env dict
     let mut env: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     env.insert("EP_BASE_URL".into(), base_url.clone());
-    env.insert("MC_NODE_NAME".into(), node_name.clone());
-    env.insert("MC_NODE_HOSTNAME".into(), hostname.clone());
-    env.insert("MC_NODE_TRUST_TIER".into(), trust_tier.clone());
-    env.insert("MC_NODE_UPGRADE_CHANNEL".into(), upgrade_channel.clone());
-    env.insert("MC_NODE_DESIRED_VERSION".into(), desired_version.clone());
-    env.insert("MC_NODE_POLL_SECONDS".into(), "30".into());
-    env.insert("MC_NODE_HEARTBEAT_SECONDS".into(), "15".into());
+    env.insert("EP_NODE_NAME".into(), node_name.clone());
+    env.insert("EP_NODE_HOSTNAME".into(), hostname.clone());
+    env.insert("EP_NODE_TRUST_TIER".into(), trust_tier.clone());
+    env.insert("EP_NODE_UPGRADE_CHANNEL".into(), upgrade_channel.clone());
+    env.insert("EP_NODE_DESIRED_VERSION".into(), desired_version.clone());
+    env.insert("EP_NODE_POLL_SECONDS".into(), "30".into());
+    env.insert("EP_NODE_HEARTBEAT_SECONDS".into(), "15".into());
     if !token_id.is_empty() {
-        env.insert("MC_NODE_TOKEN_ID".into(), token_id.clone());
+        env.insert("EP_NODE_TOKEN_ID".into(), token_id.clone());
     }
 
     let env_lines: String = env
@@ -1257,7 +1257,7 @@ async fn get_node_install_script(
     principal: Principal,
     Path(node_id): Path<String>,
 ) -> impl IntoResponse {
-    let base_url = std::env::var("MC_RUNTIME_RELEASE_BASE_URL").unwrap_or_else(|_| {
+    let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL").unwrap_or_else(|_| {
         "https://github.com/RyanMerlin/edgeplane/releases/latest/download".to_string()
     });
 
@@ -1331,16 +1331,16 @@ async fn get_node_install_script(
 
     let mut env_pairs: Vec<String> = vec![
         format!("EP_BASE_URL={base_url}"),
-        format!("MC_NODE_NAME={node_name}"),
-        format!("MC_NODE_HOSTNAME={hostname}"),
-        format!("MC_NODE_TRUST_TIER={trust_tier}"),
-        format!("MC_NODE_UPGRADE_CHANNEL={upgrade_channel}"),
-        format!("MC_NODE_DESIRED_VERSION={desired_version}"),
-        "MC_NODE_POLL_SECONDS=30".into(),
-        "MC_NODE_HEARTBEAT_SECONDS=15".into(),
+        format!("EP_NODE_NAME={node_name}"),
+        format!("EP_NODE_HOSTNAME={hostname}"),
+        format!("EP_NODE_TRUST_TIER={trust_tier}"),
+        format!("EP_NODE_UPGRADE_CHANNEL={upgrade_channel}"),
+        format!("EP_NODE_DESIRED_VERSION={desired_version}"),
+        "EP_NODE_POLL_SECONDS=30".into(),
+        "EP_NODE_HEARTBEAT_SECONDS=15".into(),
     ];
     if !token_id.is_empty() {
-        env_pairs.push(format!("MC_NODE_TOKEN_ID={token_id}"));
+        env_pairs.push(format!("EP_NODE_TOKEN_ID={token_id}"));
     }
     let env_lines = env_pairs.join("\n");
     let script = build_install_script(&base_url, &env_lines);
@@ -2435,7 +2435,7 @@ async fn handle_pty_ws(socket: WebSocket, session_id: String, conn_id: String) {
 
 /// `GET /runtime/nodes/{node_id}/agents/{agent_id}/attach`
 ///
-/// Auth: bearer token in `Authorization` header **or** `?mc_token=` query
+/// Auth: bearer token in `Authorization` header **or** `?ep_token=` query
 /// param (browsers can't set headers on a WS upgrade). The token is checked
 /// the same way `Principal` extraction does — admin token or a valid user
 /// session.
@@ -2451,13 +2451,13 @@ async fn agent_attach_proxy(
     Query(params): Query<HashMap<String, String>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    // 1) Auth — accept either Authorization header or mc_token query.
+    // 1) Auth — accept either Authorization header or ep_token query.
     let token = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.to_string())
-        .or_else(|| params.get("mc_token").cloned())
+        .or_else(|| params.get("ep_token").cloned())
         .unwrap_or_default();
 
     if !verify_attach_caller_token(&state, &token).await {

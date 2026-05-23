@@ -30,7 +30,7 @@ Required env:
 
 - `EP_BASE_URL`
 - `EP_TOKEN`
-- local shim must be reachable at `MC_DAEMON_HOST:MC_DAEMON_PORT` (defaults `127.0.0.1:8765`)
+- local shim must be reachable at `EP_DAEMON_HOST:EP_DAEMON_PORT` (defaults `127.0.0.1:8765`)
 - full Docker stack should be running (`bash scripts/dev-up.sh`)
 
 Example:
@@ -38,21 +38,21 @@ Example:
 ```bash
 export EP_BASE_URL=http://localhost:8008
 export EP_TOKEN="<token>"
-MC_PRESSURE_MODE=agent MC_PRESSURE_WORKERS=5 MC_PRESSURE_DURATION_SEC=600 \
+EP_PRESSURE_MODE=agent EP_PRESSURE_WORKERS=5 EP_PRESSURE_DURATION_SEC=600 \
 scripts/edgeplane-pressure-test.sh
 ```
 
 Deterministic baseline mode (no Codex workers):
 
 ```bash
-MC_PRESSURE_MODE=playbook MC_PRESSURE_WORKERS=5 MC_PRESSURE_DURATION_SEC=600 \
+EP_PRESSURE_MODE=playbook EP_PRESSURE_WORKERS=5 EP_PRESSURE_DURATION_SEC=600 \
 scripts/edgeplane-pressure-test.sh
 ```
 
 Quickstart remains available for local debugging only:
 
 ```bash
-EP_STACK_PROFILE=quickstart MC_PRESSURE_MODE=playbook MC_PRESSURE_WORKERS=1 MC_PRESSURE_DURATION_SEC=15 \
+EP_STACK_PROFILE=quickstart EP_PRESSURE_MODE=playbook EP_PRESSURE_WORKERS=1 EP_PRESSURE_DURATION_SEC=15 \
 scripts/edgeplane-pressure-test.sh
 ```
 

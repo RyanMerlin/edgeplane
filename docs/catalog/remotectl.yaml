@@ -49,11 +49,11 @@ implemented:
   - MCP tools for full target and launch lifecycle
 
 gaps:
-  - edgeplane binary has no MC_LAUNCH_ID awareness for automatic heartbeat reporting
+  - edgeplane binary has no EP_LAUNCH_ID awareness for automatic heartbeat reporting
   - no K8s job dispatch (transport=k8s model exists, no actual Job creation)
 
 todos:
-  - add MC_LAUNCH_ID env var support to edgeplane so remote agents auto-report heartbeats
+  - add EP_LAUNCH_ID env var support to edgeplane so remote agents auto-report heartbeats
   - implement K8s job dispatch
 
 dependencies:

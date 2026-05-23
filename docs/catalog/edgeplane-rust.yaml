@@ -78,7 +78,7 @@ interfaces:
     - EP_BASE_URL        # Edgeplane backend URL
     - EP_TOKEN           # Agent bearer token
     - EP_AGENT_ID        # Agent identity
-    - MC_SCHEMA_PACK_FILE  # Optional schema pack override
+    - EP_SCHEMA_PACK_FILE  # Optional schema pack override
   commands:
     - edgeplane auth login
     - edgeplane auth whoami

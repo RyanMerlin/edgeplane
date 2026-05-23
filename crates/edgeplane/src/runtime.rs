@@ -351,13 +351,13 @@ impl Default for NodeRuntimeConfig {
 }
 
 fn node_state_path() -> PathBuf {
-    crate::config::mc_home_dir()
+    crate::config::ep_home_dir()
         .join("runtime")
         .join("node.json")
 }
 
 fn node_config_path() -> PathBuf {
-    crate::config::mc_home_dir()
+    crate::config::ep_home_dir()
         .join("runtime")
         .join("node-config.json")
 }
@@ -422,18 +422,18 @@ fn persist_node_config(config: &NodeRuntimeConfig) -> Result<()> {
 
 fn default_node_config(args: &NodeAgentRunArgs) -> NodeRuntimeConfig {
     NodeRuntimeConfig {
-        node_name: std::env::var("MC_NODE_NAME").unwrap_or_else(|_| args.node_name.clone()),
-        hostname: std::env::var("MC_NODE_HOSTNAME").unwrap_or_else(|_| args.hostname.clone()),
-        trust_tier: std::env::var("MC_NODE_TRUST_TIER").unwrap_or_else(|_| args.trust_tier.clone()),
-        bootstrap_token: std::env::var("MC_NODE_BOOTSTRAP_TOKEN").unwrap_or_default(),
-        upgrade_channel: std::env::var("MC_NODE_UPGRADE_CHANNEL")
+        node_name: std::env::var("EP_NODE_NAME").unwrap_or_else(|_| args.node_name.clone()),
+        hostname: std::env::var("EP_NODE_HOSTNAME").unwrap_or_else(|_| args.hostname.clone()),
+        trust_tier: std::env::var("EP_NODE_TRUST_TIER").unwrap_or_else(|_| args.trust_tier.clone()),
+        bootstrap_token: std::env::var("EP_NODE_BOOTSTRAP_TOKEN").unwrap_or_default(),
+        upgrade_channel: std::env::var("EP_NODE_UPGRADE_CHANNEL")
             .unwrap_or_else(|_| "stable".to_string()),
-        desired_version: std::env::var("MC_NODE_DESIRED_VERSION").unwrap_or_default(),
-        poll_seconds: std::env::var("MC_NODE_POLL_SECONDS")
+        desired_version: std::env::var("EP_NODE_DESIRED_VERSION").unwrap_or_default(),
+        poll_seconds: std::env::var("EP_NODE_POLL_SECONDS")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(args.poll_seconds),
-        heartbeat_seconds: std::env::var("MC_NODE_HEARTBEAT_SECONDS")
+        heartbeat_seconds: std::env::var("EP_NODE_HEARTBEAT_SECONDS")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(args.heartbeat_seconds),
@@ -454,7 +454,7 @@ fn default_node_config(args: &NodeAgentRunArgs) -> NodeRuntimeConfig {
             .as_object()
             .cloned()
             .unwrap_or_default(),
-        upgrade_manifest_url: std::env::var("MC_NODE_UPGRADE_MANIFEST_URL").unwrap_or_default(),
+        upgrade_manifest_url: std::env::var("EP_NODE_UPGRADE_MANIFEST_URL").unwrap_or_default(),
     }
 }
 
@@ -532,11 +532,11 @@ async fn run_node_run(args: NodeAgentRunArgs, client: &EdgeplaneClient) -> Resul
 
     let mut config = load_node_config()?.unwrap_or_else(|| default_node_config(&args));
     if config.bootstrap_token.is_empty() {
-        config.bootstrap_token = std::env::var("MC_NODE_BOOTSTRAP_TOKEN").unwrap_or_default();
+        config.bootstrap_token = std::env::var("EP_NODE_BOOTSTRAP_TOKEN").unwrap_or_default();
     }
     if config.bootstrap_token.is_empty() {
         return Err(anyhow::anyhow!(
-            "node bootstrap token missing; seed ~/.ep/runtime/node-config.json or MC_NODE_BOOTSTRAP_TOKEN"
+            "node bootstrap token missing; seed ~/.ep/runtime/node-config.json or EP_NODE_BOOTSTRAP_TOKEN"
         ));
     }
     persist_node_config(&config)?;
@@ -995,7 +995,7 @@ fn build_goose_command(
         .and_then(Value::as_str)
         .map(|s| s.to_owned())
         .unwrap_or_else(|| {
-            std::env::var("MC_GOOSE_MODEL").unwrap_or_else(|_| "local-agent".to_owned())
+            std::env::var("EP_GOOSE_MODEL").unwrap_or_else(|_| "local-agent".to_owned())
         });
 
     let trimmed = command.trim();
@@ -1117,7 +1117,7 @@ fn container_runtime_binary() -> Option<String> {
 }
 
 fn default_container_image() -> String {
-    std::env::var("MC_RUNTIME_DEFAULT_IMAGE").unwrap_or_else(|_| "alpine:3".to_string())
+    std::env::var("EP_RUNTIME_DEFAULT_IMAGE").unwrap_or_else(|_| "alpine:3".to_string())
 }
 
 fn parse_kv_pairs(input: &str) -> Value {

@@ -37,7 +37,7 @@ use crate::shared::{build_prompt, merge_capabilities};
 /// the canonical name has been the `@agentclientprotocol` one since early 2026.
 const AGENT_NPM_PKG: &str = "@agentclientprotocol/claude-agent-acp";
 /// Override: full path to the agent's `dist/index.js`. Bypasses the search.
-const ENV_ACP_JS: &str = "MC_MESH_ACP_JS";
+const ENV_ACP_JS: &str = "EP_MESH_ACP_JS";
 
 pub struct ClaudeAgentAcpRuntime {
     capabilities: Vec<Capability>,
@@ -281,8 +281,8 @@ impl ClaudeAgentAcpRuntime {
         // be missing remote-control support or recent bug fixes.
         // Probe candidates in order; systemd services run with a stripped PATH
         // so which::which() is unreliable — check known locations explicitly.
-        // MC_ACP_CLAUDE_EXECUTABLE overrides all of this for testing.
-        let system_claude = std::env::var("MC_ACP_CLAUDE_EXECUTABLE").ok().or_else(|| {
+        // EP_ACP_CLAUDE_EXECUTABLE overrides all of this for testing.
+        let system_claude = std::env::var("EP_ACP_CLAUDE_EXECUTABLE").ok().or_else(|| {
             let candidates = [
                 // versioned symlink written by the claude CLI updater
                 dirs::home_dir()
@@ -614,7 +614,7 @@ fn truncate(s: &str, max: usize) -> String {
 
 /// Search for `<...>/dist/index.js` of the ACP agent. Order:
 ///
-/// 1. `MC_MESH_ACP_JS` env var (full path).
+/// 1. `EP_MESH_ACP_JS` env var (full path).
 /// 2. `npm root -g` joined with the canonical and legacy package paths.
 /// 3. `~/.npm-global/lib/node_modules/...` for user-mode global installs.
 async fn locate_acp_js() -> Option<PathBuf> {

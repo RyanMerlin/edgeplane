@@ -81,7 +81,7 @@ fn build_manifest(base: &str) -> serde_json::Value {
             "args": ["serve"],
             "env": {"EP_BASE_URL": base, "EP_TOKEN": "${EP_TOKEN}"}
         },
-        "mc_serve_mcp_server": {
+        "ep_serve_mcp_server": {
             "name": "edgeplane",
             "command": "edgeplane",
             "args": ["serve"],

@@ -52,7 +52,7 @@ pub struct SecretsProfileConfig {
 }
 
 pub fn profile_secrets_path(profile_name: &str) -> PathBuf {
-    crate::config::mc_home_dir()
+    crate::config::ep_home_dir()
         .join("profiles")
         .join(profile_name)
         .join("secrets.json")

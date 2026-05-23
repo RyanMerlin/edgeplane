@@ -49,7 +49,7 @@ const BACKOFF_MAX: Duration = Duration::from_secs(60);
 const STABLE_THRESHOLD: Duration = Duration::from_secs(30);
 const UPDATES_BROADCAST_CAPACITY: usize = 1024;
 /// Fraction of context window consumed before injecting /compact.
-/// Override with MC_MESH_COMPACT_THRESHOLD env var (0.0–1.0).
+/// Override with EP_MESH_COMPACT_THRESHOLD env var (0.0–1.0).
 const DEFAULT_COMPACT_THRESHOLD: f64 = 0.85;
 const SIGNAL_CHANNEL_CAPACITY: usize = 64;
 /// How many recent SessionNotifications to keep for viewers attaching
@@ -126,7 +126,7 @@ async fn run_one_session(
     registry.register(cfg.agent_id.clone(), endpoints).await;
 
     let mut agent_updates = session.subscribe_updates();
-    let compact_threshold = std::env::var("MC_MESH_COMPACT_THRESHOLD")
+    let compact_threshold = std::env::var("EP_MESH_COMPACT_THRESHOLD")
         .ok()
         .and_then(|v| v.parse::<f64>().ok())
         .filter(|&t| t > 0.0 && t <= 1.0)

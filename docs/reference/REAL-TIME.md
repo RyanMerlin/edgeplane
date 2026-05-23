@@ -32,7 +32,7 @@ The optional `rate_limit` block mirrors upstream MQ/NATS guardrails so local dae
 - Mirror the SSE feed to an optional websocket endpoint (`/events/ws`) or local SSE fan-out so dashboards never miss a chunk even if the Axum SSE stream hiccups, and record reconnect timestamps inside `edgeplane system doctor` so you can surface whether rate-limit throttling is the root cause.
 - Track stream health (error rates, reconnects) and expose them via the local `edgeplane system doctor` output or logs so dashboards can show whether the daemon is healthy.
 
-- `edgeplane system doctor` now probes the health, tools, and matrix endpoints together and emits a structured JSON report with repair hints; `edgeplane system doctor --fix` also ensures `EP_HOME`/`MC_SKILLS_HOME` exist and seeds a stable `agent_id` file so local swarms and ruler daemons stay identifiable.
+- `edgeplane system doctor` now probes the health, tools, and matrix endpoints together and emits a structured JSON report with repair hints; `edgeplane system doctor --fix` also ensures `EP_HOME`/`EP_SKILLS_HOME` exist and seeds a stable `agent_id` file so local swarms and ruler daemons stay identifiable.
 
 ## Fan-out
 
@@ -48,10 +48,10 @@ If an operator needs faster-than-LLM loops, supply `--booster-wasm` with a Wasm 
 
 ## Schema pack + booster
 
-`edgeplane` draws the same schema pack that the backend enforces so the booster and matrix instrumentation share a single source of truth. Set `MC_SCHEMA_PACK_FILE` to `docs/schema-packs/main.json` (or your own custom drop-in) and the daemon will validate `mission`, `kluster`, `task`, `doc`, and `artifact` payloads before invoking `/mcp/call`. Invalid schema packs are logged at startup and fall back to the embedded defaults described in [`docs/MC-RUST.md`](MC-RUST.md); the matrix FE can then trust the `type`/`payload` shape without hitting the server randomly.
+`edgeplane` draws the same schema pack that the backend enforces so the booster and matrix instrumentation share a single source of truth. Set `EP_SCHEMA_PACK_FILE` to `docs/schema-packs/main.json` (or your own custom drop-in) and the daemon will validate `mission`, `kluster`, `task`, `doc`, and `artifact` payloads before invoking `/mcp/call`. Invalid schema packs are logged at startup and fall back to the embedded defaults described in [`docs/MC-RUST.md`](MC-RUST.md); the matrix FE can then trust the `type`/`payload` shape without hitting the server randomly.
 
 ## Operational guidance
 
 - Document how to launch the daemon alongside swarm-style workflows: run `edgeplane daemon --matrix-endpoint /events/stream --fanout-port 11234` on the planner host so scrapers or dashboards can read the local SSE feed.
-- Mention TLS/rate-limit prerequisites (the daemon may need `MC_ALLOW_INSECURE` for dev proxies), document `MC_SCHEMA_PACK_FILE` so boosters share the same schema pack, and remind operators to keep `EP_TOKEN` or OIDC tokens rotate-ready.
+- Mention TLS/rate-limit prerequisites (the daemon may need `EP_ALLOW_INSECURE` for dev proxies), document `EP_SCHEMA_PACK_FILE` so boosters share the same schema pack, and remind operators to keep `EP_TOKEN` or OIDC tokens rotate-ready.
 - Tie this doc back to the `edgeplane` companion guide at [docs/MC-RUST.md](MC-RUST.md).

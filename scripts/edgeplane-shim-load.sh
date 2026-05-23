@@ -2,13 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_ROOT="${MC_SHIM_LOAD_OUT_ROOT:-$ROOT_DIR/artifacts/shim-load}"
-RUN_ID="${MC_SHIM_LOAD_RUN_ID:-$(date +%Y%m%d%H%M%S)}"
-WORKERS="${MC_SHIM_LOAD_WORKERS:-3}"
-DURATION_SEC="${MC_SHIM_LOAD_DURATION_SEC:-60}"
+OUT_ROOT="${EP_SHIM_LOAD_OUT_ROOT:-$ROOT_DIR/artifacts/shim-load}"
+RUN_ID="${EP_SHIM_LOAD_RUN_ID:-$(date +%Y%m%d%H%M%S)}"
+WORKERS="${EP_SHIM_LOAD_WORKERS:-3}"
+DURATION_SEC="${EP_SHIM_LOAD_DURATION_SEC:-60}"
 BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
-SHIM_HOST="${MC_DAEMON_HOST:-127.0.0.1}"
-SHIM_PORT="${MC_DAEMON_PORT:-8765}"
+SHIM_HOST="${EP_DAEMON_HOST:-127.0.0.1}"
+SHIM_PORT="${EP_DAEMON_PORT:-8765}"
 TOKEN="${EP_TOKEN:-}"
 
 if ! command -v curl >/dev/null 2>&1; then

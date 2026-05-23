@@ -41,7 +41,7 @@ bash scripts/smoke.sh --profile full
 ### 5. Confirm auth config
 
 - OIDC settings are present and valid for the target environment
-- Admin identities set (`MC_ADMIN_SUBJECTS` and/or `MC_ADMIN_EMAILS`)
+- Admin identities set (`EP_ADMIN_SUBJECTS` and/or `EP_ADMIN_EMAILS`)
 - `EP_TOKEN` is set if MCP clients use static token auth
 
 ## Release Execution

@@ -45,10 +45,10 @@ fn test_write_servers_file_overwrites_existing() {
 #[test]
 fn test_load_server_list_reads_mc_servers_env() {
     let _guard = ENV.lock().unwrap_or_else(|p| p.into_inner());
-    unsafe { std::env::set_var("MC_SERVERS", "https://a:8008,https://b:8008") };
+    unsafe { std::env::set_var("EP_SERVERS", "https://a:8008,https://b:8008") };
     let servers = load_server_list();
     assert_eq!(servers, vec!["https://a:8008", "https://b:8008"]);
-    unsafe { std::env::remove_var("MC_SERVERS") };
+    unsafe { std::env::remove_var("EP_SERVERS") };
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn test_load_server_list_reads_servers_file() {
     let _guard = ENV.lock().unwrap_or_else(|p| p.into_inner());
     let dir = tempdir().unwrap();
     unsafe {
-        std::env::remove_var("MC_SERVERS");
+        std::env::remove_var("EP_SERVERS");
         std::env::set_var("EP_HOME", dir.path().to_str().unwrap());
     }
 
@@ -73,7 +73,7 @@ fn test_load_server_list_falls_back_to_mc_base_url() {
     let dir = tempdir().unwrap();
     unsafe {
         std::env::set_var("EP_HOME", dir.path().to_str().unwrap());
-        std::env::remove_var("MC_SERVERS");
+        std::env::remove_var("EP_SERVERS");
         std::env::set_var("EP_BASE_URL", "https://legacy:8000");
     }
 

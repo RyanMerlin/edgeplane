@@ -11,7 +11,7 @@ function readCookie(name: string): string | null {
 export function authHeader(token?: string): Record<string, string> {
 	const headers: Record<string, string> = {};
 	if (token) headers.Authorization = `Bearer ${token}`;
-	const csrf = readCookie('mc_csrf_token');
+	const csrf = readCookie('ep_csrf_token');
 	if (csrf) headers['X-CSRF-Token'] = csrf;
 	return headers;
 }

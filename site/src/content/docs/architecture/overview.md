@@ -68,7 +68,7 @@ Everything agents interact with via MCP tools routes through this server.
 The executor daemon. Agents communicate with it via Unix socket; operators never interact with it directly. Manages:
 
 - Agent subprocess lifecycle (launch, restart, crash recovery)
-- Secrets brokering — agents receive `MC_SECRETS_SOCKET` and `MC_SECRETS_SESSION` instead of raw credentials
+- Secrets brokering — agents receive `EP_SECRETS_SOCKET` and `EP_SECRETS_SESSION` instead of raw credentials
 - Task worker — ephemeral subagent spawning for distributed mesh execution
 - Cron dispatch — durable recurring job scheduling
 - Profile management — operator profile sync and activation

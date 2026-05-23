@@ -11,17 +11,17 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
-use crate::config::mc_home_dir;
+use crate::config::ep_home_dir;
 
 pub fn db_path() -> std::path::PathBuf {
-    mc_home_dir().join("edgeplaned").join("registry.db")
+    ep_home_dir().join("edgeplaned").join("registry.db")
 }
 
 /// Returns true if the node has a registered controlplane identity
 /// (state file has a `node_id`). Used to switch between standalone and
 /// federated CLI paths.
 pub fn is_federated() -> bool {
-    let state_path = mc_home_dir().join("edgeplaned").join("state.json");
+    let state_path = ep_home_dir().join("edgeplaned").join("state.json");
     let Ok(raw) = std::fs::read_to_string(&state_path) else {
         return false;
     };

@@ -1,7 +1,7 @@
 /// Management gateway — Unix socket + TCP listener serving JSON-RPC 2.0.
 ///
 /// Unix socket: `~/.edgeplane/mgmt.sock` (mode 0600, no auth)
-/// TCP socket:  `0.0.0.0:<MC_MESH_MGMT_PORT>` (default 7731)
+/// TCP socket:  `0.0.0.0:<EP_MESH_MGMT_PORT>` (default 7731)
 ///              Requires AUTH handshake when `EP_TOKEN` env var is set.
 ///
 /// Both endpoints serve the same JSON-RPC 2.0 protocol (newline-delimited).
@@ -25,7 +25,7 @@ use crate::supervisor::Supervisor;
 pub struct MgmtGateway {
     dispatcher: Arc<CapabilityDispatcher>,
     registry: Arc<PackRegistry>,
-    mc_token: Option<String>,
+    ep_token: Option<String>,
     socket_path: PathBuf,
     tcp_port: u16,
     /// Local agent ops dependencies. Populated by `daemon::run` after the
@@ -59,7 +59,7 @@ pub struct AgentOpsHandle {
 
 impl MgmtGateway {
     pub fn new(dispatcher: Arc<CapabilityDispatcher>, registry: Arc<PackRegistry>) -> Self {
-        let mc_token = edgeplaned_core::paths::state_file_path()
+        let ep_token = edgeplaned_core::paths::state_file_path()
             .parent()
             .and_then(|_| {
                 let content = std::fs::read_to_string(edgeplaned_core::paths::state_file_path()).ok()?;
@@ -68,7 +68,7 @@ impl MgmtGateway {
                 let token = v.get("profiles")?.get(active)?.get("auth")?.get("token")?.as_str()?;
                 if token.is_empty() { None } else { Some(token.to_string()) }
             });
-        let tcp_port = std::env::var("MC_MESH_MGMT_PORT")
+        let tcp_port = std::env::var("EP_MESH_MGMT_PORT")
             .ok()
             .and_then(|s| s.parse::<u16>().ok())
             .unwrap_or(7731);
@@ -77,7 +77,7 @@ impl MgmtGateway {
         MgmtGateway {
             dispatcher,
             registry,
-            mc_token,
+            ep_token,
             socket_path,
             tcp_port,
             agent_ops: None,
@@ -186,7 +186,7 @@ impl MgmtGateway {
         let mut reader = BufReader::new(read_half);
 
         // AUTH handshake only when EP_TOKEN is configured.
-        if let Some(expected_token) = &self.mc_token {
+        if let Some(expected_token) = &self.ep_token {
             let mut line = String::new();
             reader.read_line(&mut line).await?;
             let line = line.trim();
@@ -1238,7 +1238,7 @@ mod tests {
         MgmtGateway {
             dispatcher,
             registry,
-            mc_token: None,
+            ep_token: None,
             socket_path,
             tcp_port,
             agent_ops: None,
@@ -1255,7 +1255,7 @@ mod tests {
         MgmtGateway {
             dispatcher,
             registry,
-            mc_token: Some(token.to_string()),
+            ep_token: Some(token.to_string()),
             socket_path,
             tcp_port,
             agent_ops: None,

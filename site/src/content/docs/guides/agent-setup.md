@@ -69,7 +69,7 @@ edgeplane launch custom \
 
 ```json
 {
-  "mc_base_url": "https://edgeplane.example.com",
+  "ep_base_url": "https://edgeplane.example.com",
   "domain_id": "<id>",
   "mission_id": "<id>",
   "mcp_servers": {

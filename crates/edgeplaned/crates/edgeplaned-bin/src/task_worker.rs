@@ -564,8 +564,8 @@ async fn run_task_lifecycle(client: &BackendClient, config: &DaemonConfig, task:
         .current_dir(&worktree)
         // Strip edgeplaned-internal env vars so the child doesn't inherit the secrets
         // gateway binding; see CLAUDE.md feedback on claude-code-acp runtime.
-        .env_remove("MC_SECRETS_SOCKET")
-        .env_remove("MC_SECRETS_SESSION");
+        .env_remove("EP_SECRETS_SOCKET")
+        .env_remove("EP_SECRETS_SESSION");
 
     // Add --allowed-tools only when the capability set is non-empty.
     // An empty set (task declared `required_capabilities = []`) means no tools
@@ -779,11 +779,11 @@ pub fn should_claim(task: &Value, supervised_profiles: &HashSet<String>) -> bool
 ///
 /// Convention: `~/.ep/worktrees/<task_id>/`
 ///
-/// Uses `edgeplaned_core::paths::mc_home_dir()` so the base is the same as the rest
+/// Uses `edgeplaned_core::paths::ep_home_dir()` so the base is the same as the rest
 /// of edgeplaned's data (`~/.ep/`). The `worktrees/` subdirectory is created by the
 /// caller (`std::fs::create_dir_all`) — this function only computes the path.
 pub fn worktree_path_for_task(task_id: &str) -> PathBuf {
-    edgeplaned_core::paths::mc_home_dir().join("worktrees").join(task_id)
+    edgeplaned_core::paths::ep_home_dir().join("worktrees").join(task_id)
 }
 
 // ── Phase 3: Triage loop ──────────────────────────────────────────────────────
@@ -1507,12 +1507,12 @@ mod tests {
     #[test]
     fn worktree_path_is_under_mc_home() {
         let path = worktree_path_for_task("task-x");
-        let mc_home = edgeplaned_core::paths::mc_home_dir();
+        let ep_home = edgeplaned_core::paths::ep_home_dir();
         assert!(
-            path.starts_with(&mc_home),
-            "worktree path {} should be under mc_home {}",
+            path.starts_with(&ep_home),
+            "worktree path {} should be under ep_home {}",
             path.display(),
-            mc_home.display()
+            ep_home.display()
         );
     }
 

@@ -536,26 +536,26 @@ prompt = "echo hello"
 
     #[test]
     fn bash_dispatch_env_vars_set() {
-        // Verify that MC_CRON_* env vars can be set on a Command without panic.
+        // Verify that EP_CRON_* env vars can be set on a Command without panic.
         // We test the env-var setup logic by building a Command with those vars
         // and confirming the builder doesn't reject them (type system check).
         let mut cmd = std::process::Command::new("bash");
-        cmd.args(["-c", "echo $MC_CRON_JOB_NAME"])
-            .env("MC_CRON_JOB_NAME", "vault-mirror")
-            .env("MC_CRON_FIRE_TS", "1748000000")
-            .env("MC_CRON_DISPATCH", "bash");
+        cmd.args(["-c", "echo $EP_CRON_JOB_NAME"])
+            .env("EP_CRON_JOB_NAME", "vault-mirror")
+            .env("EP_CRON_FIRE_TS", "1748000000")
+            .env("EP_CRON_DISPATCH", "bash");
         let debug_str = format!("{cmd:?}");
         assert!(
-            debug_str.contains("MC_CRON_JOB_NAME"),
-            "MC_CRON_JOB_NAME should be in env: {debug_str}"
+            debug_str.contains("EP_CRON_JOB_NAME"),
+            "EP_CRON_JOB_NAME should be in env: {debug_str}"
         );
         assert!(
             debug_str.contains("vault-mirror"),
             "job name value should be in env: {debug_str}"
         );
         assert!(
-            debug_str.contains("MC_CRON_DISPATCH"),
-            "MC_CRON_DISPATCH should be in env: {debug_str}"
+            debug_str.contains("EP_CRON_DISPATCH"),
+            "EP_CRON_DISPATCH should be in env: {debug_str}"
         );
     }
 

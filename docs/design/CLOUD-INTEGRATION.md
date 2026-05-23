@@ -7,7 +7,7 @@ This document captures the architecture blueprint discussed for deploying Edgepl
 - **Private networking**: hub-and-spoke/VPC model with dedicated load-balanced ingress, egress filtering, and mutual TLS for cross-zone traffic.
 - **Managed Kubernetes**: AKS/GKE/EKS clusters with node pools for API workloads, autoscaling, and adedgeplanes that enforce namespace/certs/secrets policies.
 - **Managed PostgreSQL**: Regional service (Azure Database for PostgreSQL, Cloud SQL, Amazon RDS) with private endpoints and replicas for HA.
-- **Object storage**: MinIO hosted in the cluster (or cloud-native S3-compatible store) reachable via the `MC_OBJECT_STORAGE_*` variables; authentication happens through vault-backed credentials and policies restrict the `missions/<mission>/klusters/<kluster>/` prefixes.
+- **Object storage**: MinIO hosted in the cluster (or cloud-native S3-compatible store) reachable via the `EP_OBJECT_STORAGE_*` variables; authentication happens through vault-backed credentials and policies restrict the `missions/<mission>/klusters/<kluster>/` prefixes.
 - **MQTT**: Stateful broker deployed in Kubernetes with persistence, with the option to replace it using cloud-managed services later.
 - **Secrets and identities**: External Secrets, Azure Key Vault/Google Secret Manager/Secrets Manager, and workload identities avoiding embedded credentials in `.env` files.
 - **Observability**: OpenTelemetry collectors feeding Azure Monitor/Cloud Monitoring/CloudWatch plus cargo Prometheus endpoints for ingest, along with alerting/ runbooks per failure domain.
@@ -26,7 +26,7 @@ This document captures the architecture blueprint discussed for deploying Edgepl
 
 ### Data plane
 - Azure Database for PostgreSQL (flexible server) provisioned with custom parameter group, SSL-only connections, and geo-redundant backup; Terraform exports connection strings consumed via Key Vault secrets.
-- MinIO deployment uses persistent volumes backed by managed disk, configured to present `edgeplane`-compatible endpoint for `MC_OBJECT_STORAGE_ENDPOINT` (e.g., `http://minio.edgeplane.svc.cluster.local`).
+- MinIO deployment uses persistent volumes backed by managed disk, configured to present `edgeplane`-compatible endpoint for `EP_OBJECT_STORAGE_ENDPOINT` (e.g., `http://minio.edgeplane.svc.cluster.local`).
 - Mosquitto MQTT broker runs as StatefulSet with PVCs; optionally, Azure IoT Hub rules can be introduced later.
 
 ### Security & controls

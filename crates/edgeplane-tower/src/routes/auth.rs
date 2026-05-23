@@ -25,7 +25,7 @@ const DEFAULT_TTL_HOURS: i64 = 8;
 const MAX_TTL_HOURS: i64 = 8760; // 1 year
 
 fn resolve_ttl(requested: Option<i64>) -> i64 {
-    let env_ttl: i64 = std::env::var("MC_SESSION_TTL_HOURS")
+    let env_ttl: i64 = std::env::var("EP_SESSION_TTL_HOURS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_TTL_HOURS);

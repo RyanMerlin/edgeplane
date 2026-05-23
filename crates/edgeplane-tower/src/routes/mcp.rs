@@ -2420,13 +2420,13 @@ async fn dispatch(
             };
 
             // Read config from env
-            let endpoint = std::env::var("MC_OBJECT_STORAGE_ENDPOINT").unwrap_or_default();
-            let region = std::env::var("MC_OBJECT_STORAGE_REGION").unwrap_or_else(|_| "us-east-1".into());
-            let access_key = std::env::var("MC_OBJECT_STORAGE_ACCESS_KEY")
-                .or_else(|_| std::env::var("MC_OBJECT_STORAGE_KEY"))
+            let endpoint = std::env::var("EP_OBJECT_STORAGE_ENDPOINT").unwrap_or_default();
+            let region = std::env::var("EP_OBJECT_STORAGE_REGION").unwrap_or_else(|_| "us-east-1".into());
+            let access_key = std::env::var("EP_OBJECT_STORAGE_ACCESS_KEY")
+                .or_else(|_| std::env::var("EP_OBJECT_STORAGE_KEY"))
                 .unwrap_or_default();
-            let secret_key = std::env::var("MC_OBJECT_STORAGE_ACCESS_SECRET")
-                .or_else(|_| std::env::var("MC_OBJECT_STORAGE_SECRET"))
+            let secret_key = std::env::var("EP_OBJECT_STORAGE_ACCESS_SECRET")
+                .or_else(|_| std::env::var("EP_OBJECT_STORAGE_SECRET"))
                 .unwrap_or_default();
 
             if access_key.is_empty() || secret_key.is_empty() {
@@ -2493,7 +2493,7 @@ async fn dispatch(
             mac.update(string_to_sign.as_bytes());
             let signature = hex::encode(mac.finalize().into_bytes());
 
-            let scheme = if std::env::var("MC_OBJECT_STORAGE_SECURE")
+            let scheme = if std::env::var("EP_OBJECT_STORAGE_SECURE")
                 .map(|v| v.to_lowercase() == "false" || v == "0")
                 .unwrap_or(false)
             {

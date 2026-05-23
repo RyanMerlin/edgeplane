@@ -59,13 +59,13 @@ curl -s -X POST http://<edgeplane-host>/auth/oidc/exchange \
   -d '{"grant_id":"olg_…"}' > /tmp/tok.json
 
 # Write session file
-MC_HOST=http://<edgeplane-host>
+EP_HOST=http://<edgeplane-host>
 TOKEN=$(jq -r .token /tmp/tok.json)
 cat > ~/.edgeplane/session.json <<EOF
 {"token":"$TOKEN","subject":"$(jq -r .subject /tmp/tok.json)",
  "email":"$(jq -r .email /tmp/tok.json)",
  "expires_at":"$(jq -r .expires_at /tmp/tok.json)",
- "base_url":"$MC_HOST","session_id":$(jq -r .session_id /tmp/tok.json)}
+ "base_url":"$EP_HOST","session_id":$(jq -r .session_id /tmp/tok.json)}
 EOF
 chmod 600 ~/.edgeplane/session.json
 ```
@@ -87,8 +87,8 @@ EP_BASE_URL=http://<edgeplane-host> edgeplane daemon agent enroll \
 ```bash
 PATH="$HOME/.local/bin:$PATH" \
 EP_BASE_URL=http://<edgeplane-host> \
-MC_LITELLM_HOST=http://<litellm-host>:4000 \
-MC_LITELLM_API_KEY=<key> \
+EP_LITELLM_HOST=http://<litellm-host>:4000 \
+EP_LITELLM_API_KEY=<key> \
 edgeplane run goose --mission <mission-id>
 ```
 
@@ -103,8 +103,8 @@ After=network-online.target
 [Service]
 Environment=PATH=/home/%u/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=EP_BASE_URL=http://<edgeplane-host>
-Environment=MC_LITELLM_HOST=http://<litellm-host>:4000
-Environment=MC_LITELLM_API_KEY=<key>
+Environment=EP_LITELLM_HOST=http://<litellm-host>:4000
+Environment=EP_LITELLM_API_KEY=<key>
 ExecStart=/home/%u/bin/edgeplane run goose --mission <mission-id>
 Restart=on-failure
 RestartSec=10
@@ -156,10 +156,10 @@ curl -X POST http://<edgeplane-host>/work/tasks/<task-id>/retry \
 | Variable | Default | Purpose |
 |---|---|---|
 | `EP_BASE_URL` | `http://localhost:8008` | Backend URL |
-| `MC_LITELLM_HOST` | `http://litellm:4000` | LiteLLM proxy URL |
-| `MC_LITELLM_API_KEY` | _(none)_ | LiteLLM master key → sets `LITELLM_API_KEY` for Goose |
-| `MC_GOOSE_BIN` | _(PATH lookup)_ | Override path to goose binary (e.g. `~/.local/bin/goose`) |
-| `MC_GOOSE_MODEL` | `local-agent` | Model name passed to Goose |
+| `EP_LITELLM_HOST` | `http://litellm:4000` | LiteLLM proxy URL |
+| `EP_LITELLM_API_KEY` | _(none)_ | LiteLLM master key → sets `LITELLM_API_KEY` for Goose |
+| `EP_GOOSE_BIN` | _(PATH lookup)_ | Override path to goose binary (e.g. `~/.local/bin/goose`) |
+| `EP_GOOSE_MODEL` | `local-agent` | Model name passed to Goose |
 
 ---
 

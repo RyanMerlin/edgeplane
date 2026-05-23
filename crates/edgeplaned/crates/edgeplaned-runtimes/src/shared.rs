@@ -375,7 +375,7 @@ pub async fn ensure_rtk_hooks() -> anyhow::Result<bool> {
 ///   1. `EP_BIN_DIR` env var (explicit override, useful in tests and containers).
 ///   2. The directory containing the currently-running binary (co-installed alongside `edgeplane`).
 ///   3. Empty string (no-op — PATH is left unchanged).
-pub fn mc_bin_dir() -> String {
+pub fn ep_bin_dir() -> String {
     std::env::var("EP_BIN_DIR").ok().unwrap_or_else(|| {
         std::env::current_exe()
             .ok()
@@ -386,7 +386,7 @@ pub fn mc_bin_dir() -> String {
 
 /// Prepend `dir` to `current_path`, returning the new PATH value.
 /// If `dir` is empty, returns `current_path` unchanged.
-/// Call as: `prepend_to_path(&mc_dir, &std::env::var("PATH").unwrap_or_default())`
+/// Call as: `prepend_to_path(&ep_dir, &std::env::var("PATH").unwrap_or_default())`
 pub fn prepend_to_path(dir: &str, current_path: &str) -> String {
     if dir.is_empty() {
         return current_path.to_owned();
@@ -550,12 +550,12 @@ mod tests {
     }
 
     #[test]
-    fn mc_bin_dir_respects_mc_bin_dir_env() {
+    fn ep_bin_dir_respects_mc_bin_dir_env() {
         // Use a unique env var value to avoid collisions with parallel tests.
         // This test is inherently racy if run in parallel with itself (it cannot be),
         // but EP_BIN_DIR is not read by any other test in this module.
         unsafe { std::env::set_var("EP_BIN_DIR", "/tmp/edgeplane-test-bin-unique") };
-        let dir = mc_bin_dir();
+        let dir = ep_bin_dir();
         unsafe { std::env::remove_var("EP_BIN_DIR") };
         assert_eq!(dir, "/tmp/edgeplane-test-bin-unique");
     }

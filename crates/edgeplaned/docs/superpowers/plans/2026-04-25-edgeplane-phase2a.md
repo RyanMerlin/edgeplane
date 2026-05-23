@@ -30,7 +30,7 @@
 - `crates/edgeplane-mesh-core/Cargo.toml` — add edgeplane-mesh-receipts dep
 - `crates/edgeplane-mesh/src/mgmt_gateway.rs` — new JSON-RPC socket listener
 - `crates/edgeplane-mesh/src/daemon.rs` — spawn mgmt_gateway
-- `crates/edgeplane-mesh/src/main.rs` — expose MC_MESH_SOCKET on startup
+- `crates/edgeplane-mesh/src/main.rs` — expose EP_MESH_SOCKET on startup
 - `crates/edgeplane-mesh/Cargo.toml` — add edgeplane-mesh-packs, edgeplane-mesh-receipts deps
 
 **New files (edgeplane binary — separate workspace at `crates/edgeplane/`):**
@@ -494,7 +494,7 @@ In the `#[cfg(test)]` module of `capability_dispatcher.rs`, add:
 ```rust
 #[tokio::test]
 async fn dispatch_writes_receipt() {
-    use mc_mesh_receipts::ReceiptStore;
+    use ep_mesh_receipts::ReceiptStore;
     use tempfile::tempdir;
 
     let dir = tempdir().unwrap();
@@ -544,7 +544,7 @@ In `capability_dispatcher.rs`:
 1. Add `receipt_store: Option<Arc<ReceiptStore>>` field to `CapabilityDispatcher`
 2. Add builder method:
 ```rust
-pub fn with_receipt_store(mut self, store: Arc<mc_mesh_receipts::ReceiptStore>) -> Self {
+pub fn with_receipt_store(mut self, store: Arc<ep_mesh_receipts::ReceiptStore>) -> Self {
     self.receipt_store = Some(store);
     self
 }
@@ -552,7 +552,7 @@ pub fn with_receipt_store(mut self, store: Arc<mc_mesh_receipts::ReceiptStore>) 
 3. At the end of `dispatch()`, after a successful result is assembled, insert the receipt:
 ```rust
 if let Some(ref store) = self.receipt_store {
-    let receipt = mc_mesh_receipts::Receipt {
+    let receipt = ep_mesh_receipts::Receipt {
         id: result.receipt_id.clone(),
         capability: req.full_name.clone(),
         args_json: req.args.to_string(),
@@ -998,9 +998,9 @@ edgeplane-mesh-receipts = { path = "../edgeplane-mesh-receipts" }
 /// Used by `edgeplane run`, `edgeplane capabilities`, and `edgeplane receipts` to dispatch
 /// through the daemon's policy + secrets + sandbox stack.
 use anyhow::Result;
-use mc_mesh_core::capability_dispatcher::{CapabilityDispatcher, DispatchRequest};
-use mc_mesh_packs::registry::PackRegistry;
-use mc_mesh_receipts::ReceiptStore;
+use ep_mesh_core::capability_dispatcher::{CapabilityDispatcher, DispatchRequest};
+use ep_mesh_packs::registry::PackRegistry;
+use ep_mesh_receipts::ReceiptStore;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -1037,7 +1037,7 @@ pub async fn run(
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
 
     // Export socket path for child processes
-    std::env::set_var("MC_MESH_SOCKET", path.to_string_lossy().as_ref());
+    std::env::set_var("EP_MESH_SOCKET", path.to_string_lossy().as_ref());
     tracing::info!("mgmt gateway listening on {}", path.display());
 
     loop {
@@ -1141,9 +1141,9 @@ In `crates/edgeplane-mesh/src/daemon.rs`, after the attach gateway spawn, add:
 First, at the top of the file add:
 ```rust
 use crate::mgmt_gateway;
-use mc_mesh_core::capability_dispatcher::CapabilityDispatcher;
-use mc_mesh_packs::{policy::allow_all, registry::PackRegistry};
-use mc_mesh_receipts::ReceiptStore;
+use ep_mesh_core::capability_dispatcher::CapabilityDispatcher;
+use ep_mesh_packs::{policy::allow_all, registry::PackRegistry};
+use ep_mesh_receipts::ReceiptStore;
 use std::sync::Arc;
 ```
 
@@ -1152,7 +1152,7 @@ Then inside `pub async fn run(cli: CliOverrides) -> Result<()>`, after `std::fs:
 ```rust
 // Build capability dispatcher with receipt store.
 let registry = Arc::new(PackRegistry::load_builtin()?);
-let receipt_store = Arc::new(ReceiptStore::open(&mc_mesh_receipts::default_db_path())?);
+let receipt_store = Arc::new(ReceiptStore::open(&ep_mesh_receipts::default_db_path())?);
 let dispatcher = Arc::new(
     CapabilityDispatcher::new(registry.clone(), allow_all(), None)
         .with_receipt_store(receipt_store),
@@ -1457,19 +1457,19 @@ mod tests {
 
     #[test]
     fn default_route_is_auto() {
-        std::env::remove_var("MC_ROUTE");
-        std::env::remove_var("MC_MESH_HOST");
+        std::env::remove_var("EP_ROUTE");
+        std::env::remove_var("EP_MESH_HOST");
         let d = McDispatch::from_env();
         assert_eq!(d.route_mode(), RouteMode::Auto);
     }
 
     #[test]
-    fn mc_route_env_overrides_auto() {
-        std::env::remove_var("MC_MESH_HOST");
-        std::env::set_var("MC_ROUTE", "local");
+    fn ep_route_env_overrides_auto() {
+        std::env::remove_var("EP_MESH_HOST");
+        std::env::set_var("EP_ROUTE", "local");
         let d = McDispatch::from_env();
         assert_eq!(d.route_mode(), RouteMode::Local);
-        std::env::remove_var("MC_ROUTE");
+        std::env::remove_var("EP_ROUTE");
     }
 
     #[test]
@@ -1519,7 +1519,7 @@ pub struct McDispatch {
     mode: RouteMode,
     socket_path: PathBuf,
     /// Remote host address: "<hostname>" or "<hostname>:<port>".
-    /// Resolved from MC_MESH_HOST env or --host flag.
+    /// Resolved from EP_MESH_HOST env or --host flag.
     remote_host: Option<String>,
     /// Bearer token for remote TCP auth handshake.
     remote_token: String,
@@ -1533,17 +1533,17 @@ impl McDispatch {
 
     pub fn from_env_with_host(host_override: Option<String>) -> Self {
         let remote_host = host_override
-            .or_else(|| std::env::var("MC_MESH_HOST").ok());
+            .or_else(|| std::env::var("EP_MESH_HOST").ok());
 
         let mode = if remote_host.is_some() {
             RouteMode::Remote
         } else {
-            std::env::var("MC_ROUTE")
+            std::env::var("EP_ROUTE")
                 .map(|v| RouteMode::from_str(&v))
                 .unwrap_or(RouteMode::Auto)
         };
 
-        let socket_path = std::env::var("MC_MESH_SOCKET")
+        let socket_path = std::env::var("EP_MESH_SOCKET")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
                 dirs::home_dir()
@@ -1582,7 +1582,7 @@ impl McDispatch {
                 } else {
                     Err(anyhow!(
                         "edgeplane-mesh not reachable locally and no remote host configured.\n\
-                         Start edgeplane-mesh with `edgeplane mesh up`, or set MC_MESH_HOST=<hostname>."
+                         Start edgeplane-mesh with `edgeplane mesh up`, or set EP_MESH_HOST=<hostname>."
                     ))
                 }
             }
@@ -1678,19 +1678,19 @@ mod tests {
 
     #[test]
     fn default_route_is_auto() {
-        std::env::remove_var("MC_ROUTE");
-        std::env::remove_var("MC_MESH_HOST");
+        std::env::remove_var("EP_ROUTE");
+        std::env::remove_var("EP_MESH_HOST");
         let d = McDispatch::from_env();
         assert_eq!(d.route_mode(), RouteMode::Auto);
     }
 
     #[test]
-    fn mc_route_env_overrides_auto() {
-        std::env::remove_var("MC_MESH_HOST");
-        std::env::set_var("MC_ROUTE", "local");
+    fn ep_route_env_overrides_auto() {
+        std::env::remove_var("EP_MESH_HOST");
+        std::env::set_var("EP_ROUTE", "local");
         let d = McDispatch::from_env();
         assert_eq!(d.route_mode(), RouteMode::Local);
-        std::env::remove_var("MC_ROUTE");
+        std::env::remove_var("EP_ROUTE");
     }
 
     #[test]
@@ -1700,12 +1700,12 @@ mod tests {
     }
 
     #[test]
-    fn mc_mesh_host_env_sets_remote_mode() {
-        std::env::remove_var("MC_ROUTE");
-        std::env::set_var("MC_MESH_HOST", "optiplex:7731");
+    fn ep_mesh_host_env_sets_remote_mode() {
+        std::env::remove_var("EP_ROUTE");
+        std::env::set_var("EP_MESH_HOST", "optiplex:7731");
         let d = McDispatch::from_env();
         assert_eq!(d.route_mode(), RouteMode::Remote);
-        std::env::remove_var("MC_MESH_HOST");
+        std::env::remove_var("EP_MESH_HOST");
     }
 }
 ```
@@ -1744,7 +1744,7 @@ git commit -m "feat(edgeplane): McDispatch routing layer (auto/local/backend)"
 use crate::dispatch::McDispatch;
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use mc_mesh_packs::registry::PackRegistry;
+use ep_mesh_packs::registry::PackRegistry;
 
 #[derive(Subcommand, Debug)]
 pub enum CapabilitiesCommand {
@@ -1895,7 +1895,7 @@ pub struct RunArgs {
     #[arg(long, default_value = "30")]
     pub timeout: u64,
     /// Mission ID for receipt correlation
-    #[arg(long, env = "MC_MISSION_ID")]
+    #[arg(long, env = "EP_MISSION_ID")]
     pub mission_id: Option<String>,
     /// Agent ID for receipt correlation
     #[arg(long, env = "EP_AGENT_ID")]
@@ -2017,7 +2017,7 @@ git commit -m "feat(edgeplane): edgeplane run <cap> with key=value args and JSON
 ```rust
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use mc_mesh_receipts::{ReceiptFilter, ReceiptStore, default_db_path};
+use ep_mesh_receipts::{ReceiptFilter, ReceiptStore, default_db_path};
 
 #[derive(Subcommand, Debug)]
 pub enum ReceiptsCommand {
@@ -2088,7 +2088,7 @@ pub fn run_ls(args: ReceiptsLsArgs) -> Result<()> {
     print_receipts(&receipts, args.json)
 }
 
-fn print_receipts(receipts: &[mc_mesh_receipts::Receipt], json: bool) -> Result<()> {
+fn print_receipts(receipts: &[ep_mesh_receipts::Receipt], json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(&receipts)?);
         return Ok(());
@@ -2169,10 +2169,10 @@ edgeplane-mesh-sync = { path = "../edgeplane-mesh/crates/edgeplane-mesh-sync" }
 ```rust
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use mc_mesh_sync::{SyncClient, default_cache_dir};
+use ep_mesh_sync::{SyncClient, default_cache_dir};
 
 fn sync_client() -> Result<SyncClient> {
-    let repo_url = std::env::var("MC_SYNC_REPO").ok()
+    let repo_url = std::env::var("EP_SYNC_REPO").ok()
         .or_else(|| {
             // Try reading from ~/.edgeplane/config.json
             let path = dirs::home_dir()
@@ -2184,7 +2184,7 @@ fn sync_client() -> Result<SyncClient> {
             v.get("sync_repo")?.as_str().map(|s| s.to_string())
         })
         .ok_or_else(|| anyhow::anyhow!(
-            "sync repo not configured. Set MC_SYNC_REPO env or add \"sync_repo\" to ~/.edgeplane/config.json"
+            "sync repo not configured. Set EP_SYNC_REPO env or add \"sync_repo\" to ~/.edgeplane/config.json"
         ))?;
 
     let hostname = hostname::get()
@@ -2320,8 +2320,8 @@ pub struct InitArgs {
 In the file handling init (check the grep output from Step 1), add a function:
 ```rust
 async fn bootstrap_from_repo(repo_url: &str, profile: &str) -> anyhow::Result<()> {
-    use mc_mesh_sync::{SyncClient, default_cache_dir};
-    use mc_mesh_secrets::keyring::{store_service_token};
+    use ep_mesh_sync::{SyncClient, default_cache_dir};
+    use ep_mesh_secrets::keyring::{store_service_token};
 
     let hostname = hostname::get()
         .map(|h| h.to_string_lossy().to_string())

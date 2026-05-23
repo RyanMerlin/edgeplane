@@ -60,7 +60,7 @@ struct BackupRecord {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn backup_dir() -> String {
-    std::env::var("MC_BACKUP_DIR").unwrap_or_else(|_| "/data/backups".to_string())
+    std::env::var("EP_BACKUP_DIR").unwrap_or_else(|_| "/data/backups".to_string())
 }
 
 fn backup_file() -> String {
@@ -90,7 +90,7 @@ async fn write_backup_records(records: &[serde_json::Value]) -> std::io::Result<
     Ok(())
 }
 
-fn mc_home() -> std::path::PathBuf {
+fn ep_home() -> std::path::PathBuf {
     let val = std::env::var("EP_HOME").unwrap_or_default();
     if !val.is_empty() {
         return std::path::PathBuf::from(val);
@@ -99,7 +99,7 @@ fn mc_home() -> std::path::PathBuf {
 }
 
 fn profile_secrets_path(profile: &str) -> std::path::PathBuf {
-    mc_home().join("profiles").join(profile).join("secrets.json")
+    ep_home().join("profiles").join(profile).join("secrets.json")
 }
 
 fn load_profile_data(path: &std::path::Path) -> serde_json::Value {
@@ -209,7 +209,7 @@ async fn trigger_backup(
     }
 
     // Optionally run the backup script
-    if let Ok(script) = std::env::var("MC_BACKUP_SCRIPT") {
+    if let Ok(script) = std::env::var("EP_BACKUP_SCRIPT") {
         let id_clone = backup_id.clone();
         tokio::spawn(async move {
             let result = tokio::process::Command::new(&script)
@@ -257,9 +257,9 @@ async fn get_secrets_status(
         return r;
     }
     let profile_name = {
-        let p = std::env::var("MC_SECRETS_PROFILE").unwrap_or_default();
+        let p = std::env::var("EP_SECRETS_PROFILE").unwrap_or_default();
         if p.trim().is_empty() {
-            std::env::var("MC_AGENT_PROFILE").unwrap_or_else(|_| "default".into())
+            std::env::var("EP_AGENT_PROFILE").unwrap_or_else(|_| "default".into())
         } else {
             p
         }
@@ -267,7 +267,7 @@ async fn get_secrets_status(
     let profile_name = if profile_name.trim().is_empty() { "default".to_string() } else { profile_name.trim().to_string() };
     let path = profile_secrets_path(&profile_name);
     let provider_env = {
-        let raw = std::env::var("MC_SECRETS_PROVIDER").unwrap_or_default();
+        let raw = std::env::var("EP_SECRETS_PROVIDER").unwrap_or_default();
         if raw.trim().eq_ignore_ascii_case("infisical") { "infisical" } else { "env" }
     };
     let profile_exists = path.exists();
@@ -326,7 +326,7 @@ async fn post_secrets_bootstrap(
 
     const DEFAULT_NAMES: &[&str] = &[
         "EP_TOKEN", "MQTT_PASSWORD", "POSTGRES_PASSWORD",
-        "MC_OBJECT_STORAGE_ACCESS_KEY", "MC_OBJECT_STORAGE_ACCESS_SECRET",
+        "EP_OBJECT_STORAGE_ACCESS_KEY", "EP_OBJECT_STORAGE_ACCESS_SECRET",
     ];
     for &name in DEFAULT_NAMES {
         if keep_existing && refs.contains_key(name) { continue; }
@@ -407,7 +407,7 @@ async fn post_secrets_rotate(
         // SAFETY: single-threaded context during startup config; best-effort env update
         unsafe { std::env::set_var(&target_name, &next_value) };
     } else {
-        let cli = std::env::var("MC_SECRETS_INFISICAL_CLI_BIN").unwrap_or_else(|_| "infisical".into());
+        let cli = std::env::var("EP_SECRETS_INFISICAL_CLI_BIN").unwrap_or_else(|_| "infisical".into());
         let project_id = data.get("infisical_project_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let infisical_env = data.get("infisical_env").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let infisical_path_val = data.get("infisical_path").and_then(|v| v.as_str()).unwrap_or("").to_string();

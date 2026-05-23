@@ -22,7 +22,7 @@ description: Complete reference for the edgeplane CLI, edgeplaned daemon, and ed
 |----------|---------|---------|
 | `EP_BASE_URL` | `http://localhost:8008` | Backend HTTP base URL |
 | `EP_TOKEN` | unset | Bearer token for API auth |
-| `MC_OUTPUT` | `human` | Default output format |
+| `EP_OUTPUT` | `human` | Default output format |
 
 ---
 

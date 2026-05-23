@@ -68,7 +68,7 @@ enum Commands {
     Doctor,
     /// Fetch a secret from the running edgeplaned secrets broker.
     ///
-    /// Reads MC_SECRETS_SOCKET and MC_SECRETS_SESSION from the environment
+    /// Reads EP_SECRETS_SOCKET and EP_SECRETS_SESSION from the environment
     /// (injected by edgeplaned when spawning agent subprocesses). Prints the
     /// resolved value to stdout. Exits non-zero on any error.
     ///
@@ -134,11 +134,11 @@ fn get_secret(name: &str) -> anyhow::Result<()> {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
 
-    let socket = std::env::var("MC_SECRETS_SOCKET").map_err(|_| {
-        anyhow::anyhow!("MC_SECRETS_SOCKET not set — are you running inside an edgeplaned agent subprocess?")
+    let socket = std::env::var("EP_SECRETS_SOCKET").map_err(|_| {
+        anyhow::anyhow!("EP_SECRETS_SOCKET not set — are you running inside an edgeplaned agent subprocess?")
     })?;
-    let session = std::env::var("MC_SECRETS_SESSION").map_err(|_| {
-        anyhow::anyhow!("MC_SECRETS_SESSION not set — are you running inside an edgeplaned agent subprocess?")
+    let session = std::env::var("EP_SECRETS_SESSION").map_err(|_| {
+        anyhow::anyhow!("EP_SECRETS_SESSION not set — are you running inside an edgeplaned agent subprocess?")
     })?;
 
     let mut stream = UnixStream::connect(&socket)

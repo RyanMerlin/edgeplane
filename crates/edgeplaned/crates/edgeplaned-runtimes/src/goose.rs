@@ -263,9 +263,9 @@ impl AgentRuntime for GooseRuntime {
         );
 
         // Resolve LiteLLM connection details from env.
-        let litellm_host = std::env::var("MC_LITELLM_HOST")
+        let litellm_host = std::env::var("EP_LITELLM_HOST")
             .unwrap_or_else(|_| "http://litellm:4000".into());
-        let litellm_api_key = std::env::var("MC_LITELLM_API_KEY").ok();
+        let litellm_api_key = std::env::var("EP_LITELLM_API_KEY").ok();
 
         let mut cmd = Command::new("goose");
         cmd.arg("run")
@@ -281,10 +281,10 @@ impl AgentRuntime for GooseRuntime {
             .env("XDG_CONFIG_HOME", &work_dir)
             .env("GOOSE_PROVIDER", "litellm")
             .env("LITELLM_HOST", &litellm_host)
-            .env("GOOSE_MODEL", std::env::var("MC_GOOSE_MODEL").unwrap_or_else(|_| "local-agent".into()))
+            .env("GOOSE_MODEL", std::env::var("EP_GOOSE_MODEL").unwrap_or_else(|_| "local-agent".into()))
             .env("GOOSE_MODE", "Auto")
-            .env("MC_MESH_AGENT_ID", &agent_id)
-            .env("MC_MESH_TASK_ID", &task_id)
+            .env("EP_MESH_AGENT_ID", &agent_id)
+            .env("EP_MESH_TASK_ID", &task_id)
             .current_dir(&work_dir)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
@@ -297,14 +297,14 @@ impl AgentRuntime for GooseRuntime {
         }
 
         // Propagate the edgeplaned capability socket path so agents can reach `edgeplaned run`.
-        if let Ok(socket) = std::env::var("MC_MESH_SOCKET") {
-            cmd.env("MC_MESH_SOCKET", socket);
+        if let Ok(socket) = std::env::var("EP_MESH_SOCKET") {
+            cmd.env("EP_MESH_SOCKET", socket);
         }
 
         // Inject edgeplane binary dir so agents can invoke `edgeplane` without an absolute path.
-        let mc_dir = crate::shared::mc_bin_dir();
-        if !mc_dir.is_empty() {
-            cmd.env("PATH", crate::shared::prepend_to_path(&mc_dir, &std::env::var("PATH").unwrap_or_default()));
+        let ep_dir = crate::shared::ep_bin_dir();
+        if !ep_dir.is_empty() {
+            cmd.env("PATH", crate::shared::prepend_to_path(&ep_dir, &std::env::var("PATH").unwrap_or_default()));
         }
 
         let mut child = cmd.spawn()?;

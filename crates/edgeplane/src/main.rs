@@ -23,32 +23,32 @@ pub struct CliOpts {
     agent_id: Option<String>,
 
     /// Optional runtime session identifier propagated for per-instance attribution.
-    #[arg(long, env = "MC_RUNTIME_SESSION_ID")]
+    #[arg(long, env = "EP_RUNTIME_SESSION_ID")]
     runtime_session_id: Option<String>,
 
     /// Optional profile name propagated for per-profile attribution.
-    #[arg(long, env = "MC_AGENT_PROFILE")]
+    #[arg(long, env = "EP_AGENT_PROFILE")]
     profile_name: Option<String>,
 
     /// Timeout (in seconds) for all outbound calls.
-    #[arg(long, env = "MC_TIMEOUT_SECS", default_value_t = 10)]
+    #[arg(long, env = "EP_TIMEOUT_SECS", default_value_t = 10)]
     timeout_secs: u64,
 
     /// Allow invalid TLS certificates when running against local or self-signed endpoints.
-    #[arg(long, env = "MC_ALLOW_INSECURE", default_value_t = false)]
+    #[arg(long, env = "EP_ALLOW_INSECURE", default_value_t = false)]
     allow_insecure: bool,
 
     /// Optional WASM booster module path.
-    #[arg(long, env = "MC_BOOSTER_WASM")]
+    #[arg(long, env = "EP_BOOSTER_WASM")]
     booster_wasm: Option<std::path::PathBuf>,
 
     /// Disable the booster hook even if a module is configured.
-    #[arg(long, env = "MC_DISABLE_BOOSTER", default_value_t = false)]
+    #[arg(long, env = "EP_DISABLE_BOOSTER", default_value_t = false)]
     disable_booster: bool,
 
     /// Allow booster modules to short-circuit MCP tool execution.
     /// Disabled by default so authoritative reads/mutations always hit Edgeplane.
-    #[arg(long, env = "MC_ALLOW_BOOSTER_SHORT_CIRCUIT", default_value_t = false)]
+    #[arg(long, env = "EP_ALLOW_BOOSTER_SHORT_CIRCUIT", default_value_t = false)]
     allow_booster_short_circuit: bool,
 
     /// Emit machine-readable JSON output.

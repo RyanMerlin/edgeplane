@@ -6,14 +6,14 @@
 //! ## Skipping
 //!
 //! Skips (with a `tracing::warn!`) if either:
-//! - the env var `MC_MESH_ACP_SKIP_WIRE` is set, OR
+//! - the env var `EP_MESH_ACP_SKIP_WIRE` is set, OR
 //! - `node` is not on PATH, OR
-//! - `claude-code-acp/dist/index.js` cannot be located via `MC_MESH_ACP_JS`
+//! - `claude-code-acp/dist/index.js` cannot be located via `EP_MESH_ACP_JS`
 //!   env var or the standard search paths below.
 //!
 //! ## Search paths for `dist/index.js` (in order)
 //!
-//! 1. `$MC_MESH_ACP_JS` (full path to `dist/index.js`)
+//! 1. `$EP_MESH_ACP_JS` (full path to `dist/index.js`)
 //! 2. `/tmp/acp-smoke/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js`
 //!    (the renamed package; current canonical name)
 //! 3. `/tmp/acp-smoke/node_modules/@zed-industries/claude-code-acp/dist/index.js`
@@ -33,15 +33,15 @@ use tokio::sync::broadcast::error::RecvError;
 const PROFILE_CWD: &str = "/home/merlin/code/aria/profiles/acp-test";
 
 fn skip_reason() -> Option<String> {
-    if std::env::var("MC_MESH_ACP_SKIP_WIRE").is_ok() {
-        return Some("MC_MESH_ACP_SKIP_WIRE set".into());
+    if std::env::var("EP_MESH_ACP_SKIP_WIRE").is_ok() {
+        return Some("EP_MESH_ACP_SKIP_WIRE set".into());
     }
     if which::which("node").is_err() {
         return Some("node not on PATH".into());
     }
     if locate_acp_js().is_none() {
         return Some(
-            "claude-code-acp dist/index.js not found — set MC_MESH_ACP_JS or `npm i -g @zed-industries/claude-code-acp`".into(),
+            "claude-code-acp dist/index.js not found — set EP_MESH_ACP_JS or `npm i -g @zed-industries/claude-code-acp`".into(),
         );
     }
     if !std::path::Path::new(PROFILE_CWD).exists() {
@@ -51,7 +51,7 @@ fn skip_reason() -> Option<String> {
 }
 
 fn locate_acp_js() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("MC_MESH_ACP_JS") {
+    if let Ok(p) = std::env::var("EP_MESH_ACP_JS") {
         let p = PathBuf::from(p);
         if p.exists() {
             return Some(p);

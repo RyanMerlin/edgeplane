@@ -1,7 +1,7 @@
 use std::{env, path::PathBuf};
 
 /// Returns `~/.edgeplane` by default, or `$EP_HOME` if set — matching the edgeplane CLI.
-pub fn mc_home_dir() -> PathBuf {
+pub fn ep_home_dir() -> PathBuf {
     if let Ok(val) = env::var("EP_HOME") {
         if !val.is_empty() {
             return expand_home(&val);
@@ -13,7 +13,7 @@ pub fn mc_home_dir() -> PathBuf {
 }
 
 pub fn mcd_dir() -> PathBuf {
-    mc_home_dir().join("edgeplaned")
+    ep_home_dir().join("edgeplaned")
 }
 
 pub fn mcd_work_dir() -> PathBuf {
@@ -25,11 +25,11 @@ pub fn mcd_config_path() -> PathBuf {
 }
 
 pub fn session_file_path() -> PathBuf {
-    mc_home_dir().join("session.json")
+    ep_home_dir().join("session.json")
 }
 
 pub fn receipts_db_path() -> PathBuf {
-    mc_home_dir().join("receipts.db")
+    ep_home_dir().join("receipts.db")
 }
 
 pub fn attach_socket_path() -> PathBuf {
@@ -57,7 +57,7 @@ pub fn lock_file_path() -> PathBuf {
 }
 
 pub fn sync_cache_dir() -> PathBuf {
-    mc_home_dir().join("sync")
+    ep_home_dir().join("sync")
 }
 
 fn expand_home(val: &str) -> PathBuf {

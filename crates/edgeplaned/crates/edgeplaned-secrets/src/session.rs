@@ -5,7 +5,7 @@ use uuid::Uuid;
 /// Per-dispatch credential session registry.
 ///
 /// The dispatcher creates a session (pre-resolved credential values keyed by
-/// inject_as name) and gives the agent a session ID via `MC_SECRETS_SESSION`.
+/// inject_as name) and gives the agent a session ID via `EP_SECRETS_SESSION`.
 /// The agent requests individual values at runtime through the secrets gateway
 /// socket. Sessions are removed when the subprocess exits.
 pub struct SessionStore {

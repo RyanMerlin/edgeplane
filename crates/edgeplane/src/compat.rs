@@ -244,7 +244,7 @@ fn is_executable_path(path: &Path) -> bool {
 }
 
 fn compat_home() -> PathBuf {
-    crate::config::mc_home_dir().join("compat")
+    crate::config::ep_home_dir().join("compat")
 }
 
 #[cfg(test)]

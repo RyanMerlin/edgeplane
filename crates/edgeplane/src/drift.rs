@@ -225,13 +225,13 @@ fn load_latest_json(path: PathBuf) -> Result<Value> {
 }
 
 fn compat_latest_path() -> PathBuf {
-    crate::config::mc_home_dir()
+    crate::config::ep_home_dir()
         .join("compat")
         .join("latest.json")
 }
 
 fn drift_home() -> PathBuf {
-    crate::config::mc_home_dir().join("drift")
+    crate::config::ep_home_dir().join("drift")
 }
 
 #[cfg(test)]

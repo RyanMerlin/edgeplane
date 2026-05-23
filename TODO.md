@@ -20,7 +20,7 @@ Nothing currently blocked.
       demo (mission + kluster + 3 tasks + claim/complete simulation via REST API);
       `test_work.rs`: 5 tests covering broadcast isolation, route registration (2026-05-09)
 - [x] CI updated: `test_proxy` and `test_work` added to `rust-test` job (2026-05-09)
-- [x] `edgeplane-tower` `--api-proxy` / `MC_API_PROXY` CLI flag exposed (2026-05-09)
+- [x] `edgeplane-tower` `--api-proxy` / `EP_API_PROXY` CLI flag exposed (2026-05-09)
 - [x] edgeplaned work loop: adaptive backoff (5s→30s), `depends_on`/`produces`/`consumes`
       in `MeshTaskRecord` + `TaskSpec`, consumes-gate in `filter_eligible`, WS notify
       endpoint on controlplane (`/work/agents/{id}/notify`), WS client in daemon with

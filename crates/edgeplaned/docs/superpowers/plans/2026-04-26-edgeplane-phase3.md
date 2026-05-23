@@ -665,7 +665,7 @@ if let Err(e) = rt.ensure_installed().await {
 
   After this edit the inner loop body reads (abbreviated):
   ```rust
-  let rt: Arc<mc_mesh_core::agent_runtime::DynAgentRuntime> =
+  let rt: Arc<ep_mesh_core::agent_runtime::DynAgentRuntime> =
       match agent_entry.runtime_kind.as_str() {
           "claude_code" => Arc::new(Box::new(ClaudeCodeRuntime::new())),
           ...
@@ -730,7 +730,7 @@ if let Err(e) = rt.ensure_installed().await {
 ///   2. The directory containing the currently-running binary (i.e., the same
 ///      directory as `edgeplane-mesh`, which is co-installed alongside `edgeplane`).
 ///   3. Empty string (no-op — PATH is left unchanged).
-pub fn mc_bin_dir() -> String {
+pub fn ep_bin_dir() -> String {
     std::env::var("EP_BIN_DIR").ok().unwrap_or_else(|| {
         std::env::current_exe()
             .ok()
@@ -759,9 +759,9 @@ pub fn prepend_to_path(dir: &str) -> String {
 
 ```rust
 // Inject edgeplane binary dir so agents can invoke `edgeplane` without an absolute path.
-let mc_dir = crate::shared::mc_bin_dir();
-if !mc_dir.is_empty() {
-    cmd.env("PATH", crate::shared::prepend_to_path(&mc_dir));
+let ep_dir = crate::shared::ep_bin_dir();
+if !ep_dir.is_empty() {
+    cmd.env("PATH", crate::shared::prepend_to_path(&ep_dir));
 }
 ```
 
@@ -796,9 +796,9 @@ mod tests {
     }
 
     #[test]
-    fn mc_bin_dir_respects_mc_bin_dir_env() {
+    fn ep_bin_dir_respects_mc_bin_dir_env() {
         std::env::set_var("EP_BIN_DIR", "/tmp/testbin");
-        let dir = mc_bin_dir();
+        let dir = ep_bin_dir();
         assert_eq!(dir, "/tmp/testbin");
         std::env::remove_var("EP_BIN_DIR");
     }
@@ -815,7 +815,7 @@ mod tests {
   ```
   test shared::tests::prepend_to_path_empty_dir_returns_existing ... ok
   test shared::tests::prepend_to_path_injects_dir_at_front ... ok
-  test shared::tests::mc_bin_dir_respects_mc_bin_dir_env ... ok
+  test shared::tests::ep_bin_dir_respects_mc_bin_dir_env ... ok
   test result: ok. 3 passed; 0 failed
   ```
 
@@ -885,10 +885,10 @@ log "Step 1: building edgeplane-mesh and edgeplane binaries"
 cargo build -p edgeplane-mesh -p edgeplane --manifest-path "${WORKSPACE_ROOT}/Cargo.toml" \
     2>&1 | tail -3
 
-MC_MESH_BIN="${BUILD_DIR}/edgeplane-mesh"
+EP_MESH_BIN="${BUILD_DIR}/edgeplane-mesh"
 EP_BIN="${BUILD_DIR}/edgeplane"
 
-[[ -x "${MC_MESH_BIN}" ]] || fail "edgeplane-mesh binary not found at ${MC_MESH_BIN}"
+[[ -x "${EP_MESH_BIN}" ]] || fail "edgeplane-mesh binary not found at ${EP_MESH_BIN}"
 [[ -x "${EP_BIN}" ]]      || fail "edgeplane binary not found at ${EP_BIN}"
 
 # ── Step 2: write a minimal daemon config (goose only — it's pre-installed) ──
@@ -913,9 +913,9 @@ EOF
 
 log "Step 3: starting daemon (background)"
 export EP_BIN_DIR="${BUILD_DIR}"
-export MC_MESH_SOCKET="${SOCKET_PATH}"
+export EP_MESH_SOCKET="${SOCKET_PATH}"
 
-"${MC_MESH_BIN}" \
+"${EP_MESH_BIN}" \
     --config "${TEST_CONFIG}" \
     --socket "${SOCKET_PATH}" \
     &>/tmp/edgeplane-mesh-phase3-daemon.log &

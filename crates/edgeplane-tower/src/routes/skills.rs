@@ -543,7 +543,7 @@ async fn do_create_bundle(
 
     // Optional signature verification
     let mut signature_verified = false;
-    let signing_secret = std::env::var("MC_SKILLS_SIGNING_SECRET").unwrap_or_default();
+    let signing_secret = std::env::var("EP_SKILLS_SIGNING_SECRET").unwrap_or_default();
     let signing_secret = signing_secret.trim();
     if !signing_secret.is_empty() {
         let sig = body.signature.trim().to_lowercase();

@@ -39,7 +39,7 @@ use tokio::task::JoinHandle;
 use crate::daemon::AgentSpec;
 
 /// Periodic poll interval: WS is primary, this catches WS drops + verifies
-/// state every minute. Override via `MC_MESH_POLL_SECS` for tests.
+/// state every minute. Override via `EP_MESH_POLL_SECS` for tests.
 pub const DEFAULT_POLL_SECS: u64 = 60;
 
 /// Per-agent abort grace before we move on. The supervisor's `Drop`
@@ -156,7 +156,7 @@ pub async fn poll_assignments<F, Fut>(
     Fut: std::future::Future<Output = ()> + Send,
 {
     let interval = Duration::from_secs(
-        std::env::var("MC_MESH_POLL_SECS")
+        std::env::var("EP_MESH_POLL_SECS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(DEFAULT_POLL_SECS),

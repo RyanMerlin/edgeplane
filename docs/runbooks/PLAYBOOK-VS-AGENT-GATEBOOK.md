@@ -11,11 +11,11 @@ This runbook captures the operator steps for supporting the two gated pressure m
 Before invoking the harness, verify:
 
 1. `scripts/edgeplane-pressure-test.sh` resolves to the intended Python harness (confirm via `which edgeplane-pressure-test.sh`).
-2. The domain/mission IDs match the reference domain and `MC_PRESSURE_MODE` will run against `domain_id=b1d0cc58dd3e` and `mission_id=818f645ab54f` when Stage C is running. Document these values in the task notes.
+2. The domain/mission IDs match the reference domain and `EP_PRESSURE_MODE` will run against `domain_id=b1d0cc58dd3e` and `mission_id=818f645ab54f` when Stage C is running. Document these values in the task notes.
 3. Alerting channels (e.g., Slack binding or incident console) are tagged as watchers for `playbook` and `agent` runs so regressions are surfaced during the gating window.
 
 ## Playbook gate (deterministic baseline)
-1. Use `scripts/edgeplane-pressure-test.sh` with `MC_PRESSURE_MODE=playbook`, `MC_PRESSURE_WORKERS=1..5`, and an MC_PRESSURE_DURATION_SEC window derived from `docs/MCP-VALIDATION-PLAYBOOK.md`. Pin `MC_METADATA=runbook-playbook-gate` so the output is easy to search.
+1. Use `scripts/edgeplane-pressure-test.sh` with `EP_PRESSURE_MODE=playbook`, `EP_PRESSURE_WORKERS=1..5`, and an EP_PRESSURE_DURATION_SEC window derived from `docs/MCP-VALIDATION-PLAYBOOK.md`. Pin `EP_METADATA=runbook-playbook-gate` so the output is easy to search.
 2. Watch the console log and ensure the helper `scripts/mcp-validation-playbook.sh` executes. Confirm each driver run emits `summary.json` under `artifacts/collab/<timestamp>/summary.json` with:
    - `observed_changes > 0`
    - `all_cleanup_succeeded == true`
@@ -25,10 +25,10 @@ Before invoking the harness, verify:
 5. Declare the playbook gate satisfied by posting the run summary (`artifacts/collab/<run_id>/summary.json`) to the task and noting the timestamp of the final green output.
 
 ## Agent gate (real-world concurrency)
-1. Only start the agent-pressure harness once the playbook gate run has been confirmed green. Launch `scripts/edgeplane-pressure-test.sh` with `MC_PRESSURE_MODE=agent` against the same domain/mission IDs that the swarm uses, and set `MC_PRESSURE_METADATA=agent-gate-checkpoint`.
+1. Only start the agent-pressure harness once the playbook gate run has been confirmed green. Launch `scripts/edgeplane-pressure-test.sh` with `EP_PRESSURE_MODE=agent` against the same domain/mission IDs that the swarm uses, and set `EP_PRESSURE_METADATA=agent-gate-checkpoint`.
 2. Execute the Codex swarm workflow (`docs/CODEX-SWARM-WORKFLOW.md`), clearly assigning roles per session: Session A tracks handshake health, Session B observes instrumentation counters, Session C records runbook and docs outcomes. Document who is responsible for posting artifacts to the task.
-3. Observe the MCP handshake logs, `artifacts/collab/<run_id>/summary.json`, `pressure-results.jsonl`, and `mcpd`/shim output. Use the `MC_COLLAPSED` instrumentation toggles and `mosquitto` metrics to detect stalls, task execution islands, or timeouts.
-   - Session B should also open `artifacts/pressure/<run_id>/summary.json` and read the new `diagnostics.failure_drilldowns` block. It now surfaces per-category counts (startup timeout, rate limit, auth/ownership ACLs, shim transport, API 5xx, scenario assertions) together with representative log snippets, and `MC_PRESSURE_DIAGNOSTIC_SAMPLE_LIMIT` lets you tune how many lines are kept per bucket for faster triage.
+3. Observe the MCP handshake logs, `artifacts/collab/<run_id>/summary.json`, `pressure-results.jsonl`, and `mcpd`/shim output. Use the `EP_COLLAPSED` instrumentation toggles and `mosquitto` metrics to detect stalls, task execution islands, or timeouts.
+   - Session B should also open `artifacts/pressure/<run_id>/summary.json` and read the new `diagnostics.failure_drilldowns` block. It now surfaces per-category counts (startup timeout, rate limit, auth/ownership ACLs, shim transport, API 5xx, scenario assertions) together with representative log snippets, and `EP_PRESSURE_DIAGNOSTIC_SAMPLE_LIMIT` lets you tune how many lines are kept per bucket for faster triage.
 4. If the agent gate regresses (run fails, tasks stay blocked, handshake loops), stop the harness, archive `mcpd`, `edgeplane daemon`, `mosquitto`, and harness logs, and roll back to the last validated playbook summary before re-running. Mention the regression in the task description and attach the relevant artifacts.
 
 ## Escalation and turn-over

@@ -3,11 +3,11 @@ set -euo pipefail
 
 BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
 TOKEN="${EP_TOKEN:-}"
-SHIM_HOST="${MC_DAEMON_HOST:-127.0.0.1}"
-SHIM_PORT="${MC_DAEMON_PORT:-8765}"
-MATRIX_ENDPOINT="${MC_MATRIX_ENDPOINT:-/events/stream}"
-FANOUT_PORT="${MC_FANOUT_PORT:-}"
-ENABLE_MATRIX="${MC_ENABLE_MATRIX:-0}"
+SHIM_HOST="${EP_DAEMON_HOST:-127.0.0.1}"
+SHIM_PORT="${EP_DAEMON_PORT:-8765}"
+MATRIX_ENDPOINT="${EP_MATRIX_ENDPOINT:-/events/stream}"
+FANOUT_PORT="${EP_FANOUT_PORT:-}"
+ENABLE_MATRIX="${EP_ENABLE_MATRIX:-0}"
 
 if ! command -v edgeplane >/dev/null 2>&1; then
   echo "edgeplane binary not found on PATH." >&2

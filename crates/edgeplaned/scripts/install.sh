@@ -14,7 +14,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 MCD_DIR="$REPO_ROOT/crates/edgeplaned"
-MC_DIR="$REPO_ROOT/crates/edgeplane"
+EP_DIR="$REPO_ROOT/crates/edgeplane"
 
 green()  { printf '\033[0;32m%s\033[0m\n' "$*"; }
 yellow() { printf '\033[0;33m%s\033[0m\n' "$*"; }
@@ -30,7 +30,7 @@ green "→ Building edgeplaned…"
 cargo install --path "$MCD_DIR/crates/edgeplaned" --quiet
 
 green "→ Building edgeplane (CLI)…"
-cargo install --path "$MC_DIR" --quiet
+cargo install --path "$EP_DIR" --quiet
 
 # ---------------------------------------------------------------------------
 # 2. Verify installation

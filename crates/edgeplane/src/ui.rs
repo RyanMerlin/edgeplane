@@ -20,7 +20,7 @@ pub const GRAY: &str = "\x1b[90m";
 
 /// Dim gray `edgeplane:` prefix, normal body — routine info.
 #[macro_export]
-macro_rules! mc_info {
+macro_rules! ep_info {
     ($($arg:tt)*) => {
         eprintln!("{}edgeplane:{} {}", $crate::ui::GRAY, $crate::ui::RESET, format_args!($($arg)*))
     };
@@ -28,7 +28,7 @@ macro_rules! mc_info {
 
 /// Green check — something completed successfully.
 #[macro_export]
-macro_rules! mc_ok {
+macro_rules! ep_ok {
     ($($arg:tt)*) => {
         eprintln!("{}✓{} {}", $crate::ui::GREEN, $crate::ui::RESET, format_args!($($arg)*))
     };
@@ -36,7 +36,7 @@ macro_rules! mc_ok {
 
 /// Yellow — needs attention but not fatal.
 #[macro_export]
-macro_rules! mc_warn {
+macro_rules! ep_warn {
     ($($arg:tt)*) => {
         eprintln!("{}⚑ {}{}", $crate::ui::YELLOW, $crate::ui::RESET, format_args!($($arg)*))
     };
@@ -44,7 +44,7 @@ macro_rules! mc_warn {
 
 /// Red — error / fatal.
 #[macro_export]
-macro_rules! mc_err {
+macro_rules! ep_err {
     ($($arg:tt)*) => {
         eprintln!("{}✗ {}{}", $crate::ui::RED, $crate::ui::RESET, format_args!($($arg)*))
     };

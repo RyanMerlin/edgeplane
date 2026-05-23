@@ -1,6 +1,6 @@
 /// `edgeplane sync` — bidirectional git-backed config sync for the local node.
 ///
-/// Reads sync_repo from MC_SYNC_REPO env or ~/.ep/config.json.
+/// Reads sync_repo from EP_SYNC_REPO env or ~/.ep/config.json.
 use anyhow::Result;
 use clap::Subcommand;
 
@@ -35,7 +35,7 @@ struct McSyncConfig {
 }
 
 fn read_config_sync_repo() -> Option<String> {
-    let path = crate::config::mc_home_dir().join("config.json");
+    let path = crate::config::ep_home_dir().join("config.json");
     let content = std::fs::read_to_string(path).ok()?;
     let cfg: McSyncConfig = serde_json::from_str(&content).ok()?;
     cfg.sync_repo
@@ -57,16 +57,16 @@ fn resolve_hostname() -> String {
 pub fn run(cmd: Option<SyncCmd>) -> Result<()> {
     use edgeplaned_sync::SyncClient;
 
-    let repo_url = std::env::var("MC_SYNC_REPO")
+    let repo_url = std::env::var("EP_SYNC_REPO")
         .ok()
         .or_else(read_config_sync_repo)
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "sync repo not configured — set MC_SYNC_REPO or add sync_repo to ~/.ep/config.json"
+                "sync repo not configured — set EP_SYNC_REPO or add sync_repo to ~/.ep/config.json"
             )
         })?;
 
-    let cache_dir = crate::config::mc_home_dir().join("sync");
+    let cache_dir = crate::config::ep_home_dir().join("sync");
     let hostname = resolve_hostname();
 
     let client = SyncClient::new(&repo_url, &cache_dir, &hostname)?;
@@ -124,12 +124,12 @@ mod tests {
         // We use a temp HOME dir so config.json won't be found.
         let dir = tempfile::tempdir().unwrap();
         let orig_home = std::env::var("EP_HOME").ok();
-        let orig_sync = std::env::var("MC_SYNC_REPO").ok();
+        let orig_sync = std::env::var("EP_SYNC_REPO").ok();
 
         // SAFETY: single-threaded test; no concurrent env access.
         unsafe {
             std::env::set_var("EP_HOME", dir.path().to_str().unwrap());
-            std::env::remove_var("MC_SYNC_REPO");
+            std::env::remove_var("EP_SYNC_REPO");
         }
 
         let result = run(Some(SyncCmd::Status));
@@ -142,7 +142,7 @@ mod tests {
                 None => std::env::remove_var("EP_HOME"),
             }
             if let Some(v) = orig_sync {
-                std::env::set_var("MC_SYNC_REPO", v);
+                std::env::set_var("EP_SYNC_REPO", v);
             }
         }
 

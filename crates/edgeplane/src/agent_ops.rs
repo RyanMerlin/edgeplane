@@ -255,7 +255,7 @@ async fn list_remote(client: &EdgeplaneClient) -> Result<Vec<Value>> {
 
 fn mgmt_socket_path() -> std::path::PathBuf {
     // Mirrors edgeplaned_core::paths::mgmt_socket_path() — `~/.edgeplane/mgmt.sock`.
-    crate::config::mc_home_dir().join("edgeplaned").join("mgmt.sock")
+    crate::config::ep_home_dir().join("edgeplaned").join("mgmt.sock")
 }
 
 async fn call_mgmt(method: &str, params: Value) -> Result<Value> {

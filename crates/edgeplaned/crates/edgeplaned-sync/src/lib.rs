@@ -9,10 +9,10 @@ pub use types::{PushResult, SyncResult, SyncState, SyncStatus};
 use std::path::PathBuf;
 
 pub fn default_cache_dir() -> PathBuf {
-    mc_home_dir().join("sync")
+    ep_home_dir().join("sync")
 }
 
-fn mc_home_dir() -> PathBuf {
+fn ep_home_dir() -> PathBuf {
     if let Ok(val) = std::env::var("EP_HOME") {
         if !val.is_empty() {
             return expand_home(&val);

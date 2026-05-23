@@ -3,7 +3,7 @@
 Demo mesh worker — reads TASK.md, sleeps 2s, writes a result line, exits 0.
 
 Demonstrates state-only work loop: claim → heartbeat → complete → unblock-dependents.
-Called by `edgeplane run python --mission` for each task (via MC_MESH_TASK_ID / MC_TASK_MD_PATH).
+Called by `edgeplane run python --mission` for each task (via EP_MESH_TASK_ID / EP_TASK_MD_PATH).
 """
 import os
 import sys
@@ -11,8 +11,8 @@ import time
 
 
 def main():
-    task_id = os.environ.get("MC_MESH_TASK_ID", "unknown")
-    task_md_path = os.environ.get("MC_TASK_MD_PATH", "")
+    task_id = os.environ.get("EP_MESH_TASK_ID", "unknown")
+    task_md_path = os.environ.get("EP_TASK_MD_PATH", "")
 
     print(f"worker: starting task {task_id}", flush=True)
 

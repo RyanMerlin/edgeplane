@@ -72,7 +72,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             .and_then(|s| s.strip_prefix("Bearer "))
             .map(|s| s.trim().to_string());
 
-        // Also accept mc_session_token cookie (set by browser OIDC flow).
+        // Also accept ep_session_token cookie (set by browser OIDC flow).
         let cookie_token = parts
             .headers
             .get("cookie")
@@ -80,7 +80,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             .and_then(|s| {
                 s.split(';').find_map(|pair| {
                     pair.trim()
-                        .strip_prefix("mc_session_token=")
+                        .strip_prefix("ep_session_token=")
                         .map(|v| v.trim().to_string())
                 })
             });

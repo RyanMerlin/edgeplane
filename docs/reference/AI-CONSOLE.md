@@ -40,17 +40,17 @@ Arbitrary runtime JS/component generation is not allowed.
 
 Planner selection is controlled by environment variables:
 
-- `MC_AI_PROVIDER`: `openai` | `anthropic` | unset (heuristic fallback)
-- `MC_AI_MODEL`: provider model name
-- `MC_AI_BASE_URL`: optional API base override (for provider-compatible gateways/proxies)
-- `OPENAI_API_KEY`: required when `MC_AI_PROVIDER=openai`
-- `ANTHROPIC_API_KEY`: required when `MC_AI_PROVIDER=anthropic`
-- `MC_CENTRAL_RUNTIME_DEFAULT`: default runtime for AI sessions/evolve/scheduled jobs (`claude_code` recommended)
-- `MC_CLAUDE_MODEL`: Anthropic model used by `claude_code` runtime
-- `MC_CLAUDE_MAX_TOKENS`: max output tokens for `claude_code` runtime
-- `MC_CLAUDE_TIMEOUT_SECONDS`: request timeout for `claude_code` runtime
+- `EP_AI_PROVIDER`: `openai` | `anthropic` | unset (heuristic fallback)
+- `EP_AI_MODEL`: provider model name
+- `EP_AI_BASE_URL`: optional API base override (for provider-compatible gateways/proxies)
+- `OPENAI_API_KEY`: required when `EP_AI_PROVIDER=openai`
+- `ANTHROPIC_API_KEY`: required when `EP_AI_PROVIDER=anthropic`
+- `EP_CENTRAL_RUNTIME_DEFAULT`: default runtime for AI sessions/evolve/scheduled jobs (`claude_code` recommended)
+- `EP_CLAUDE_MODEL`: Anthropic model used by `claude_code` runtime
+- `EP_CLAUDE_MAX_TOKENS`: max output tokens for `claude_code` runtime
+- `EP_CLAUDE_TIMEOUT_SECONDS`: request timeout for `claude_code` runtime
 
-`MC_AI_BASE_URL` examples:
+`EP_AI_BASE_URL` examples:
 
 - OpenAI-compatible base: `https://api.openai.com`
 - OpenAI-compatible gateway: `https://my-gateway.example.com`

@@ -117,7 +117,7 @@ Quickstart (SQLite + Chroma — no external deps):
 EP_STACK_PROFILE=quickstart bash scripts/dev-up.sh
 ```
 
-Object storage is available locally at `http://localhost:9000` (S3 API) and `http://localhost:9001` (console). To use an external backend instead, set `MC_OBJECT_STORAGE_*` env vars — see `.env.example`.
+Object storage is available locally at `http://localhost:9000` (S3 API) and `http://localhost:9001` (console). To use an external backend instead, set `EP_OBJECT_STORAGE_*` env vars — see `.env.example`.
 
 ## Running Natively (Rust)
 
@@ -200,7 +200,7 @@ Publication is policy-routed. Configure repository targets via `/persistence/con
 
 ## Governance
 
-Policy is DB-backed and versioned (`draft` → `active` → rollback). The Admin UI tab at `/ui` supports viewing, editing, and publishing policy. Conservative preset: `MC_GOV_PROFILE=production`.
+Policy is DB-backed and versioned (`draft` → `active` → rollback). The Admin UI tab at `/ui` supports viewing, editing, and publishing policy. Conservative preset: `EP_GOV_PROFILE=production`.
 
 See [docs/reference/GOVERNANCE.md](docs/reference/GOVERNANCE.md) for the full env var reference.
 

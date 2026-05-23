@@ -62,8 +62,8 @@ edgeplane secrets infisical test
 
 ## Secrets — Broker (inside agent subprocesses)
 
-When edgeplaned launches a capability subprocess it injects `MC_SECRETS_SOCKET` and
-`MC_SECRETS_SESSION` instead of raw credential values. Use the helper to fetch:
+When edgeplaned launches a capability subprocess it injects `EP_SECRETS_SOCKET` and
+`EP_SECRETS_SESSION` instead of raw credential values. Use the helper to fetch:
 
 ```bash
 VALUE=$(edgeplaned get-secret MY_API_KEY)
@@ -71,8 +71,8 @@ VALUE=$(edgeplaned get-secret MY_API_KEY)
 
 Or speak the socket protocol directly:
 ```bash
-echo '{"op":"get","session":"'$MC_SECRETS_SESSION'","name":"MY_API_KEY"}' \
-  | nc -U "$MC_SECRETS_SOCKET"
+echo '{"op":"get","session":"'$EP_SECRETS_SESSION'","name":"MY_API_KEY"}' \
+  | nc -U "$EP_SECRETS_SOCKET"
 ```
 
 ## edgeplaned Daemon

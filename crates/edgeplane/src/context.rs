@@ -8,7 +8,7 @@
 //! treated as the "default" context transparently — no files are rewritten
 //! until the user explicitly runs `edgeplane context` commands.
 
-use crate::config::mc_home_dir;
+use crate::config::ep_home_dir;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fs, path::PathBuf};
 
@@ -31,11 +31,11 @@ pub struct ContextEntry {
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
 pub fn contexts_file_path() -> PathBuf {
-    mc_home_dir().join("contexts.yaml")
+    ep_home_dir().join("contexts.yaml")
 }
 
 pub fn sessions_dir() -> PathBuf {
-    mc_home_dir().join("sessions")
+    ep_home_dir().join("sessions")
 }
 
 pub fn session_file_for(context_name: &str) -> PathBuf {

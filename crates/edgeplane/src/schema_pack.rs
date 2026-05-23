@@ -36,7 +36,7 @@ pub struct SchemaValidationError {
 
 impl SchemaPack {
     pub fn load() -> Self {
-        let maybe_path = env::var("MC_SCHEMA_PACK_FILE")
+        let maybe_path = env::var("EP_SCHEMA_PACK_FILE")
             .ok()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())

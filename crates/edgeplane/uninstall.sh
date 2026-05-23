@@ -2,8 +2,8 @@
 set -eu
 
 SERVICE_NAME="edgeplane-node.service"
-SYSTEMD_DIR="${MC_SYSTEMD_DIR:-/etc/systemd/system}"
-PREFIX="${MC_INSTALL_PREFIX:-/usr/local}"
+SYSTEMD_DIR="${EP_SYSTEMD_DIR:-/etc/systemd/system}"
+PREFIX="${EP_INSTALL_PREFIX:-/usr/local}"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "[ERROR] run as root" >&2

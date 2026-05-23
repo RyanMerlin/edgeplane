@@ -1379,10 +1379,10 @@ CREATE TABLE public.remotelaunchrecord (
     exit_code integer,
     error_message character varying NOT NULL,
     log_tail text,
-    mc_binary_path character varying NOT NULL,
+    ep_binary_path character varying NOT NULL,
     agent_binary_path character varying NOT NULL,
     k8s_job_name character varying NOT NULL,
-    mc_version character varying NOT NULL,
+    ep_version character varying NOT NULL,
     created_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL
 );

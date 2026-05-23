@@ -48,11 +48,11 @@ services:
       rustfs:
         condition: service_healthy
     environment:
-      MC_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
-      MC_OBJECT_STORAGE_REGION: us-east-1
-      MC_OBJECT_STORAGE_BUCKET: edgeplane
-      MC_OBJECT_STORAGE_ACCESS_KEY: edgeplane
-      MC_OBJECT_STORAGE_ACCESS_SECRET: edgeplane-secret
+      EP_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      EP_OBJECT_STORAGE_REGION: us-east-1
+      EP_OBJECT_STORAGE_BUCKET: edgeplane
+      EP_OBJECT_STORAGE_ACCESS_KEY: edgeplane
+      EP_OBJECT_STORAGE_ACCESS_SECRET: edgeplane-secret
     entrypoint: ["edgeplane-tower", "bucket-init"]
     restart: "no"
 
@@ -70,12 +70,12 @@ services:
     environment:
       DATABASE_URL: postgres://edgeplane:edgeplane@postgres:5432/edgeplane
       EP_TOKEN: ${EP_TOKEN:-}
-      MC_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
-      MC_OBJECT_STORAGE_REGION: us-east-1
-      MC_OBJECT_STORAGE_BUCKET: edgeplane
-      MC_OBJECT_STORAGE_SECURE: "false"
-      MC_OBJECT_STORAGE_ACCESS_KEY: edgeplane
-      MC_OBJECT_STORAGE_ACCESS_SECRET: edgeplane-secret
+      EP_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      EP_OBJECT_STORAGE_REGION: us-east-1
+      EP_OBJECT_STORAGE_BUCKET: edgeplane
+      EP_OBJECT_STORAGE_SECURE: "false"
+      EP_OBJECT_STORAGE_ACCESS_KEY: edgeplane
+      EP_OBJECT_STORAGE_ACCESS_SECRET: edgeplane-secret
     ports:
       - "8008:8008"
     healthcheck:
@@ -97,10 +97,10 @@ services:
         condition: service_healthy
     restart: unless-stopped
     environment:
-      MC_MCP_MODE: daemon
+      EP_MCP_MODE: daemon
       EP_BASE_URL: http://api:8008
-      MC_DAEMON_HOST: 0.0.0.0
-      MC_DAEMON_PORT: "8765"
+      EP_DAEMON_HOST: 0.0.0.0
+      EP_DAEMON_PORT: "8765"
       EP_TOKEN: ${EP_TOKEN:-}
     ports:
       - "8765:8765"

@@ -2,7 +2,7 @@
 #
 # Downloads the official pre-built opencode binary from GitHub releases
 # and runs it in HTTP server mode so OpencodeAdapter can reach it at
-# MC_OPENCODE_URL (default: http://opencode:4096).
+# EP_OPENCODE_URL (default: http://opencode:4096).
 #
 # Build args:
 #   OPENCODE_VERSION — exact release tag to download (default: 1.2.26)

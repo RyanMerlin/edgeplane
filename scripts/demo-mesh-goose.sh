@@ -7,7 +7,7 @@
 # Requirements:
 #   - Backend running (EP_BASE_URL, default http://localhost:8008)
 #   - `edgeplane` and `goose` binaries on PATH
-#   - Goose reachable LiteLLM at MC_LITELLM_HOST (default http://litellm:4000)
+#   - Goose reachable LiteLLM at EP_LITELLM_HOST (default http://litellm:4000)
 #   - EP_TOKEN set or backend accepts unauthenticated requests
 #
 # Usage:
@@ -18,7 +18,7 @@ set -euo pipefail
 BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
 TIMEOUT="${DEMO_TIMEOUT:-120}"
 TOKEN="${EP_TOKEN:-}"
-PROFILE="${MC_PROFILE:-default}"
+PROFILE="${EP_PROFILE:-default}"
 
 cleanup_pids=()
 
@@ -32,7 +32,7 @@ trap cleanup EXIT INT TERM
 log() { echo "[demo-goose] $*"; }
 
 # ---- REST helper ----
-mc_api() {
+ep_api() {
     local method="$1" path="$2" body="${3:-}"
     if [[ "$method" == "GET" ]]; then
         curl -sf \
@@ -48,7 +48,7 @@ mc_api() {
 }
 
 task_status() {
-    mc_api GET "/work/tasks/${1}" \
+    ep_api GET "/work/tasks/${1}" \
       | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))"
 }
 
@@ -58,33 +58,33 @@ command -v goose >/dev/null || { echo "goose binary not found on PATH"; exit 1; 
 
 # ---- 1. Create domain ----
 log "Creating domain…"
-DOMAIN=$(mc_api POST "/domains" \
+DOMAIN=$(ep_api POST "/domains" \
     "{\"name\":\"demo-mesh-goose-$(date +%s)\",\"owners\":\"demo@example.com\"}")
 DOMAIN_ID=$(echo "$DOMAIN" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Domain: $DOMAIN_ID"
 
 # ---- 2. Create mission ----
 log "Creating mission…"
-MISSION=$(mc_api POST "/domains/${DOMAIN_ID}/m" \
+MISSION=$(ep_api POST "/domains/${DOMAIN_ID}/m" \
     "{\"name\":\"demo-m\",\"owners\":\"demo@example.com\"}")
 MISSION_ID=$(echo "$MISSION" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Mission: $MISSION_ID"
 
 # ---- 3. Seed tasks A → B → C ----
 log "Creating task A (no deps)…"
-A_ID=$(mc_api POST "/work/missions/${MISSION_ID}/tasks" \
+A_ID=$(ep_api POST "/work/missions/${MISSION_ID}/tasks" \
     "{\"title\":\"A - foundation\",\"description\":\"First task — write a haiku about distributed systems.\"}" \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Task A: $A_ID"
 
 log "Creating task B (depends on A)…"
-B_ID=$(mc_api POST "/work/missions/${MISSION_ID}/tasks" \
+B_ID=$(ep_api POST "/work/missions/${MISSION_ID}/tasks" \
     "{\"title\":\"B - middle\",\"description\":\"Second task — write a limerick about message queues.\",\"depends_on\":[\"${A_ID}\"]}" \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Task B: $B_ID"
 
 log "Creating task C (depends on B)…"
-C_ID=$(mc_api POST "/work/missions/${MISSION_ID}/tasks" \
+C_ID=$(ep_api POST "/work/missions/${MISSION_ID}/tasks" \
     "{\"title\":\"C - final\",\"description\":\"Third task — write one sentence summarising distributed systems in plain English.\",\"depends_on\":[\"${B_ID}\"]}" \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Task C: $C_ID"

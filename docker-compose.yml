@@ -26,8 +26,8 @@ services:
     container_name: edgeplane-rustfs
     restart: unless-stopped
     environment:
-      RUSTFS_ACCESS_KEY: ${MC_OBJECT_STORAGE_ACCESS_KEY:?set MC_OBJECT_STORAGE_ACCESS_KEY}
-      RUSTFS_SECRET_KEY: ${MC_OBJECT_STORAGE_ACCESS_SECRET:?set MC_OBJECT_STORAGE_ACCESS_SECRET}
+      RUSTFS_ACCESS_KEY: ${EP_OBJECT_STORAGE_ACCESS_KEY:?set EP_OBJECT_STORAGE_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${EP_OBJECT_STORAGE_ACCESS_SECRET:?set EP_OBJECT_STORAGE_ACCESS_SECRET}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -51,18 +51,18 @@ services:
       rustfs:
         condition: service_healthy
     environment:
-      MC_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
-      MC_OBJECT_STORAGE_REGION: ${MC_OBJECT_STORAGE_REGION:-us-east-1}
-      MC_OBJECT_STORAGE_BUCKET: ${MC_OBJECT_STORAGE_BUCKET:-edgeplane}
-      MC_OBJECT_STORAGE_ACCESS_KEY: ${MC_OBJECT_STORAGE_ACCESS_KEY:?set MC_OBJECT_STORAGE_ACCESS_KEY}
-      MC_OBJECT_STORAGE_ACCESS_SECRET: ${MC_OBJECT_STORAGE_ACCESS_SECRET:?set MC_OBJECT_STORAGE_ACCESS_SECRET}
+      EP_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      EP_OBJECT_STORAGE_REGION: ${EP_OBJECT_STORAGE_REGION:-us-east-1}
+      EP_OBJECT_STORAGE_BUCKET: ${EP_OBJECT_STORAGE_BUCKET:-edgeplane}
+      EP_OBJECT_STORAGE_ACCESS_KEY: ${EP_OBJECT_STORAGE_ACCESS_KEY:?set EP_OBJECT_STORAGE_ACCESS_KEY}
+      EP_OBJECT_STORAGE_ACCESS_SECRET: ${EP_OBJECT_STORAGE_ACCESS_SECRET:?set EP_OBJECT_STORAGE_ACCESS_SECRET}
     entrypoint: ["edgeplane-tower", "bucket-init"]
     restart: "no"
 
   opencode:
     # AI coding agent — drives inference for the AI Console runtime layer.
     # Runs opencode in HTTP server mode; OpencodeAdapter connects to it at
-    # MC_OPENCODE_URL (default: http://opencode:4096).
+    # EP_OPENCODE_URL (default: http://opencode:4096).
     build:
       context: .
       dockerfile: docker/opencode/Dockerfile
@@ -110,12 +110,12 @@ services:
       - .env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-edgeplane}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-edgeplane}
-      MC_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
-      MC_OBJECT_STORAGE_REGION: us-east-1
-      MC_OBJECT_STORAGE_BUCKET: ${MC_OBJECT_STORAGE_BUCKET:-edgeplane}
-      MC_OBJECT_STORAGE_SECURE: "false"
-      MC_OBJECT_STORAGE_ACCESS_KEY: ${MC_OBJECT_STORAGE_ACCESS_KEY}
-      MC_OBJECT_STORAGE_ACCESS_SECRET: ${MC_OBJECT_STORAGE_ACCESS_SECRET}
+      EP_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      EP_OBJECT_STORAGE_REGION: us-east-1
+      EP_OBJECT_STORAGE_BUCKET: ${EP_OBJECT_STORAGE_BUCKET:-edgeplane}
+      EP_OBJECT_STORAGE_SECURE: "false"
+      EP_OBJECT_STORAGE_ACCESS_KEY: ${EP_OBJECT_STORAGE_ACCESS_KEY}
+      EP_OBJECT_STORAGE_ACCESS_SECRET: ${EP_OBJECT_STORAGE_ACCESS_SECRET}
     ports:
       - "8008:8008"
     healthcheck:
@@ -137,10 +137,10 @@ services:
         condition: service_healthy
     restart: unless-stopped
     environment:
-      MC_MCP_MODE: daemon
+      EP_MCP_MODE: daemon
       EP_BASE_URL: http://api:8008
-      MC_DAEMON_HOST: 0.0.0.0
-      MC_DAEMON_PORT: "8765"
+      EP_DAEMON_HOST: 0.0.0.0
+      EP_DAEMON_PORT: "8765"
       EP_TOKEN: ${EP_TOKEN:-}
     ports:
       - "8765:8765"

@@ -27,12 +27,12 @@ ENV | meaning | default
 `EP_BASE_URL` | base URL for Edgeplane API | `http://localhost:8008`
 `EP_TOKEN` | bearer token for MCP endpoints | unset
 `EP_AGENT_ID` | optional agent identity for governance/sync traces | unset
-`MC_TIMEOUT_SECS` | outbound timeout for HTTP calls | `10`
-`MC_ALLOW_INSECURE` | accept self-signed certs (daemon use) | `false`
-`MC_SCHEMA_PACK_FILE` | optional path to a schema pack JSON to help the booster validate payloads | `docs/schema-packs/main.json`
-`MC_BOOSTER_WASM` | optional path to a WASM booster module | embedded default
-`MC_DISABLE_BOOSTER` | disable the WASM booster even if configured | `false`
-`MC_MQTT_TOPIC` | MQTT topic for inbox updates | `edgeplane/inbox`
+`EP_TIMEOUT_SECS` | outbound timeout for HTTP calls | `10`
+`EP_ALLOW_INSECURE` | accept self-signed certs (daemon use) | `false`
+`EP_SCHEMA_PACK_FILE` | optional path to a schema pack JSON to help the booster validate payloads | `docs/schema-packs/main.json`
+`EP_BOOSTER_WASM` | optional path to a WASM booster module | embedded default
+`EP_DISABLE_BOOSTER` | disable the WASM booster even if configured | `false`
+`EP_MQTT_TOPIC` | MQTT topic for inbox updates | `edgeplane/inbox`
 
 All command-line flags mirror these env vars and can be passed explicitly when needed.
 
@@ -159,23 +159,23 @@ edgeplane [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 - `edgeplane node run [--node-name <name>] [--hostname <host>] [--trust-tier <tier>]` runs the resident node loop.
 - `edgeplane node doctor [--node-name <name>]` inspects local node state/config before enabling the service.
 
-The node service uses `~/.edgeplane/runtime/node-config.json` by default and accepts `MC_NODE_*` overrides from the unit environment file. Edgeplane renders the install bundle and release manifest server-side, so the node can resolve the release artifact without hardcoding an asset URL.
+The node service uses `~/.edgeplane/runtime/node-config.json` by default and accepts `EP_NODE_*` overrides from the unit environment file. Edgeplane renders the install bundle and release manifest server-side, so the node can resolve the release artifact without hardcoding an asset URL.
 
 Required runtime settings:
 
 - `EP_BASE_URL`
-- `MC_NODE_BOOTSTRAP_TOKEN`
+- `EP_NODE_BOOTSTRAP_TOKEN`
 
 Common optional settings:
 
-- `MC_NODE_NAME`
-- `MC_NODE_HOSTNAME`
-- `MC_NODE_TRUST_TIER`
-- `MC_NODE_POLL_SECONDS`
-- `MC_NODE_HEARTBEAT_SECONDS`
-- `MC_NODE_UPGRADE_CHANNEL`
-- `MC_NODE_DESIRED_VERSION`
-- `MC_NODE_UPGRADE_MANIFEST_URL`
+- `EP_NODE_NAME`
+- `EP_NODE_HOSTNAME`
+- `EP_NODE_TRUST_TIER`
+- `EP_NODE_POLL_SECONDS`
+- `EP_NODE_HEARTBEAT_SECONDS`
+- `EP_NODE_UPGRADE_CHANNEL`
+- `EP_NODE_DESIRED_VERSION`
+- `EP_NODE_UPGRADE_MANIFEST_URL`
 
 The backend also exposes:
 
@@ -198,7 +198,7 @@ local fan-out does not exhaust the upstream MQ/NATS guardrails.
 
 The WASM booster runs before every `edgeplane data tools call` (unless disabled via `--disable-booster`). It loads the
 configured module (`--booster-wasm`) or the embedded default, validates the JSON payload against the schema
-pack configured via `MC_SCHEMA_PACK_FILE`, and if the booster agrees, short-circuits the remote call with a
+pack configured via `EP_SCHEMA_PACK_FILE`, and if the booster agrees, short-circuits the remote call with a
 quick success message so handwritten or automated agents can avoid slow LLM loops. Pointing the env var at
 `docs/schema-packs/main.json` keeps the local validation consistent with backend expectations.
 
@@ -217,10 +217,10 @@ SSE fan-out so local swarms stay synced.
 This lets MCP shim clients use the Rust daemon as their local control plane while keeping Edgeplane
 API access centralized in `edgeplane`.
 
-If `--shim-token` (or `MC_DAEMON_SHIM_TOKEN`) is set, shim requests must include either:
+If `--shim-token` (or `EP_DAEMON_SHIM_TOKEN`) is set, shim requests must include either:
 
 - `Authorization: Bearer <token>`
-- `X-MC-Shim-Token: <token>`
+- `X-EP-Shim-Token: <token>`
 
 The Rust CLI keeps scratchstate simple: tools use `serde_json` for payloads, sync/promote automates the
 skill sync handshake, and the SSE stream ensures users see rapid alignment or approvals without poll

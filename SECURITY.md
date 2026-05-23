@@ -47,9 +47,9 @@ Before exposing any deployment outside a personal workstation, you MUST:
    `docs/plans/edgeplane-tui-auth-spec.md` as a bootstrap-only escape hatch;
    steady-state callers should use session tokens (`mcs_*`) or
    service-account tokens (`mcs_sa_*`).
-3. Configure `MC_CORS_ALLOW_ORIGINS` to your real frontend origin(s).
+3. Configure `EP_CORS_ALLOW_ORIGINS` to your real frontend origin(s).
 4. Run behind TLS (reverse proxy or otherwise; do NOT set
-   `MC_ALLOW_INSECURE=true`).
+   `EP_ALLOW_INSECURE=true`).
 5. Rotate any credential that has appeared in a screen-share, log, or
    chat — treat it as compromised. The dev defaults above are public; a
    deployment reachable from the internet that uses them is open by

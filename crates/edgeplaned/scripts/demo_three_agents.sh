@@ -26,7 +26,7 @@ FAIL=0
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-mc_api() {
+ep_api() {
     local method="$1" path="$2"
     shift 2
     curl -sf -X "$method" "$BASE$path" \
@@ -38,7 +38,7 @@ mc_api() {
 assert_status() {
     local task_id="$1" expected="$2"
     local actual
-    actual=$(mc_api GET "/work/tasks/$task_id" | jq -r '.status')
+    actual=$(ep_api GET "/work/tasks/$task_id" | jq -r '.status')
     if [[ "$actual" == "$expected" ]]; then
         echo "  [PASS] $task_id is $expected"
         PASS=$((PASS + 1))
@@ -53,7 +53,7 @@ header() { echo; echo "══ $* ══"; }
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
 header "Creating domain"
-DOMAIN=$(mc_api POST /domains -d "{
+DOMAIN=$(ep_api POST /domains -d "{
     \"name\":        \"three-agent-demo-${RUN_ID}\",
     \"description\": \"Dependency chain demo: design to implement to test\",
     \"owners\":      \"demo\",
@@ -64,7 +64,7 @@ DOMAIN_ID=$(echo "$DOMAIN" | jq -r '.id')
 echo "  domain: $DOMAIN_ID"
 
 header "Creating mission"
-MISSION=$(mc_api POST "/domains/$DOMAIN_ID/m" -d "{
+MISSION=$(ep_api POST "/domains/$DOMAIN_ID/m" -d "{
     \"name\":    \"demo-mission\",
     \"owners\":  \"demo\",
     \"status\":  \"active\"
@@ -76,7 +76,7 @@ echo "  mission: $MISSION_ID"
 
 header "Creating tasks"
 
-T1=$(mc_api POST "/work/missions/$MISSION_ID/tasks" -d '{
+T1=$(ep_api POST "/work/missions/$MISSION_ID/tasks" -d '{
     "title":                "Design spec",
     "description":          "Produce a spec document for the feature",
     "claim_policy":         "first_claim",
@@ -89,7 +89,7 @@ T1_ID=$(echo "$T1" | jq -r '.id')
 T1_STATUS=$(echo "$T1" | jq -r '.status')
 echo "  T1 ($T1_ID): $T1_STATUS"
 
-T2=$(mc_api POST "/work/missions/$MISSION_ID/tasks" -d "{
+T2=$(ep_api POST "/work/missions/$MISSION_ID/tasks" -d "{
     \"title\":                \"Implement feature\",
     \"description\":          \"Write the implementation from the spec\",
     \"claim_policy\":         \"first_claim\",
@@ -103,7 +103,7 @@ T2_ID=$(echo "$T2" | jq -r '.id')
 T2_STATUS=$(echo "$T2" | jq -r '.status')
 echo "  T2 ($T2_ID): $T2_STATUS"
 
-T3=$(mc_api POST "/work/missions/$MISSION_ID/tasks" -d "{
+T3=$(ep_api POST "/work/missions/$MISSION_ID/tasks" -d "{
     \"title\":                \"Test implementation\",
     \"description\":          \"Run tests against the implementation\",
     \"claim_policy\":         \"first_claim\",
@@ -132,11 +132,11 @@ assert_status "$T3_ID" "pending"
 # ── Agent A: claim and complete T1 ───────────────────────────────────────────
 
 header "Agent A (claude_code) completes T1"
-CLAIM1=$(mc_api POST "/work/tasks/$T1_ID/claim" -d '{}')
+CLAIM1=$(ep_api POST "/work/tasks/$T1_ID/claim" -d '{}')
 LEASE1=$(echo "$CLAIM1" | jq -r '.claim_lease_id // ""')
 echo "  claimed T1 (lease: ${LEASE1:-none})"
 
-mc_api POST "/work/tasks/$T1_ID/complete" -d "{\"claim_lease_id\":\"$LEASE1\"}" > /dev/null
+ep_api POST "/work/tasks/$T1_ID/complete" -d "{\"claim_lease_id\":\"$LEASE1\"}" > /dev/null
 echo "  completed T1"
 
 header "Verifying T2 unblocked"
@@ -147,11 +147,11 @@ assert_status "$T3_ID" "pending"
 # ── Agent B: claim and complete T2 ───────────────────────────────────────────
 
 header "Agent B (codex) completes T2"
-CLAIM2=$(mc_api POST "/work/tasks/$T2_ID/claim" -d '{}')
+CLAIM2=$(ep_api POST "/work/tasks/$T2_ID/claim" -d '{}')
 LEASE2=$(echo "$CLAIM2" | jq -r '.claim_lease_id // ""')
 echo "  claimed T2 (lease: ${LEASE2:-none})"
 
-mc_api POST "/work/tasks/$T2_ID/complete" -d "{\"claim_lease_id\":\"$LEASE2\"}" > /dev/null
+ep_api POST "/work/tasks/$T2_ID/complete" -d "{\"claim_lease_id\":\"$LEASE2\"}" > /dev/null
 echo "  completed T2"
 
 header "Verifying T3 unblocked"
@@ -161,11 +161,11 @@ assert_status "$T3_ID" "ready"
 # ── Agent C: claim and complete T3 ───────────────────────────────────────────
 
 header "Agent C (gemini) completes T3"
-CLAIM3=$(mc_api POST "/work/tasks/$T3_ID/claim" -d '{}')
+CLAIM3=$(ep_api POST "/work/tasks/$T3_ID/claim" -d '{}')
 LEASE3=$(echo "$CLAIM3" | jq -r '.claim_lease_id // ""')
 echo "  claimed T3 (lease: ${LEASE3:-none})"
 
-mc_api POST "/work/tasks/$T3_ID/complete" -d "{\"claim_lease_id\":\"$LEASE3\"}" > /dev/null
+ep_api POST "/work/tasks/$T3_ID/complete" -d "{\"claim_lease_id\":\"$LEASE3\"}" > /dev/null
 echo "  completed T3"
 
 assert_status "$T3_ID" "finished"
@@ -173,7 +173,7 @@ assert_status "$T3_ID" "finished"
 # ── Final graph ───────────────────────────────────────────────────────────────
 
 header "Final task graph"
-mc_api GET "/work/missions/$MISSION_ID/graph" | jq '{
+ep_api GET "/work/missions/$MISSION_ID/graph" | jq '{
     domain:   "'"$DOMAIN_ID"'",
     mission:  "'"$MISSION_ID"'",
     nodes:    .nodes

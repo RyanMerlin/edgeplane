@@ -25,8 +25,8 @@ use crate::client::EdgeplaneClient;
 
 /// Enroll a MeshAgent, start a run record, execute `launch_fn`, then clean up.
 ///
-/// `launch_fn` receives `(agent_id, run_id)` so it can inject `MC_MESH_AGENT_ID`
-/// and `MC_RUN_ID` into the child process environment.  It must block until the
+/// `launch_fn` receives `(agent_id, run_id)` so it can inject `EP_MESH_AGENT_ID`
+/// and `EP_RUN_ID` into the child process environment.  It must block until the
 /// child exits and return the exit status.
 pub async fn run_solo<F>(
     client: &EdgeplaneClient,

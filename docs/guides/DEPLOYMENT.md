@@ -30,33 +30,33 @@ OIDC_REQUIRED=false
 EP_TOKEN=<static-token-for-mcp>
 OIDC_ISSUER_URL=https://<authentik-host>/application/o/<provider-slug>/
 OIDC_AUDIENCE=<oidc-client-id>
-MC_ADMIN_EMAILS=<comma-separated-admin-emails>
+EP_ADMIN_EMAILS=<comma-separated-admin-emails>
 DB_POOL_SIZE=20
 DB_MAX_OVERFLOW=10
 DB_POOL_PRE_PING=true
 DB_POOL_RECYCLE_SECONDS=3600
-MC_DB_RUNTIME_MIGRATIONS=false
-MC_REQUEST_TIMEOUT_SECONDS=30
+EP_DB_RUNTIME_MIGRATIONS=false
+EP_REQUEST_TIMEOUT_SECONDS=30
 ```
 
 Optional RustFS/S3-backed doc/artifact content:
 
 ```env
-MC_OBJECT_STORAGE_ENDPOINT=http://<rustfs-host>:<port>
-MC_OBJECT_STORAGE_REGION=us-east-1
-MC_OBJECT_STORAGE_BUCKET=edgeplane
-MC_OBJECT_STORAGE_SECURE=false
-MC_OBJECT_STORAGE_ACCESS_KEY=<access-key>
-MC_OBJECT_STORAGE_ACCESS_SECRET=<secret>
+EP_OBJECT_STORAGE_ENDPOINT=http://<rustfs-host>:<port>
+EP_OBJECT_STORAGE_REGION=us-east-1
+EP_OBJECT_STORAGE_BUCKET=edgeplane
+EP_OBJECT_STORAGE_SECURE=false
+EP_OBJECT_STORAGE_ACCESS_KEY=<access-key>
+EP_OBJECT_STORAGE_ACCESS_SECRET=<secret>
 ```
 
 Optional request guards:
 
 ```env
-MC_RATE_LIMIT_DEFAULT_CAPACITY=240
-MC_RATE_LIMIT_SEARCH_CAPACITY=60
-MC_RATE_LIMIT_WRITE_CAPACITY=120
-MC_RATE_LIMIT_APPROVAL_CAPACITY=30
+EP_RATE_LIMIT_DEFAULT_CAPACITY=240
+EP_RATE_LIMIT_SEARCH_CAPACITY=60
+EP_RATE_LIMIT_WRITE_CAPACITY=120
+EP_RATE_LIMIT_APPROVAL_CAPACITY=30
 ```
 
 ### 4) systemd service
@@ -99,8 +99,8 @@ curl http://localhost:8000/readyz
 - Provide secrets through the environment before startup:
   - `POSTGRES_PASSWORD`
   - `MQTT_PASSWORD`
-  - `MC_OBJECT_STORAGE_ACCESS_KEY`
-  - `MC_OBJECT_STORAGE_ACCESS_SECRET`
+  - `EP_OBJECT_STORAGE_ACCESS_KEY`
+  - `EP_OBJECT_STORAGE_ACCESS_SECRET`
 - Create a Mosquitto password file at `docker/mosquitto/passwords/passwords` before starting the production stack.
 - `docker-compose.quickstart.yml` keeps the local/dev posture with sqlite and anonymous MQTT.
 - API health contracts:
@@ -116,5 +116,5 @@ When deploying on Kubernetes, provide secrets via the platform’s secret object
 - `curl http://localhost:8000/healthz` returns status ok without auth.
 - `curl http://localhost:8000/readyz` returns status ok only when dependencies are ready.
 - `curl -H "Authorization: Bearer <EP_TOKEN>" http://localhost:8000/mcp/health` returns ok.
-- Bearer token callers are not platform admins unless their subject/email is allowlisted in `MC_ADMIN_SUBJECTS` or `MC_ADMIN_EMAILS`.
+- Bearer token callers are not platform admins unless their subject/email is allowlisted in `EP_ADMIN_SUBJECTS` or `EP_ADMIN_EMAILS`.
 - Docs/artifacts create + delete paths work with expected mission authz.

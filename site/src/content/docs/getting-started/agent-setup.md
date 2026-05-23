@@ -117,7 +117,7 @@ edgeplane health --json                 # verify server connectivity
 If an agent shows `MCP startup incomplete (failed: edgeplane)`:
 
 - Confirm `edgeplane auth whoami` succeeds before launching
-- Use shim defaults (`MC_MCP_MODE=shim`, `MC_STARTUP_PREFLIGHT=none`)
+- Use shim defaults (`EP_MCP_MODE=shim`, `EP_STARTUP_PREFLIGHT=none`)
 - Ensure env vars use the `MC_*` prefix, not `EDGEPLANE_*`
 
 ## `edgeplane launch` Flags (non-Claude/Codex agents)

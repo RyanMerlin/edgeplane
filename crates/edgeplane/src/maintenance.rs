@@ -99,7 +99,7 @@ fn run_profile_gc(config: &McConfig, args: ProfileGcArgs) -> Result<()> {
         "keep_bundles": summary.keep_bundles,
         "max_age_days": summary.max_age_days
     }));
-    crate::mc_ok!(
+    crate::ep_ok!(
         "profile-gc complete: removed {} instance dirs and {} bundle files",
         summary.removed_instances.len(),
         summary.removed_bundles.len()
@@ -109,7 +109,7 @@ fn run_profile_gc(config: &McConfig, args: ProfileGcArgs) -> Result<()> {
 }
 
 fn perform_profile_gc(args: ProfileGcArgs) -> Result<ProfileGcSummary> {
-    let root = crate::config::mc_home_dir();
+    let root = crate::config::ep_home_dir();
     let mut removed_instances = Vec::<String>::new();
     let mut removed_bundles = Vec::<String>::new();
 
@@ -204,7 +204,7 @@ async fn run_doctor(
             keep_bundles: args.cleanup_keep_bundles,
             max_age_days: args.cleanup_max_age_days,
         })?;
-        crate::mc_ok!(
+        crate::ep_ok!(
             "doctor cleanup complete: removed {} instance dirs and {} bundle files",
             gc.removed_instances.len(),
             gc.removed_bundles.len()
@@ -464,7 +464,7 @@ fn perform_repairs(config: &McConfig) -> Vec<DoctorRepair> {
             "directories",
             format!(
                 "Ensured EP_HOME={} and skills dir {}",
-                crate::config::mc_home_dir().display(),
+                crate::config::ep_home_dir().display(),
                 crate::config::skills_home_dir().display()
             ),
         )),
@@ -479,7 +479,7 @@ fn perform_repairs(config: &McConfig) -> Vec<DoctorRepair> {
                 format!(
                     "Persisted agent_id {} at {}/agent_id",
                     agent_id,
-                    crate::config::mc_home_dir().display()
+                    crate::config::ep_home_dir().display()
                 ),
             )),
             Err(err) => repairs.push(DoctorRepair::failed("agent_id", err.to_string())),

@@ -182,4 +182,4 @@ Other agent surface:
 
 - `--output human|json|jsonl`
 - `--json` (alias for `--output json`)
-- `MC_OUTPUT=human|json|jsonl`
+- `EP_OUTPUT=human|json|jsonl`

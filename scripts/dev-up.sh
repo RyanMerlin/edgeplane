@@ -8,7 +8,7 @@ if [[ ! -f .env ]]; then
   cp .env.example .env
 fi
 
-WIPE_DATA="${MC_DEV_WIPE_DATA:-0}"
+WIPE_DATA="${EP_DEV_WIPE_DATA:-0}"
 STACK_PROFILE="${EP_STACK_PROFILE:-full}"
 
 compose_args=()

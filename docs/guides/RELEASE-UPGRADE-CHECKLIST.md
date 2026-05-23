@@ -20,7 +20,7 @@ Use this checklist for each release that includes schema, auth, or deployment ch
    - `bash scripts/smoke.sh --profile full`
 5. Confirm auth config for target environment:
    - OIDC settings present for preferred auth path.
-   - Admin identities set (`MC_ADMIN_SUBJECTS` and/or `MC_ADMIN_EMAILS`).
+   - Admin identities set (`EP_ADMIN_SUBJECTS` and/or `EP_ADMIN_EMAILS`).
 
 ## Release Execution
 

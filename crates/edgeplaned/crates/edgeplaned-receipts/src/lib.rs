@@ -8,10 +8,10 @@ pub use types::{Receipt, ReceiptFilter};
 
 /// Default path: `~/.ep/receipts.db` (or `$EP_HOME/receipts.db`)
 pub fn default_db_path() -> std::path::PathBuf {
-    mc_home_dir().join("receipts.db")
+    ep_home_dir().join("receipts.db")
 }
 
-fn mc_home_dir() -> std::path::PathBuf {
+fn ep_home_dir() -> std::path::PathBuf {
     if let Ok(val) = std::env::var("EP_HOME") {
         if !val.is_empty() {
             return expand_home(&val);

@@ -73,17 +73,17 @@ The planner is the component that maps natural-language prompts to MCP tool call
 
 | Variable | Values / Description |
 |----------|---------------------|
-| `MC_AI_PROVIDER` | `openai` \| `anthropic` \| unset (heuristic fallback) |
-| `MC_AI_MODEL` | Provider model name (e.g. `claude-opus-4-5`, `gpt-4.1`) |
-| `MC_AI_BASE_URL` | Optional API base override — works with OpenAI-compatible gateways |
-| `OPENAI_API_KEY` | Required when `MC_AI_PROVIDER=openai` |
-| `ANTHROPIC_API_KEY` | Required when `MC_AI_PROVIDER=anthropic` |
-| `MC_CENTRAL_RUNTIME_DEFAULT` | Default runtime for AI sessions (`claude_code` recommended) |
-| `MC_CLAUDE_MODEL` | Anthropic model for `claude_code` runtime |
-| `MC_CLAUDE_MAX_TOKENS` | Max output tokens for `claude_code` runtime |
-| `MC_CLAUDE_TIMEOUT_SECONDS` | Request timeout for `claude_code` runtime |
+| `EP_AI_PROVIDER` | `openai` \| `anthropic` \| unset (heuristic fallback) |
+| `EP_AI_MODEL` | Provider model name (e.g. `claude-opus-4-5`, `gpt-4.1`) |
+| `EP_AI_BASE_URL` | Optional API base override — works with OpenAI-compatible gateways |
+| `OPENAI_API_KEY` | Required when `EP_AI_PROVIDER=openai` |
+| `ANTHROPIC_API_KEY` | Required when `EP_AI_PROVIDER=anthropic` |
+| `EP_CENTRAL_RUNTIME_DEFAULT` | Default runtime for AI sessions (`claude_code` recommended) |
+| `EP_CLAUDE_MODEL` | Anthropic model for `claude_code` runtime |
+| `EP_CLAUDE_MAX_TOKENS` | Max output tokens for `claude_code` runtime |
+| `EP_CLAUDE_TIMEOUT_SECONDS` | Request timeout for `claude_code` runtime |
 
-`MC_AI_BASE_URL` examples:
+`EP_AI_BASE_URL` examples:
 
 - Standard: `https://api.openai.com`
 - OpenAI-compatible gateway: `https://my-gateway.example.com`

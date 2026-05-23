@@ -3,7 +3,7 @@
 /// Route priority (highest to lowest):
 ///   1. `--host <node>` → Remote
 ///   2. `--route <mode>` → explicit RouteMode
-///   3. `MC_ROUTE` env var
+///   3. `EP_ROUTE` env var
 ///   4. `~/.ep/config.json` `capability_route` field
 ///   5. Default: Auto
 use anyhow::{Context, Result};
@@ -25,7 +25,7 @@ pub enum RouteMode {
 
 pub struct McDispatch {
     pub mode: RouteMode,
-    mc_token: Option<String>,
+    ep_token: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ fn load_file_config() -> FileConfig {
 impl McDispatch {
     /// Build from environment + config file with optional CLI overrides.
     pub fn from_env(host: Option<String>, route_override: Option<String>) -> Self {
-        let mc_token = crate::config::load_session_token("");
+        let ep_token = crate::config::load_session_token("");
 
         // 1. --host flag → Remote immediately.
         if let Some(ref h) = host {
@@ -101,7 +101,7 @@ impl McDispatch {
                     host: hostname,
                     port,
                 },
-                mc_token,
+                ep_token,
             };
         }
 
@@ -109,15 +109,15 @@ impl McDispatch {
         if let Some(ref r) = route_override {
             return Self {
                 mode: route_mode_from_str(r, None),
-                mc_token,
+                ep_token,
             };
         }
 
-        // 3. MC_ROUTE env var
-        if let Ok(r) = std::env::var("MC_ROUTE") {
+        // 3. EP_ROUTE env var
+        if let Ok(r) = std::env::var("EP_ROUTE") {
             return Self {
                 mode: route_mode_from_str(&r, None),
-                mc_token,
+                ep_token,
             };
         }
 
@@ -127,14 +127,14 @@ impl McDispatch {
             let host_hint = cfg.default_host.as_deref();
             return Self {
                 mode: route_mode_from_str(r, host_hint),
-                mc_token,
+                ep_token,
             };
         }
 
         // 5. Default: Auto
         Self {
             mode: RouteMode::Auto,
-            mc_token,
+            ep_token,
         }
     }
 
@@ -152,12 +152,12 @@ impl McDispatch {
 
         let result = match &effective_mode {
             RouteMode::Local => {
-                let socket_path = std::env::var("MC_MESH_SOCKET")
-                    .context("MC_MESH_SOCKET not set for Local route")?;
+                let socket_path = std::env::var("EP_MESH_SOCKET")
+                    .context("EP_MESH_SOCKET not set for Local route")?;
                 send_jsonrpc_unix(&socket_path, "capabilities.list", params).await?
             }
             RouteMode::Remote { host, port } => {
-                send_jsonrpc_tcp(host, *port, self.mc_token.as_deref(), "capabilities.list", params).await?
+                send_jsonrpc_tcp(host, *port, self.ep_token.as_deref(), "capabilities.list", params).await?
             }
             RouteMode::Backend | RouteMode::Auto => {
                 anyhow::bail!("daemon not reachable: no socket or remote host configured")
@@ -198,30 +198,30 @@ impl McDispatch {
 
         match &effective_mode {
             RouteMode::Local => {
-                let socket_path = std::env::var("MC_MESH_SOCKET")
-                    .context("MC_MESH_SOCKET not set for Local route")?;
+                let socket_path = std::env::var("EP_MESH_SOCKET")
+                    .context("EP_MESH_SOCKET not set for Local route")?;
                 send_jsonrpc_unix(&socket_path, "dispatch", params).await
             }
             RouteMode::Remote { host, port } => {
-                send_jsonrpc_tcp(host, *port, self.mc_token.as_deref(), "dispatch", params).await
+                send_jsonrpc_tcp(host, *port, self.ep_token.as_deref(), "dispatch", params).await
             }
             RouteMode::Backend => {
                 anyhow::bail!(
-                    "backend route not yet implemented; set MC_MESH_SOCKET or use --host"
+                    "backend route not yet implemented; set EP_MESH_SOCKET or use --host"
                 )
             }
             RouteMode::Auto => {
                 // Auto resolution failed to narrow down — default to backend stub.
                 anyhow::bail!(
-                    "backend route not yet implemented; set MC_MESH_SOCKET or use --host"
+                    "backend route not yet implemented; set EP_MESH_SOCKET or use --host"
                 )
             }
         }
     }
 
-    /// Resolve Auto: check MC_MESH_SOCKET → Local; otherwise Backend.
+    /// Resolve Auto: check EP_MESH_SOCKET → Local; otherwise Backend.
     fn resolve_auto(&self) -> RouteMode {
-        if let Ok(sock) = std::env::var("MC_MESH_SOCKET") {
+        if let Ok(sock) = std::env::var("EP_MESH_SOCKET") {
             if std::path::Path::new(&sock).exists() {
                 return RouteMode::Local;
             }
@@ -392,12 +392,12 @@ mod tests {
         let sock_path = tmp.path().to_str().unwrap().to_string();
 
         // Capture and clear any existing env so test is deterministic.
-        let prev_sock = std::env::var("MC_MESH_SOCKET").ok();
-        let prev_route = std::env::var("MC_ROUTE").ok();
+        let prev_sock = std::env::var("EP_MESH_SOCKET").ok();
+        let prev_route = std::env::var("EP_ROUTE").ok();
         // SAFETY: test is serialised behind ENV_LOCK; no other threads touch these vars.
         unsafe {
-            std::env::remove_var("MC_ROUTE");
-            std::env::set_var("MC_MESH_SOCKET", &sock_path);
+            std::env::remove_var("EP_ROUTE");
+            std::env::set_var("EP_MESH_SOCKET", &sock_path);
         }
 
         let dispatch = McDispatch::from_env(None, None);
@@ -408,12 +408,12 @@ mod tests {
         // Restore env.
         unsafe {
             match prev_sock {
-                Some(v) => std::env::set_var("MC_MESH_SOCKET", v),
-                None => std::env::remove_var("MC_MESH_SOCKET"),
+                Some(v) => std::env::set_var("EP_MESH_SOCKET", v),
+                None => std::env::remove_var("EP_MESH_SOCKET"),
             }
             match prev_route {
-                Some(v) => std::env::set_var("MC_ROUTE", v),
-                None => std::env::remove_var("MC_ROUTE"),
+                Some(v) => std::env::set_var("EP_ROUTE", v),
+                None => std::env::remove_var("EP_ROUTE"),
             }
         }
     }

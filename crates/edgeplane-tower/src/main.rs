@@ -16,11 +16,11 @@ struct Cli {
     node_id: Option<u64>,
 
     /// Advertised URL for this node (returned in /raft/status)
-    #[arg(long, env = "MC_ADVERTISE_URL")]
+    #[arg(long, env = "EP_ADVERTISE_URL")]
     advertise_url: Option<String>,
 
     /// Proxy unknown routes to this upstream base URL (e.g. http://legacy-api:3000)
-    #[arg(long, env = "MC_API_PROXY")]
+    #[arg(long, env = "EP_API_PROXY")]
     api_proxy: Option<String>,
 
     /// Skip automatic database migration on startup
@@ -30,7 +30,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Initialize S3-compatible object storage bucket (reads MC_OBJECT_STORAGE_* env vars)
+    /// Initialize S3-compatible object storage bucket (reads EP_OBJECT_STORAGE_* env vars)
     BucketInit,
 }
 
@@ -99,16 +99,16 @@ async fn bucket_init() -> anyhow::Result<()> {
     use s3::creds::Credentials;
     use s3::region::Region;
 
-    let endpoint = std::env::var("MC_OBJECT_STORAGE_ENDPOINT")
+    let endpoint = std::env::var("EP_OBJECT_STORAGE_ENDPOINT")
         .unwrap_or_else(|_| "http://localhost:9000".into());
-    let region_name = std::env::var("MC_OBJECT_STORAGE_REGION")
+    let region_name = std::env::var("EP_OBJECT_STORAGE_REGION")
         .unwrap_or_else(|_| "us-east-1".into());
-    let bucket_name = std::env::var("MC_OBJECT_STORAGE_BUCKET")
+    let bucket_name = std::env::var("EP_OBJECT_STORAGE_BUCKET")
         .unwrap_or_else(|_| "edgeplane".into());
-    let access_key = std::env::var("MC_OBJECT_STORAGE_ACCESS_KEY")
-        .map_err(|_| anyhow::anyhow!("MC_OBJECT_STORAGE_ACCESS_KEY not set"))?;
-    let secret_key = std::env::var("MC_OBJECT_STORAGE_ACCESS_SECRET")
-        .map_err(|_| anyhow::anyhow!("MC_OBJECT_STORAGE_ACCESS_SECRET not set"))?;
+    let access_key = std::env::var("EP_OBJECT_STORAGE_ACCESS_KEY")
+        .map_err(|_| anyhow::anyhow!("EP_OBJECT_STORAGE_ACCESS_KEY not set"))?;
+    let secret_key = std::env::var("EP_OBJECT_STORAGE_ACCESS_SECRET")
+        .map_err(|_| anyhow::anyhow!("EP_OBJECT_STORAGE_ACCESS_SECRET not set"))?;
 
     tracing::info!(endpoint = %endpoint, bucket = %bucket_name, "checking object storage bucket");
 

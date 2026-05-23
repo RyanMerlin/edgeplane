@@ -45,17 +45,17 @@ pub struct JailConfig {
 
 /// Environment variable names used to pass JailConfig from gateway to worker.
 pub mod env_keys {
-    pub const PINNED_BINARY: &str = "MC_MESH_JAIL_BINARY";
-    pub const BINARY_SHA256: &str = "MC_MESH_JAIL_SHA256";
-    pub const LIB_PATHS: &str = "MC_MESH_JAIL_LIBS";           // colon-separated
-    pub const EXTRA_RO_BIND: &str = "MC_MESH_JAIL_RO_BIND";    // colon-separated
-    pub const EXTRA_RW_BIND: &str = "MC_MESH_JAIL_RW_BIND";    // colon-separated
-    pub const EXTRA_DENY_SYSCALLS: &str = "MC_MESH_JAIL_DENY_SYSCALLS"; // comma-separated
-    pub const MEMORY_MIB: &str = "MC_MESH_JAIL_MEM_MIB";
-    pub const MAX_PIDS: &str = "MC_MESH_JAIL_MAX_PIDS";
-    pub const CPU_WEIGHT: &str = "MC_MESH_JAIL_CPU_WEIGHT";
-    pub const WORKER_SOCKET_FD: &str = "MC_MESH_WORKER_FD";
-    pub const SHARE_HOST_TMP: &str = "MC_MESH_JAIL_SHARE_TMP";
+    pub const PINNED_BINARY: &str = "EP_MESH_JAIL_BINARY";
+    pub const BINARY_SHA256: &str = "EP_MESH_JAIL_SHA256";
+    pub const LIB_PATHS: &str = "EP_MESH_JAIL_LIBS";           // colon-separated
+    pub const EXTRA_RO_BIND: &str = "EP_MESH_JAIL_RO_BIND";    // colon-separated
+    pub const EXTRA_RW_BIND: &str = "EP_MESH_JAIL_RW_BIND";    // colon-separated
+    pub const EXTRA_DENY_SYSCALLS: &str = "EP_MESH_JAIL_DENY_SYSCALLS"; // comma-separated
+    pub const MEMORY_MIB: &str = "EP_MESH_JAIL_MEM_MIB";
+    pub const MAX_PIDS: &str = "EP_MESH_JAIL_MAX_PIDS";
+    pub const CPU_WEIGHT: &str = "EP_MESH_JAIL_CPU_WEIGHT";
+    pub const WORKER_SOCKET_FD: &str = "EP_MESH_WORKER_FD";
+    pub const SHARE_HOST_TMP: &str = "EP_MESH_JAIL_SHARE_TMP";
 }
 
 impl JailConfig {
@@ -721,10 +721,10 @@ mod tests {
 
     #[test]
     fn test_env_key_prefix() {
-        // Ensure env key names use MC_MESH_ prefix
-        assert!(env_keys::PINNED_BINARY.starts_with("MC_MESH_"));
-        assert!(env_keys::BINARY_SHA256.starts_with("MC_MESH_"));
-        assert!(env_keys::LIB_PATHS.starts_with("MC_MESH_"));
-        assert!(env_keys::WORKER_SOCKET_FD.starts_with("MC_MESH_"));
+        // Ensure env key names use EP_MESH_ prefix
+        assert!(env_keys::PINNED_BINARY.starts_with("EP_MESH_"));
+        assert!(env_keys::BINARY_SHA256.starts_with("EP_MESH_"));
+        assert!(env_keys::LIB_PATHS.starts_with("EP_MESH_"));
+        assert!(env_keys::WORKER_SOCKET_FD.starts_with("EP_MESH_"));
     }
 }

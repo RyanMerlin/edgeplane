@@ -74,13 +74,13 @@ offline or not Tailscale-reachable, or when the operator wants the control plane
 mission-scoped capabilities rather than the node's local policy.
 
 **`auto` resolution order:**
-1. If `MC_MESH_SOCKET` is set and the socket file exists → `local`
+1. If `EP_MESH_SOCKET` is set and the socket file exists → `local`
 2. Else if MC backend reports a reachable address for this host → `remote`
 3. Else → `backend`
 
 ### Remote TCP authentication
 
-`edgeplane-mesh` binds TCP port `7731` (configurable via `MC_MESH_MGMT_PORT`) in addition to the Unix
+`edgeplane-mesh` binds TCP port `7731` (configurable via `EP_MESH_MGMT_PORT`) in addition to the Unix
 socket. Each TCP connection must present the node's bearer token (same `EP_TOKEN` used for
 backend auth) in a one-line handshake before any JSON-RPC exchange:
 
@@ -108,11 +108,11 @@ in `~/.edgeplane/config.json` as `default_host` for session-level default.
 Configuration priority (highest to lowest):
 1. `edgeplane --host <node>` CLI flag → implies `remote` mode
 2. `edgeplane --route <mode>` CLI flag
-3. `MC_ROUTE` / `MC_MESH_HOST` environment variables
+3. `EP_ROUTE` / `EP_MESH_HOST` environment variables
 4. `capability_route` / `default_host` fields in `~/.edgeplane/config.json`
 5. Default: `auto`
 
-Agents spawned by `edgeplane-mesh` always get `local` in practice — `MC_MESH_SOCKET` is set in their
+Agents spawned by `edgeplane-mesh` always get `local` in practice — `EP_MESH_SOCKET` is set in their
 env and the daemon is always running when they are.
 
 ---
@@ -225,12 +225,12 @@ is out of scope for this crate — surfaced in the TUI (Phase 2b).
 ### Unix socket (local access)
 
 Path: `~/.edgeplane/edgeplane-mesh-mgmt.sock`, permissions `0600`.
-`MC_MESH_SOCKET` env var (injected by Phase 1 runtimes) points here.
+`EP_MESH_SOCKET` env var (injected by Phase 1 runtimes) points here.
 No auth — Unix file permissions enforce same-user access.
 
 ### TCP listener (remote access)
 
-Binds `0.0.0.0:7731` (configurable: `MC_MESH_MGMT_PORT` env or `mgmt_port` in config).
+Binds `0.0.0.0:7731` (configurable: `EP_MESH_MGMT_PORT` env or `mgmt_port` in config).
 Reachable over Tailscale from the operator's machine.
 
 One-line auth handshake before any RPC:
@@ -320,7 +320,7 @@ under `nodes/<hostname>/` to the node's branch. `edgeplane sync status` shows la
 and dirty state.
 
 Sync repo URL configured via `sync_repo` in `~/.edgeplane/config.json` or
-`MC_SYNC_REPO` env var.
+`EP_SYNC_REPO` env var.
 
 ### `edgeplane init` extensions
 
@@ -378,7 +378,7 @@ Four lines. No MCP tool dump. No capability schema preloaded. Progressive discov
 - Add `edgeplane-mesh-mgmt.sock` Unix listener to `crates/edgeplane-mesh/src/mgmt_gateway.rs`
 - Add TCP listener on `0.0.0.0:7731` with one-line AUTH handshake before JSON-RPC
 - JSON-RPC 2.0 handler for `dispatch`, `capabilities.list`, `capabilities.describe`
-- Unix socket `0600` permissions, path exported as `MC_MESH_SOCKET`
+- Unix socket `0600` permissions, path exported as `EP_MESH_SOCKET`
 - Register `mgmt_addr` (hostname:port) with MC backend at daemon startup
 - Existing attach socket (`edgeplane-mesh.sock`) unchanged
 
@@ -387,7 +387,7 @@ Four lines. No MCP tool dump. No capability schema preloaded. Progressive discov
 - New `McDispatch` routing layer (socket + backend fallback)
 - Add subcommands: `edgeplane run`, `edgeplane capabilities`, `edgeplane receipts`, `edgeplane sync`
 - Extend `edgeplane init` with `--from-repo` bootstrap flow
-- Wire `MC_MESH_SOCKET` and routing config into `edgeplane`'s config resolution
+- Wire `EP_MESH_SOCKET` and routing config into `edgeplane`'s config resolution
 
 ---
 

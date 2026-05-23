@@ -73,10 +73,10 @@ An optional WebSocket mirror is available at `/events/ws` for clients that prefe
 `edgeplane` validates payloads against the same schema pack the backend enforces:
 
 ```bash
-export MC_SCHEMA_PACK_FILE=docs/schema-packs/main.json
+export EP_SCHEMA_PACK_FILE=docs/schema-packs/main.json
 ```
 
-With `MC_SCHEMA_PACK_FILE` set, the daemon validates `domain`, `mission`, `task`, `doc`, and `artifact` payloads before invoking `/mcp/call`. Invalid packs fall back to embedded defaults at startup.
+With `EP_SCHEMA_PACK_FILE` set, the daemon validates `domain`, `mission`, `task`, `doc`, and `artifact` payloads before invoking `/mcp/call`. Invalid packs fall back to embedded defaults at startup.
 
 ## Planner Booster (Advanced)
 
@@ -92,14 +92,14 @@ The module implements `validate(ptr, len)` and runs before every MCP tool call. 
 
 | Variable | Purpose |
 |----------|---------|
-| `MC_ALLOW_INSECURE` | Allow HTTP (no TLS) for dev proxy setups |
-| `MC_SCHEMA_PACK_FILE` | Path to schema pack file for booster validation |
+| `EP_ALLOW_INSECURE` | Allow HTTP (no TLS) for dev proxy setups |
+| `EP_SCHEMA_PACK_FILE` | Path to schema pack file for booster validation |
 
 ## Operational Notes
 
 - Keep `EP_TOKEN` or OIDC session tokens rotation-ready — the SSE stream authenticates per-connection
 - `edgeplane system doctor` probes health, tools, and matrix endpoints and emits a structured JSON report with repair hints
-- `edgeplane system doctor --fix` ensures `EP_HOME`/`MC_SKILLS_HOME` exist and seeds a stable `agent_id` for local swarms
+- `edgeplane system doctor --fix` ensures `EP_HOME`/`EP_SKILLS_HOME` exist and seeds a stable `agent_id` for local swarms
 
 ## See Also
 

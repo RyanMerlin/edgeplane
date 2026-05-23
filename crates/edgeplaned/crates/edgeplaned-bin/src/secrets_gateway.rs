@@ -1,7 +1,7 @@
 /// Secrets broker gateway — Unix socket server.
 ///
-/// Agents receive `MC_SECRETS_SOCKET` (path to this socket) and
-/// `MC_SECRETS_SESSION` (a UUID session ID) as environment variables instead of
+/// Agents receive `EP_SECRETS_SOCKET` (path to this socket) and
+/// `EP_SECRETS_SESSION` (a UUID session ID) as environment variables instead of
 /// raw credential values. They request individual values at runtime:
 ///
 /// Request  (newline-delimited JSON): `{"op":"get","session":"<id>","name":"<KEY>"}`

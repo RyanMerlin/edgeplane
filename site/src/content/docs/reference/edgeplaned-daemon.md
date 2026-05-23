@@ -66,8 +66,8 @@ All sockets live in `~/.ep/`:
 
 `edgeplaned` injects two environment variables into agent subprocesses:
 
-- `MC_SECRETS_SOCKET` — path to `edgeplaned-secrets.sock`
-- `MC_SECRETS_SESSION` — session ID for this agent
+- `EP_SECRETS_SOCKET` — path to `edgeplaned-secrets.sock`
+- `EP_SECRETS_SESSION` — session ID for this agent
 
 Agents retrieve secrets without ever receiving raw credentials:
 
@@ -78,8 +78,8 @@ VALUE=$(edgeplaned get-secret MY_API_KEY)
 Or speak the protocol directly:
 
 ```bash
-echo '{"op":"get","session":"'$MC_SECRETS_SESSION'","name":"MY_API_KEY"}' \
-  | nc -U "$MC_SECRETS_SOCKET"
+echo '{"op":"get","session":"'$EP_SECRETS_SESSION'","name":"MY_API_KEY"}' \
+  | nc -U "$EP_SECRETS_SOCKET"
 ```
 
 Raw secret values are never written to disk or embedded in config files.
@@ -157,10 +157,10 @@ edgeplane run goose --domain <id>
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `EP_BASE_URL` | `http://localhost:8008` | Backend URL |
-| `MC_LITELLM_HOST` | `http://localhost:4000` | LiteLLM proxy URL (for Goose runtime) |
-| `MC_LITELLM_API_KEY` | _(none)_ | LiteLLM master key |
-| `MC_GOOSE_BIN` | PATH lookup | Override path to Goose binary |
-| `MC_GOOSE_MODEL` | `local-agent` | Model name passed to Goose |
+| `EP_LITELLM_HOST` | `http://localhost:4000` | LiteLLM proxy URL (for Goose runtime) |
+| `EP_LITELLM_API_KEY` | _(none)_ | LiteLLM master key |
+| `EP_GOOSE_BIN` | PATH lookup | Override path to Goose binary |
+| `EP_GOOSE_MODEL` | `local-agent` | Model name passed to Goose |
 
 **Creating a MeshTask for dispatch:**
 
