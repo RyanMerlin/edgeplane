@@ -27,8 +27,8 @@ pub struct DispatchRequest {
     pub dry_run: bool,
     /// Agent-specified deadline in seconds. Defaults to 30 s.
     pub timeout_secs: Option<u64>,
-    /// Optional mission ID for receipt tracking.
-    pub mission_id: Option<String>,
+    /// Optional domain ID for receipt tracking.
+    pub domain_id: Option<String>,
     /// Optional agent ID for receipt tracking.
     pub agent_id: Option<String>,
 }
@@ -124,7 +124,7 @@ impl CapabilityDispatcher {
                 result_json: serde_json::to_string(&result.data).unwrap_or_default(),
                 exit_code: result.exit_code,
                 execution_time_ms: result.execution_time_ms,
-                mission_id: req.mission_id.clone(),
+                domain_id: req.domain_id.clone(),
                 agent_id: req.agent_id.clone(),
                 created_at: chrono::Utc::now(),
             };
@@ -403,7 +403,7 @@ mod tests {
             env: "default".to_string(),
             dry_run: false,
             timeout_secs: Some(5),
-            mission_id: None,
+            domain_id: None,
             agent_id: None,
         }
     }
@@ -513,7 +513,7 @@ mod tests {
         // Dispatch a real builtin to verify a receipt is written.
         let mut req = base_request("base.system.echo");
         req.args = serde_json::json!({"message": "receipt-test"});
-        req.mission_id = Some("m-test".to_string());
+        req.domain_id = Some("m-test".to_string());
         req.agent_id = Some("a-test".to_string());
 
         let result = dispatcher.dispatch(req).await;
@@ -524,7 +524,7 @@ mod tests {
         assert_eq!(receipts.len(), 1, "exactly one receipt expected");
         assert_eq!(receipts[0].id, result.receipt_id);
         assert_eq!(receipts[0].capability, "base.system.echo");
-        assert_eq!(receipts[0].mission_id.as_deref(), Some("m-test"));
+        assert_eq!(receipts[0].domain_id.as_deref(), Some("m-test"));
         assert_eq!(receipts[0].agent_id.as_deref(), Some("a-test"));
     }
 }

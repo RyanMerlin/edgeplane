@@ -22,7 +22,7 @@ pub fn router() -> Router<Arc<AppState>> {
 
 // --- row helpers ---
 
-fn row_to_mission(row: &sqlx::postgres::PgRow) -> serde_json::Value {
+fn row_to_domain(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     json!({
         "id": row.get::<String, _>("id"),
         "name": row.get::<String, _>("name"),
@@ -36,10 +36,10 @@ fn row_to_mission(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     })
 }
 
-fn row_to_kluster(row: &sqlx::postgres::PgRow) -> serde_json::Value {
+fn row_to_mission(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     json!({
         "id": row.get::<String, _>("id"),
-        "mission_id": row.get::<Option<String>, _>("mission_id"),
+        "domain_id": row.get::<Option<String>, _>("domain_id"),
         "name": row.get::<String, _>("name"),
         "description": row.get::<String, _>("description"),
         "status": row.get::<String, _>("status"),
@@ -54,7 +54,7 @@ fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     json!({
         "id": row.get::<i32, _>("id"),
         "public_id": row.get::<String, _>("public_id"),
-        "kluster_id": row.get::<String, _>("kluster_id"),
+        "mission_id": row.get::<String, _>("mission_id"),
         "title": row.get::<String, _>("title"),
         "description": row.get::<String, _>("description"),
         "status": row.get::<String, _>("status"),
@@ -67,13 +67,13 @@ fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 
 // --- access helpers ---
 
-async fn can_read_mission(db: &sqlx::PgPool, principal: &Principal, mission_id: &str) -> bool {
+async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &str) -> bool {
     if principal.is_admin {
         return true;
     }
     if let Ok(Some(row)) =
-        sqlx::query("SELECT visibility, owners, contributors FROM mission WHERE id=$1")
-            .bind(mission_id)
+        sqlx::query("SELECT visibility, owners, contributors FROM domain WHERE id=$1")
+            .bind(domain_id)
             .fetch_optional(db)
             .await
     {
@@ -91,9 +91,9 @@ async fn can_read_mission(db: &sqlx::PgPool, principal: &Principal, mission_id: 
         }
     }
     sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM missionrolemembership WHERE mission_id=$1 AND subject=$2)",
+        "SELECT EXISTS(SELECT 1 FROM domainrolemembership WHERE domain_id=$1 AND subject=$2)",
     )
-    .bind(mission_id)
+    .bind(domain_id)
     .bind(&principal.subject)
     .fetch_one(db)
     .await
@@ -117,11 +117,11 @@ fn matches_query(needle: &str, values: &[Option<&str>]) -> bool {
 
 #[derive(Deserialize)]
 struct TreeQuery {
-    mission_id: Option<String>,
+    domain_id: Option<String>,
     status: Option<String>,
     q: Option<String>,
     limit_tasks_per_cluster: Option<i64>,
-    limit_klusters: Option<i64>,
+    limit_missions: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -142,20 +142,72 @@ async fn explorer_tree(
         .unwrap_or(5)
         .min(50)
         .max(1) as usize;
-    let limit_klusters = params.limit_klusters.unwrap_or(100).min(200).max(1);
+    let limit_missions = params.limit_missions.unwrap_or(100).min(200).max(1);
 
-    // --- fetch missions ---
-    let mission_rows = {
-        let q = match &params.mission_id {
+    // --- fetch domains ---
+    let domain_rows = {
+        let q = match &params.domain_id {
             Some(mid) => sqlx::query(
-                "SELECT * FROM mission WHERE id=$1 ORDER BY updated_at DESC",
+                "SELECT * FROM domain WHERE id=$1 ORDER BY updated_at DESC",
             )
             .bind(mid)
             .fetch_all(&state.db)
             .await,
-            None => sqlx::query("SELECT * FROM mission ORDER BY updated_at DESC")
+            None => sqlx::query("SELECT * FROM domain ORDER BY updated_at DESC")
                 .fetch_all(&state.db)
                 .await,
+        };
+        match q {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::error!("explorer_tree fetch domains: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        }
+    };
+
+    // Build set of readable domain IDs for non-admins
+    let readable_domain_ids: std::collections::HashSet<String> = if principal.is_admin {
+        domain_rows
+            .iter()
+            .map(|r| r.get::<String, _>("id"))
+            .collect()
+    } else {
+        let mut ids = std::collections::HashSet::new();
+        for row in &domain_rows {
+            let id: String = row.get("id");
+            if can_read_domain(&state.db, &principal, &id).await {
+                ids.insert(id);
+            }
+        }
+        ids
+    };
+
+    // Filter domains to readable
+    let domains: Vec<&sqlx::postgres::PgRow> = domain_rows
+        .iter()
+        .filter(|r| {
+            let id: String = r.get("id");
+            readable_domain_ids.contains(&id)
+        })
+        .collect();
+
+    // --- fetch missions ---
+    let mission_rows = {
+        let q = match &params.domain_id {
+            Some(mid) => sqlx::query(
+                "SELECT * FROM mission WHERE domain_id=$1 ORDER BY updated_at DESC LIMIT $2",
+            )
+            .bind(mid)
+            .bind(limit_missions)
+            .fetch_all(&state.db)
+            .await,
+            None => sqlx::query(
+                "SELECT * FROM mission ORDER BY updated_at DESC LIMIT $1",
+            )
+            .bind(limit_missions)
+            .fetch_all(&state.db)
+            .await,
         };
         match q {
             Ok(rows) => rows,
@@ -166,82 +218,30 @@ async fn explorer_tree(
         }
     };
 
-    // Build set of readable mission IDs for non-admins
-    let readable_mission_ids: std::collections::HashSet<String> = if principal.is_admin {
-        mission_rows
-            .iter()
-            .map(|r| r.get::<String, _>("id"))
-            .collect()
-    } else {
-        let mut ids = std::collections::HashSet::new();
-        for row in &mission_rows {
-            let id: String = row.get("id");
-            if can_read_mission(&state.db, &principal, &id).await {
-                ids.insert(id);
-            }
-        }
-        ids
-    };
-
-    // Filter missions to readable
+    // Filter missions to readable domains (non-admins: mission must be in a readable domain)
     let missions: Vec<&sqlx::postgres::PgRow> = mission_rows
-        .iter()
-        .filter(|r| {
-            let id: String = r.get("id");
-            readable_mission_ids.contains(&id)
-        })
-        .collect();
-
-    // --- fetch klusters ---
-    let kluster_rows = {
-        let q = match &params.mission_id {
-            Some(mid) => sqlx::query(
-                "SELECT * FROM kluster WHERE mission_id=$1 ORDER BY updated_at DESC LIMIT $2",
-            )
-            .bind(mid)
-            .bind(limit_klusters)
-            .fetch_all(&state.db)
-            .await,
-            None => sqlx::query(
-                "SELECT * FROM kluster ORDER BY updated_at DESC LIMIT $1",
-            )
-            .bind(limit_klusters)
-            .fetch_all(&state.db)
-            .await,
-        };
-        match q {
-            Ok(rows) => rows,
-            Err(e) => {
-                tracing::error!("explorer_tree fetch klusters: {e}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        }
-    };
-
-    // Filter klusters to readable missions (non-admins: kluster must be in a readable mission)
-    let klusters: Vec<&sqlx::postgres::PgRow> = kluster_rows
         .iter()
         .filter(|r| {
             if principal.is_admin {
                 return true;
             }
-            let mid: Option<String> = r.try_get("mission_id").ok().and_then(|v: Option<String>| v);
+            let mid: Option<String> = r.try_get("domain_id").ok().and_then(|v: Option<String>| v);
             match mid {
-                Some(mid) => readable_mission_ids.contains(&mid),
+                Some(mid) => readable_domain_ids.contains(&mid),
                 None => false,
             }
         })
         .collect();
 
-    // Collect kluster IDs for task fetch
-    let kluster_ids: Vec<String> = klusters.iter().map(|r| r.get::<String, _>("id")).collect();
+    // Collect mission IDs for task fetch
+    let mission_ids: Vec<String> = missions.iter().map(|r| r.get::<String, _>("id")).collect();
 
     // --- fetch tasks ---
-    let task_rows: Vec<sqlx::postgres::PgRow> = if kluster_ids.is_empty() {
+    let task_rows: Vec<sqlx::postgres::PgRow> = if mission_ids.is_empty() {
         vec![]
     } else {
         // Build parameterized IN clause
-        let placeholders: String = kluster_ids
+        let placeholders: String = mission_ids
             .iter()
             .enumerate()
             .map(|(i, _)| format!("${}", i + 1))
@@ -251,16 +251,16 @@ async fn explorer_tree(
         let (query_str, has_status) = match &params.status {
             Some(_) => (
                 format!(
-                    "SELECT * FROM task WHERE kluster_id IN ({}) AND status=${} \
+                    "SELECT * FROM task WHERE mission_id IN ({}) AND status=${} \
                      ORDER BY updated_at DESC",
                     placeholders,
-                    kluster_ids.len() + 1
+                    mission_ids.len() + 1
                 ),
                 true,
             ),
             None => (
                 format!(
-                    "SELECT * FROM task WHERE kluster_id IN ({}) ORDER BY updated_at DESC",
+                    "SELECT * FROM task WHERE mission_id IN ({}) ORDER BY updated_at DESC",
                     placeholders
                 ),
                 false,
@@ -268,7 +268,7 @@ async fn explorer_tree(
         };
 
         let mut q_builder = sqlx::query(&query_str);
-        for kid in &kluster_ids {
+        for kid in &mission_ids {
             q_builder = q_builder.bind(kid);
         }
         if has_status {
@@ -284,62 +284,62 @@ async fn explorer_tree(
         }
     };
 
-    // --- group tasks by kluster ---
-    let mut tasks_by_kluster: HashMap<String, Vec<&sqlx::postgres::PgRow>> = HashMap::new();
+    // --- group tasks by mission ---
+    let mut tasks_by_mission: HashMap<String, Vec<&sqlx::postgres::PgRow>> = HashMap::new();
     for row in &task_rows {
-        let kid: String = row.get("kluster_id");
-        tasks_by_kluster.entry(kid).or_default().push(row);
+        let kid: String = row.get("mission_id");
+        tasks_by_mission.entry(kid).or_default().push(row);
     }
 
-    // --- group klusters by mission ---
-    let mut klusters_by_mission: HashMap<Option<String>, Vec<&sqlx::postgres::PgRow>> =
+    // --- group missions by domain ---
+    let mut missions_by_domain: HashMap<Option<String>, Vec<&sqlx::postgres::PgRow>> =
         HashMap::new();
-    for row in &klusters {
-        let mid: Option<String> = row.try_get("mission_id").ok().and_then(|v: Option<String>| v);
-        klusters_by_mission.entry(mid).or_default().push(row);
+    for row in &missions {
+        let mid: Option<String> = row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+        missions_by_domain.entry(mid).or_default().push(row);
     }
 
-    // --- build mission summaries with text filter ---
-    let mut mission_summaries: Vec<serde_json::Value> = Vec::new();
-    let mut included_kluster_ids: std::collections::HashSet<String> =
+    // --- build domain summaries with text filter ---
+    let mut domain_summaries: Vec<serde_json::Value> = Vec::new();
+    let mut included_mission_ids: std::collections::HashSet<String> =
         std::collections::HashSet::new();
 
-    for mission_row in &missions {
-        let mission_id_val: String = mission_row.get("id");
-        let mission_name: String = mission_row.get("name");
-        let mission_desc: String = mission_row.get("description");
-        let mission_owners: String = mission_row.get("owners");
-        let mission_tags: Option<String> = mission_row.try_get("tags").ok().and_then(|v: Option<String>| v);
+    for domain_row in &domains {
+        let domain_id_val: String = domain_row.get("id");
+        let domain_name: String = domain_row.get("name");
+        let domain_desc: String = domain_row.get("description");
+        let domain_owners: String = domain_row.get("owners");
+        let domain_tags: Option<String> = domain_row.try_get("tags").ok().and_then(|v: Option<String>| v);
 
-        let mission_match = if needle.is_empty() {
+        let domain_match = if needle.is_empty() {
             true
         } else {
             matches_query(
                 &needle,
                 &[
-                    Some(mission_name.as_str()),
-                    Some(mission_desc.as_str()),
-                    Some(mission_owners.as_str()),
-                    mission_tags.as_deref(),
+                    Some(domain_name.as_str()),
+                    Some(domain_desc.as_str()),
+                    Some(domain_owners.as_str()),
+                    domain_tags.as_deref(),
                 ],
             )
         };
 
         let empty_vec: Vec<&sqlx::postgres::PgRow> = vec![];
-        let mission_klusters = klusters_by_mission
-            .get(&Some(mission_id_val.clone()))
+        let domain_missions = missions_by_domain
+            .get(&Some(domain_id_val.clone()))
             .unwrap_or(&empty_vec);
 
-        let mut kluster_summaries: Vec<serde_json::Value> = Vec::new();
+        let mut mission_summaries: Vec<serde_json::Value> = Vec::new();
 
-        for kluster_row in mission_klusters {
-            let kid: String = kluster_row.get("id");
-            let k_name: String = kluster_row.get("name");
-            let k_desc: String = kluster_row.get("description");
-            let k_owners: String = kluster_row.get("owners");
-            let k_tags: Option<String> = kluster_row.try_get("tags").ok().and_then(|v: Option<String>| v);
+        for mission_row in domain_missions {
+            let kid: String = mission_row.get("id");
+            let k_name: String = mission_row.get("name");
+            let k_desc: String = mission_row.get("description");
+            let k_owners: String = mission_row.get("owners");
+            let k_tags: Option<String> = mission_row.try_get("tags").ok().and_then(|v: Option<String>| v);
 
-            let all_cluster_tasks = tasks_by_kluster.get(&kid).unwrap_or(&empty_vec);
+            let all_cluster_tasks = tasks_by_mission.get(&kid).unwrap_or(&empty_vec);
 
             let cluster_match = if needle.is_empty() {
                 true
@@ -379,13 +379,13 @@ async fn explorer_tree(
                     .collect()
             };
 
-            if !needle.is_empty() && !mission_match && !cluster_match && matching_tasks.is_empty() {
+            if !needle.is_empty() && !domain_match && !cluster_match && matching_tasks.is_empty() {
                 continue;
             }
 
-            // Display tasks: all if mission or cluster matched, else only matching
+            // Display tasks: all if domain or cluster matched, else only matching
             let display_tasks: Vec<&&sqlx::postgres::PgRow> =
-                if mission_match || cluster_match || needle.is_empty() {
+                if domain_match || cluster_match || needle.is_empty() {
                     all_cluster_tasks.iter().collect()
                 } else {
                     matching_tasks
@@ -405,7 +405,7 @@ async fn explorer_tree(
                 .map(|t| {
                     json!({
                         "id": t.get::<i32, _>("id"),
-                        "kluster_id": t.get::<String, _>("kluster_id"),
+                        "mission_id": t.get::<String, _>("mission_id"),
                         "title": t.get::<String, _>("title"),
                         "status": t.get::<String, _>("status"),
                         "owner": t.get::<String, _>("owner"),
@@ -414,59 +414,59 @@ async fn explorer_tree(
                 })
                 .collect();
 
-            included_kluster_ids.insert(kid.clone());
-            kluster_summaries.push(json!({
+            included_mission_ids.insert(kid.clone());
+            mission_summaries.push(json!({
                 "id": kid,
-                "mission_id": kluster_row.get::<Option<String>, _>("mission_id"),
+                "domain_id": mission_row.get::<Option<String>, _>("domain_id"),
                 "name": k_name,
                 "description": k_desc,
-                "status": kluster_row.get::<String, _>("status"),
+                "status": mission_row.get::<String, _>("status"),
                 "owners": k_owners,
                 "tags": k_tags,
-                "updated_at": kluster_row.get::<chrono::NaiveDateTime, _>("updated_at"),
+                "updated_at": mission_row.get::<chrono::NaiveDateTime, _>("updated_at"),
                 "task_count": display_tasks.len(),
                 "task_status_counts": status_counts,
                 "recent_tasks": recent_tasks,
             }));
         }
 
-        if !needle.is_empty() && !mission_match && kluster_summaries.is_empty() {
+        if !needle.is_empty() && !domain_match && mission_summaries.is_empty() {
             continue;
         }
 
-        let total_tasks: usize = kluster_summaries
+        let total_tasks: usize = mission_summaries
             .iter()
             .map(|k| k["task_count"].as_u64().unwrap_or(0) as usize)
             .sum();
 
-        mission_summaries.push(json!({
-            "id": mission_id_val,
-            "name": mission_name,
-            "description": mission_desc,
-            "status": mission_row.get::<String, _>("status"),
-            "visibility": mission_row.get::<String, _>("visibility"),
-            "owners": mission_owners,
-            "tags": mission_tags,
-            "updated_at": mission_row.get::<chrono::NaiveDateTime, _>("updated_at"),
-            "kluster_count": kluster_summaries.len(),
+        domain_summaries.push(json!({
+            "id": domain_id_val,
+            "name": domain_name,
+            "description": domain_desc,
+            "status": domain_row.get::<String, _>("status"),
+            "visibility": domain_row.get::<String, _>("visibility"),
+            "owners": domain_owners,
+            "tags": domain_tags,
+            "updated_at": domain_row.get::<chrono::NaiveDateTime, _>("updated_at"),
+            "mission_count": mission_summaries.len(),
             "task_count": total_tasks,
-            "klusters": kluster_summaries,
+            "missions": mission_summaries,
         }));
     }
 
-    // --- unassigned klusters ---
+    // --- unassigned missions ---
     let mut unassigned_summaries: Vec<serde_json::Value> = Vec::new();
     let empty_vec: Vec<&sqlx::postgres::PgRow> = vec![];
-    let unassigned = klusters_by_mission.get(&None).unwrap_or(&empty_vec);
+    let unassigned = missions_by_domain.get(&None).unwrap_or(&empty_vec);
 
-    for kluster_row in unassigned {
-        let kid: String = kluster_row.get("id");
-        let k_name: String = kluster_row.get("name");
-        let k_desc: String = kluster_row.get("description");
-        let k_owners: String = kluster_row.get("owners");
-        let k_tags: Option<String> = kluster_row.try_get("tags").ok().and_then(|v: Option<String>| v);
+    for mission_row in unassigned {
+        let kid: String = mission_row.get("id");
+        let k_name: String = mission_row.get("name");
+        let k_desc: String = mission_row.get("description");
+        let k_owners: String = mission_row.get("owners");
+        let k_tags: Option<String> = mission_row.try_get("tags").ok().and_then(|v: Option<String>| v);
 
-        let all_cluster_tasks = tasks_by_kluster.get(&kid).unwrap_or(&empty_vec);
+        let all_cluster_tasks = tasks_by_mission.get(&kid).unwrap_or(&empty_vec);
 
         let cluster_match = if needle.is_empty() {
             true
@@ -528,7 +528,7 @@ async fn explorer_tree(
             .map(|t| {
                 json!({
                     "id": t.get::<i32, _>("id"),
-                    "kluster_id": t.get::<String, _>("kluster_id"),
+                    "mission_id": t.get::<String, _>("mission_id"),
                     "title": t.get::<String, _>("title"),
                     "status": t.get::<String, _>("status"),
                     "owner": t.get::<String, _>("owner"),
@@ -537,23 +537,23 @@ async fn explorer_tree(
             })
             .collect();
 
-        included_kluster_ids.insert(kid.clone());
+        included_mission_ids.insert(kid.clone());
         unassigned_summaries.push(json!({
             "id": kid,
-            "mission_id": serde_json::Value::Null,
+            "domain_id": serde_json::Value::Null,
             "name": k_name,
             "description": k_desc,
-            "status": kluster_row.get::<String, _>("status"),
+            "status": mission_row.get::<String, _>("status"),
             "owners": k_owners,
             "tags": k_tags,
-            "updated_at": kluster_row.get::<chrono::NaiveDateTime, _>("updated_at"),
+            "updated_at": mission_row.get::<chrono::NaiveDateTime, _>("updated_at"),
             "task_count": display_tasks.len(),
             "task_status_counts": status_counts,
             "recent_tasks": recent_tasks,
         }));
     }
 
-    let total_tasks: usize = mission_summaries
+    let total_tasks: usize = domain_summaries
         .iter()
         .map(|m| m["task_count"].as_u64().unwrap_or(0) as usize)
         .sum::<usize>()
@@ -564,11 +564,11 @@ async fn explorer_tree(
 
     Json(json!({
         "generated_at": Utc::now().naive_utc(),
-        "mission_count": mission_summaries.len(),
-        "kluster_count": included_kluster_ids.len(),
+        "domain_count": domain_summaries.len(),
+        "mission_count": included_mission_ids.len(),
         "task_count": total_tasks,
-        "missions": mission_summaries,
-        "unassigned_klusters": unassigned_summaries,
+        "domains": domain_summaries,
+        "unassigned_missions": unassigned_summaries,
     }))
     .into_response()
 }
@@ -584,6 +584,85 @@ async fn explorer_node(
     let limit_tasks = params.limit_tasks.unwrap_or(50).min(200).max(1);
 
     match node_type.as_str() {
+        "domain" => {
+            let domain_row = match sqlx::query("SELECT * FROM domain WHERE id=$1")
+                .bind(&node_id)
+                .fetch_optional(&state.db)
+                .await
+            {
+                Ok(Some(r)) => r,
+                Ok(None) => {
+                    return (
+                        StatusCode::NOT_FOUND,
+                        Json(json!({"detail": "Domain not found"})),
+                    )
+                        .into_response()
+                }
+                Err(e) => {
+                    tracing::error!("explorer_node domain fetch: {e}");
+                    return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+                }
+            };
+
+            if !can_read_domain(&state.db, &principal, &node_id).await {
+                return StatusCode::FORBIDDEN.into_response();
+            }
+
+            let mission_rows = match sqlx::query(
+                "SELECT * FROM mission WHERE domain_id=$1 ORDER BY updated_at DESC",
+            )
+            .bind(&node_id)
+            .fetch_all(&state.db)
+            .await
+            {
+                Ok(rows) => rows,
+                Err(e) => {
+                    tracing::error!("explorer_node domain missions: {e}");
+                    return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+                }
+            };
+
+            let mission_ids: Vec<String> =
+                mission_rows.iter().map(|r| r.get::<String, _>("id")).collect();
+
+            let task_rows: Vec<sqlx::postgres::PgRow> = if mission_ids.is_empty() {
+                vec![]
+            } else {
+                let placeholders: String = mission_ids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("${}", i + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let query_str = format!(
+                    "SELECT * FROM task WHERE mission_id IN ({}) ORDER BY updated_at DESC LIMIT ${}",
+                    placeholders,
+                    mission_ids.len() + 1
+                );
+                let mut q = sqlx::query(&query_str);
+                for kid in &mission_ids {
+                    q = q.bind(kid);
+                }
+                q = q.bind(limit_tasks);
+                match q.fetch_all(&state.db).await {
+                    Ok(rows) => rows,
+                    Err(e) => {
+                        tracing::error!("explorer_node domain tasks: {e}");
+                        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+                    }
+                }
+            };
+
+            Json(json!({
+                "node_type": node_type,
+                "node_id": node_id,
+                "domain": row_to_domain(&domain_row),
+                "missions": mission_rows.iter().map(row_to_mission).collect::<Vec<_>>(),
+                "tasks": task_rows.iter().map(row_to_task).collect::<Vec<_>>(),
+            }))
+            .into_response()
+        }
+
         "mission" => {
             let mission_row = match sqlx::query("SELECT * FROM mission WHERE id=$1")
                 .bind(&node_id)
@@ -604,93 +683,14 @@ async fn explorer_node(
                 }
             };
 
-            if !can_read_mission(&state.db, &principal, &node_id).await {
-                return StatusCode::FORBIDDEN.into_response();
-            }
-
-            let kluster_rows = match sqlx::query(
-                "SELECT * FROM kluster WHERE mission_id=$1 ORDER BY updated_at DESC",
-            )
-            .bind(&node_id)
-            .fetch_all(&state.db)
-            .await
-            {
-                Ok(rows) => rows,
-                Err(e) => {
-                    tracing::error!("explorer_node mission klusters: {e}");
-                    return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-                }
-            };
-
-            let kluster_ids: Vec<String> =
-                kluster_rows.iter().map(|r| r.get::<String, _>("id")).collect();
-
-            let task_rows: Vec<sqlx::postgres::PgRow> = if kluster_ids.is_empty() {
-                vec![]
-            } else {
-                let placeholders: String = kluster_ids
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("${}", i + 1))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let query_str = format!(
-                    "SELECT * FROM task WHERE kluster_id IN ({}) ORDER BY updated_at DESC LIMIT ${}",
-                    placeholders,
-                    kluster_ids.len() + 1
-                );
-                let mut q = sqlx::query(&query_str);
-                for kid in &kluster_ids {
-                    q = q.bind(kid);
-                }
-                q = q.bind(limit_tasks);
-                match q.fetch_all(&state.db).await {
-                    Ok(rows) => rows,
-                    Err(e) => {
-                        tracing::error!("explorer_node mission tasks: {e}");
-                        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-                    }
-                }
-            };
-
-            Json(json!({
-                "node_type": node_type,
-                "node_id": node_id,
-                "mission": row_to_mission(&mission_row),
-                "klusters": kluster_rows.iter().map(row_to_kluster).collect::<Vec<_>>(),
-                "tasks": task_rows.iter().map(row_to_task).collect::<Vec<_>>(),
-            }))
-            .into_response()
-        }
-
-        "kluster" => {
-            let kluster_row = match sqlx::query("SELECT * FROM kluster WHERE id=$1")
-                .bind(&node_id)
-                .fetch_optional(&state.db)
-                .await
-            {
-                Ok(Some(r)) => r,
-                Ok(None) => {
-                    return (
-                        StatusCode::NOT_FOUND,
-                        Json(json!({"detail": "Kluster not found"})),
-                    )
-                        .into_response()
-                }
-                Err(e) => {
-                    tracing::error!("explorer_node kluster fetch: {e}");
-                    return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-                }
-            };
-
-            let mission_id: Option<String> = kluster_row
-                .try_get("mission_id")
+            let domain_id: Option<String> = mission_row
+                .try_get("domain_id")
                 .ok()
                 .and_then(|v: Option<String>| v);
 
-            match &mission_id {
+            match &domain_id {
                 Some(mid) => {
-                    if !can_read_mission(&state.db, &principal, mid).await {
+                    if !can_read_domain(&state.db, &principal, mid).await {
                         return StatusCode::FORBIDDEN.into_response();
                     }
                 }
@@ -698,24 +698,24 @@ async fn explorer_node(
                     if !principal.is_admin {
                         return (
                             StatusCode::FORBIDDEN,
-                            Json(json!({"detail": "Forbidden: mission viewer, contributor, or owner required"})),
+                            Json(json!({"detail": "Forbidden: domain viewer, contributor, or owner required"})),
                         )
                             .into_response();
                     }
                 }
             }
 
-            let mission_val: serde_json::Value = match &mission_id {
+            let domain_val: serde_json::Value = match &domain_id {
                 Some(mid) => {
-                    match sqlx::query("SELECT * FROM mission WHERE id=$1")
+                    match sqlx::query("SELECT * FROM domain WHERE id=$1")
                         .bind(mid)
                         .fetch_optional(&state.db)
                         .await
                     {
-                        Ok(Some(r)) => row_to_mission(&r),
+                        Ok(Some(r)) => row_to_domain(&r),
                         Ok(None) => serde_json::Value::Null,
                         Err(e) => {
-                            tracing::error!("explorer_node kluster mission fetch: {e}");
+                            tracing::error!("explorer_node mission domain fetch: {e}");
                             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
                         }
                     }
@@ -724,7 +724,7 @@ async fn explorer_node(
             };
 
             let task_rows = match sqlx::query(
-                "SELECT * FROM task WHERE kluster_id=$1 ORDER BY updated_at DESC LIMIT $2",
+                "SELECT * FROM task WHERE mission_id=$1 ORDER BY updated_at DESC LIMIT $2",
             )
             .bind(&node_id)
             .bind(limit_tasks)
@@ -733,7 +733,7 @@ async fn explorer_node(
             {
                 Ok(rows) => rows,
                 Err(e) => {
-                    tracing::error!("explorer_node kluster tasks: {e}");
+                    tracing::error!("explorer_node mission tasks: {e}");
                     return StatusCode::INTERNAL_SERVER_ERROR.into_response();
                 }
             };
@@ -741,8 +741,8 @@ async fn explorer_node(
             Json(json!({
                 "node_type": node_type,
                 "node_id": node_id,
-                "mission": mission_val,
-                "kluster": row_to_kluster(&kluster_row),
+                "domain": domain_val,
+                "mission": row_to_mission(&mission_row),
                 "tasks": task_rows.iter().map(row_to_task).collect::<Vec<_>>(),
             }))
             .into_response()
@@ -791,9 +791,9 @@ async fn explorer_node(
                 }
             };
 
-            let kluster_id: String = task_row.get("kluster_id");
-            let kluster_row = match sqlx::query("SELECT * FROM kluster WHERE id=$1")
-                .bind(&kluster_id)
+            let mission_id: String = task_row.get("mission_id");
+            let mission_row = match sqlx::query("SELECT * FROM mission WHERE id=$1")
+                .bind(&mission_id)
                 .fetch_optional(&state.db)
                 .await
             {
@@ -801,24 +801,24 @@ async fn explorer_node(
                 Ok(None) => {
                     return (
                         StatusCode::NOT_FOUND,
-                        Json(json!({"detail": "Kluster not found"})),
+                        Json(json!({"detail": "Mission not found"})),
                     )
                         .into_response()
                 }
                 Err(e) => {
-                    tracing::error!("explorer_node task kluster fetch: {e}");
+                    tracing::error!("explorer_node task mission fetch: {e}");
                     return StatusCode::INTERNAL_SERVER_ERROR.into_response();
                 }
             };
 
-            let mission_id: Option<String> = kluster_row
-                .try_get("mission_id")
+            let domain_id: Option<String> = mission_row
+                .try_get("domain_id")
                 .ok()
                 .and_then(|v: Option<String>| v);
 
-            match &mission_id {
+            match &domain_id {
                 Some(mid) => {
-                    if !can_read_mission(&state.db, &principal, mid).await {
+                    if !can_read_domain(&state.db, &principal, mid).await {
                         return StatusCode::FORBIDDEN.into_response();
                     }
                 }
@@ -826,24 +826,24 @@ async fn explorer_node(
                     if !principal.is_admin {
                         return (
                             StatusCode::FORBIDDEN,
-                            Json(json!({"detail": "Forbidden: mission viewer, contributor, or owner required"})),
+                            Json(json!({"detail": "Forbidden: domain viewer, contributor, or owner required"})),
                         )
                             .into_response();
                     }
                 }
             }
 
-            let mission_val: serde_json::Value = match &mission_id {
+            let domain_val: serde_json::Value = match &domain_id {
                 Some(mid) => {
-                    match sqlx::query("SELECT * FROM mission WHERE id=$1")
+                    match sqlx::query("SELECT * FROM domain WHERE id=$1")
                         .bind(mid)
                         .fetch_optional(&state.db)
                         .await
                     {
-                        Ok(Some(r)) => row_to_mission(&r),
+                        Ok(Some(r)) => row_to_domain(&r),
                         Ok(None) => serde_json::Value::Null,
                         Err(e) => {
-                            tracing::error!("explorer_node task mission fetch: {e}");
+                            tracing::error!("explorer_node task domain fetch: {e}");
                             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
                         }
                     }
@@ -854,8 +854,8 @@ async fn explorer_node(
             Json(json!({
                 "node_type": node_type,
                 "node_id": node_id,
-                "mission": mission_val,
-                "kluster": row_to_kluster(&kluster_row),
+                "domain": domain_val,
+                "mission": row_to_mission(&mission_row),
                 "task": row_to_task(&task_row),
             }))
             .into_response()
@@ -863,7 +863,7 @@ async fn explorer_node(
 
         _ => (
             StatusCode::BAD_REQUEST,
-            Json(json!({"detail": "node_type must be one of: mission, kluster, task"})),
+            Json(json!({"detail": "node_type must be one of: domain, mission, task"})),
         )
             .into_response(),
     }

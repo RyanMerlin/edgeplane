@@ -388,11 +388,11 @@ async fn dispatch(
 
 // ── Context file update ───────────────────────────────────────────────────────
 
-/// After a successful tool call, check if the result contains mission_id or
-/// kluster_id and update `$MC_INSTANCE_HOME/mc/context.json` accordingly.
+/// After a successful tool call, check if the result contains domain_id or
+/// mission_id and update `$MC_INSTANCE_HOME/mc/context.json` accordingly.
 ///
 /// This keeps the context file current so the PreCompact hook script can
-/// re-inject the agent's active mission/kluster after compaction.
+/// re-inject the agent's active domain/mission after compaction.
 fn maybe_update_context_json(result: &Value) {
     let instance_home = match std::env::var("MC_INSTANCE_HOME") {
         Ok(v) if !v.is_empty() => PathBuf::from(v),
@@ -420,35 +420,35 @@ fn maybe_update_context_json(result: &Value) {
 
     let mut changed = false;
 
-    // Extract mission_id from common response shapes.
-    let mission_id = result
-        .get("mission_id")
+    // Extract domain_id from common response shapes.
+    let domain_id = result
+        .get("domain_id")
         .or_else(|| {
             result
                 .get("id")
                 .filter(|_| result.get("northstar_md").is_some())
         })
         .and_then(|v| v.as_str());
-    if let Some(mid) = mission_id {
+    if let Some(mid) = domain_id {
         obj.insert(
-            "active_mission_id".to_string(),
+            "active_domain_id".to_string(),
             Value::String(mid.to_string()),
         );
         changed = true;
     }
 
-    // Extract kluster_id from common response shapes.
-    let kluster_id = result
-        .get("kluster_id")
+    // Extract mission_id from common response shapes.
+    let mission_id = result
+        .get("mission_id")
         .or_else(|| {
             result
                 .get("id")
                 .filter(|_| result.get("workstream_md").is_some())
         })
         .and_then(|v| v.as_str());
-    if let Some(kid) = kluster_id {
+    if let Some(kid) = mission_id {
         obj.insert(
-            "active_kluster_id".to_string(),
+            "active_mission_id".to_string(),
             Value::String(kid.to_string()),
         );
         changed = true;

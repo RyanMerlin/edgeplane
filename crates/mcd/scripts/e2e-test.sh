@@ -5,7 +5,7 @@
 #   1. mc daemon up (daemon starts)
 #   2. Runtime smoke-tests (claude-code, codex, gemini)
 #   3. Enroll three agents in one mission
-#   4. Submit a three-task DAG to a kluster (A→B→C, different runtimes)
+#   4. Submit a three-task DAG to a mission (A→B→C, different runtimes)
 #   5. Watch progress until all tasks finish
 #   6. Verify all tasks reached status=finished
 #   7. Inter-agent message flow (check message count > 0 after tasks complete)
@@ -13,16 +13,16 @@
 # Prerequisites:
 #   - mc and mcd installed (run install.sh first)
 #   - MC_BACKEND_URL and MC_TOKEN set, or a ~/.missioncontrol/mcd.yaml present
-#   - A mission and kluster already created in MissionControl (set IDs below)
+#   - A mission and mission already created in MissionControl (set IDs below)
 #   - claude, codex, and gemini CLIs installed
 #
 # Usage:
-#   MISSION_ID=<uuid> KLUSTER_ID=<uuid> bash e2e-test.sh
+#   DOMAIN_ID=<uuid> MISSION_ID=<uuid> bash e2e-test.sh
 
 set -euo pipefail
 
+: "${DOMAIN_ID:?Set DOMAIN_ID to the target mission UUID}"
 : "${MISSION_ID:?Set MISSION_ID to the target mission UUID}"
-: "${KLUSTER_ID:?Set KLUSTER_ID to the target kluster UUID}"
 : "${MC_BACKEND_URL:=http://localhost:8000}"
 : "${MC_TOKEN:=}"
 
@@ -67,12 +67,12 @@ done
 # ---------------------------------------------------------------------------
 # Step 3: Enroll three agents
 # ---------------------------------------------------------------------------
-header "Step 3: Enroll agents in mission $MISSION_ID"
+header "Step 3: Enroll agents in mission $DOMAIN_ID"
 
 enroll_agent() {
     local runtime="$1"
     local result
-    result=$(mc_cmd mesh agent enroll --mission "$MISSION_ID" --runtime "$runtime" 2>&1)
+    result=$(mc_cmd mesh agent enroll --mission "$DOMAIN_ID" --runtime "$runtime" 2>&1)
     local agent_id
     agent_id=$(echo "$result" | grep -oE '[0-9a-f-]{36}' | head -1)
     if [[ -n "$agent_id" ]]; then
@@ -95,10 +95,10 @@ info "gemini agent:      ${GEMINI_AGENT:-<failed>}"
 # ---------------------------------------------------------------------------
 # Step 4: Submit a three-task DAG
 # ---------------------------------------------------------------------------
-header "Step 4: Submit three-task DAG to kluster $KLUSTER_ID"
+header "Step 4: Submit three-task DAG to mission $MISSION_ID"
 
 # Task A: claude-code — design doc (no deps)
-TASK_A=$(mc_cmd mesh task run "$KLUSTER_ID" \
+TASK_A=$(mc_cmd mesh task run "$MISSION_ID" \
     --title "Write a design doc for a simple key-value store" \
     --description "Produce a concise design doc (design.md) for an in-memory key-value store in Rust. Cover: API surface, data structure choice, error handling. Keep it under 200 lines." \
     --runtime claude_code \
@@ -114,7 +114,7 @@ fi
 
 # Task B: codex — implement (depends on A)
 if [[ -n "$TASK_A" ]]; then
-    TASK_B=$(mc_cmd mesh task run "$KLUSTER_ID" \
+    TASK_B=$(mc_cmd mesh task run "$MISSION_ID" \
         --title "Implement the key-value store from the design doc" \
         --description "Read design.md and implement the described key-value store in src/kvstore.rs. Include unit tests." \
         --runtime codex \
@@ -130,9 +130,9 @@ fi
 
 # Task C: gemini — review and summarise (depends on B)
 if [[ -n "$TASK_B" ]]; then
-    TASK_C=$(mc_cmd mesh task run "$KLUSTER_ID" \
+    TASK_C=$(mc_cmd mesh task run "$MISSION_ID" \
         --title "Review the implementation and write a summary" \
-        --description "Review src/kvstore.rs for correctness, style, and completeness. Post a kluster message summarising your findings and any recommended changes." \
+        --description "Review src/kvstore.rs for correctness, style, and completeness. Post a mission message summarising your findings and any recommended changes." \
         --runtime gemini \
         --depends-on "$TASK_B" \
         --claim-policy first_claim \
@@ -147,13 +147,13 @@ fi
 # ---------------------------------------------------------------------------
 # Step 5: Watch until all tasks finish (timeout: 10 min)
 # ---------------------------------------------------------------------------
-header "Step 5: Watching kluster until all tasks finish (timeout: 10m)"
+header "Step 5: Watching mission until all tasks finish (timeout: 10m)"
 
 DEADLINE=$(( $(date +%s) + 600 ))
 ALL_DONE=false
 
 while [[ $(date +%s) -lt $DEADLINE ]]; do
-    task_statuses=$(api "/work/klusters/$KLUSTER_ID/tasks" 2>/dev/null \
+    task_statuses=$(api "/work/missions/$MISSION_ID/tasks" 2>/dev/null \
         | python3 -c "import sys,json; tasks=json.load(sys.stdin); print(' '.join(t['status'] for t in tasks))" 2>/dev/null || echo "error")
 
     info "task statuses: $task_statuses"
@@ -205,13 +205,13 @@ check_task "$TASK_C" "Task C (gemini)"
 # ---------------------------------------------------------------------------
 header "Step 7: Inter-agent messages"
 
-msg_count=$(api "/work/klusters/$KLUSTER_ID/messages" 2>/dev/null \
+msg_count=$(api "/work/missions/$MISSION_ID/messages" 2>/dev/null \
     | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
 
 if [[ "$msg_count" -gt 0 ]]; then
-    green "$msg_count message(s) in kluster stream"
+    green "$msg_count message(s) in mission stream"
 else
-    red "No messages in kluster stream (expected at least one from gemini review)"
+    red "No messages in mission stream (expected at least one from gemini review)"
 fi
 
 # ---------------------------------------------------------------------------

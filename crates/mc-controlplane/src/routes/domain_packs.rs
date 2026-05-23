@@ -22,7 +22,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/packs", get(list_packs))
         .route("/packs/{pack_id}", get(get_pack).delete(delete_pack))
-        .route("/packs/missions/{mission_id}/export", post(export_mission))
+        .route("/packs/domains/{domain_id}/export", post(export_domain))
         .route("/packs/{pack_id}/install", post(install_pack))
 }
 
@@ -64,7 +64,7 @@ async fn list_packs(
 ) -> impl IntoResponse {
     match sqlx::query(
         "SELECT id, name, version, sha256, created_at \
-         FROM missionpack \
+         FROM domainpack \
          WHERE owner_subject=$1 \
          ORDER BY created_at DESC",
     )
@@ -103,7 +103,7 @@ async fn get_pack(
 ) -> impl IntoResponse {
     match sqlx::query(
         "SELECT id, name, version, sha256, manifest_json \
-         FROM missionpack \
+         FROM domainpack \
          WHERE id=$1 AND owner_subject=$2",
     )
     .bind(&pack_id)
@@ -137,7 +137,7 @@ async fn delete_pack(
     principal: Principal,
     Path(pack_id): Path<String>,
 ) -> impl IntoResponse {
-    match sqlx::query("DELETE FROM missionpack WHERE id=$1 AND owner_subject=$2")
+    match sqlx::query("DELETE FROM domainpack WHERE id=$1 AND owner_subject=$2")
         .bind(&pack_id)
         .bind(&principal.subject)
         .execute(&state.db)
@@ -154,56 +154,56 @@ async fn delete_pack(
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
-async fn export_mission(
+async fn export_domain(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(mission_id): Path<String>,
+    Path(domain_id): Path<String>,
 ) -> impl IntoResponse {
-    // 1. Load mission + verify access
-    let mission_row = sqlx::query("SELECT * FROM mission WHERE id=$1")
-        .bind(&mission_id)
+    // 1. Load domain + verify access
+    let domain_row = sqlx::query("SELECT * FROM domain WHERE id=$1")
+        .bind(&domain_id)
         .fetch_optional(&state.db)
         .await;
-    let mission_row = match mission_row {
+    let domain_row = match domain_row {
         Ok(Some(r)) => r,
-        Ok(None) => return not_found("Mission not found"),
-        Err(e) => { tracing::error!("export_mission fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Ok(None) => return not_found("Domain not found"),
+        Err(e) => { tracing::error!("export_domain fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
     };
 
-    let owners: String = mission_row.try_get("owners").unwrap_or_default();
+    let owners: String = domain_row.try_get("owners").unwrap_or_default();
     let subject_lower = principal.subject.to_lowercase();
     if !principal.is_admin && !split_csv(&owners).contains(&subject_lower) {
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    let mission_name: String = mission_row.get("name");
-    let mission_desc: String = mission_row.try_get("description").unwrap_or_default();
+    let domain_name: String = domain_row.get("name");
+    let domain_desc: String = domain_row.try_get("description").unwrap_or_default();
 
-    // 2. Load klusters
-    let klusters = sqlx::query(
-        "SELECT id, name, description FROM kluster WHERE mission_id=$1 ORDER BY created_at ASC",
+    // 2. Load missions
+    let missions = sqlx::query(
+        "SELECT id, name, description FROM mission WHERE domain_id=$1 ORDER BY created_at ASC",
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
 
-    // 3. Load active skill bundles scoped to this mission
+    // 3. Load active skill bundles scoped to this domain
     let skills = sqlx::query(
         "SELECT id, version, tarball_b64, sha256, manifest_json \
-         FROM skillbundle WHERE scope_type='mission' AND scope_id=$1 AND status='active'",
+         FROM skillbundle WHERE scope_type='domain' AND scope_id=$1 AND status='active'",
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
 
-    // 4. Load budget policies for this mission owned by the caller
+    // 4. Load budget policies for this domain owned by the caller
     let budgets = sqlx::query(
         "SELECT scope_type, window_type, hard_cap_cents, soft_cap_cents, action_on_breach \
-         FROM budgetpolicy WHERE scope_type='mission' AND scope_id=$1 AND owner_subject=$2 AND active=true",
+         FROM budgetpolicy WHERE scope_type='domain' AND scope_id=$1 AND owner_subject=$2 AND active=true",
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .bind(&principal.subject)
     .fetch_all(&state.db)
     .await
@@ -212,9 +212,9 @@ async fn export_mission(
     // 5. Build tar.gz in memory
     let manifest = serde_json::json!({
         "version": 1,
-        "mission_id": mission_id,
-        "mission_name": mission_name,
-        "kluster_count": klusters.len(),
+        "domain_id": domain_id,
+        "domain_name": domain_name,
+        "mission_count": missions.len(),
         "skill_count": skills.len(),
         "budget_count": budgets.len(),
         "exported_at": Utc::now().naive_utc().format("%Y-%m-%dT%H:%M:%S").to_string(),
@@ -225,17 +225,17 @@ async fn export_mission(
         let enc = GzEncoder::new(buf, Compression::default());
         let mut builder = Builder::new(enc);
 
-        let _ = add_json_to_tar(&mut builder, "mission.json", &serde_json::json!({
-            "id": mission_id,
-            "name": mission_name,
-            "description": mission_desc,
+        let _ = add_json_to_tar(&mut builder, "domain.json", &serde_json::json!({
+            "id": domain_id,
+            "name": domain_name,
+            "description": domain_desc,
         }));
 
-        for k in &klusters {
+        for k in &missions {
             let k_id: String = k.get("id");
             let k_name: String = k.get("name");
             let k_desc: String = k.try_get("description").unwrap_or_default();
-            let _ = add_json_to_tar(&mut builder, &format!("klusters/{k_id}.json"), &serde_json::json!({
+            let _ = add_json_to_tar(&mut builder, &format!("missions/{k_id}.json"), &serde_json::json!({
                 "id": k_id,
                 "name": k_name,
                 "description": k_desc,
@@ -270,9 +270,9 @@ async fn export_mission(
         match builder.into_inner() {
             Ok(gz) => match gz.finish() {
                 Ok(bytes) => bytes,
-                Err(e) => { tracing::error!("export_mission gz finish: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+                Err(e) => { tracing::error!("export_domain gz finish: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
             },
-            Err(e) => { tracing::error!("export_mission tar into_inner: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+            Err(e) => { tracing::error!("export_domain tar into_inner: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
         }
     };
 
@@ -287,10 +287,10 @@ async fn export_mission(
 
     // 7. Resolve version (bump if same name already exists for this owner)
     let next_version: i32 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(version), 0) + 1 FROM missionpack WHERE owner_subject=$1 AND name=$2",
+        "SELECT COALESCE(MAX(version), 0) + 1 FROM domainpack WHERE owner_subject=$1 AND name=$2",
     )
     .bind(&principal.subject)
-    .bind(&mission_name)
+    .bind(&domain_name)
     .fetch_one(&state.db)
     .await
     .unwrap_or(1);
@@ -299,12 +299,12 @@ async fn export_mission(
     let now = Utc::now().naive_utc();
 
     match sqlx::query(
-        "INSERT INTO missionpack (id, owner_subject, name, version, sha256, tarball_b64, manifest_json, created_at, updated_at) \
+        "INSERT INTO domainpack (id, owner_subject, name, version, sha256, tarball_b64, manifest_json, created_at, updated_at) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8) RETURNING id, name, sha256, version",
     )
     .bind(&pack_id)
     .bind(&principal.subject)
-    .bind(&mission_name)
+    .bind(&domain_name)
     .bind(next_version)
     .bind(&sha256)
     .bind(&tarball_b64)
@@ -319,7 +319,7 @@ async fn export_mission(
             "version": row.get::<i32, _>("version"),
             "sha256": row.get::<String, _>("sha256"),
         })).into_response(),
-        Err(e) => { tracing::error!("export_mission insert: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => { tracing::error!("export_domain insert: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
 }
 
@@ -327,7 +327,7 @@ async fn export_mission(
 
 #[derive(serde::Deserialize)]
 struct InstallQuery {
-    target_mission_id: Option<String>,
+    target_domain_id: Option<String>,
 }
 
 async fn install_pack(
@@ -338,7 +338,7 @@ async fn install_pack(
 ) -> impl IntoResponse {
     // 1. Load pack
     let pack_row = sqlx::query(
-        "SELECT tarball_b64 FROM missionpack WHERE id=$1 AND owner_subject=$2",
+        "SELECT tarball_b64 FROM domainpack WHERE id=$1 AND owner_subject=$2",
     )
     .bind(&pack_id)
     .bind(&principal.subject)
@@ -377,35 +377,35 @@ async fn install_pack(
         }
     }
 
-    // 4. Parse mission.json
-    let mission_spec: serde_json::Value = entries.get("mission.json")
+    // 4. Parse domain.json
+    let domain_spec: serde_json::Value = entries.get("domain.json")
         .and_then(|b| serde_json::from_slice(b).ok())
         .unwrap_or(serde_json::json!({}));
-    let mission_name = mission_spec.get("name").and_then(|v| v.as_str()).unwrap_or("Imported Mission");
-    let mission_desc = mission_spec.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    let domain_name = domain_spec.get("name").and_then(|v| v.as_str()).unwrap_or("Imported Domain");
+    let domain_desc = domain_spec.get("description").and_then(|v| v.as_str()).unwrap_or("");
 
     let now = Utc::now().naive_utc();
+    let mut created_domains: Vec<String> = vec![];
     let mut created_missions: Vec<String> = vec![];
-    let mut created_klusters: Vec<String> = vec![];
     let mut created_skills: Vec<String> = vec![];
     let mut created_budgets: Vec<String> = vec![];
 
-    // 5. Find or create target mission
-    let mission_id = if let Some(ref mid) = q.target_mission_id {
-        let exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM mission WHERE id=$1)")
+    // 5. Find or create target domain
+    let domain_id = if let Some(ref mid) = q.target_domain_id {
+        let exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM domain WHERE id=$1)")
             .bind(mid)
             .fetch_one(&state.db)
             .await
             .unwrap_or(false);
         if !exists {
-            return not_found("Target mission not found");
+            return not_found("Target domain not found");
         }
         mid.clone()
     } else {
         let new_id = new_hash_id();
-        let new_name = format!("{} (from pack)", mission_name);
+        let new_name = format!("{} (from pack)", domain_name);
         match sqlx::query(
-            "INSERT INTO mission \
+            "INSERT INTO domain \
              (id, name, description, owners, contributors, tags, visibility, status, \
               northstar_md, northstar_version, northstar_created_by, northstar_modified_by, \
               northstar_created_at, northstar_modified_at, created_at, updated_at) \
@@ -413,28 +413,28 @@ async fn install_pack(
         )
         .bind(&new_id)
         .bind(&new_name)
-        .bind(mission_desc)
+        .bind(domain_desc)
         .bind(&principal.subject)
         .bind(now)
         .execute(&state.db)
         .await
         {
-            Ok(_) => { created_missions.push(new_id.clone()); new_id }
+            Ok(_) => { created_domains.push(new_id.clone()); new_id }
             Err(e) if e.to_string().contains("unique") || e.to_string().contains("duplicate") => {
-                return (StatusCode::CONFLICT, Json(serde_json::json!({"detail": "Mission name already exists; provide target_mission_id to install into an existing mission"}))).into_response();
+                return (StatusCode::CONFLICT, Json(serde_json::json!({"detail": "Domain name already exists; provide target_domain_id to install into an existing domain"}))).into_response();
             }
-            Err(e) => { tracing::error!("install_pack create_mission: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+            Err(e) => { tracing::error!("install_pack create_domain: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
         }
     };
 
-    // 6. Create klusters (skip existing by name)
-    let mut kluster_entries: Vec<(&str, &[u8])> = entries.iter()
-        .filter(|(k, _)| k.starts_with("klusters/") && k.ends_with(".json"))
+    // 6. Create missions (skip existing by name)
+    let mut mission_entries: Vec<(&str, &[u8])> = entries.iter()
+        .filter(|(k, _)| k.starts_with("missions/") && k.ends_with(".json"))
         .map(|(k, v)| (k.as_str(), v.as_slice()))
         .collect();
-    kluster_entries.sort_by_key(|(k, _)| *k);
+    mission_entries.sort_by_key(|(k, _)| *k);
 
-    for (_, content) in &kluster_entries {
+    for (_, content) in &mission_entries {
         let k_spec: serde_json::Value = match serde_json::from_slice(content) {
             Ok(v) => v, Err(_) => continue,
         };
@@ -443,9 +443,9 @@ async fn install_pack(
         if k_name.is_empty() { continue; }
 
         let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM kluster WHERE mission_id=$1 AND name=$2)",
+            "SELECT EXISTS(SELECT 1 FROM mission WHERE domain_id=$1 AND name=$2)",
         )
-        .bind(&mission_id)
+        .bind(&domain_id)
         .bind(k_name)
         .fetch_one(&state.db)
         .await
@@ -454,24 +454,24 @@ async fn install_pack(
         if !exists {
             let k_id = new_hash_id();
             let _ = sqlx::query(
-                "INSERT INTO kluster (id, mission_id, name, description, owners, contributors, tags, status, \
+                "INSERT INTO mission (id, domain_id, name, description, owners, contributors, tags, status, \
                  workstream_md, workstream_version, workstream_created_by, workstream_modified_by, \
                  workstream_created_at, workstream_modified_at, created_at, updated_at) \
                  VALUES ($1,$2,$3,$4,$5,'','','active','',1,'','',NULL,NULL,$6,$6)",
             )
             .bind(&k_id)
-            .bind(&mission_id)
+            .bind(&domain_id)
             .bind(k_name)
             .bind(k_desc)
             .bind(&principal.subject)
             .bind(now)
             .execute(&state.db)
             .await;
-            created_klusters.push(k_id);
+            created_missions.push(k_id);
         }
     }
 
-    // 7. Create skill bundles (skip existing by sha256 for this mission)
+    // 7. Create skill bundles (skip existing by sha256 for this domain)
     let mut skill_entries: Vec<(&str, &[u8])> = entries.iter()
         .filter(|(k, _)| k.starts_with("skills/") && k.ends_with(".json"))
         .map(|(k, v)| (k.as_str(), v.as_slice()))
@@ -488,9 +488,9 @@ async fn install_pack(
         if s_sha256.is_empty() { continue; }
 
         let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM skillbundle WHERE scope_type='mission' AND scope_id=$1 AND sha256=$2)",
+            "SELECT EXISTS(SELECT 1 FROM skillbundle WHERE scope_type='domain' AND scope_id=$1 AND sha256=$2)",
         )
-        .bind(&mission_id)
+        .bind(&domain_id)
         .bind(s_sha256)
         .fetch_one(&state.db)
         .await
@@ -501,13 +501,13 @@ async fn install_pack(
             let size_bytes = STANDARD.decode(s_tarball).map(|b| b.len() as i32).unwrap_or(0);
             let _ = sqlx::query(
                 "INSERT INTO skillbundle \
-                 (id, scope_type, scope_id, mission_id, kluster_id, version, status, \
+                 (id, scope_type, scope_id, domain_id, mission_id, version, status, \
                   signature_alg, signing_key_id, signature, signature_verified, \
                   manifest_json, tarball_b64, sha256, size_bytes, created_by, created_at, updated_at) \
-                 VALUES ($1,'mission',$2,$2,'', $3,'active','','','',false,'[]',$4,$5,$6,$7,$8,$8)",
+                 VALUES ($1,'domain',$2,$2,'', $3,'active','','','',false,'[]',$4,$5,$6,$7,$8,$8)",
             )
             .bind(&sb_id)
-            .bind(&mission_id)
+            .bind(&domain_id)
             .bind(s_version)
             .bind(s_tarball)
             .bind(s_sha256)
@@ -541,11 +541,11 @@ async fn install_pack(
             "INSERT INTO budgetpolicy \
              (id, owner_subject, scope_type, scope_id, window_type, hard_cap_cents, soft_cap_cents, \
               token_hard_cap, token_soft_cap, action_on_breach, active, created_at, updated_at) \
-             VALUES ($1,$2,'mission',$3,$4,$5,$6,NULL,NULL,$7,true,$8,$8)",
+             VALUES ($1,$2,'domain',$3,$4,$5,$6,NULL,NULL,$7,true,$8,$8)",
         )
         .bind(&policy_id)
         .bind(&principal.subject)
-        .bind(&mission_id)
+        .bind(&domain_id)
         .bind(window_type)
         .bind(hard_cap_cents)
         .bind(soft_cap_cents)
@@ -557,10 +557,10 @@ async fn install_pack(
     }
 
     Json(serde_json::json!({
-        "mission_id": mission_id,
+        "domain_id": domain_id,
         "created": {
+            "domains": created_domains,
             "missions": created_missions,
-            "klusters": created_klusters,
             "skills": created_skills,
             "budgets": created_budgets,
         }

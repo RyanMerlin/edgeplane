@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ApprovalRequest {
     pub id: i32,
-    pub mission_id: String,
+    pub domain_id: String,
     pub action: String,
     pub channel: String,
     pub reason: String,
@@ -31,7 +31,7 @@ pub struct ApprovalRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct ApprovalRequestCreate {
-    pub mission_id: String,
+    pub domain_id: String,
     pub action: String,
     pub channel: Option<String>,
     pub reason: Option<String>,
@@ -51,7 +51,7 @@ pub struct ApprovalRespond {
 
 #[derive(Debug, Deserialize)]
 pub struct ApprovalListQuery {
-    pub mission_id: Option<String>,
+    pub domain_id: Option<String>,
     pub status: Option<String>,
     pub limit: Option<i64>,
 }

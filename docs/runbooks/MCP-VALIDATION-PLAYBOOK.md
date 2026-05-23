@@ -4,13 +4,13 @@ This playbook runs a live lifecycle validation against MissionControl using MCP 
 
 ## What it covers
 
+- Create domain (MCP)
 - Create mission (MCP)
-- Create kluster (MCP)
 - Create/list/update/delete task (MCP)
 - Create doc (MCP) + update doc (API)
 - Create artifact (MCP) + update artifact (API)
-- Load/commit/release kluster workspace (MCP)
-- Cleanup attempt (delete kluster/mission)
+- Load/commit/release mission workspace (MCP)
+- Cleanup attempt (delete mission/domain)
 
 ## Pressure Harness (multi-agent)
 

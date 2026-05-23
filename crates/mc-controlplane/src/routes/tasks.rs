@@ -18,17 +18,17 @@ use crate::{
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/missions/{mission_id}/k/{kluster_id}/t", get(list_tasks).post(create_task))
+        .route("/domains/{domain_id}/m/{mission_id}/t", get(list_tasks).post(create_task))
         .route(
-            "/missions/{mission_id}/k/{kluster_id}/t/{task_id}",
+            "/domains/{domain_id}/m/{mission_id}/t/{task_id}",
             get(get_task).patch(update_task).delete(delete_task),
         )
         .route(
-            "/missions/{mission_id}/k/{kluster_id}/t/{task_id}/overlaps",
+            "/domains/{domain_id}/m/{mission_id}/t/{task_id}/overlaps",
             get(list_overlaps),
         )
-        // Shortcut: list tasks by kluster_id without requiring mission_id (used by TUI)
-        .route("/klusters/{kluster_id}/t", get(list_tasks_by_kluster))
+        // Shortcut: list tasks by mission_id without requiring domain_id (used by TUI)
+        .route("/missions/{mission_id}/t", get(list_tasks_by_mission))
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
@@ -39,18 +39,18 @@ fn split_csv(s: &str) -> Vec<String> {
     s.split(',').map(|x| x.trim().to_lowercase()).filter(|x| !x.is_empty()).collect()
 }
 
-async fn mission_access(
+async fn domain_access(
     state: &AppState,
+    domain_id: &str,
     mission_id: &str,
-    kluster_id: &str,
     principal: &Principal,
     require_write: bool,
     require_owner: bool,
 ) -> Result<(), axum::response::Response> {
-    let m = sqlx::query("SELECT * FROM mission WHERE id=$1")
-        .bind(mission_id).fetch_optional(&state.db).await
-        .map_err(|e| { tracing::error!("mission_access: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() })?;
-    let row = m.ok_or_else(|| not_found("Mission not found"))?;
+    let m = sqlx::query("SELECT * FROM domain WHERE id=$1")
+        .bind(domain_id).fetch_optional(&state.db).await
+        .map_err(|e| { tracing::error!("domain_access: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() })?;
+    let row = m.ok_or_else(|| not_found("Domain not found"))?;
 
     let vis: String = row.try_get("visibility").unwrap_or_default();
     let owners: String = row.try_get("owners").unwrap_or_default();
@@ -73,10 +73,10 @@ async fn mission_access(
         return Err(StatusCode::FORBIDDEN.into_response());
     }
 
-    let k: Option<i32> = sqlx::query_scalar("SELECT 1 FROM kluster WHERE id=$1 AND mission_id=$2")
-        .bind(kluster_id).bind(mission_id)
+    let k: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1 AND domain_id=$2")
+        .bind(mission_id).bind(domain_id)
         .fetch_optional(&state.db).await.unwrap_or(None);
-    if k.is_none() { return Err(not_found("Kluster not found")); }
+    if k.is_none() { return Err(not_found("Mission not found")); }
     Ok(())
 }
 
@@ -86,21 +86,21 @@ struct ListQuery { status: Option<String>, limit: Option<i64> }
 async fn list_tasks(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path((mission_id, kluster_id)): Path<(String, String)>,
+    Path((domain_id, mission_id)): Path<(String, String)>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
-    if let Err(r) = mission_access(&state, &mission_id, &kluster_id, &principal, false, false).await { return r; }
+    if let Err(r) = domain_access(&state, &domain_id, &mission_id, &principal, false, false).await { return r; }
     let limit = q.limit.unwrap_or(100).min(500);
     let rows = if let Some(s) = &q.status {
         sqlx::query_as::<_, Task>(
-            "SELECT * FROM task WHERE kluster_id=$1 AND status=$2 ORDER BY updated_at DESC LIMIT $3"
+            "SELECT * FROM task WHERE mission_id=$1 AND status=$2 ORDER BY updated_at DESC LIMIT $3"
         )
-        .bind(&kluster_id).bind(s).bind(limit).fetch_all(&state.db).await
+        .bind(&mission_id).bind(s).bind(limit).fetch_all(&state.db).await
     } else {
         sqlx::query_as::<_, Task>(
-            "SELECT * FROM task WHERE kluster_id=$1 ORDER BY updated_at DESC LIMIT $2"
+            "SELECT * FROM task WHERE mission_id=$1 ORDER BY updated_at DESC LIMIT $2"
         )
-        .bind(&kluster_id).bind(limit).fetch_all(&state.db).await
+        .bind(&mission_id).bind(limit).fetch_all(&state.db).await
     };
     match rows {
         Ok(tasks) => Json(tasks).into_response(),
@@ -111,21 +111,21 @@ async fn list_tasks(
 async fn create_task(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path((mission_id, kluster_id)): Path<(String, String)>,
+    Path((domain_id, mission_id)): Path<(String, String)>,
     Json(payload): Json<TaskCreate>,
 ) -> impl IntoResponse {
-    if let Err(r) = mission_access(&state, &mission_id, &kluster_id, &principal, true, false).await { return r; }
+    if let Err(r) = domain_access(&state, &domain_id, &mission_id, &principal, true, false).await { return r; }
     if payload.title.trim().is_empty() {
         return (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({"detail": "title is required"}))).into_response();
     }
 
     let now = Utc::now().naive_utc();
     match sqlx::query_as::<_, Task>(
-        "INSERT INTO task (public_id, kluster_id, epic_id, title, description, status, owner, \
+        "INSERT INTO task (public_id, mission_id, epic_id, title, description, status, owner, \
          contributors, dependencies, definition_of_done, related_artifacts, created_at, updated_at) \
          VALUES ('',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11) RETURNING *"
     )
-    .bind(&kluster_id).bind(payload.epic_id).bind(payload.title.trim())
+    .bind(&mission_id).bind(payload.epic_id).bind(payload.title.trim())
     .bind(&payload.description).bind(&payload.status).bind(&payload.owner)
     .bind(&payload.contributors).bind(&payload.dependencies)
     .bind(&payload.definition_of_done).bind(&payload.related_artifacts)
@@ -139,17 +139,17 @@ async fn create_task(
 async fn get_task(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path((mission_id, kluster_id, task_id)): Path<(String, String, String)>,
+    Path((domain_id, mission_id, task_id)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
-    if let Err(r) = mission_access(&state, &mission_id, &kluster_id, &principal, false, false).await { return r; }
+    if let Err(r) = domain_access(&state, &domain_id, &mission_id, &principal, false, false).await { return r; }
 
     // task_id may be numeric id or public_id string
     let row = if let Ok(numeric_id) = task_id.parse::<i64>() {
-        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE id=$1 AND kluster_id=$2")
-            .bind(numeric_id).bind(&kluster_id).fetch_optional(&state.db).await
+        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE id=$1 AND mission_id=$2")
+            .bind(numeric_id).bind(&mission_id).fetch_optional(&state.db).await
     } else {
-        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE public_id=$1 AND kluster_id=$2")
-            .bind(&task_id).bind(&kluster_id).fetch_optional(&state.db).await
+        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE public_id=$1 AND mission_id=$2")
+            .bind(&task_id).bind(&mission_id).fetch_optional(&state.db).await
     };
 
     match row {
@@ -162,17 +162,17 @@ async fn get_task(
 async fn update_task(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path((mission_id, kluster_id, task_id)): Path<(String, String, String)>,
+    Path((domain_id, mission_id, task_id)): Path<(String, String, String)>,
     Json(payload): Json<TaskUpdate>,
 ) -> impl IntoResponse {
-    if let Err(r) = mission_access(&state, &mission_id, &kluster_id, &principal, true, false).await { return r; }
+    if let Err(r) = domain_access(&state, &domain_id, &mission_id, &principal, true, false).await { return r; }
 
     let existing = if let Ok(numeric_id) = task_id.parse::<i64>() {
-        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE id=$1 AND kluster_id=$2")
-            .bind(numeric_id).bind(&kluster_id).fetch_optional(&state.db).await
+        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE id=$1 AND mission_id=$2")
+            .bind(numeric_id).bind(&mission_id).fetch_optional(&state.db).await
     } else {
-        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE public_id=$1 AND kluster_id=$2")
-            .bind(&task_id).bind(&kluster_id).fetch_optional(&state.db).await
+        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE public_id=$1 AND mission_id=$2")
+            .bind(&task_id).bind(&mission_id).fetch_optional(&state.db).await
     };
 
     let task = match existing {
@@ -209,16 +209,16 @@ async fn update_task(
 async fn delete_task(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path((mission_id, kluster_id, task_id)): Path<(String, String, String)>,
+    Path((domain_id, mission_id, task_id)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
-    if let Err(r) = mission_access(&state, &mission_id, &kluster_id, &principal, false, true).await { return r; }
+    if let Err(r) = domain_access(&state, &domain_id, &mission_id, &principal, false, true).await { return r; }
 
     let existing = if let Ok(numeric_id) = task_id.parse::<i64>() {
-        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE id=$1 AND kluster_id=$2")
-            .bind(numeric_id).bind(&kluster_id).fetch_optional(&state.db).await
+        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE id=$1 AND mission_id=$2")
+            .bind(numeric_id).bind(&mission_id).fetch_optional(&state.db).await
     } else {
-        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE public_id=$1 AND kluster_id=$2")
-            .bind(&task_id).bind(&kluster_id).fetch_optional(&state.db).await
+        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE public_id=$1 AND mission_id=$2")
+            .bind(&task_id).bind(&mission_id).fetch_optional(&state.db).await
     };
 
     let task = match existing {
@@ -237,25 +237,25 @@ async fn delete_task(
     Json(serde_json::json!({"ok": true, "deleted_id": deleted_id})).into_response()
 }
 
-// ── Shortcut: GET /klusters/{kluster_id}/t ────────────────────────────────────
-// Used by the TUI which only knows kluster_id, not the parent mission_id.
+// ── Shortcut: GET /missions/{mission_id}/t ────────────────────────────────────
+// Used by the TUI which only knows mission_id, not the parent domain_id.
 // No auth check — mirrors the unauthenticated pattern; add Principal if auth is needed.
 
-async fn list_tasks_by_kluster(
+async fn list_tasks_by_mission(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(kluster_id): Path<String>,
+    Path(mission_id): Path<String>,
 ) -> impl IntoResponse {
     match sqlx::query_as::<_, Task>(
-        "SELECT * FROM task WHERE kluster_id=$1 ORDER BY created_at ASC LIMIT 200"
+        "SELECT * FROM task WHERE mission_id=$1 ORDER BY created_at ASC LIMIT 200"
     )
-    .bind(&kluster_id)
+    .bind(&mission_id)
     .fetch_all(&state.db)
     .await
     {
         Ok(tasks) => Json(tasks).into_response(),
         Err(e) => {
-            tracing::error!("list_tasks_by_kluster: {e}");
+            tracing::error!("list_tasks_by_mission: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
@@ -264,17 +264,17 @@ async fn list_tasks_by_kluster(
 async fn list_overlaps(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path((mission_id, kluster_id, task_id)): Path<(String, String, String)>,
+    Path((domain_id, mission_id, task_id)): Path<(String, String, String)>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
-    if let Err(r) = mission_access(&state, &mission_id, &kluster_id, &principal, false, false).await { return r; }
+    if let Err(r) = domain_access(&state, &domain_id, &mission_id, &principal, false, false).await { return r; }
 
     let task_row = if let Ok(numeric_id) = task_id.parse::<i64>() {
-        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE id=$1 AND kluster_id=$2")
-            .bind(numeric_id).bind(&kluster_id).fetch_optional(&state.db).await
+        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE id=$1 AND mission_id=$2")
+            .bind(numeric_id).bind(&mission_id).fetch_optional(&state.db).await
     } else {
-        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE public_id=$1 AND kluster_id=$2")
-            .bind(&task_id).bind(&kluster_id).fetch_optional(&state.db).await
+        sqlx::query_as::<_, Task>("SELECT * FROM task WHERE public_id=$1 AND mission_id=$2")
+            .bind(&task_id).bind(&mission_id).fetch_optional(&state.db).await
     };
     let task = match task_row {
         Ok(Some(t)) => t,

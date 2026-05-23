@@ -88,7 +88,7 @@ impl AppModal {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
     Agents,
-    Missions,
+    Domains,
     Feed,
     Approvals,
     Secrets,
@@ -121,7 +121,7 @@ pub struct App {
     // and redispatches if the screen is currently visible.
     pub agents_last_refresh: Option<Instant>,
     pub approvals_last_refresh: Option<Instant>,
-    pub missions_last_refresh: Option<Instant>,
+    pub domains_last_refresh: Option<Instant>,
 
     /// Last time we polled `~/.mc/session.json` looking for a
     /// fresh session (the user running `mc auth login` in another shell).
@@ -140,7 +140,7 @@ pub struct App {
 
 const AGENTS_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
 const APPROVALS_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
-const MISSIONS_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+const DOMAINS_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 const AGENTS_HELP: &[HelpEntry] = &[
     HelpEntry { keys: "↑↓",      desc: "navigate agents/nodes" },
@@ -150,11 +150,11 @@ const AGENTS_HELP: &[HelpEntry] = &[
     HelpEntry { keys: "d",       desc: "remove selected agent (confirm)" },
 ];
 
-const MISSIONS_HELP: &[HelpEntry] = &[
+const DOMAINS_HELP: &[HelpEntry] = &[
     HelpEntry { keys: "↑↓",      desc: "navigate within the focused pane" },
-    HelpEntry { keys: "←→",      desc: "move focus between Missions / Klusters / Tasks" },
-    HelpEntry { keys: "/",       desc: "filter missions or klusters (Esc to clear)" },
-    HelpEntry { keys: "Enter",   desc: "drill into selected mission/kluster" },
+    HelpEntry { keys: "←→",      desc: "move focus between Domains / Missions / Tasks" },
+    HelpEntry { keys: "/",       desc: "filter domains or missions (Esc to clear)" },
+    HelpEntry { keys: "Enter",   desc: "drill into selected domain/mission" },
 ];
 
 const FEED_HELP: &[HelpEntry] = &[
@@ -192,14 +192,14 @@ impl App {
         base_url: String,
         token: Option<String>,
         version: String,
-        initial_mission: Option<String>,
+        initial_domain: Option<String>,
         context_name: String,
         auth_state: AuthState,
         client: std::sync::Arc<dyn DataClient>,
     ) -> Self {
         let mut matrix = MissionMatrixState::default();
-        if let Some(mid) = initial_mission {
-            matrix.selected_mission_id = Some(mid);
+        if let Some(mid) = initial_domain {
+            matrix.selected_domain_id = Some(mid);
         }
 
         let pool = WorkPool::new();
@@ -246,7 +246,7 @@ impl App {
             config,
             agents_last_refresh: None,
             approvals_last_refresh: None,
-            missions_last_refresh: None,
+            domains_last_refresh: None,
             auth_last_check: None,
             modal: None,
             help_open: false,
@@ -320,7 +320,7 @@ impl App {
         // interval against the pre-auth `now`.
         self.agents_last_refresh = None;
         self.approvals_last_refresh = None;
-        self.missions_last_refresh = None;
+        self.domains_last_refresh = None;
 
         true
     }
@@ -455,21 +455,38 @@ impl App {
                         self.agents.error = error;
                     }
                 }
-                WorkResult::MissionsListed { missions, error, .. } => {
+                WorkResult::DomainsListed { domains, error, .. } => {
                     if let Some(e) = error {
                         let classified = self.classify_error(e).unwrap_or_default();
                         self.matrix.error = Some(if is_auth_error(&classified) || classified.starts_with("Not signed in") {
                             classified
                         } else {
-                            format!("missions error: {classified}")
+                            format!("domains error: {classified}")
                         });
                     } else {
                         self.matrix.error = None;
+                        self.matrix.loading_domains = false;
+                        let prev_id = self.matrix.visible_domains().get(self.matrix.domain_selection).map(|m| m.id.clone());
+                        self.matrix.domains = domains;
+                        if let Some(id) = prev_id {
+                            if let Some(idx) = self.matrix.visible_domains().iter().position(|m| m.id == id) {
+                                self.matrix.domain_selection = idx;
+                            } else {
+                                self.matrix.domain_selection = 0;
+                            }
+                        } else {
+                            self.matrix.domain_selection = 0;
+                        }
+                        self.domains_last_refresh = Some(Instant::now());
+                    }
+                }
+                WorkResult::MissionsListed { domain_id, missions, .. } => {
+                    if Some(&domain_id) == self.matrix.selected_domain_id.as_ref() {
                         self.matrix.loading_missions = false;
-                        let prev_id = self.matrix.visible_missions().get(self.matrix.mission_selection).map(|m| m.id.clone());
+                        let prev_id = self.matrix.visible_missions().get(self.matrix.mission_selection).map(|k| k.id.clone());
                         self.matrix.missions = missions;
                         if let Some(id) = prev_id {
-                            if let Some(idx) = self.matrix.visible_missions().iter().position(|m| m.id == id) {
+                            if let Some(idx) = self.matrix.visible_missions().iter().position(|k| k.id == id) {
                                 self.matrix.mission_selection = idx;
                             } else {
                                 self.matrix.mission_selection = 0;
@@ -477,27 +494,10 @@ impl App {
                         } else {
                             self.matrix.mission_selection = 0;
                         }
-                        self.missions_last_refresh = Some(Instant::now());
                     }
                 }
-                WorkResult::KlustersListed { mission_id, klusters, .. } => {
+                WorkResult::TasksListed { mission_id, tasks, .. } => {
                     if Some(&mission_id) == self.matrix.selected_mission_id.as_ref() {
-                        self.matrix.loading_klusters = false;
-                        let prev_id = self.matrix.visible_klusters().get(self.matrix.kluster_selection).map(|k| k.id.clone());
-                        self.matrix.klusters = klusters;
-                        if let Some(id) = prev_id {
-                            if let Some(idx) = self.matrix.visible_klusters().iter().position(|k| k.id == id) {
-                                self.matrix.kluster_selection = idx;
-                            } else {
-                                self.matrix.kluster_selection = 0;
-                            }
-                        } else {
-                            self.matrix.kluster_selection = 0;
-                        }
-                    }
-                }
-                WorkResult::TasksListed { kluster_id, tasks, .. } => {
-                    if Some(&kluster_id) == self.matrix.selected_kluster_id.as_ref() {
                         self.matrix.loading_tasks = false;
                         let prev_id = self.matrix.tasks.get(self.matrix.task_selection).map(|t| t.id);
                         self.matrix.tasks = tasks;
@@ -542,7 +542,7 @@ impl App {
                             .into_iter()
                             .map(|a| super::screens::approval_queue::ApprovalRequest {
                                 id: a.id,
-                                mission_id: a.mission_id,
+                                domain_id: a.domain_id,
                                 action: a.action,
                                 channel: a.channel,
                                 reason: a.reason,
@@ -572,7 +572,7 @@ impl App {
                             self.approval_queue.selection -= 1;
                         }
                         self.pool.dispatch(self.client.clone(), WorkRequest::FetchApprovals {
-                            job_id: next_job_id(), mission_id: None,
+                            job_id: next_job_id(), domain_id: None,
                         });
                     } else {
                         self.approval_queue.last_error = error;
@@ -618,7 +618,7 @@ impl App {
                             // Close any modal and schedule an immediate refresh.
                             self.modal = None;
                             self.agents_last_refresh = None;
-                            self.missions_last_refresh = None;
+                            self.domains_last_refresh = None;
                             self.approvals_last_refresh = None;
                             // Clear any stale auth error messages from panels.
                             self.agents.error = None;
@@ -758,8 +758,8 @@ impl App {
         // Agents fetch.
         checks.push(error_to_check("Agents fetch", &self.agents.error));
 
-        // Missions fetch.
-        checks.push(error_to_check("Missions fetch", &self.matrix.error));
+        // Domains fetch.
+        checks.push(error_to_check("Domains fetch", &self.matrix.error));
 
         // Approvals fetch.
         checks.push(error_to_check("Approvals fetch", &self.approval_queue.last_error));
@@ -790,13 +790,13 @@ impl App {
             Screen::Approvals => {
                 if !self.approval_queue.loading && stale(self.approvals_last_refresh, APPROVALS_REFRESH_INTERVAL) {
                     self.approvals_last_refresh = Some(now);
-                    self.pool.dispatch(self.client.clone(), WorkRequest::FetchApprovals { job_id: next_job_id(), mission_id: None });
+                    self.pool.dispatch(self.client.clone(), WorkRequest::FetchApprovals { job_id: next_job_id(), domain_id: None });
                 }
             }
-            Screen::Missions => {
-                if !self.matrix.loading_missions && stale(self.missions_last_refresh, MISSIONS_REFRESH_INTERVAL) {
-                    self.missions_last_refresh = Some(now);
-                    self.pool.dispatch(self.client.clone(), WorkRequest::ListMissions { job_id: next_job_id() });
+            Screen::Domains => {
+                if !self.matrix.loading_domains && stale(self.domains_last_refresh, DOMAINS_REFRESH_INTERVAL) {
+                    self.domains_last_refresh = Some(now);
+                    self.pool.dispatch(self.client.clone(), WorkRequest::ListDomains { job_id: next_job_id() });
                 }
             }
             Screen::Feed | Screen::Secrets | Screen::Config => {}
@@ -836,17 +836,17 @@ impl App {
             self.try_reauth_from_disk(true);
             self.agents_last_refresh = None;
             self.approvals_last_refresh = None;
-            self.missions_last_refresh = None;
+            self.domains_last_refresh = None;
             // Force an immediate refetch of the current panel.
             match &self.screen {
                 Screen::Agents => {
                     self.pool.dispatch(self.client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
                 }
-                Screen::Missions => {
-                    self.pool.dispatch(self.client.clone(), WorkRequest::ListMissions { job_id: next_job_id() });
+                Screen::Domains => {
+                    self.pool.dispatch(self.client.clone(), WorkRequest::ListDomains { job_id: next_job_id() });
                 }
                 Screen::Approvals => {
-                    self.pool.dispatch(self.client.clone(), WorkRequest::FetchApprovals { job_id: next_job_id(), mission_id: None });
+                    self.pool.dispatch(self.client.clone(), WorkRequest::FetchApprovals { job_id: next_job_id(), domain_id: None });
                 }
                 Screen::Feed | Screen::Secrets | Screen::Config => {}
             }
@@ -862,12 +862,12 @@ impl App {
                 }
                 c
             }
-            Screen::Missions => {
+            Screen::Domains => {
                 let c = self.matrix.handle_key(key.code);
                 if key.code == KeyCode::Enter {
                     match self.matrix.focus {
+                        MatrixFocus::Domains => self.domains_enter(),
                         MatrixFocus::Missions => self.missions_enter(),
-                        MatrixFocus::Klusters => self.klusters_enter(),
                         _ => {}
                     }
                 }
@@ -1061,7 +1061,7 @@ impl App {
             KeyCode::BackTab => self.prev_tab(),
             // Single-char shortcuts for direct jumps (work when not consumed by screen)
             KeyCode::Char('a') => self.switch_to_agents(),
-            KeyCode::Char('m') => self.switch_to_missions(),
+            KeyCode::Char('m') => self.switch_to_domains(),
             KeyCode::Char('f') => self.switch_to_feed(),
             KeyCode::Char('p') => self.switch_to_approvals(),
             KeyCode::Char('s') => self.switch_to_secrets(),
@@ -1072,8 +1072,8 @@ impl App {
 
     fn next_tab(&mut self) {
         match self.screen {
-            Screen::Agents    => self.switch_to_missions(),
-            Screen::Missions  => self.switch_to_feed(),
+            Screen::Agents    => self.switch_to_domains(),
+            Screen::Domains  => self.switch_to_feed(),
             Screen::Feed      => self.switch_to_approvals(),
             Screen::Approvals => self.switch_to_secrets(),
             Screen::Secrets   => { self.screen = Screen::Config; }
@@ -1084,8 +1084,8 @@ impl App {
     fn prev_tab(&mut self) {
         match self.screen {
             Screen::Agents    => { self.screen = Screen::Config; }
-            Screen::Missions  => self.switch_to_agents(),
-            Screen::Feed      => self.switch_to_missions(),
+            Screen::Domains  => self.switch_to_agents(),
+            Screen::Feed      => self.switch_to_domains(),
             Screen::Approvals => self.switch_to_feed(),
             Screen::Secrets   => self.switch_to_approvals(),
             Screen::Config    => self.switch_to_secrets(),
@@ -1100,11 +1100,11 @@ impl App {
         }
     }
 
-    fn switch_to_missions(&mut self) {
-        self.screen = Screen::Missions;
-        if self.matrix.missions.is_empty() && !self.matrix.loading_missions {
-            self.matrix.loading_missions = true;
-            self.pool.dispatch(self.client.clone(), WorkRequest::ListMissions { job_id: next_job_id() });
+    fn switch_to_domains(&mut self) {
+        self.screen = Screen::Domains;
+        if self.matrix.domains.is_empty() && !self.matrix.loading_domains {
+            self.matrix.loading_domains = true;
+            self.pool.dispatch(self.client.clone(), WorkRequest::ListDomains { job_id: next_job_id() });
         }
     }
 
@@ -1127,7 +1127,7 @@ impl App {
             self.approval_queue.loading = true;
             self.pool.dispatch(
                 self.client.clone(),
-                WorkRequest::FetchApprovals { job_id: next_job_id(), mission_id: None },
+                WorkRequest::FetchApprovals { job_id: next_job_id(), domain_id: None },
             );
         }
     }
@@ -1219,11 +1219,11 @@ impl App {
         self.agents.agents.clear();
         self.agents.loading = false;
         self.agents.error = None;
+        self.matrix.domains.clear();
         self.matrix.missions.clear();
-        self.matrix.klusters.clear();
         self.matrix.tasks.clear();
+        self.matrix.loading_domains = false;
         self.matrix.loading_missions = false;
-        self.matrix.loading_klusters = false;
         self.matrix.loading_tasks = false;
         self.matrix.error = None;
         self.agent_feed.live = false;
@@ -1233,7 +1233,7 @@ impl App {
         self.approval_queue.last_error = None;
         self.agents_last_refresh = None;
         self.approvals_last_refresh = None;
-        self.missions_last_refresh = None;
+        self.domains_last_refresh = None;
         self.modal = None;
 
         self.pool.dispatch(new_client.clone(), WorkRequest::Ping { job_id: next_job_id() });
@@ -1259,34 +1259,34 @@ impl App {
         self.switch_context(ctx_name);
     }
 
-    fn missions_enter(&mut self) {
-        let visible = self.matrix.visible_missions();
-        let Some(mission) = visible.get(self.matrix.mission_selection) else { return };
-        let mid = mission.id.clone();
-        self.matrix.selected_mission_id = Some(mid.clone());
-        self.matrix.selected_kluster_id = None;
-        self.matrix.klusters.clear();
+    fn domains_enter(&mut self) {
+        let visible = self.matrix.visible_domains();
+        let Some(domain) = visible.get(self.matrix.domain_selection) else { return };
+        let mid = domain.id.clone();
+        self.matrix.selected_domain_id = Some(mid.clone());
+        self.matrix.selected_mission_id = None;
+        self.matrix.missions.clear();
         self.matrix.tasks.clear();
-        self.matrix.loading_klusters = true;
-        self.matrix.kluster_selection = 0;
+        self.matrix.loading_missions = true;
+        self.matrix.mission_selection = 0;
         self.pool.dispatch(
             self.client.clone(),
-            WorkRequest::ListKlusters { mission_id: mid, job_id: next_job_id() },
+            WorkRequest::ListMissions { domain_id: mid, job_id: next_job_id() },
         );
     }
 
-    fn klusters_enter(&mut self) {
-        let visible = self.matrix.visible_klusters();
-        let Some(kluster) = visible.get(self.matrix.kluster_selection) else { return };
-        let kid = kluster.id.clone();
-        let mid = self.matrix.selected_mission_id.clone().unwrap_or_default();
-        self.matrix.selected_kluster_id = Some(kid.clone());
+    fn missions_enter(&mut self) {
+        let visible = self.matrix.visible_missions();
+        let Some(mission) = visible.get(self.matrix.mission_selection) else { return };
+        let kid = mission.id.clone();
+        let mid = self.matrix.selected_domain_id.clone().unwrap_or_default();
+        self.matrix.selected_mission_id = Some(kid.clone());
         self.matrix.tasks.clear();
         self.matrix.loading_tasks = true;
         self.matrix.task_selection = 0;
         self.pool.dispatch(
             self.client.clone(),
-            WorkRequest::ListTasks { mission_id: mid, kluster_id: kid, job_id: next_job_id() },
+            WorkRequest::ListTasks { domain_id: mid, mission_id: kid, job_id: next_job_id() },
         );
     }
 
@@ -1313,7 +1313,7 @@ impl App {
 
         match &self.screen {
             Screen::Agents => f.render_widget(AgentScreen { state: &self.agents }, chunks[1]),
-            Screen::Missions => f.render_widget(MissionMatrix { state: &self.matrix }, chunks[1]),
+            Screen::Domains => f.render_widget(MissionMatrix { state: &self.matrix }, chunks[1]),
             Screen::Feed => f.render_widget(AgentFeed { state: &self.agent_feed }, chunks[1]),
             Screen::Approvals => f.render_widget(ApprovalQueue { state: &self.approval_queue }, chunks[1]),
             Screen::Secrets => {
@@ -1341,7 +1341,7 @@ impl App {
     fn screen_help(&self) -> (&'static str, &'static [HelpEntry]) {
         match self.screen {
             Screen::Agents => ("Agents", AGENTS_HELP),
-            Screen::Missions => ("Missions", MISSIONS_HELP),
+            Screen::Domains => ("Domains", DOMAINS_HELP),
             Screen::Feed => ("Feed", FEED_HELP),
             Screen::Approvals => ("Approvals", APPROVALS_HELP),
             Screen::Secrets => ("Secrets", SECRETS_HELP),
@@ -1355,7 +1355,7 @@ impl App {
 
         let tabs: &[(Screen, &str)] = &[
             (Screen::Agents, "Agents"),
-            (Screen::Missions, "Missions"),
+            (Screen::Domains, "Domains"),
             (Screen::Feed, "Feed"),
             (Screen::Approvals, "Approvals"),
             (Screen::Secrets, "Secrets"),
@@ -1461,7 +1461,7 @@ impl App {
                 ("d", "remove"),
                 ("?", "help"),
             ],
-            Screen::Missions => &[
+            Screen::Domains => &[
                 ("Tab/S+Tab", "next/prev tab"),
                 ("↑↓", "navigate"),
                 ("/", "search"),

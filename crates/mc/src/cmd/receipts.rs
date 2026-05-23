@@ -31,7 +31,7 @@ pub enum ReceiptsCmd {
         #[arg(long, default_value = "20")]
         limit: usize,
         #[arg(long)]
-        mission: Option<String>,
+        domain: Option<String>,
         #[arg(long)]
         agent: Option<String>,
         #[arg(long)]
@@ -58,9 +58,9 @@ pub fn run(cmd: ReceiptsCmd) -> Result<()> {
             Some(r) => print_receipt(&r, json)?,
             None => anyhow::bail!("receipt '{}' not found", id),
         },
-        ReceiptsCmd::Ls { limit, mission, agent, json } => {
+        ReceiptsCmd::Ls { limit, domain, agent, json } => {
             let filter = ReceiptFilter {
-                mission_id: mission,
+                domain_id: domain,
                 agent_id: agent,
                 limit,
                 ..Default::default()
@@ -109,8 +109,8 @@ fn print_receipt(r: &mcd_receipts::Receipt, as_json: bool) -> Result<()> {
         println!("  args:   {}", r.args_json);
         println!("  result: {}", r.result_json);
         println!("  time:   {}ms", r.execution_time_ms);
-        if let Some(m) = &r.mission_id {
-            println!("  mission: {m}");
+        if let Some(m) = &r.domain_id {
+            println!("  domain: {m}");
         }
         if let Some(a) = &r.agent_id {
             println!("  agent: {a}");
@@ -127,7 +127,7 @@ fn print_receipt(r: &mcd_receipts::Receipt, as_json: bool) -> Result<()> {
 mod tests {
     use mcd_receipts::{Receipt, ReceiptFilter, ReceiptStore};
 
-    fn make_receipt(id: &str, mission_id: Option<&str>) -> Receipt {
+    fn make_receipt(id: &str, domain_id: Option<&str>) -> Receipt {
         Receipt {
             id: id.to_string(),
             capability: "kubectl-observe.kubectl-get-pods".to_string(),
@@ -135,7 +135,7 @@ mod tests {
             result_json: r#"{"ok":true}"#.to_string(),
             exit_code: 0,
             execution_time_ms: 10,
-            mission_id: mission_id.map(|s| s.to_string()),
+            domain_id: domain_id.map(|s| s.to_string()),
             agent_id: None,
             created_at: chrono::Utc::now(),
         }
@@ -150,18 +150,18 @@ mod tests {
     }
 
     #[test]
-    fn receipts_list_with_mission_filter() {
+    fn receipts_list_with_domain_filter() {
         let dir = tempfile::tempdir().unwrap();
         let store = ReceiptStore::open(&dir.path().join("r.db")).unwrap();
 
-        let r1 = make_receipt("receipt-1", Some("mission-alpha"));
-        let r2 = make_receipt("receipt-2", Some("mission-beta"));
+        let r1 = make_receipt("receipt-1", Some("domain-alpha"));
+        let r2 = make_receipt("receipt-2", Some("domain-beta"));
         store.insert(&r1).unwrap();
         store.insert(&r2).unwrap();
 
         let results = store
             .list(ReceiptFilter {
-                mission_id: Some("mission-alpha".to_string()),
+                domain_id: Some("domain-alpha".to_string()),
                 limit: 10,
                 ..Default::default()
             })

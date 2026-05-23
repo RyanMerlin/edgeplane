@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct Task {
     pub id: i32,
     pub public_id: String,
-    pub kluster_id: String,
+    pub mission_id: String,
     pub epic_id: Option<i32>,
     pub title: String,
     pub description: String,
@@ -36,7 +36,7 @@ pub struct TaskCreate {
     pub definition_of_done: String,
     #[serde(default)]
     pub related_artifacts: String,
-    pub kluster_id: Option<String>,
+    pub mission_id: Option<String>,
     pub epic_id: Option<i32>,
 }
 

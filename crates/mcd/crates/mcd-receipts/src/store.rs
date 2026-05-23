@@ -35,12 +35,12 @@ impl ReceiptStore {
                  result_json       TEXT NOT NULL,
                  exit_code         INTEGER NOT NULL,
                  execution_time_ms INTEGER NOT NULL,
-                 mission_id        TEXT,
+                 domain_id        TEXT,
                  agent_id          TEXT,
                  created_at        TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS receipts_created_at ON receipts(created_at DESC);
-             CREATE INDEX IF NOT EXISTS receipts_mission_id ON receipts(mission_id);",
+             CREATE INDEX IF NOT EXISTS receipts_domain_id ON receipts(domain_id);",
         )?;
 
         debug!(path = %path.display(), "ReceiptStore opened");
@@ -51,7 +51,7 @@ impl ReceiptStore {
     pub fn insert(&self, r: &Receipt) -> Result<(), ReceiptsError> {
         self.conn.lock().unwrap().execute(
             "INSERT INTO receipts
-             (id, capability, args_json, result_json, exit_code, execution_time_ms, mission_id, agent_id, created_at)
+             (id, capability, args_json, result_json, exit_code, execution_time_ms, domain_id, agent_id, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(id) DO NOTHING",
             rusqlite::params![
@@ -61,7 +61,7 @@ impl ReceiptStore {
                 r.result_json,
                 r.exit_code,
                 r.execution_time_ms as i64,
-                r.mission_id,
+                r.domain_id,
                 r.agent_id,
                 r.created_at.to_rfc3339(),
             ],
@@ -75,7 +75,7 @@ impl ReceiptStore {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, capability, args_json, result_json, exit_code, execution_time_ms,
-                    mission_id, agent_id, created_at
+                    domain_id, agent_id, created_at
              FROM receipts
              ORDER BY created_at DESC
              LIMIT ?1",
@@ -89,7 +89,7 @@ impl ReceiptStore {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, capability, args_json, result_json, exit_code, execution_time_ms,
-                    mission_id, agent_id, created_at
+                    domain_id, agent_id, created_at
              FROM receipts
              WHERE id = ?1",
         )?;
@@ -106,12 +106,12 @@ impl ReceiptStore {
         let limit = if f.limit == 0 { 50 } else { f.limit };
 
         let mut conditions: Vec<&str> = Vec::new();
-        let mut mission_id_val: Option<String> = None;
+        let mut domain_id_val: Option<String> = None;
         let mut agent_id_val: Option<String> = None;
         let mut capability_val: Option<String> = None;
         let mut since_val: Option<String> = None;
 
-        if f.mission_id.is_some() { conditions.push("mission_id = ?1"); mission_id_val = f.mission_id; }
+        if f.domain_id.is_some() { conditions.push("domain_id = ?1"); domain_id_val = f.domain_id; }
         if f.agent_id.is_some() { conditions.push("agent_id = ?2"); agent_id_val = f.agent_id; }
         if f.capability.is_some() { conditions.push("capability = ?3"); capability_val = f.capability; }
         if f.since.is_some() { conditions.push("created_at >= ?4"); since_val = f.since.map(|dt| dt.to_rfc3339()); }
@@ -124,7 +124,7 @@ impl ReceiptStore {
 
         let sql = format!(
             "SELECT id, capability, args_json, result_json, exit_code, execution_time_ms, \
-             mission_id, agent_id, created_at FROM receipts{} ORDER BY created_at DESC LIMIT ?5",
+             domain_id, agent_id, created_at FROM receipts{} ORDER BY created_at DESC LIMIT ?5",
             where_clause
         );
 
@@ -133,7 +133,7 @@ impl ReceiptStore {
 
         let rows = stmt.query_map(
             rusqlite::params![
-                mission_id_val.as_deref(),
+                domain_id_val.as_deref(),
                 agent_id_val.as_deref(),
                 capability_val.as_deref(),
                 since_val.as_deref(),
@@ -163,7 +163,7 @@ fn row_to_receipt(row: &Row<'_>) -> rusqlite::Result<Receipt> {
         result_json: row.get(3)?,
         exit_code: row.get(4)?,
         execution_time_ms: execution_time_ms as u64,
-        mission_id: row.get(6)?,
+        domain_id: row.get(6)?,
         agent_id: row.get(7)?,
         created_at,
     })
@@ -183,7 +183,7 @@ mod tests {
             result_json: r#"{"ok":true}"#.to_string(),
             exit_code: 0,
             execution_time_ms: 42,
-            mission_id: Some("m1".to_string()),
+            domain_id: Some("m1".to_string()),
             agent_id: Some("a1".to_string()),
             created_at: Utc::now(),
         }
@@ -197,7 +197,7 @@ mod tests {
             result_json: r#"{"ok":true}"#.to_string(),
             exit_code: 0,
             execution_time_ms: 42,
-            mission_id: Some("m1".to_string()),
+            domain_id: Some("m1".to_string()),
             agent_id: Some("a1".to_string()),
             created_at: ts,
         }
@@ -233,18 +233,18 @@ mod tests {
     }
 
     #[test]
-    fn list_filters_by_mission_id() {
+    fn list_filters_by_domain_id() {
         let dir = tempdir().unwrap();
         let store = ReceiptStore::open(&dir.path().join("receipts.db")).unwrap();
         let mut r1 = sample("r1");
-        r1.mission_id = Some("mission-a".to_string());
+        r1.domain_id = Some("domain-a".to_string());
         let mut r2 = sample("r2");
-        r2.mission_id = Some("mission-b".to_string());
+        r2.domain_id = Some("domain-b".to_string());
         store.insert(&r1).unwrap();
         store.insert(&r2).unwrap();
         let results = store
             .list(ReceiptFilter {
-                mission_id: Some("mission-a".to_string()),
+                domain_id: Some("domain-a".to_string()),
                 limit: 10,
                 ..Default::default()
             })

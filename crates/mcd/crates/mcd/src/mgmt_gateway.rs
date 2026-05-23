@@ -445,7 +445,7 @@ async fn handle_dispatch(dispatcher: &CapabilityDispatcher, id: Value, params: &
     let args = params.get("args").cloned().unwrap_or(serde_json::json!({}));
     let dry_run = params.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
     let timeout_secs = params.get("timeout_secs").and_then(|v| v.as_u64());
-    let mission_id = params.get("mission_id").and_then(|v| v.as_str()).map(String::from);
+    let domain_id = params.get("domain_id").and_then(|v| v.as_str()).map(String::from);
     let agent_id = params.get("agent_id").and_then(|v| v.as_str()).map(String::from);
 
     let profile = params.get("profile")
@@ -464,7 +464,7 @@ async fn handle_dispatch(dispatcher: &CapabilityDispatcher, id: Value, params: &
         env: env_str,
         dry_run,
         timeout_secs,
-        mission_id,
+        domain_id,
         agent_id,
     };
 
@@ -664,7 +664,7 @@ fn list_local_agents(registry_path: &std::path::Path) -> anyhow::Result<Vec<Valu
             out.push(serde_json::json!({
                 "agent_id": rec.id,
                 "source": rec.source,
-                "mission_id": rec.mission_id,
+                "domain_id": rec.domain_id,
                 "runtime_kind": rec.runtime_kind,
                 "supervision_mode": rec.supervision_mode,
                 "vault_folder": lc.as_ref().and_then(|c| c.vault_folder.clone()),
@@ -689,7 +689,7 @@ fn describe_local_agent(
             return Ok(Some(serde_json::json!({
                 "agent_id": rec.id,
                 "source": rec.source,
-                "mission_id": rec.mission_id,
+                "domain_id": rec.domain_id,
                 "runtime_kind": rec.runtime_kind,
                 "supervision_mode": rec.supervision_mode,
                 "vault_folder": lc.as_ref().and_then(|c| c.vault_folder.clone()),

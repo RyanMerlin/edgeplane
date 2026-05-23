@@ -13,26 +13,26 @@ pub struct EvolveArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum EvolveCommand {
-    /// Seed an evolve mission from a JSON spec file.
+    /// Seed an evolve domain from a JSON spec file.
     Seed(SeedArgs),
-    /// Launch an agent against an evolve mission.
+    /// Launch an agent against an evolve domain.
     Run(RunArgs),
-    /// Show evolve mission progress.
+    /// Show evolve domain progress.
     Status(StatusArgs),
 }
 
 #[derive(Args, Debug)]
 pub struct SeedArgs {
-    /// JSON spec file defining the evolve mission and task backlog.
+    /// JSON spec file defining the evolve domain and task backlog.
     #[arg(long)]
     pub spec: String,
 }
 
 #[derive(Args, Debug)]
 pub struct RunArgs {
-    /// Mission ID to run agents against.
+    /// Domain ID to run agents against.
     #[arg(long)]
-    pub mission: String,
+    pub domain: String,
 
     /// Agent to use (claude, codex, gemini, openclaw).
     #[arg(long, default_value = "claude")]
@@ -41,15 +41,15 @@ pub struct RunArgs {
 
 #[derive(Args, Debug)]
 pub struct StatusArgs {
-    /// Mission ID to inspect.
+    /// Domain ID to inspect.
     #[arg(long)]
-    pub mission: String,
+    pub domain: String,
 }
 
 pub async fn run(args: EvolveArgs, client: &MissionControlClient) -> Result<()> {
     match args.command {
         EvolveCommand::Seed(a) => seed(a, client).await,
-        EvolveCommand::Run(a) => run_mission(a, client).await,
+        EvolveCommand::Run(a) => run_domain(a, client).await,
         EvolveCommand::Status(a) => status(a, client).await,
     }
 }
@@ -60,21 +60,21 @@ async fn seed(args: SeedArgs, client: &MissionControlClient) -> Result<()> {
     let spec: Value = serde_json::from_str(&spec_content)
         .map_err(|e| anyhow::anyhow!("spec must be valid JSON: {}", e))?;
     let body = json!({ "spec": spec });
-    let response = client.post_json("/evolve/missions", &body).await?;
+    let response = client.post_json("/evolve/domains", &body).await?;
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }
 
-async fn run_mission(args: RunArgs, client: &MissionControlClient) -> Result<()> {
+async fn run_domain(args: RunArgs, client: &MissionControlClient) -> Result<()> {
     let body = json!({ "runtime_kind": args.agent });
-    let path = format!("/evolve/missions/{}/run", args.mission);
+    let path = format!("/evolve/domains/{}/run", args.domain);
     let response = client.post_json(&path, &body).await?;
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }
 
 async fn status(args: StatusArgs, client: &MissionControlClient) -> Result<()> {
-    let path = format!("/evolve/missions/{}/status", args.mission);
+    let path = format!("/evolve/domains/{}/status", args.domain);
     let response = client.get_json(&path).await?;
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())

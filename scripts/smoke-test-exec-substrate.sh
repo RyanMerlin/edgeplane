@@ -27,40 +27,40 @@ fail() { echo "  FAIL: $1 -- $2"; FAIL=$((FAIL + 1)); }
 section() { echo; echo "=== $1 ==="; }
 jq_field() { python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('$1',''))" 2>/dev/null || echo ""; }
 
-# --- Setup: create test mission ---
+# --- Setup: create test domain ---
 section "Setup"
 SMOKE_NAME="smoke-exec-substrate-$$-$(date +%s)"
-MISSION_JSON=$(curl -sf -H "$H" -H "$CT" -X POST "$BASE_URL/missions" \
+DOMAIN_JSON=$(curl -sf -H "$H" -H "$CT" -X POST "$BASE_URL/domains" \
   -d "{\"name\":\"$SMOKE_NAME\",\"description\":\"auto-generated smoke test\",\"owners\":\"smoke-test\"}") || { echo "ABORT: could not reach backend at $BASE_URL"; exit 1; }
-MISSION=$(echo "$MISSION_JSON" | jq_field id)
-if [[ -z "$MISSION" ]]; then echo "ABORT: mission creation failed"; exit 1; fi
-echo "  Created mission: $MISSION"
-trap 'echo; echo "Cleanup: deleting mission $MISSION"; curl -sf -H "$H" -X DELETE "$BASE_URL/missions/$MISSION" >/dev/null 2>&1 || true' EXIT
+DOMAIN=$(echo "$DOMAIN_JSON" | jq_field id)
+if [[ -z "$DOMAIN" ]]; then echo "ABORT: domain creation failed"; exit 1; fi
+echo "  Created domain: $DOMAIN"
+trap 'echo; echo "Cleanup: deleting domain $DOMAIN"; curl -sf -H "$H" -X DELETE "$BASE_URL/domains/$DOMAIN" >/dev/null 2>&1 || true' EXIT
 
 # --- 1. Budget policy CRUD ---
 section "Budget policies"
 BUDGET=$(curl -sf -H "$H" -H "$CT" -X POST "$BASE_URL/budgets" \
-  -d "{\"scope_type\":\"mission\",\"scope_id\":\"$MISSION\",\"window_type\":\"day\",\"hard_cap_cents\":1000}" \
+  -d "{\"scope_type\":\"domain\",\"scope_id\":\"$DOMAIN\",\"window_type\":\"day\",\"hard_cap_cents\":1000}" \
   | jq_field id)
 if [[ -n "$BUDGET" ]]; then pass "Created budget policy"; else fail "Budget creation" "no id returned"; fi
 
 BUDGET_FETCH=$(curl -sf -H "$H" "$BASE_URL/budgets/$BUDGET" | jq_field id 2>/dev/null || echo "")
 if [[ "$BUDGET_FETCH" == "$BUDGET" ]]; then pass "Fetched budget policy"; else fail "Fetch budget" "expected $BUDGET got '$BUDGET_FETCH'"; fi
 
-# --- 2. Mesh kluster + task ---
+# --- 2. Mesh mission + task ---
 section "Mesh task and claim hardening"
-KLUSTER=$(curl -sf -H "$H" -H "$CT" -X POST "$BASE_URL/missions/$MISSION/k" \
-  -d '{"name":"smoke-kluster","required_capabilities":[],"owners":"smoke-test"}' | jq_field id)
-if [[ -n "$KLUSTER" ]]; then pass "Created kluster"; else fail "Kluster creation" "no id"; fi
+MISSION=$(curl -sf -H "$H" -H "$CT" -X POST "$BASE_URL/domains/$DOMAIN/m" \
+  -d '{"name":"smoke-mission","required_capabilities":[],"owners":"smoke-test"}' | jq_field id)
+if [[ -n "$MISSION" ]]; then pass "Created mission"; else fail "Mission creation" "no id"; fi
 
-TASK=$(curl -sf -H "$H" -H "$CT" -X POST "$BASE_URL/work/klusters/$KLUSTER/tasks" \
+TASK=$(curl -sf -H "$H" -H "$CT" -X POST "$BASE_URL/work/missions/$MISSION/tasks" \
   -d '{"title":"smoke task","description":"test","required_capabilities":[]}' | jq_field id)
 if [[ -n "$TASK" ]]; then pass "Created mesh task"; else fail "Task creation" "no id"; fi
 
 # Enroll two agents.
-AGENT1=$(curl -sf -H "$H" -H "$CT" -X POST "$BASE_URL/work/missions/$MISSION/agents/enroll" \
+AGENT1=$(curl -sf -H "$H" -H "$CT" -X POST "$BASE_URL/work/domains/$DOMAIN/agents/enroll" \
   -d '{"runtime_kind":"claude_code","capabilities":[],"labels":{}}' | jq_field id)
-AGENT2=$(curl -sf -H "$H" -H "$CT" -X POST "$BASE_URL/work/missions/$MISSION/agents/enroll" \
+AGENT2=$(curl -sf -H "$H" -H "$CT" -X POST "$BASE_URL/work/domains/$DOMAIN/agents/enroll" \
   -d '{"runtime_kind":"claude_code","capabilities":[],"labels":{}}' | jq_field id)
 if [[ -n "$AGENT1" && -n "$AGENT2" ]]; then pass "Enrolled two agents"; else fail "Agent enroll" "agent1='$AGENT1' agent2='$AGENT2'"; fi
 
@@ -152,11 +152,11 @@ if [[ -n "$TRIG" ]]; then pass "Created event trigger"; else fail "Event trigger
 TRIG_FETCH=$(curl -sf -H "$H" "$BASE_URL/event-triggers/$TRIG" | jq_field id 2>/dev/null || echo "")
 if [[ "$TRIG_FETCH" == "$TRIG" ]]; then pass "Fetched event trigger"; else fail "Fetch trigger" "expected $TRIG got '$TRIG_FETCH'"; fi
 
-# --- 6. Mission pack export ---
-section "Mission packs"
+# --- 6. Domain pack export ---
+section "Domain packs"
 PACK_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "$H" -H "$CT" \
-  -X POST "$BASE_URL/packs/missions/$MISSION/export")
-if [[ "$PACK_HTTP" == "200" ]]; then pass "Mission pack export"; else fail "Mission pack export" "http $PACK_HTTP"; fi
+  -X POST "$BASE_URL/packs/domains/$DOMAIN/export")
+if [[ "$PACK_HTTP" == "200" ]]; then pass "Domain pack export"; else fail "Domain pack export" "http $PACK_HTTP"; fi
 
 # --- Summary ---
 echo

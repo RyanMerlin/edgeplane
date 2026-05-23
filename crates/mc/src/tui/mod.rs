@@ -21,7 +21,7 @@ pub struct TuiConfig {
     pub base_url: String,
     pub token: Option<String>,
     pub version: String,
-    pub initial_mission: Option<String>,
+    pub initial_domain: Option<String>,
     pub context_name: String,
 }
 
@@ -45,7 +45,7 @@ pub fn run(cfg: TuiConfig) -> Result<()> {
         cfg.base_url,
         resolved_token,
         cfg.version,
-        cfg.initial_mission,
+        cfg.initial_domain,
         cfg.context_name,
         auth_state,
         data_client,

@@ -11,8 +11,8 @@ if [ -f "$CONTEXT_FILE" ]; then
     # Pretty-print key fields if jq is available, otherwise dump raw JSON.
     if command -v jq >/dev/null 2>&1; then
         jq -r '
+            "Domain: \(.active_domain_id // "none")",
             "Mission: \(.active_mission_id // "none")",
-            "Kluster: \(.active_kluster_id // "none")",
             "Profile: \(.active_profile // "none")",
             "Last sync: \(.last_sync_at // "unknown")"
         ' "$CONTEXT_FILE" 2>/dev/null || cat "$CONTEXT_FILE"

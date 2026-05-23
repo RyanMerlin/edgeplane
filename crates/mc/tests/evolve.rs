@@ -20,10 +20,10 @@ async fn evolve_seed_posts_spec_json() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
         when.method(POST)
-            .path("/evolve/missions")
+            .path("/evolve/domains")
             .json_body(json!({"spec":{"name":"seed-test","tasks":[]}}));
         then.status(200)
-            .json_body(json!({"mission_id":"evolve-123","status":"seeded"}));
+            .json_body(json!({"domain_id":"evolve-123","status":"seeded"}));
     });
 
     let mut spec_file = NamedTempFile::new().unwrap();
@@ -44,22 +44,22 @@ async fn evolve_seed_posts_spec_json() {
 }
 
 #[tokio::test]
-async fn evolve_run_posts_runtime_kind_to_mission_path() {
+async fn evolve_run_posts_runtime_kind_to_domain_path() {
     let server = MockServer::start();
-    let mission_id = "evolve-abc12345";
+    let domain_id = "evolve-abc12345";
     let mock = server.mock(|when, then| {
         when.method(POST)
-            .path(format!("/evolve/missions/{mission_id}/run"))
+            .path(format!("/evolve/domains/{domain_id}/run"))
             .json_body(json!({"runtime_kind":"gemini"}));
         then.status(200)
-            .json_body(json!({"mission_id":mission_id,"status":"launched"}));
+            .json_body(json!({"domain_id":domain_id,"status":"launched"}));
     });
 
     let client = build_client(&server.url(""));
     run(
         EvolveArgs {
             command: EvolveCommand::Run(RunArgs {
-                mission: mission_id.to_string(),
+                domain: domain_id.to_string(),
                 agent: "gemini".to_string(),
             }),
         },
@@ -72,21 +72,21 @@ async fn evolve_run_posts_runtime_kind_to_mission_path() {
 }
 
 #[tokio::test]
-async fn evolve_status_gets_mission_status_path() {
+async fn evolve_status_gets_domain_status_path() {
     let server = MockServer::start();
-    let mission_id = "evolve-xyz00001";
+    let domain_id = "evolve-xyz00001";
     let mock = server.mock(|when, then| {
         when.method(GET)
-            .path(format!("/evolve/missions/{mission_id}/status"));
+            .path(format!("/evolve/domains/{domain_id}/status"));
         then.status(200)
-            .json_body(json!({"mission_id":mission_id,"status":"running","run_count":1}));
+            .json_body(json!({"domain_id":domain_id,"status":"running","run_count":1}));
     });
 
     let client = build_client(&server.url(""));
     run(
         EvolveArgs {
             command: EvolveCommand::Status(StatusArgs {
-                mission: mission_id.to_string(),
+                domain: domain_id.to_string(),
             }),
         },
         &client,

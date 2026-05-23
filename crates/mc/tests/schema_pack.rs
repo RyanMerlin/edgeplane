@@ -7,9 +7,9 @@ use tempfile::NamedTempFile;
 fn default_pack_validates_known_entity() {
     let pack = SchemaPack::default();
     let payload = json!({
-        "entity_type": "mission",
+        "entity_type": "domain",
         "name": "launch",
-        "description": "example mission"
+        "description": "example domain"
     });
     assert!(pack.validate_payload(&payload).is_ok());
 }
@@ -18,13 +18,13 @@ fn default_pack_validates_known_entity() {
 fn default_pack_rejects_missing_fields() {
     let pack = SchemaPack::default();
     let payload = json!({
-        "entity_type": "kluster",
+        "entity_type": "mission",
         "description": "missing name"
     });
     let err = pack.validate_payload(&payload).unwrap_err();
     assert!(
         err.to_string()
-            .contains("missing required fields [\"name\"] for entity 'kluster'")
+            .contains("missing required fields [\"name\"] for entity 'mission'")
     );
 }
 

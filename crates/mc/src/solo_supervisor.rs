@@ -7,7 +7,7 @@
 /// Two modes:
 /// - `run_solo`: one-shot launch — enroll → launch → offline.
 /// - `run_solo_work_loop`: persistent worker — enroll → loop claiming and
-///   executing ready tasks via the mission WebSocket stream → offline on stop.
+///   executing ready tasks via the domain WebSocket stream → offline on stop.
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use serde_json::{Value, json};
@@ -30,7 +30,7 @@ use crate::client::MissionControlClient;
 /// child exits and return the exit status.
 pub async fn run_solo<F>(
     client: &MissionControlClient,
-    mission_id: &str,
+    domain_id: &str,
     runtime_kind: &str,
     profile_name: &str,
     launch_fn: F,
@@ -46,7 +46,7 @@ where
         "supervision_mode": "solo",
         "profile": {"name": profile_name},
     });
-    let enroll_path = format!("/work/missions/{mission_id}/agents/enroll");
+    let enroll_path = format!("/work/domains/{domain_id}/agents/enroll");
     let enroll_resp = client
         .post_json(&enroll_path, &enroll_body)
         .await
@@ -61,8 +61,8 @@ where
         anyhow::bail!("backend returned empty agent id during enroll");
     }
     eprintln!(
-        "mc: enrolled as mesh agent {} (mission {})",
-        agent_id, mission_id
+        "mc: enrolled as mesh agent {} (domain {})",
+        agent_id, domain_id
     );
 
     // 2. Create a run record (best-effort — doesn't abort if backend doesn't support it yet).
@@ -137,7 +137,7 @@ where
     Ok(status)
 }
 
-/// Run a persistent work loop: enroll, claim ready tasks from the mission event
+/// Run a persistent work loop: enroll, claim ready tasks from the domain event
 /// stream, execute `task_launch_fn` per task, then loop.
 ///
 /// `task_launch_fn(agent_id, task_id, task_md_path)` must block until the runtime
@@ -147,7 +147,7 @@ where
 /// The loop exits on Ctrl-C.  The agent is marked offline before returning.
 pub async fn run_solo_work_loop<F>(
     client: &MissionControlClient,
-    mission_id: &str,
+    domain_id: &str,
     runtime_kind: &str,
     profile_name: &str,
     task_launch_fn: F,
@@ -164,7 +164,7 @@ where
         "profile": {"name": profile_name},
     });
     let enroll_resp = client
-        .post_json(&format!("/work/missions/{mission_id}/agents/enroll"), &enroll_body)
+        .post_json(&format!("/work/domains/{domain_id}/agents/enroll"), &enroll_body)
         .await
         .context("failed to enroll mesh agent")?;
     let agent_id = enroll_resp
@@ -175,7 +175,7 @@ where
     if agent_id.is_empty() {
         anyhow::bail!("backend returned empty agent id during enroll");
     }
-    eprintln!("mc: work loop enrolled as agent {} (mission {})", agent_id, mission_id);
+    eprintln!("mc: work loop enrolled as agent {} (domain {})", agent_id, domain_id);
 
     // ---- 2. Heartbeat thread ----
     let hb_client = client.clone();
@@ -202,11 +202,11 @@ where
 
     // ---- 3. Initial poll for already-ready tasks ----
     let mut ready_queue: VecDeque<String> = VecDeque::new();
-    if let Ok(klusters) = client.get_json(&format!("/missions/{mission_id}/k")).await {
-        for k in klusters.as_array().unwrap_or(&vec![]) {
+    if let Ok(missions) = client.get_json(&format!("/domains/{domain_id}/m")).await {
+        for k in missions.as_array().unwrap_or(&vec![]) {
             if let Some(kid) = k["id"].as_str() {
                 if let Ok(tasks) = client
-                    .get_json(&format!("/work/klusters/{kid}/tasks?status=ready"))
+                    .get_json(&format!("/work/missions/{kid}/tasks?status=ready"))
                     .await
                 {
                     for t in tasks.as_array().unwrap_or(&vec![]) {
@@ -225,7 +225,7 @@ where
 
     let result = work_loop_inner(
         client,
-        mission_id,
+        domain_id,
         &agent_id,
         ready_queue,
         work_dir,
@@ -246,7 +246,7 @@ where
 
 async fn work_loop_inner<F>(
     client: &MissionControlClient,
-    mission_id: &str,
+    domain_id: &str,
     agent_id: &str,
     mut ready_queue: VecDeque<String>,
     work_dir: PathBuf,
@@ -265,8 +265,8 @@ where
             continue 'reconnect;
         }
 
-        // Connect WebSocket to mission stream.
-        let mut url = client.ws_url(&format!("/work/missions/{mission_id}/stream"))?;
+        // Connect WebSocket to domain stream.
+        let mut url = client.ws_url(&format!("/work/domains/{domain_id}/stream"))?;
         if let Some(token) = client.token() {
             url.query_pairs_mut().append_pair("token", token);
         }
@@ -274,7 +274,7 @@ where
         match connect_async(url.as_str()).await {
             Ok((mut ws, _)) => {
                 backoff = Duration::from_secs(1);
-                eprintln!("mc: subscribed to mission {} event stream", mission_id);
+                eprintln!("mc: subscribed to domain {} event stream", domain_id);
 
                 while let Some(msg) = ws.next().await {
                     match msg {
@@ -300,13 +300,13 @@ where
                 }
 
                 eprintln!(
-                    "mc: mission stream disconnected — reconnecting in {}s…",
+                    "mc: domain stream disconnected — reconnecting in {}s…",
                     backoff.as_secs()
                 );
             }
             Err(e) => {
                 eprintln!(
-                    "mc: mission stream connect failed: {e} — retrying in {}s…",
+                    "mc: domain stream connect failed: {e} — retrying in {}s…",
                     backoff.as_secs()
                 );
             }

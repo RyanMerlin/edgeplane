@@ -20,12 +20,12 @@ use crate::{auth::Principal, state::AppState};
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route(
-            "/missions/{mission_id}/skills/bundles",
-            post(create_mission_bundle),
+            "/domains/{domain_id}/skills/bundles",
+            post(create_domain_bundle),
         )
         .route(
-            "/missions/{mission_id}/klusters/{kluster_id}/skills/bundles",
-            post(create_kluster_bundle),
+            "/domains/{domain_id}/missions/{mission_id}/skills/bundles",
+            post(create_mission_bundle),
         )
         .route("/skills/snapshots/resolve", get(resolve_snapshot))
         .route(
@@ -35,7 +35,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/skills/sync/status", get(sync_status))
         .route("/skills/sync/ack", post(sync_ack))
         .route(
-            "/missions/{mission_id}/skills/bundles/{bundle_id}/deprecate",
+            "/domains/{domain_id}/skills/bundles/{bundle_id}/deprecate",
             post(deprecate_bundle),
         )
 }
@@ -184,8 +184,8 @@ fn encode_tar_entries(entries: &std::collections::BTreeMap<String, Vec<u8>>) -> 
 fn build_normalized_manifest(
     scope_type: &str,
     scope_id: &str,
+    domain_id: &str,
     mission_id: &str,
-    kluster_id: &str,
     manifest_payload: &serde_json::Value,
     entries: &std::collections::BTreeMap<String, Vec<u8>>,
 ) -> Result<serde_json::Value, Response> {
@@ -261,8 +261,8 @@ fn build_normalized_manifest(
         "format": "mc-skill-bundle/v1",
         "scope_type": scope_type,
         "scope_id": scope_id,
+        "domain_id": domain_id,
         "mission_id": mission_id,
-        "kluster_id": kluster_id,
         "files": normalized_files,
         "remove_paths": remove_paths,
     }))
@@ -280,8 +280,8 @@ fn row_to_bundle(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         "id": row.get::<String, _>("id"),
         "scope_type": row.get::<String, _>("scope_type"),
         "scope_id": row.get::<String, _>("scope_id"),
+        "domain_id": row.get::<String, _>("domain_id"),
         "mission_id": row.get::<String, _>("mission_id"),
-        "kluster_id": row.get::<String, _>("kluster_id"),
         "version": row.get::<i32, _>("version"),
         "status": row.get::<String, _>("status"),
         "signature_alg": row.get::<String, _>("signature_alg"),
@@ -303,10 +303,10 @@ fn row_to_snapshot(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         serde_json::from_str(&manifest_str).unwrap_or(serde_json::json!({}));
     serde_json::json!({
         "snapshot_id": row.get::<String, _>("id"),
+        "domain_id": row.get::<String, _>("domain_id"),
         "mission_id": row.get::<String, _>("mission_id"),
-        "kluster_id": row.get::<String, _>("kluster_id"),
+        "domain_bundle_id": row.get::<String, _>("domain_bundle_id"),
         "mission_bundle_id": row.get::<String, _>("mission_bundle_id"),
-        "kluster_bundle_id": row.get::<String, _>("kluster_bundle_id"),
         "effective_version": row.get::<String, _>("effective_version"),
         "sha256": row.get::<String, _>("sha256"),
         "size_bytes": row.get::<i32, _>("size_bytes"),
@@ -333,8 +333,8 @@ fn row_to_localstate(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     let drift: serde_json::Value =
         serde_json::from_str(&drift_str).unwrap_or(serde_json::json!({}));
     serde_json::json!({
+        "domain_id": row.get::<String, _>("domain_id"),
         "mission_id": row.get::<String, _>("mission_id"),
-        "kluster_id": row.get::<String, _>("kluster_id"),
         "actor_subject": row.get::<String, _>("actor_subject"),
         "agent_id": row.get::<String, _>("agent_id"),
         "last_snapshot_id": row.get::<String, _>("last_snapshot_id"),
@@ -373,25 +373,25 @@ fn default_active() -> String {
 
 #[derive(Deserialize)]
 struct ResolveQuery {
-    mission_id: String,
+    domain_id: String,
     #[serde(default)]
-    kluster_id: String,
+    mission_id: String,
 }
 
 #[derive(Deserialize)]
 struct SyncStatusQuery {
-    mission_id: String,
+    domain_id: String,
     #[serde(default)]
-    kluster_id: String,
+    mission_id: String,
     #[serde(default)]
     agent_id: String,
 }
 
 #[derive(Deserialize)]
 struct SyncAckBody {
-    mission_id: String,
+    domain_id: String,
     #[serde(default)]
-    kluster_id: String,
+    mission_id: String,
     #[serde(default)]
     agent_id: String,
     snapshot_id: String,
@@ -410,13 +410,13 @@ struct SyncAckBody {
 // Auth helpers
 // ---------------------------------------------------------------------------
 
-async fn can_read_mission(db: &sqlx::PgPool, principal: &Principal, mission_id: &str) -> bool {
+async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &str) -> bool {
     if principal.is_admin {
         return true;
     }
     if let Ok(Some(row)) =
-        sqlx::query("SELECT visibility, owners, contributors FROM mission WHERE id=$1")
-            .bind(mission_id)
+        sqlx::query("SELECT visibility, owners, contributors FROM domain WHERE id=$1")
+            .bind(domain_id)
             .fetch_optional(db)
             .await
     {
@@ -432,22 +432,22 @@ async fn can_read_mission(db: &sqlx::PgPool, principal: &Principal, mission_id: 
         return in_list(&owners) || in_list(&contributors);
     }
     sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM missionrolemembership WHERE mission_id=$1 AND subject=$2)",
+        "SELECT EXISTS(SELECT 1 FROM domainrolemembership WHERE domain_id=$1 AND subject=$2)",
     )
-    .bind(mission_id)
+    .bind(domain_id)
     .bind(&principal.subject)
     .fetch_one(db)
     .await
     .unwrap_or(false)
 }
 
-async fn can_write_mission(db: &sqlx::PgPool, principal: &Principal, mission_id: &str) -> bool {
+async fn can_write_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &str) -> bool {
     if principal.is_admin {
         return true;
     }
     if let Ok(Some(row)) =
-        sqlx::query("SELECT owners, contributors FROM mission WHERE id=$1")
-            .bind(mission_id)
+        sqlx::query("SELECT owners, contributors FROM domain WHERE id=$1")
+            .bind(domain_id)
             .fetch_optional(db)
             .await
     {
@@ -459,39 +459,39 @@ async fn can_write_mission(db: &sqlx::PgPool, principal: &Principal, mission_id:
         return in_list(&owners) || in_list(&contributors);
     }
     sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM missionrolemembership WHERE mission_id=$1 AND subject=$2 AND role IN ('owner','contributor'))",
+        "SELECT EXISTS(SELECT 1 FROM domainrolemembership WHERE domain_id=$1 AND subject=$2 AND role IN ('owner','contributor'))",
     )
-    .bind(mission_id)
+    .bind(domain_id)
     .bind(&principal.subject)
     .fetch_one(db)
     .await
     .unwrap_or(false)
 }
 
-/// Validate that a kluster_id belongs to the given mission.
-async fn validate_kluster_scope(
+/// Validate that a mission_id belongs to the given domain.
+async fn validate_mission_scope(
     db: &sqlx::PgPool,
+    domain_id: &str,
     mission_id: &str,
-    kluster_id: &str,
 ) -> Result<(), Response> {
-    if kluster_id.is_empty() {
+    if mission_id.is_empty() {
         return Ok(());
     }
     let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM kluster WHERE id=$1 AND mission_id=$2)")
-            .bind(kluster_id)
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM mission WHERE id=$1 AND domain_id=$2)")
             .bind(mission_id)
+            .bind(domain_id)
             .fetch_one(db)
             .await
             .unwrap_or(false);
     if !exists {
-        return Err(not_found("Kluster not found in mission"));
+        return Err(not_found("Mission not found in domain"));
     }
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Core bundle creation (shared between mission and kluster scope)
+// Core bundle creation (shared between domain and mission scope)
 // ---------------------------------------------------------------------------
 
 async fn do_create_bundle(
@@ -499,8 +499,8 @@ async fn do_create_bundle(
     principal: &Principal,
     scope_type: &str,
     scope_id: &str,
+    domain_id: &str,
     mission_id: &str,
-    kluster_id: &str,
     body: &BundleCreate,
 ) -> Response {
     let status = body.status.as_str();
@@ -531,8 +531,8 @@ async fn do_create_bundle(
     let manifest = match build_normalized_manifest(
         scope_type,
         scope_id,
+        domain_id,
         mission_id,
-        kluster_id,
         &manifest_payload,
         &entries,
     ) {
@@ -604,7 +604,7 @@ async fn do_create_bundle(
 
     let result = sqlx::query(
         "INSERT INTO skillbundle \
-         (id, scope_type, scope_id, mission_id, kluster_id, version, status, \
+         (id, scope_type, scope_id, domain_id, mission_id, version, status, \
           signature_alg, signing_key_id, signature, signature_verified, \
           manifest_json, tarball_b64, sha256, size_bytes, created_by, created_at, updated_at) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17) RETURNING *",
@@ -612,8 +612,8 @@ async fn do_create_bundle(
     .bind(&bundle_id)
     .bind(scope_type)
     .bind(scope_id)
+    .bind(domain_id)
     .bind(mission_id)
-    .bind(kluster_id)
     .bind(next_version)
     .bind(status)
     .bind(sig_alg)
@@ -642,46 +642,46 @@ async fn do_create_bundle(
 // Handlers
 // ---------------------------------------------------------------------------
 
-async fn create_mission_bundle(
+async fn create_domain_bundle(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(mission_id): Path<String>,
+    Path(domain_id): Path<String>,
     Json(body): Json<BundleCreate>,
 ) -> impl IntoResponse {
-    if !can_write_mission(&state.db, &principal, &mission_id).await {
+    if !can_write_domain(&state.db, &principal, &domain_id).await {
         return forbidden();
     }
     do_create_bundle(
         &state.db,
         &principal,
-        "mission",
-        &mission_id.clone(),
-        &mission_id,
+        "domain",
+        &domain_id.clone(),
+        &domain_id,
         "",
         &body,
     )
     .await
 }
 
-async fn create_kluster_bundle(
+async fn create_mission_bundle(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path((mission_id, kluster_id)): Path<(String, String)>,
+    Path((domain_id, mission_id)): Path<(String, String)>,
     Json(body): Json<BundleCreate>,
 ) -> impl IntoResponse {
-    if !can_write_mission(&state.db, &principal, &mission_id).await {
+    if !can_write_domain(&state.db, &principal, &domain_id).await {
         return forbidden();
     }
-    if let Err(r) = validate_kluster_scope(&state.db, &mission_id, &kluster_id).await {
+    if let Err(r) = validate_mission_scope(&state.db, &domain_id, &mission_id).await {
         return r;
     }
     do_create_bundle(
         &state.db,
         &principal,
-        "kluster",
-        &kluster_id.clone(),
+        "mission",
+        &mission_id.clone(),
+        &domain_id,
         &mission_id,
-        &kluster_id,
         &body,
     )
     .await
@@ -692,52 +692,52 @@ async fn resolve_snapshot(
     principal: Principal,
     Query(q): Query<ResolveQuery>,
 ) -> impl IntoResponse {
-    if !can_read_mission(&state.db, &principal, &q.mission_id).await {
+    if !can_read_domain(&state.db, &principal, &q.domain_id).await {
         return forbidden();
     }
-    if !q.kluster_id.is_empty() {
+    if !q.mission_id.is_empty() {
         if let Err(r) =
-            validate_kluster_scope(&state.db, &q.mission_id, &q.kluster_id).await
+            validate_mission_scope(&state.db, &q.domain_id, &q.mission_id).await
         {
             return r;
         }
     }
 
-    // Load active mission bundle (latest by version)
-    let mission_bundle_row = match sqlx::query(
+    // Load active domain bundle (latest by version)
+    let domain_bundle_row = match sqlx::query(
         "SELECT * FROM skillbundle \
-         WHERE scope_type='mission' AND scope_id=$1 AND status='active' \
+         WHERE scope_type='domain' AND scope_id=$1 AND status='active' \
          ORDER BY version DESC LIMIT 1",
     )
-    .bind(&q.mission_id)
+    .bind(&q.domain_id)
     .fetch_optional(&state.db)
     .await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return not_found("No active mission skill bundle found"),
+        Ok(None) => return not_found("No active domain skill bundle found"),
         Err(e) => {
-            tracing::error!("resolve_snapshot fetch mission bundle: {e}");
+            tracing::error!("resolve_snapshot fetch domain bundle: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let mission_bundle_id: String = mission_bundle_row.get("id");
-    let mission_bundle_sha: String = mission_bundle_row.get("sha256");
-    let mission_bundle_version: i32 = mission_bundle_row.get("version");
-    let mission_tarball_b64: String = mission_bundle_row.get("tarball_b64");
-    let mission_manifest_str: String = mission_bundle_row.get("manifest_json");
-    let mission_manifest: serde_json::Value =
-        serde_json::from_str(&mission_manifest_str).unwrap_or(serde_json::json!({}));
+    let domain_bundle_id: String = domain_bundle_row.get("id");
+    let domain_bundle_sha: String = domain_bundle_row.get("sha256");
+    let domain_bundle_version: i32 = domain_bundle_row.get("version");
+    let domain_tarball_b64: String = domain_bundle_row.get("tarball_b64");
+    let domain_manifest_str: String = domain_bundle_row.get("manifest_json");
+    let domain_manifest: serde_json::Value =
+        serde_json::from_str(&domain_manifest_str).unwrap_or(serde_json::json!({}));
 
-    // Optionally load kluster bundle
-    let kluster_bundle_data: Option<(String, String, i32, String, serde_json::Value)> =
-        if !q.kluster_id.is_empty() {
+    // Optionally load mission bundle
+    let mission_bundle_data: Option<(String, String, i32, String, serde_json::Value)> =
+        if !q.mission_id.is_empty() {
             match sqlx::query(
                 "SELECT * FROM skillbundle \
-                 WHERE scope_type='kluster' AND scope_id=$1 AND status='active' \
+                 WHERE scope_type='mission' AND scope_id=$1 AND status='active' \
                  ORDER BY version DESC LIMIT 1",
             )
-            .bind(&q.kluster_id)
+            .bind(&q.mission_id)
             .fetch_optional(&state.db)
             .await
             {
@@ -754,7 +754,7 @@ async fn resolve_snapshot(
                 }
                 Ok(None) => None,
                 Err(e) => {
-                    tracing::error!("resolve_snapshot fetch kluster bundle: {e}");
+                    tracing::error!("resolve_snapshot fetch mission bundle: {e}");
                     return StatusCode::INTERNAL_SERVER_ERROR.into_response();
                 }
             }
@@ -762,22 +762,22 @@ async fn resolve_snapshot(
             None
         };
 
-    // Decode mission tarball
-    let mission_bytes = match decode_tarball_b64(&mission_tarball_b64) {
+    // Decode domain tarball
+    let domain_bytes = match decode_tarball_b64(&domain_tarball_b64) {
         Ok(b) => b,
         Err(r) => return r,
     };
-    let mission_entries = match extract_tar_entries(&mission_bytes) {
+    let domain_entries = match extract_tar_entries(&domain_bytes) {
         Ok(e) => e,
         Err(r) => return r,
     };
 
-    // Build manifest files map from mission
+    // Build manifest files map from domain
     let mut effective_manifest_files: std::collections::BTreeMap<
         String,
         serde_json::Value,
     > = Default::default();
-    if let Some(serde_json::Value::Array(files)) = mission_manifest.get("files") {
+    if let Some(serde_json::Value::Array(files)) = domain_manifest.get("files") {
         for item in files {
             if let Some(path) = item.get("path").and_then(|v| v.as_str()) {
                 effective_manifest_files.insert(path.to_string(), item.clone());
@@ -786,21 +786,21 @@ async fn resolve_snapshot(
     }
 
     let mut effective_entries: std::collections::BTreeMap<String, Vec<u8>> =
-        mission_entries.clone();
+        domain_entries.clone();
 
-    let (kluster_bundle_id, kluster_bundle_sha, kluster_bundle_version) =
-        if let Some((kid, ksha, kver, ktarball, kmanifest)) = kluster_bundle_data {
-            // Decode kluster tarball
-            let kluster_bytes = match decode_tarball_b64(&ktarball) {
+    let (mission_bundle_id, mission_bundle_sha, mission_bundle_version) =
+        if let Some((kid, ksha, kver, ktarball, kmanifest)) = mission_bundle_data {
+            // Decode mission tarball
+            let mission_bytes = match decode_tarball_b64(&ktarball) {
                 Ok(b) => b,
                 Err(r) => return r,
             };
-            let kluster_entries = match extract_tar_entries(&kluster_bytes) {
+            let mission_entries = match extract_tar_entries(&mission_bytes) {
                 Ok(e) => e,
                 Err(r) => return r,
             };
 
-            // Apply remove_paths from kluster manifest
+            // Apply remove_paths from mission manifest
             if let Some(serde_json::Value::Array(removes)) =
                 kmanifest.get("remove_paths")
             {
@@ -812,12 +812,12 @@ async fn resolve_snapshot(
                 }
             }
 
-            // Overlay kluster entries
-            for (path, data) in kluster_entries.iter() {
+            // Overlay mission entries
+            for (path, data) in mission_entries.iter() {
                 effective_entries.insert(path.clone(), data.clone());
             }
 
-            // Overlay kluster manifest files
+            // Overlay mission manifest files
             if let Some(serde_json::Value::Array(files)) = kmanifest.get("files") {
                 for item in files {
                     if let Some(path) = item.get("path").and_then(|v| v.as_str()) {
@@ -835,21 +835,21 @@ async fn resolve_snapshot(
     // Build effective manifest
     let effective_manifest = serde_json::json!({
         "format": "mc-skill-snapshot/v1",
+        "domain_id": &q.domain_id,
         "mission_id": &q.mission_id,
-        "kluster_id": &q.kluster_id,
         "source": {
+            "domain_bundle_id": &domain_bundle_id,
             "mission_bundle_id": &mission_bundle_id,
-            "kluster_bundle_id": &kluster_bundle_id,
+            "domain_bundle_version": domain_bundle_version,
             "mission_bundle_version": mission_bundle_version,
-            "kluster_bundle_version": kluster_bundle_version,
         },
         "files": effective_manifest_files.values().collect::<Vec<_>>(),
     });
 
     // Compute signature hash for dedup
     let signature_payload = serde_json::json!({
+        "domain_bundle_sha": &domain_bundle_sha,
         "mission_bundle_sha": &mission_bundle_sha,
-        "kluster_bundle_sha": &kluster_bundle_sha,
         "manifest": &effective_manifest,
     });
     let snapshot_sha = sha256_hex(canon_json(&signature_payload).as_bytes());
@@ -857,11 +857,11 @@ async fn resolve_snapshot(
     // Check for existing snapshot with same sha256
     let existing = sqlx::query(
         "SELECT * FROM skillsnapshot \
-         WHERE mission_id=$1 AND kluster_id=$2 AND sha256=$3 \
+         WHERE domain_id=$1 AND mission_id=$2 AND sha256=$3 \
          ORDER BY created_at DESC LIMIT 1",
     )
+    .bind(&q.domain_id)
     .bind(&q.mission_id)
-    .bind(&q.kluster_id)
     .bind(&snapshot_sha)
     .fetch_optional(&state.db)
     .await;
@@ -879,7 +879,7 @@ async fn resolve_snapshot(
     let tar_bytes = encode_tar_entries(&effective_entries);
     let effective_version = format!(
         "m{}-k{}",
-        mission_bundle_version, kluster_bundle_version
+        domain_bundle_version, mission_bundle_version
     );
     let tarball_stored = base64::engine::general_purpose::STANDARD.encode(&tar_bytes);
     let manifest_json = canon_json(&effective_manifest);
@@ -901,16 +901,16 @@ async fn resolve_snapshot(
 
     let result = sqlx::query(
         "INSERT INTO skillsnapshot \
-         (id, mission_id, kluster_id, mission_bundle_id, kluster_bundle_id, \
+         (id, domain_id, mission_id, domain_bundle_id, mission_bundle_id, \
           effective_version, manifest_json, tarball_b64, sha256, size_bytes, \
           created_at, updated_at) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11) RETURNING *",
     )
     .bind(&snapshot_id)
+    .bind(&q.domain_id)
     .bind(&q.mission_id)
-    .bind(&q.kluster_id)
+    .bind(&domain_bundle_id)
     .bind(&mission_bundle_id)
-    .bind(&kluster_bundle_id)
     .bind(&effective_version)
     .bind(&manifest_json)
     .bind(&tarball_stored)
@@ -947,8 +947,8 @@ async fn download_snapshot(
         }
     };
 
-    let mission_id: String = row.get("mission_id");
-    if !can_read_mission(&state.db, &principal, &mission_id).await {
+    let domain_id: String = row.get("domain_id");
+    if !can_read_domain(&state.db, &principal, &domain_id).await {
         return forbidden();
     }
 
@@ -960,12 +960,12 @@ async fn sync_status(
     principal: Principal,
     Query(q): Query<SyncStatusQuery>,
 ) -> impl IntoResponse {
-    if !can_read_mission(&state.db, &principal, &q.mission_id).await {
+    if !can_read_domain(&state.db, &principal, &q.domain_id).await {
         return forbidden();
     }
-    if !q.kluster_id.is_empty() {
+    if !q.mission_id.is_empty() {
         if let Err(r) =
-            validate_kluster_scope(&state.db, &q.mission_id, &q.kluster_id).await
+            validate_mission_scope(&state.db, &q.domain_id, &q.mission_id).await
         {
             return r;
         }
@@ -973,12 +973,12 @@ async fn sync_status(
 
     let row = sqlx::query(
         "SELECT * FROM skilllocalstate \
-         WHERE actor_subject=$1 AND mission_id=$2 AND kluster_id=$3 AND agent_id=$4 \
+         WHERE actor_subject=$1 AND domain_id=$2 AND mission_id=$3 AND agent_id=$4 \
          ORDER BY updated_at DESC LIMIT 1",
     )
     .bind(&principal.subject)
+    .bind(&q.domain_id)
     .bind(&q.mission_id)
-    .bind(&q.kluster_id)
     .bind(&q.agent_id)
     .fetch_optional(&state.db)
     .await;
@@ -988,8 +988,8 @@ async fn sync_status(
         Ok(None) => {
             // Return zero-state
             Json(serde_json::json!({
+                "domain_id": &q.domain_id,
                 "mission_id": &q.mission_id,
-                "kluster_id": &q.kluster_id,
                 "actor_subject": &principal.subject,
                 "agent_id": &q.agent_id,
                 "last_snapshot_id": "",
@@ -1015,12 +1015,12 @@ async fn sync_ack(
     principal: Principal,
     Json(body): Json<SyncAckBody>,
 ) -> impl IntoResponse {
-    if !can_read_mission(&state.db, &principal, &body.mission_id).await {
+    if !can_read_domain(&state.db, &principal, &body.domain_id).await {
         return forbidden();
     }
-    if !body.kluster_id.is_empty() {
+    if !body.mission_id.is_empty() {
         if let Err(r) =
-            validate_kluster_scope(&state.db, &body.mission_id, &body.kluster_id).await
+            validate_mission_scope(&state.db, &body.domain_id, &body.mission_id).await
         {
             return r;
         }
@@ -1037,12 +1037,12 @@ async fn sync_ack(
     // Try UPSERT via INSERT ON CONFLICT
     let result = sqlx::query(
         "INSERT INTO skilllocalstate \
-         (actor_subject, mission_id, kluster_id, agent_id, \
+         (actor_subject, domain_id, mission_id, agent_id, \
           last_snapshot_id, last_snapshot_sha256, local_overlay_sha256, \
           degraded_offline, drift_flag, drift_details_json, \
           last_sync_at, created_at, updated_at) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$11) \
-         ON CONFLICT (actor_subject, mission_id, kluster_id, agent_id) DO UPDATE SET \
+         ON CONFLICT (actor_subject, domain_id, mission_id, agent_id) DO UPDATE SET \
           last_snapshot_id = EXCLUDED.last_snapshot_id, \
           last_snapshot_sha256 = EXCLUDED.last_snapshot_sha256, \
           local_overlay_sha256 = EXCLUDED.local_overlay_sha256, \
@@ -1054,8 +1054,8 @@ async fn sync_ack(
          RETURNING *",
     )
     .bind(&principal.subject)
+    .bind(&body.domain_id)
     .bind(&body.mission_id)
-    .bind(&body.kluster_id)
     .bind(&body.agent_id)
     .bind(&body.snapshot_id)
     .bind(&body.snapshot_sha256)
@@ -1075,12 +1075,12 @@ async fn sync_ack(
 
             let existing = sqlx::query(
                 "SELECT * FROM skilllocalstate \
-                 WHERE actor_subject=$1 AND mission_id=$2 AND kluster_id=$3 AND agent_id=$4 \
+                 WHERE actor_subject=$1 AND domain_id=$2 AND mission_id=$3 AND agent_id=$4 \
                  LIMIT 1",
             )
             .bind(&principal.subject)
+            .bind(&body.domain_id)
             .bind(&body.mission_id)
-            .bind(&body.kluster_id)
             .bind(&body.agent_id)
             .fetch_optional(&state.db)
             .await;
@@ -1117,15 +1117,15 @@ async fn sync_ack(
                 Ok(None) => {
                     match sqlx::query(
                         "INSERT INTO skilllocalstate \
-                         (actor_subject, mission_id, kluster_id, agent_id, \
+                         (actor_subject, domain_id, mission_id, agent_id, \
                           last_snapshot_id, last_snapshot_sha256, local_overlay_sha256, \
                           degraded_offline, drift_flag, drift_details_json, \
                           last_sync_at, created_at, updated_at) \
                          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$11) RETURNING *",
                     )
                     .bind(&principal.subject)
+                    .bind(&body.domain_id)
                     .bind(&body.mission_id)
-                    .bind(&body.kluster_id)
                     .bind(&body.agent_id)
                     .bind(&body.snapshot_id)
                     .bind(&body.snapshot_sha256)
@@ -1156,14 +1156,14 @@ async fn sync_ack(
 async fn deprecate_bundle(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path((mission_id, bundle_id)): Path<(String, String)>,
+    Path((domain_id, bundle_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     // Owners/admin only for deprecation
     if !principal.is_admin {
         let owned = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM mission WHERE id=$1 AND (owners ILIKE $2 OR owners ILIKE $3 OR owners ILIKE $4))",
+            "SELECT EXISTS(SELECT 1 FROM domain WHERE id=$1 AND (owners ILIKE $2 OR owners ILIKE $3 OR owners ILIKE $4))",
         )
-        .bind(&mission_id)
+        .bind(&domain_id)
         .bind(format!("%{}%", principal.subject.to_lowercase()))
         .bind(format!("{},%", principal.subject.to_lowercase()))
         .bind(principal.subject.to_lowercase())
@@ -1172,11 +1172,11 @@ async fn deprecate_bundle(
         .unwrap_or(false);
 
         if !owned {
-            // Also check missionrolemembership for owner role
+            // Also check domainrolemembership for owner role
             let role_owned = sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS(SELECT 1 FROM missionrolemembership WHERE mission_id=$1 AND subject=$2 AND role='owner')",
+                "SELECT EXISTS(SELECT 1 FROM domainrolemembership WHERE domain_id=$1 AND subject=$2 AND role='owner')",
             )
-            .bind(&mission_id)
+            .bind(&domain_id)
             .bind(&principal.subject)
             .fetch_one(&state.db)
             .await
@@ -1191,10 +1191,10 @@ async fn deprecate_bundle(
     let now = Utc::now().naive_utc();
     let result = sqlx::query(
         "UPDATE skillbundle SET status='deprecated', updated_at=$3 \
-         WHERE id=$1 AND mission_id=$2 RETURNING *",
+         WHERE id=$1 AND domain_id=$2 RETURNING *",
     )
     .bind(&bundle_id)
-    .bind(&mission_id)
+    .bind(&domain_id)
     .bind(now)
     .fetch_optional(&state.db)
     .await;

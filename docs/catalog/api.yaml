@@ -54,7 +54,7 @@ interfaces:
     - /me/profiles/
 
 implemented:
-  - missions, klusters, tasks, docs, artifacts CRUD
+  - domains, missions, tasks, docs, artifacts CRUD
   - semantic vector search (pgvector or Chroma fallback)
   - MCP tool surface (50+ tools)
   - user profile bundles

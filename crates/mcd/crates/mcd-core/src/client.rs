@@ -5,7 +5,7 @@ use serde::{de::DeserializeOwned, Serialize};
 /// Thin HTTP client with bearer auth for the MissionControl backend.
 ///
 /// `api_prefix` is prepended to every path passed into `get`/`post`/etc.
-/// Default is empty — the controlplane serves agent/mission/kluster/task
+/// Default is empty — the controlplane serves agent/domain/mission/task
 /// routes at the root (e.g. `/agents/{id}/messages`). Earlier versions of
 /// mcd hardcoded a `/work/` prefix that no longer matches the
 /// controlplane router; setting `api_prefix = "/work"` reproduces the
@@ -130,9 +130,9 @@ impl BackendClient {
             .error_for_status()?)
     }
 
-    /// Fetch the mission roster — concise agent list for prompt injection.
-    pub async fn get_mission_roster(&self, mission_id: &str) -> Result<Vec<serde_json::Value>> {
-        self.get(&format!("/missions/{mission_id}/roster")).await
+    /// Fetch the domain roster — concise agent list for prompt injection.
+    pub async fn get_domain_roster(&self, domain_id: &str) -> Result<Vec<serde_json::Value>> {
+        self.get(&format!("/domains/{domain_id}/roster")).await
     }
 
     /// Fetch a single agent's full detail (includes profile/machine/runtime).

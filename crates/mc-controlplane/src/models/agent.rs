@@ -13,14 +13,14 @@ pub struct Agent {
     pub capabilities: String,
     pub status: String,
     pub metadata: String,
-    /// Permanent home mission — created automatically on first registration.
-    pub home_mission_id: Option<String>,
-    /// Active mission context. Follows the agent when attached elsewhere;
-    /// reset to `home_mission_id` on detach. Joined to `mission_name` in API responses.
-    pub current_mission_id: Option<String>,
-    /// Human name of `current_mission_id` (joined server-side, not a DB column).
+    /// Permanent home domain — created automatically on first registration.
+    pub home_domain_id: Option<String>,
+    /// Active domain context. Follows the agent when attached elsewhere;
+    /// reset to `home_domain_id` on detach. Joined to `domain_name` in API responses.
+    pub current_domain_id: Option<String>,
+    /// Human name of `current_domain_id` (joined server-side, not a DB column).
     #[serde(skip_deserializing, default)]
-    pub mission_name: Option<String>,
+    pub domain_name: Option<String>,
     /// Extracted from `metadata.runtime` (joined server-side, not a DB column).
     #[serde(skip_deserializing, default)]
     pub runtime: Option<String>,

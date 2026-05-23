@@ -24,7 +24,7 @@ pub fn router() -> Router<Arc<AppState>> {
             get(list_bindings).post(create_binding),
         )
         .route(
-            "/persistence/missions/{mission_id}/policy",
+            "/persistence/domains/{domain_id}/policy",
             get(get_policy).put(put_policy),
         )
         .route(
@@ -78,7 +78,7 @@ fn row_to_binding(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 fn row_to_policy(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     json!({
         "id": row.get::<i32, _>("id"),
-        "mission_id": row.get::<String, _>("mission_id"),
+        "domain_id": row.get::<String, _>("domain_id"),
         "default_binding_id": row.get::<Option<i32>, _>("default_binding_id"),
         "fallback_mode": row.get::<String, _>("fallback_mode"),
         "require_approval": row.get::<bool, _>("require_approval"),
@@ -90,7 +90,7 @@ fn row_to_policy(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 fn row_to_route(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     json!({
         "id": row.get::<i32, _>("id"),
-        "mission_id": row.get::<String, _>("mission_id"),
+        "domain_id": row.get::<String, _>("domain_id"),
         "entity_kind": row.get::<String, _>("entity_kind"),
         "event_kind": row.get::<String, _>("event_kind"),
         "binding_id": row.get::<i32, _>("binding_id"),
@@ -107,7 +107,7 @@ fn row_to_publication_record(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     json!({
         "id": row.get::<i32, _>("id"),
         "owner_subject": row.get::<String, _>("owner_subject"),
-        "mission_id": row.get::<Option<String>, _>("mission_id"),
+        "domain_id": row.get::<Option<String>, _>("domain_id"),
         "ledger_event_id": row.get::<Option<i32>, _>("ledger_event_id"),
         "entity_kind": row.get::<String, _>("entity_kind"),
         "entity_id": row.get::<String, _>("entity_id"),
@@ -125,18 +125,18 @@ fn row_to_publication_record(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     })
 }
 
-/// Check if the principal is an owner of a mission (for policy endpoints).
-async fn is_mission_owner(
+/// Check if the principal is an owner of a domain (for policy endpoints).
+async fn is_domain_owner(
     db: &sqlx::PgPool,
     principal: &Principal,
-    mission_id: &str,
+    domain_id: &str,
 ) -> bool {
     if principal.is_admin {
         return true;
     }
     if let Ok(Some(row)) =
-        sqlx::query("SELECT owners FROM mission WHERE id=$1")
-            .bind(mission_id)
+        sqlx::query("SELECT owners FROM domain WHERE id=$1")
+            .bind(domain_id)
             .fetch_optional(db)
             .await
     {
@@ -341,7 +341,7 @@ async fn create_binding(
     let base_path = payload
         .get("base_path")
         .and_then(|v| v.as_str())
-        .unwrap_or("missions")
+        .unwrap_or("domains")
         .trim()
         .trim_matches('/')
         .to_string();
@@ -377,16 +377,16 @@ async fn create_binding(
 async fn get_policy(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(mission_id): Path<String>,
+    Path(domain_id): Path<String>,
 ) -> impl IntoResponse {
-    if !is_mission_owner(&state.db, &principal, &mission_id).await {
+    if !is_domain_owner(&state.db, &principal, &domain_id).await {
         return StatusCode::FORBIDDEN.into_response();
     }
 
     let policy_row = match sqlx::query(
-        "SELECT * FROM missionpersistencepolicy WHERE mission_id=$1",
+        "SELECT * FROM domainpersistencepolicy WHERE domain_id=$1",
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .fetch_optional(&state.db)
     .await
     {
@@ -398,9 +398,9 @@ async fn get_policy(
     };
 
     let route_rows = match sqlx::query(
-        "SELECT * FROM missionpersistenceroute WHERE mission_id=$1 AND active=true ORDER BY id ASC",
+        "SELECT * FROM domainpersistenceroute WHERE domain_id=$1 AND active=true ORDER BY id ASC",
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .fetch_all(&state.db)
     .await
     {
@@ -419,10 +419,10 @@ async fn get_policy(
 async fn put_policy(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(mission_id): Path<String>,
+    Path(domain_id): Path<String>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    if !is_mission_owner(&state.db, &principal, &mission_id).await {
+    if !is_domain_owner(&state.db, &principal, &domain_id).await {
         return StatusCode::FORBIDDEN.into_response();
     }
 
@@ -443,16 +443,16 @@ async fn put_policy(
 
     // UPSERT policy
     let upsert_result = sqlx::query(
-        r#"INSERT INTO missionpersistencepolicy
-            (mission_id, default_binding_id, fallback_mode, require_approval, created_at, updated_at)
+        r#"INSERT INTO domainpersistencepolicy
+            (domain_id, default_binding_id, fallback_mode, require_approval, created_at, updated_at)
            VALUES ($1,$2,$3,$4,$5,$5)
-           ON CONFLICT (mission_id) DO UPDATE SET
+           ON CONFLICT (domain_id) DO UPDATE SET
              default_binding_id=EXCLUDED.default_binding_id,
              fallback_mode=EXCLUDED.fallback_mode,
              require_approval=EXCLUDED.require_approval,
              updated_at=EXCLUDED.updated_at"#,
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .bind(default_binding_id)
     .bind(&fallback_mode)
     .bind(require_approval)
@@ -466,8 +466,8 @@ async fn put_policy(
     }
 
     // Delete existing routes
-    if let Err(e) = sqlx::query("DELETE FROM missionpersistenceroute WHERE mission_id=$1")
-        .bind(&mission_id)
+    if let Err(e) = sqlx::query("DELETE FROM domainpersistenceroute WHERE domain_id=$1")
+        .bind(&domain_id)
         .execute(&state.db)
         .await
     {
@@ -511,7 +511,7 @@ async fn put_policy(
         let path_template = item
             .get("path_template")
             .and_then(|v| v.as_str())
-            .unwrap_or("missions/{mission_id}/{entity_kind}/{entity_id}.json")
+            .unwrap_or("domains/{domain_id}/{entity_kind}/{entity_id}.json")
             .to_string();
         let format = item
             .get("format")
@@ -524,12 +524,12 @@ async fn put_policy(
             .unwrap_or(true);
 
         if let Err(e) = sqlx::query(
-            r#"INSERT INTO missionpersistenceroute
-                (mission_id, entity_kind, event_kind, binding_id, branch_override,
+            r#"INSERT INTO domainpersistenceroute
+                (domain_id, entity_kind, event_kind, binding_id, branch_override,
                  path_template, format, active, created_at, updated_at)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)"#,
         )
-        .bind(&mission_id)
+        .bind(&domain_id)
         .bind(&entity_kind)
         .bind(&event_kind)
         .bind(binding_id)
@@ -546,7 +546,7 @@ async fn put_policy(
         }
     }
 
-    Json(json!({"ok": true, "mission_id": mission_id, "updated_by": principal.subject}))
+    Json(json!({"ok": true, "domain_id": domain_id, "updated_by": principal.subject}))
         .into_response()
 }
 
@@ -559,7 +559,7 @@ struct PublishPlan {
     host: String,
     repo_path: String,
     branch: String,
-    path_template: String, // raw template with {mission_id}/{entity_kind}/{entity_id}/{event_kind}
+    path_template: String, // raw template with {domain_id}/{entity_kind}/{entity_id}/{event_kind}
     rel_path: String,      // rendered for the request's specific entity_id
     format: String,
     credential_ref: String,
@@ -568,19 +568,19 @@ struct PublishPlan {
 async fn resolve_publish_plan_inner(
     db: &sqlx::PgPool,
     owner_subject: &str,
-    mission_id: &str,
+    domain_id: &str,
     entity_kind: &str,
     event_kind: &str,
     entity_id: &str,
 ) -> Result<PublishPlan, String> {
     // Find best-matching route (specific event_kind first, then empty wildcard)
     let route_row = sqlx::query(
-        "SELECT * FROM missionpersistenceroute \
-         WHERE mission_id=$1 AND entity_kind=$2 AND active=true \
+        "SELECT * FROM domainpersistenceroute \
+         WHERE domain_id=$1 AND entity_kind=$2 AND active=true \
          AND (event_kind=$3 OR event_kind='') \
          ORDER BY event_kind DESC LIMIT 1",
     )
-    .bind(mission_id)
+    .bind(domain_id)
     .bind(entity_kind)
     .bind(event_kind)
     .fetch_optional(db)
@@ -597,9 +597,9 @@ async fn resolve_publish_plan_inner(
     } else {
         // Fallback to policy default binding
         let policy = sqlx::query(
-            "SELECT default_binding_id FROM missionpersistencepolicy WHERE mission_id=$1",
+            "SELECT default_binding_id FROM domainpersistencepolicy WHERE domain_id=$1",
         )
-        .bind(mission_id)
+        .bind(domain_id)
         .fetch_optional(db)
         .await
         .map_err(|e| format!("db_error: {e}"))?;
@@ -608,8 +608,8 @@ async fn resolve_publish_plan_inner(
             .and_then(|p| p.try_get::<Option<i32>, _>("default_binding_id").ok().flatten())
             .ok_or_else(|| {
                 format!(
-                    "no persistence route/default binding for mission '{}' entity '{}' event '{}'",
-                    mission_id, entity_kind, event_kind
+                    "no persistence route/default binding for domain '{}' entity '{}' event '{}'",
+                    domain_id, entity_kind, event_kind
                 )
             })?;
         (bid, String::new(), "json_v1".to_string(), None)
@@ -656,14 +656,14 @@ async fn resolve_publish_plan_inner(
         .or_else(|| if b_branch.is_empty() { None } else { Some(b_branch.clone()) })
         .unwrap_or_else(|| default_branch.clone());
 
-    // Resolve path template — default: "{base_path}/{mission_id}/{entity_kind}/{entity_id}.json"
+    // Resolve path template — default: "{base_path}/{domain_id}/{entity_kind}/{entity_id}.json"
     let path_template = if path_tpl.is_empty() {
-        format!("{base_path}/{{mission_id}}/{entity_kind}/{{entity_id}}.json")
+        format!("{base_path}/{{domain_id}}/{entity_kind}/{{entity_id}}.json")
     } else {
         path_tpl.clone()
     };
     let rel_path = path_template
-        .replace("{mission_id}", mission_id)
+        .replace("{domain_id}", domain_id)
         .replace("{entity_kind}", entity_kind)
         .replace("{entity_id}", entity_id)
         .replace("{event_kind}", event_kind)
@@ -704,27 +704,27 @@ async fn publish_plan(
     principal: Principal,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let mission_id = payload.get("mission_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let domain_id = payload.get("domain_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     let entity_kind = payload.get("entity_kind").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     let event_kind = payload.get("event_kind").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     let entity_id = payload.get("entity_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
 
-    if mission_id.is_empty() || entity_kind.is_empty() || event_kind.is_empty() || entity_id.is_empty() {
+    if domain_id.is_empty() || entity_kind.is_empty() || event_kind.is_empty() || entity_id.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"detail": "mission_id, entity_kind, event_kind, entity_id are required"})),
+            Json(json!({"detail": "domain_id, entity_kind, event_kind, entity_id are required"})),
         )
             .into_response();
     }
 
-    if !is_mission_owner(&state.db, &principal, &mission_id).await {
+    if !is_domain_owner(&state.db, &principal, &domain_id).await {
         return StatusCode::FORBIDDEN.into_response();
     }
 
     match resolve_publish_plan_inner(
         &state.db,
         &principal.subject,
-        &mission_id,
+        &domain_id,
         &entity_kind,
         &event_kind,
         &entity_id,
@@ -732,7 +732,7 @@ async fn publish_plan(
     .await
     {
         Ok(plan) => Json(json!({
-            "mission_id": mission_id,
+            "domain_id": domain_id,
             "entity_kind": entity_kind,
             "event_kind": event_kind,
             "entity_id": entity_id,
@@ -754,21 +754,21 @@ async fn publish_execute(
     principal: Principal,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let mission_id = payload.get("mission_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let domain_id = payload.get("domain_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     let limit = payload.get("limit").and_then(|v| v.as_i64()).unwrap_or(500).clamp(1, 500) as i64;
 
-    if mission_id.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(json!({"detail": "mission_id is required"}))).into_response();
+    if domain_id.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({"detail": "domain_id is required"}))).into_response();
     }
-    if !is_mission_owner(&state.db, &principal, &mission_id).await {
+    if !is_domain_owner(&state.db, &principal, &domain_id).await {
         return StatusCode::FORBIDDEN.into_response();
     }
 
     // Load pending events
     let events = match sqlx::query(
-        "SELECT * FROM ledgerevent WHERE mission_id=$1 AND state='pending' ORDER BY created_at ASC LIMIT $2",
+        "SELECT * FROM ledgerevent WHERE domain_id=$1 AND state='pending' ORDER BY created_at ASC LIMIT $2",
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .bind(limit)
     .fetch_all(&state.db)
     .await
@@ -794,7 +794,7 @@ async fn publish_execute(
     let plan = match resolve_publish_plan_inner(
         &state.db,
         &principal.subject,
-        &mission_id,
+        &domain_id,
         &first_entity_kind,
         &first_event_kind,
         &first_entity_id,
@@ -836,7 +836,7 @@ async fn publish_execute(
         let payload_json: String = event.try_get("payload_json").unwrap_or_default();
 
         let rel = plan.path_template
-            .replace("{mission_id}", &mission_id)
+            .replace("{domain_id}", &domain_id)
             .replace("{entity_kind}", &entity_kind)
             .replace("{entity_id}", &entity_id)
             .replace("{event_kind}", &event_kind)
@@ -861,7 +861,7 @@ async fn publish_execute(
         let _ = std::process::Command::new("git").args(["-C", &repo_dir, "add", &rel]).output();
     }
 
-    let commit_msg = format!("mc-controlplane: publish {} ledger events for {}", events.len(), mission_id);
+    let commit_msg = format!("mc-controlplane: publish {} ledger events for {}", events.len(), domain_id);
     let _ = std::process::Command::new("git")
         .args(["-C", &repo_dir, "commit", "--allow-empty", "-m", &commit_msg])
         .output();
@@ -877,7 +877,7 @@ async fn publish_execute(
         .map(|o| o.status.success())
         .unwrap_or(false);
     if !push_ok {
-        tracing::warn!("publish_execute: git push failed for mission {}", mission_id);
+        tracing::warn!("publish_execute: git push failed for domain {}", domain_id);
     }
 
     // Update DB
@@ -888,7 +888,7 @@ async fn publish_execute(
         let entity_id: String = event.get("entity_id");
         let event_kind: String = event.get("action");
         let rel = plan.path_template
-            .replace("{mission_id}", &mission_id)
+            .replace("{domain_id}", &domain_id)
             .replace("{entity_kind}", &entity_kind)
             .replace("{entity_id}", &entity_id)
             .replace("{event_kind}", &event_kind)
@@ -906,13 +906,13 @@ async fn publish_execute(
 
         let _ = sqlx::query(
             r#"INSERT INTO publicationrecord
-                (owner_subject, mission_id, ledger_event_id, entity_kind, entity_id, event_kind,
+                (owner_subject, domain_id, ledger_event_id, entity_kind, entity_id, event_kind,
                  binding_id, repo_url, branch, file_path, commit_sha, status, error, detail_json,
                  created_at, updated_at)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'succeeded','',$12,$13,$13)"#,
         )
         .bind(&principal.subject)
-        .bind(&mission_id)
+        .bind(&domain_id)
         .bind(eid)
         .bind(&entity_kind)
         .bind(&entity_id)
@@ -939,7 +939,7 @@ async fn publish_execute(
 
 #[derive(Deserialize)]
 struct ListRecordsQuery {
-    mission_id: Option<String>,
+    domain_id: Option<String>,
     limit: Option<i64>,
 }
 
@@ -950,9 +950,9 @@ async fn list_publication_records(
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(20).min(500);
 
-    let rows = if let Some(ref mid) = q.mission_id {
+    let rows = if let Some(ref mid) = q.domain_id {
         sqlx::query(
-            "SELECT * FROM publicationrecord WHERE owner_subject=$1 AND mission_id=$2 \
+            "SELECT * FROM publicationrecord WHERE owner_subject=$1 AND domain_id=$2 \
              ORDER BY created_at DESC LIMIT $3",
         )
         .bind(&principal.subject)
@@ -1017,10 +1017,10 @@ async fn get_publication_record(
             .into_response();
     }
 
-    // If record has a mission_id, verify ownership
-    let mission_id: Option<String> = row.try_get("mission_id").ok().and_then(|v: Option<String>| v);
-    if let Some(ref mid) = mission_id {
-        if !is_mission_owner(&state.db, &principal, mid).await {
+    // If record has a domain_id, verify ownership
+    let domain_id: Option<String> = row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    if let Some(ref mid) = domain_id {
+        if !is_domain_owner(&state.db, &principal, mid).await {
             return StatusCode::FORBIDDEN.into_response();
         }
     }

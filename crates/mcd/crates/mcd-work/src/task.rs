@@ -36,17 +36,17 @@ impl From<anyhow::Error> for TaskError {
 /// agent can join a broadcast task that's already been claimed by other agents.
 pub async fn poll_ready_tasks(
     client: &BackendClient,
-    kluster_id: &str,
+    mission_id: &str,
     _capabilities: &[mcd_core::types::Capability],
 ) -> Result<Vec<MeshTaskRecord>> {
     let mut ready: Vec<MeshTaskRecord> = client
-        .get(&format!("/klusters/{kluster_id}/tasks?status=ready"))
+        .get(&format!("/missions/{mission_id}/tasks?status=ready"))
         .await
         .unwrap_or_default();
 
     // Also fetch broadcast tasks that are already running so every agent joins.
     let broadcast_running: Vec<MeshTaskRecord> = client
-        .get(&format!("/klusters/{kluster_id}/tasks?status=running"))
+        .get(&format!("/missions/{mission_id}/tasks?status=running"))
         .await
         .unwrap_or_default();
 

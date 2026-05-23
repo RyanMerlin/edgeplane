@@ -1,10 +1,10 @@
 {
   "name": "enterprise-pilot",
   "version": "1.0.0",
-  "mission": {
+  "domain": {
     "description": "Multi-team platform modernization initiative. Validates MCP reliability under concurrent agent workloads representing realistic enterprise usage patterns."
   },
-  "kluster": {
+  "mission": {
     "description": "Infrastructure and tooling modernization track. Owned by platform team, contributors from security, data, and SRE."
   },
   "tasks": [
@@ -48,7 +48,7 @@
     {
       "title": "Governance Rules: Platform Team",
       "doc_type": "rule",
-      "body": "# Platform Team Governance Rules\n\n## Task Ownership\n- Every task must have exactly one `owner`\n- `contributors` field required for tasks touching >1 team boundary\n- Blocked tasks must have a `dependencies` field citing the blocking task ID\n\n## Definition of Done\nA task is complete when:\n1. Code reviewed and merged to main\n2. Deployed to staging and smoke-tested\n3. Runbook updated if operational behavior changed\n4. Load test baseline validated if latency-sensitive path changed\n\n## Escalation\n- P0 incidents: page `@platform-oncall` immediately\n- Architecture changes: require ADR doc in this kluster before merge\n- Security-touching changes: require `#security-review` sign-off\n\n## Forbidden Patterns\n- No secrets in task descriptions or doc bodies\n- No `kubectl exec` in runbooks without explicit audit justification\n- No force-push to `main`"
+      "body": "# Platform Team Governance Rules\n\n## Task Ownership\n- Every task must have exactly one `owner`\n- `contributors` field required for tasks touching >1 team boundary\n- Blocked tasks must have a `dependencies` field citing the blocking task ID\n\n## Definition of Done\nA task is complete when:\n1. Code reviewed and merged to main\n2. Deployed to staging and smoke-tested\n3. Runbook updated if operational behavior changed\n4. Load test baseline validated if latency-sensitive path changed\n\n## Escalation\n- P0 incidents: page `@platform-oncall` immediately\n- Architecture changes: require ADR doc in this mission before merge\n- Security-touching changes: require `#security-review` sign-off\n\n## Forbidden Patterns\n- No secrets in task descriptions or doc bodies\n- No `kubectl exec` in runbooks without explicit audit justification\n- No force-push to `main`"
     }
   ],
   "artifacts": [

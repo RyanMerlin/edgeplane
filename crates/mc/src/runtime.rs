@@ -126,7 +126,7 @@ pub struct RuntimeNodeHeartbeatArgs {
 #[derive(Args, Debug)]
 pub struct RuntimeJobSubmitArgs {
     #[arg(long, default_value = "")]
-    pub mission_id: String,
+    pub domain_id: String,
     #[arg(long, default_value = "")]
     pub runtime_session_id: String,
     #[arg(long, default_value = "container")]
@@ -243,7 +243,7 @@ async fn run_jobs(
             let response = client
                 .post_json(
                     "/runtime/jobs",
-                    &json!({"mission_id": args.mission_id,"runtime_session_id": args.runtime_session_id,"runtime_class": args.runtime_class,"image": args.image,"command": args.command}),
+                    &json!({"domain_id": args.domain_id,"runtime_session_id": args.runtime_session_id,"runtime_class": args.runtime_class,"image": args.image,"command": args.command}),
                 )
                 .await?;
             output::print_value(output_mode, &response);
@@ -520,8 +520,8 @@ async fn run_node_run(args: NodeAgentRunArgs, client: &MissionControlClient) -> 
     // `mc daemon` reaches full feature parity.  The recommended path is:
     //
     //   mc daemon up                          # start the mcd daemon
-    //   mc daemon agent enroll --mission <id> --runtime claude-code
-    //   mc daemon task run <kluster-id> --title "my task"
+    //   mc daemon agent enroll --domain <id> --runtime claude-code
+    //   mc daemon task run <mission-id> --title "my task"
     //
     // See: https://github.com/RyanMerlin/missioncontrol/tree/main/crates/mcd
     // ─────────────────────────────────────────────────────────────────────────

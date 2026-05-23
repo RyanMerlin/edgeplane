@@ -60,8 +60,8 @@ struct UsageBatchItem {
     run_id: Option<String>,
     mesh_task_id: Option<String>,
     mesh_agent_id: Option<String>,
+    domain_id: Option<String>,
     mission_id: Option<String>,
-    kluster_id: Option<String>,
     #[serde(default = "default_adapter")]
     source: String,
 }
@@ -81,7 +81,7 @@ struct UsageBatchRequest {
 
 #[derive(serde::Deserialize)]
 struct UsageSummaryQuery {
-    mission_id: Option<String>,
+    domain_id: Option<String>,
     since: Option<String>,
 }
 
@@ -309,11 +309,11 @@ async fn get_usage_summary(
            COUNT(*) as record_count \
          FROM usagerecord \
          WHERE owner_subject=$1 \
-           AND ($2::text IS NULL OR mission_id=$2) \
+           AND ($2::text IS NULL OR domain_id=$2) \
            AND ($3::timestamp IS NULL OR recorded_at >= $3)",
     )
     .bind(&principal.subject)
-    .bind(&q.mission_id)
+    .bind(&q.domain_id)
     .bind(since_dt)
     .fetch_one(&state.db)
     .await;
@@ -346,7 +346,7 @@ async fn record_usage_batch(
         let record_id = Uuid::new_v4().to_string();
         let result = sqlx::query(
             "INSERT INTO usagerecord \
-             (id, owner_subject, run_id, mesh_task_id, mesh_agent_id, mission_id, kluster_id, \
+             (id, owner_subject, run_id, mesh_task_id, mesh_agent_id, domain_id, mission_id, \
               runtime_kind, provider, model, input_tokens, output_tokens, reasoning_tokens, \
               tool_calls, wall_ms, cost_cents, recorded_at, source) \
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,0,$16,$17)",
@@ -356,8 +356,8 @@ async fn record_usage_batch(
         .bind(&record.run_id)
         .bind(&record.mesh_task_id)
         .bind(&record.mesh_agent_id)
+        .bind(&record.domain_id)
         .bind(&record.mission_id)
-        .bind(&record.kluster_id)
         .bind(&record.runtime_kind)
         .bind(&record.provider)
         .bind(&record.model)

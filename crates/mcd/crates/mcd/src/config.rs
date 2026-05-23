@@ -20,9 +20,9 @@ pub struct DaemonConfig {
     /// Local directory used as the working root for agent processes.
     #[serde(default = "default_work_dir")]
     pub work_dir: PathBuf,
-    /// Missions (and their klusters to watch) this daemon manages.
+    /// Domains (and their missions to watch) this daemon manages.
     #[serde(default)]
-    pub missions: Vec<MissionEntry>,
+    pub domains: Vec<DomainEntry>,
     /// Seconds without a backend response before the offline watchdog triggers.
     #[serde(default = "default_grace")]
     pub offline_grace_secs: u64,
@@ -47,12 +47,12 @@ pub struct DaemonConfig {
     /// address using `tailscale_fqdn` from node registration.
     #[serde(default = "default_attach_bind")]
     pub attach_bind_addr: String,
-    /// Default mission that persistent agents attach to on daemon startup.
+    /// Default domain that persistent agents attach to on daemon startup.
     /// Pushed from mc-controlplane at `mc daemon profile add` time (via the
     /// `home` field in the node-register response), or set manually.
     /// Ephemeral agents (session_mode: Task) ignore this field entirely.
     #[serde(default)]
-    pub home_mission_id: Option<String>,
+    pub home_domain_id: Option<String>,
     /// Path to an Aria-style `fleet-profiles.toml`. When set (and the file
     /// exists), mcd imports each `[[profile]]` into the local registry as a
     /// ZellijHosted agent at startup. Env override:
@@ -94,7 +94,7 @@ pub struct DaemonConfig {
     // ── Task worker triage (P3) ────────────────────────────────────────────
     //
     // Controls the triage loop that examines unscoped tasks in the intake
-    // kluster and either routes them to a profile (via child meshtask) or
+    // mission and either routes them to a profile (via child meshtask) or
     // marks them as blocked + optionally invokes a deployment-specific
     // surface command to alert a human.
 
@@ -103,7 +103,7 @@ pub struct DaemonConfig {
     #[serde(default = "default_triage_enabled")]
     pub task_worker_triage_enabled: bool,
 
-    /// How often (seconds) the triage loop polls the intake kluster for
+    /// How often (seconds) the triage loop polls the intake mission for
     /// unscoped tasks. Deliberately slower than P2's claim interval.
     /// Default: 60.
     #[serde(default = "default_triage_poll_interval_secs")]
@@ -221,19 +221,19 @@ fn default_attach_bind() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MissionEntry {
-    pub mission_id: String,
-    /// Agents enrolled in this mission, managed by this daemon.
+pub struct DomainEntry {
+    pub domain_id: String,
+    /// Agents enrolled in this domain, managed by this daemon.
     #[serde(default)]
     pub agents: Vec<AgentEntry>,
 }
 
 /// Whether an agent runs in short-lived task mode or as a long-running session.
 ///
-/// - `Persistent`: attaches to `home_mission_id` on daemon startup. Can be
-///   temporarily reassigned to a working mission. Never starts without a home.
+/// - `Persistent`: attaches to `home_domain_id` on daemon startup. Can be
+///   temporarily reassigned to a working domain. Never starts without a home.
 /// - `Task` (ephemeral): only connects when dispatched. MUST arrive with
-///   `mission_id`, `kluster_id`, and `task_id` all set. Rejected otherwise.
+///   `domain_id`, `mission_id`, and `task_id` all set. Rejected otherwise.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionMode {
@@ -309,14 +309,14 @@ impl DaemonConfig {
             backend_url: String::new(),
             token: String::new(),
             work_dir: default_work_dir(),
-            missions: vec![],
+            domains: vec![],
             offline_grace_secs: default_grace(),
             offline_policy: default_policy(),
             control_socket: default_socket(),
             node_id: None,
             attach_secret: None,
             attach_bind_addr: default_attach_bind(),
-            home_mission_id: None,
+            home_domain_id: None,
             fleet_profiles_file: None,
             task_worker_enabled: default_task_worker_enabled(),
             task_worker_poll_interval_secs: default_task_worker_poll_interval_secs(),

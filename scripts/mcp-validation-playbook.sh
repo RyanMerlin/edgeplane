@@ -99,31 +99,31 @@ assert_ok() {
   echo "[OK] ${label}"
 }
 
-mission_name="mcp-playbook-${RUN_ID}"
-kluster_name="mcp-playbook-kluster-${RUN_ID}"
+domain_name="mcp-playbook-${RUN_ID}"
+mission_name="mcp-playbook-mission-${RUN_ID}"
 scenario_name="$(jq -r '.name // "reliability-trio"' "$SCENARIO_FILE")"
 scenario_version="$(jq -r '.version // "1.0.0"' "$SCENARIO_FILE")"
 expected_task_count="$(jq -r '.expected.task_count // 3' "$SCENARIO_FILE")"
+domain_desc="$(jq -r '.domain.description // "MCP validation domain"' "$SCENARIO_FILE")"
 mission_desc="$(jq -r '.mission.description // "MCP validation mission"' "$SCENARIO_FILE")"
-kluster_desc="$(jq -r '.kluster.description // "MCP validation kluster"' "$SCENARIO_FILE")"
 
 echo "== MCP validation playbook run_id=${RUN_ID} base_url=${BASE_URL} scenario=${scenario_name} skip_cleanup=${SKIP_CLEANUP}"
 
-create_mission_resp="$(mcp_call create_mission "$(jq -cn --arg name "$mission_name" --arg owners "$ACTOR" --arg description "$mission_desc" '{name:$name,owners:$owners,description:$description}')")"
-assert_ok "create_mission" "$create_mission_resp"
-mission_id="$(jq -r '.result.mission.id' <<<"$create_mission_resp")"
-echo "mission_id=${mission_id}"
+create_domain_resp="$(mcp_call create_domain "$(jq -cn --arg name "$domain_name" --arg owners "$ACTOR" --arg description "$domain_desc" '{name:$name,owners:$owners,description:$description}')")"
+assert_ok "create_domain" "$create_domain_resp"
+domain_id="$(jq -r '.result.id' <<<"$create_domain_resp")"
+echo "domain_id=${domain_id}"
 
-create_kluster_resp="$(mcp_call create_kluster "$(jq -cn --arg mission_id "$mission_id" --arg name "$kluster_name" --arg owners "$ACTOR" --arg description "$kluster_desc" '{mission_id:$mission_id,name:$name,owners:$owners,description:$description}')")"
-assert_ok "create_kluster" "$create_kluster_resp"
-kluster_id="$(jq -r '.result.kluster.id' <<<"$create_kluster_resp")"
-echo "kluster_id=${kluster_id}"
+create_mission_resp="$(mcp_call create_mission "$(jq -cn --arg domain_id "$domain_id" --arg name "$mission_name" --arg owners "$ACTOR" --arg description "$mission_desc" '{domain_id:$domain_id,name:$name,owners:$owners,description:$description}')")"
+assert_ok "create_mission" "$create_mission_resp"
+mission_id="$(jq -r '.result.id' <<<"$create_mission_resp")"
+echo "mission_id=${mission_id}"
 
 declare -a task_ids=()
 while IFS=$'\t' read -r title description status; do
-  create_task_resp="$(mcp_call create_task "$(jq -cn --arg kluster_id "$kluster_id" --arg title "$title" --arg owner "$ACTOR" --arg description "$description" '{kluster_id:$kluster_id,title:$title,description:$description,owner:$owner}')")"
+  create_task_resp="$(mcp_call create_task "$(jq -cn --arg mission_id "$mission_id" --arg title "$title" --arg owner "$ACTOR" --arg description "$description" '{mission_id:$mission_id,title:$title,description:$description,owner:$owner}')")"
   assert_ok "create_task:${title}" "$create_task_resp"
-  tid="$(jq -r '.result.task.id' <<<"$create_task_resp")"
+  tid="$(jq -r '.result.id' <<<"$create_task_resp")"
   task_ids+=("$tid")
   # Apply status if not default
   if [[ -n "$status" && "$status" != "todo" && "$status" != "null" ]]; then
@@ -133,7 +133,7 @@ while IFS=$'\t' read -r title description status; do
 done < <(jq -r '.tasks[] | [.title, (.description // ""), (.status // "todo")] | @tsv' "$SCENARIO_FILE")
 echo "task_ids=${task_ids[*]}"
 
-list_tasks_resp="$(mcp_call list_tasks "$(jq -cn --arg kluster_id "$kluster_id" '{kluster_id:$kluster_id}')")"
+list_tasks_resp="$(mcp_call list_tasks "$(jq -cn --arg mission_id "$mission_id" '{mission_id:$mission_id}')")"
 assert_ok "list_tasks" "$list_tasks_resp"
 actual_task_count="$(jq -r '.result.tasks | length' <<<"$list_tasks_resp")"
 if [[ "$actual_task_count" -lt "$expected_task_count" ]]; then
@@ -149,15 +149,15 @@ declare -a doc_ids=()
 doc_count="$(jq '.docs | length // 0' "$SCENARIO_FILE")"
 if [[ "$doc_count" -gt 0 ]]; then
   while IFS=$'\t' read -r title doc_type body; do
-    create_doc_resp="$(mcp_call create_doc "$(jq -cn --arg kluster_id "$kluster_id" --arg title "$title" --arg doc_type "$doc_type" --arg body "$body" '{kluster_id:$kluster_id,title:$title,doc_type:$doc_type,body:$body,status:"draft"}')")"
+    create_doc_resp="$(mcp_call create_doc "$(jq -cn --arg mission_id "$mission_id" --arg title "$title" --arg doc_type "$doc_type" --arg body "$body" '{mission_id:$mission_id,title:$title,doc_type:$doc_type,body:$body,status:"draft"}')")"
     assert_ok "create_doc:${title}" "$create_doc_resp"
-    doc_ids+=("$(jq -r '.result.doc.id' <<<"$create_doc_resp")")
+    doc_ids+=("$(jq -r '.result.id' <<<"$create_doc_resp")")
     echo "doc_id=${doc_ids[-1]} type=${doc_type}"
   done < <(jq -r '.docs[] | [.title, (.doc_type // "narrative"), (.body // "# doc")] | @tsv' "$SCENARIO_FILE")
 else
-  create_doc_resp="$(mcp_call create_doc "$(jq -cn --arg kluster_id "$kluster_id" '{kluster_id:$kluster_id,title:"playbook-doc",body:"# playbook\ndoc body",doc_type:"narrative",status:"draft"}')")"
+  create_doc_resp="$(mcp_call create_doc "$(jq -cn --arg mission_id "$mission_id" '{mission_id:$mission_id,title:"playbook-doc",body:"# playbook\ndoc body",doc_type:"narrative",status:"draft"}')")"
   assert_ok "create_doc" "$create_doc_resp"
-  doc_ids+=("$(jq -r '.result.doc.id' <<<"$create_doc_resp")")
+  doc_ids+=("$(jq -r '.result.id' <<<"$create_doc_resp")")
   echo "doc_id=${doc_ids[0]}"
 fi
 doc_id="${doc_ids[0]}"
@@ -168,35 +168,35 @@ artifact_count="$(jq '.artifacts | length // 0' "$SCENARIO_FILE")"
 if [[ "$artifact_count" -gt 0 ]]; then
   while IFS=$'\t' read -r name artifact_type uri mime_type provenance; do
     create_artifact_resp="$(mcp_call create_artifact "$(jq -cn \
-      --arg kluster_id "$kluster_id" --arg name "$name" \
+      --arg mission_id "$mission_id" --arg name "$name" \
       --arg artifact_type "$artifact_type" --arg uri "$uri" \
       --arg mime_type "$mime_type" --arg provenance "$provenance" \
-      '{kluster_id:$kluster_id,name:$name,artifact_type:$artifact_type,uri:$uri,mime_type:$mime_type,provenance:$provenance,status:"draft"}')")"
+      '{mission_id:$mission_id,name:$name,artifact_type:$artifact_type,uri:$uri,mime_type:$mime_type,provenance:$provenance,status:"draft"}')")"
     assert_ok "create_artifact:${name}" "$create_artifact_resp"
-    artifact_ids+=("$(jq -r '.result.artifact.id' <<<"$create_artifact_resp")")
+    artifact_ids+=("$(jq -r '.result.id' <<<"$create_artifact_resp")")
     echo "artifact_id=${artifact_ids[-1]} type=${artifact_type}"
   done < <(jq -r '.artifacts[] | [.name, (.artifact_type // "file"), (.uri // ""), (.mime_type // ""), (.provenance // "")] | @tsv' "$SCENARIO_FILE")
 else
-  create_artifact_resp="$(mcp_call create_artifact "$(jq -cn --arg kluster_id "$kluster_id" '{kluster_id:$kluster_id,name:"playbook-artifact",artifact_type:"file",uri:"https://example.com/playbook",status:"draft"}')")"
+  create_artifact_resp="$(mcp_call create_artifact "$(jq -cn --arg mission_id "$mission_id" '{mission_id:$mission_id,name:"playbook-artifact",artifact_type:"file",uri:"https://example.com/playbook",status:"draft"}')")"
   assert_ok "create_artifact" "$create_artifact_resp"
-  artifact_ids+=("$(jq -r '.result.artifact.id' <<<"$create_artifact_resp")")
+  artifact_ids+=("$(jq -r '.result.id' <<<"$create_artifact_resp")")
   echo "artifact_id=${artifact_ids[0]}"
 fi
 artifact_id="${artifact_ids[0]}"
 
-load_ws_resp="$(mcp_call load_kluster_workspace "$(jq -cn --arg kluster_id "$kluster_id" '{kluster_id:$kluster_id}')")"
-assert_ok "load_kluster_workspace" "$load_ws_resp"
-lease_id="$(jq -r '.result.lease.id' <<<"$load_ws_resp")"
+load_ws_resp="$(mcp_call load_mission_workspace "$(jq -cn --arg mission_id "$mission_id" '{mission_id:$mission_id}')")"
+assert_ok "load_mission_workspace" "$load_ws_resp"
+lease_id="$(jq -r '.result.lease.id // .result.lease_id' <<<"$load_ws_resp")"
 doc_path="$(jq -r '.result.workspace_snapshot.docs[0].path // empty' <<<"$load_ws_resp")"
 if [[ -n "$doc_path" ]]; then
-  commit_ws_resp="$(mcp_call commit_kluster_workspace "$(jq -cn --arg lease_id "$lease_id" --arg doc_path "$doc_path" '{lease_id:$lease_id,change_set:[{path:$doc_path,content:"# playbook\nworkspace commit"}]}')")"
-  assert_ok "commit_kluster_workspace" "$commit_ws_resp"
+  commit_ws_resp="$(mcp_call commit_mission_workspace "$(jq -cn --arg lease_id "$lease_id" --arg doc_path "$doc_path" '{lease_id:$lease_id,change_set:[{path:$doc_path,content:"# playbook\nworkspace commit"}]}')")"
+  assert_ok "commit_mission_workspace" "$commit_ws_resp"
 fi
-release_ws_resp="$(mcp_call release_kluster_workspace "$(jq -cn --arg lease_id "$lease_id" '{lease_id:$lease_id,reason:"playbook done"}')")"
-assert_ok "release_kluster_workspace" "$release_ws_resp"
+release_ws_resp="$(mcp_call release_mission_workspace "$(jq -cn --arg lease_id "$lease_id" '{lease_id:$lease_id,reason:"playbook done"}')")"
+assert_ok "release_mission_workspace" "$release_ws_resp"
 
-kluster_deleted=false
 mission_deleted=false
+domain_deleted=false
 
 if [[ "$SKIP_CLEANUP" == "1" ]]; then
   echo "== Cleanup skipped (MC_PLAYBOOK_SKIP_CLEANUP=1) — objects preserved for review"
@@ -219,18 +219,18 @@ else
 
   cleanup_err_file="$(mktemp)"
   set +e
-  delete_kluster_resp="$(api_call DELETE "/missions/${mission_id}/k/${kluster_id}" 2>"$cleanup_err_file")"
+  delete_mission_resp="$(api_call DELETE "/domains/${domain_id}/m/${mission_id}" 2>"$cleanup_err_file")"
   cleanup_rc=$?
   set -e
   if [[ $cleanup_rc -eq 0 ]]; then
-    echo "[OK] delete_kluster"
-    kluster_deleted=true
-    api_call DELETE "/missions/${mission_id}" >/dev/null
     echo "[OK] delete_mission"
     mission_deleted=true
+    api_call DELETE "/domains/${domain_id}" >/dev/null
+    echo "[OK] delete_domain"
+    domain_deleted=true
   else
     echo "[WARN] cleanup blocked"
-    echo "[WARN] delete_kluster stderr: $(tr '\n' ' ' <"$cleanup_err_file")"
+    echo "[WARN] delete_mission stderr: $(tr '\n' ' ' <"$cleanup_err_file")"
   fi
   rm -f "$cleanup_err_file"
 fi
@@ -243,8 +243,8 @@ result_json="$(
     --arg run_id "$RUN_ID" \
     --arg scenario "$scenario_name" \
     --arg scenario_version "$scenario_version" \
+    --arg domain_id "$domain_id" \
     --arg mission_id "$mission_id" \
-    --arg kluster_id "$kluster_id" \
     --arg doc_id "$doc_id" \
     --arg artifact_id "$artifact_id" \
     --arg doc_ids_csv "$doc_id_csv" \
@@ -252,14 +252,14 @@ result_json="$(
     --arg task_ids_csv "$task_id_csv" \
     --argjson expected_task_count "$expected_task_count" \
     --argjson actual_task_count "$actual_task_count" \
-    --argjson kluster_deleted "$kluster_deleted" \
     --argjson mission_deleted "$mission_deleted" \
+    --argjson domain_deleted "$domain_deleted" \
     '{
       run_id:$run_id,
       scenario:$scenario,
       scenario_version:$scenario_version,
+      domain_id:$domain_id,
       mission_id:$mission_id,
-      kluster_id:$kluster_id,
       doc_id:$doc_id,
       artifact_id:$artifact_id,
       doc_ids: ($doc_ids_csv | split(",") | map(select(length > 0))),
@@ -267,15 +267,15 @@ result_json="$(
       task_ids: ($task_ids_csv | split(",") | map(select(length > 0))),
       expected_task_count:$expected_task_count,
       actual_task_count:$actual_task_count,
-      cleanup:{kluster_deleted:$kluster_deleted, mission_deleted:$mission_deleted}
+      cleanup:{mission_deleted:$mission_deleted, domain_deleted:$domain_deleted}
     }'
 )"
 
 cat <<EOF
 == RESULT
 run_id=${RUN_ID}
+domain_id=${domain_id}
 mission_id=${mission_id}
-kluster_id=${kluster_id}
 doc_ids=${doc_id_csv}
 artifact_ids=${artifact_id_csv}
 task_ids=${task_id_csv}

@@ -49,10 +49,10 @@ pub fn filter_eligible<'a>(tasks: &'a [MeshTaskRecord], caps: &[Capability]) -> 
 /// together with the `claim_lease_id`, or `None` if nothing was claimable.
 pub async fn try_claim_one(
     client: &BackendClient,
-    kluster_id: &str,
+    mission_id: &str,
     caps: &[Capability],
 ) -> Result<Option<ClaimOutcome>> {
-    let tasks = crate::task::poll_ready_tasks(client, kluster_id, caps).await?;
+    let tasks = crate::task::poll_ready_tasks(client, mission_id, caps).await?;
     let eligible = filter_eligible(&tasks, caps);
     let Some(candidate) = eligible.first() else {
         return Ok(None);
@@ -79,8 +79,8 @@ mod tests {
     fn task(id: &str, required_caps: &[&str], claim_policy: &str) -> MeshTaskRecord {
         MeshTaskRecord {
             id: id.to_string(),
-            kluster_id: "k1".to_string(),
-            mission_id: "m1".to_string(),
+            mission_id: "k1".to_string(),
+            domain_id: "m1".to_string(),
             title: id.to_string(),
             description: String::new(),
             status: "ready".to_string(),

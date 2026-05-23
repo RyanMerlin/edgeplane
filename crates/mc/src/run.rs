@@ -49,13 +49,13 @@ pub struct RunArgs {
     #[arg(long, default_value_t = false)]
     pub headless: bool,
 
-    /// Bind to an existing mission — enables mesh participation via SoloSupervisor (launch action).
+    /// Bind to an existing domain — enables mesh participation via SoloSupervisor (launch action).
+    #[arg(long)]
+    pub domain: Option<String>,
+
+    /// Bind to an existing mission (launch action).
     #[arg(long)]
     pub mission: Option<String>,
-
-    /// Bind to an existing kluster (launch action).
-    #[arg(long)]
-    pub kluster: Option<String>,
 
     /// Bind to an existing task (launch action).
     #[arg(long)]
@@ -96,7 +96,7 @@ pub async fn run(args: RunArgs, client: &MissionControlClient, config: &McConfig
                 profile,
                 args.new,
                 args.headless,
-                args.mission,
+                args.domain,
                 args.mode,
                 args.with_rtk,
                 args.passthrough,
@@ -124,19 +124,19 @@ async fn dispatch_launch(
     profile: String,
     new: bool,
     headless: bool,
-    mission: Option<String>,
+    domain: Option<String>,
     mode: RunMode,
     with_rtk: bool,
     passthrough: Vec<String>,
     client: &MissionControlClient,
     config: &McConfig,
 ) -> Result<()> {
-    let use_solo = mission.is_some() || matches!(mode, RunMode::Solo);
+    let use_solo = domain.is_some() || matches!(mode, RunMode::Solo);
 
     if use_solo {
-        let mission_id = mission.unwrap_or_default();
-        if mission_id.is_empty() {
-            bail!("--mission <id> is required when --mode solo is set");
+        let domain_id = domain.unwrap_or_default();
+        if domain_id.is_empty() {
+            bail!("--domain <id> is required when --mode solo is set");
         }
         let config_clone = config.clone();
         let passthrough_clone = passthrough.clone();
@@ -147,7 +147,7 @@ async fn dispatch_launch(
                 let paths = claude::claude_paths(&profile);
                 crate::solo_supervisor::run_solo_work_loop(
                     client,
-                    &mission_id,
+                    &domain_id,
                     "claude_code",
                     &profile,
                     move |agent_id: &str, task_id: &str, task_md_path: &std::path::Path| {
@@ -169,7 +169,7 @@ async fn dispatch_launch(
                 let paths = codex::codex_paths(&profile);
                 crate::solo_supervisor::run_solo_work_loop(
                     client,
-                    &mission_id,
+                    &domain_id,
                     "codex",
                     &profile,
                     move |agent_id: &str, task_id: &str, task_md_path: &std::path::Path| {
@@ -191,7 +191,7 @@ async fn dispatch_launch(
                 let paths = goose::goose_paths(&profile);
                 crate::solo_supervisor::run_solo_work_loop(
                     client,
-                    &mission_id,
+                    &domain_id,
                     "goose",
                     &profile,
                     move |agent_id: &str, task_id: &str, task_md_path: &std::path::Path| {

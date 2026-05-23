@@ -32,12 +32,12 @@ pub enum DaemonCommand {
     /// Manage locally installed agent runtimes.
     #[command(subcommand)]
     Runtime(DaemonRuntimeCommand),
-    /// Manage agents in a mission's durable pool.
+    /// Manage agents in a domain's durable pool.
     #[command(subcommand)]
     Agent(DaemonAgentCommand),
-    /// Inspect klusters and their task DAGs.
+    /// Inspect missions and their task DAGs.
     #[command(subcommand)]
-    Kluster(DaemonKlusterCommand),
+    Mission(DaemonMissionCommand),
     /// Manage and observe tasks.
     #[command(subcommand)]
     Task(DaemonTaskCommand),
@@ -98,11 +98,11 @@ pub enum DaemonAgentCommand {
     /// Enroll a new agent. In standalone mode writes to the local registry
     /// (~/.mc/registry.db); in federated mode calls the controlplane API.
     Enroll(AgentEnrollArgs),
-    /// Provision the per-node home mission and enroll a default Goose agent
+    /// Provision the per-node home domain and enroll a default Goose agent
     /// in it. Standalone mirror of the controlplane's auto-provisioning at
     /// node-register time. Idempotent.
     EnrollHome(AgentEnrollHomeArgs),
-    /// Reassign an agent to a different mission.
+    /// Reassign an agent to a different domain.
     Reassign(AgentReassignArgs),
     /// Remove an agent from the registry / controlplane.
     Unenroll(AgentUnenrollArgs),
@@ -114,7 +114,7 @@ pub enum DaemonAgentCommand {
 #[derive(Args, Debug)]
 pub struct AgentLsArgs {
     #[arg(long)]
-    pub mission: Option<String>,
+    pub domain: Option<String>,
     #[arg(long)]
     pub status: Option<String>,
 }
@@ -122,7 +122,7 @@ pub struct AgentLsArgs {
 #[derive(Args, Debug)]
 pub struct AgentEnrollArgs {
     #[arg(long)]
-    pub mission: String,
+    pub domain: String,
     #[arg(long)]
     pub runtime: String,
     /// Task (default) or persistent supervision mode.
@@ -137,12 +137,12 @@ pub struct AgentEnrollArgs {
 
 #[derive(Args, Debug)]
 pub struct AgentEnrollHomeArgs {
-    /// Hostname used to form the home mission slug `home-{slug(hostname)}`.
+    /// Hostname used to form the home domain slug `home-{slug(hostname)}`.
     /// Defaults to the Tailscale FQDN leaf (when Tailscale is running) or
     /// the system hostname.
     #[arg(long)]
     pub hostname: Option<String>,
-    /// Runtime kind for the default home-mission agent. Goose is the
+    /// Runtime kind for the default home-domain agent. Goose is the
     /// recommended default — cheap local inference for routing/triage.
     #[arg(long, default_value = "goose")]
     pub runtime: String,
@@ -151,9 +151,9 @@ pub struct AgentEnrollHomeArgs {
 #[derive(Args, Debug)]
 pub struct AgentReassignArgs {
     pub agent_id: String,
-    /// New mission ID.
+    /// New domain ID.
     #[arg(long)]
-    pub mission: String,
+    pub domain: String,
 }
 
 #[derive(Args, Debug)]
@@ -183,26 +183,26 @@ pub struct AgentAttachArgs {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum DaemonKlusterCommand {
-    Ls(KlusterLsArgs),
-    Show(KlusterShowArgs),
-    Watch(KlusterWatchArgs),
+pub enum DaemonMissionCommand {
+    Ls(MissionLsArgs),
+    Show(MissionShowArgs),
+    Watch(MissionWatchArgs),
 }
 
 #[derive(Args, Debug)]
-pub struct KlusterLsArgs {
+pub struct MissionLsArgs {
     #[arg(long)]
-    pub mission: Option<String>,
+    pub domain: Option<String>,
 }
 
 #[derive(Args, Debug)]
-pub struct KlusterShowArgs {
-    pub kluster_id: String,
+pub struct MissionShowArgs {
+    pub mission_id: String,
 }
 
 #[derive(Args, Debug)]
-pub struct KlusterWatchArgs {
-    pub kluster_id: String,
+pub struct MissionWatchArgs {
+    pub mission_id: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -218,7 +218,7 @@ pub enum DaemonTaskCommand {
 
 #[derive(Args, Debug)]
 pub struct TaskRunArgs {
-    pub kluster_id: String,
+    pub mission_id: String,
     #[arg(long)]
     pub title: String,
     #[arg(long, default_value = "")]
@@ -238,9 +238,9 @@ pub struct TaskRunArgs {
 #[derive(Args, Debug)]
 pub struct TaskLsArgs {
     #[arg(long)]
-    pub kluster: Option<String>,
-    #[arg(long)]
     pub mission: Option<String>,
+    #[arg(long)]
+    pub domain: Option<String>,
     #[arg(long)]
     pub status: Option<String>,
 }
@@ -281,9 +281,9 @@ pub enum DaemonMsgCommand {
 #[derive(Args, Debug)]
 pub struct MsgSendArgs {
     #[arg(long)]
-    pub kluster: Option<String>,
-    #[arg(long)]
     pub mission: Option<String>,
+    #[arg(long)]
+    pub domain: Option<String>,
     #[arg(long)]
     pub to: Option<String>,
     #[arg(long, default_value = "coordination")]
@@ -294,9 +294,9 @@ pub struct MsgSendArgs {
 #[derive(Args, Debug)]
 pub struct MsgTailArgs {
     #[arg(long)]
-    pub kluster: Option<String>,
-    #[arg(long)]
     pub mission: Option<String>,
+    #[arg(long)]
+    pub domain: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -307,9 +307,9 @@ pub struct DaemonAttachArgs {
 #[derive(Args, Debug)]
 pub struct DaemonWatchArgs {
     #[arg(long)]
-    pub mission: Option<String>,
+    pub domain: Option<String>,
     #[arg(long)]
-    pub kluster: Option<String>,
+    pub mission: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +413,7 @@ pub async fn handle(
         DaemonCommand::Version => handle_version(),
         DaemonCommand::Runtime(cmd) => handle_runtime(cmd),
         DaemonCommand::Agent(cmd) => handle_agent(cmd, client).await,
-        DaemonCommand::Kluster(cmd) => handle_kluster(cmd, client).await,
+        DaemonCommand::Mission(cmd) => handle_mission(cmd, client).await,
         DaemonCommand::Task(cmd) => handle_task(cmd, client).await,
         DaemonCommand::Msg(cmd) => handle_msg(cmd, client).await,
         DaemonCommand::Attach(a) => handle_attach(a, client).await,
@@ -744,17 +744,17 @@ async fn handle_status(client: &MissionControlClient) -> Result<()> {
 }
 
 fn print_local_agents(rows: &[crate::local_db::LocalAgent]) {
-    let mut by_mission: std::collections::BTreeMap<&str, Vec<&crate::local_db::LocalAgent>> =
+    let mut by_domain: std::collections::BTreeMap<&str, Vec<&crate::local_db::LocalAgent>> =
         std::collections::BTreeMap::new();
     for a in rows {
-        by_mission.entry(a.mission_id.as_str()).or_default().push(a);
+        by_domain.entry(a.domain_id.as_str()).or_default().push(a);
     }
     println!(
-        "agents:          {} across {} mission(s)",
+        "agents:          {} across {} domain(s)",
         rows.len(),
-        by_mission.len()
+        by_domain.len()
     );
-    for (mid, agents) in &by_mission {
+    for (mid, agents) in &by_domain {
         let label = if mid.starts_with("home-") {
             format!("{mid} (home)")
         } else {
@@ -775,21 +775,21 @@ fn print_federated_agents(v: &Value) {
         println!("agents:          none enrolled");
         return;
     }
-    let mut by_mission: std::collections::BTreeMap<&str, Vec<&Value>> =
+    let mut by_domain: std::collections::BTreeMap<&str, Vec<&Value>> =
         std::collections::BTreeMap::new();
     for a in arr {
-        let mid = a.get("mission_id").and_then(|v| v.as_str()).unwrap_or("?");
-        by_mission.entry(mid).or_default().push(a);
+        let mid = a.get("domain_id").and_then(|v| v.as_str()).unwrap_or("?");
+        by_domain.entry(mid).or_default().push(a);
     }
     println!(
-        "agents:          {} across {} mission(s)",
+        "agents:          {} across {} domain(s)",
         arr.len(),
-        by_mission.len()
+        by_domain.len()
     );
-    for (mid, agents) in &by_mission {
+    for (mid, agents) in &by_domain {
         let kind = agents
             .iter()
-            .find_map(|a| a.get("mission_kind").and_then(|v| v.as_str()))
+            .find_map(|a| a.get("domain_kind").and_then(|v| v.as_str()))
             .unwrap_or("");
         let label = if kind == "home" {
             format!("{mid} (home)")
@@ -878,23 +878,23 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &MissionControlClient) ->
         DaemonAgentCommand::Ls(a) => {
             if crate::local_db::is_federated() {
                 // Federated: query controlplane.
-                let mission_id = a.mission.as_deref().unwrap_or_default();
-                if mission_id.is_empty() {
-                    anyhow::bail!("--mission is required in federated mode");
+                let domain_id = a.domain.as_deref().unwrap_or_default();
+                if domain_id.is_empty() {
+                    anyhow::bail!("--domain is required in federated mode");
                 }
-                let path = format!("/work/missions/{mission_id}/agents");
+                let path = format!("/work/domains/{domain_id}/agents");
                 let agents = client.get_json(&path).await?;
                 print_agents(&agents);
             } else {
                 // Standalone: read local registry.
-                let agents = crate::local_db::list(a.mission.as_deref())
+                let agents = crate::local_db::list(a.domain.as_deref())
                     .context("reading local registry")?;
                 if agents.is_empty() {
                     println!("No agents enrolled. Use `mc daemon agent enroll` to add one.");
                 } else {
                     println!(
                         "{:<38} {:<14} {:<12} {:<14} {}",
-                        "ID", "RUNTIME", "SUPERVISION", "MISSION", "ENROLLED"
+                        "ID", "RUNTIME", "SUPERVISION", "DOMAIN", "ENROLLED"
                     );
                     println!("{}", "-".repeat(95));
                     for ag in &agents {
@@ -903,7 +903,7 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &MissionControlClient) ->
                             ag.id,
                             ag.runtime_kind,
                             ag.supervision_mode,
-                            ag.mission_id,
+                            ag.domain_id,
                             &ag.enrolled_at[..10], // date only
                         );
                     }
@@ -940,7 +940,7 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &MissionControlClient) ->
                 if let Some(p) = profile {
                     body["profile"] = p;
                 }
-                let path = format!("/work/missions/{}/agents/enroll", a.mission);
+                let path = format!("/work/domains/{}/agents/enroll", a.domain);
                 let result = client.post_json(&path, &body).await?;
                 // Display the public_id (e.g. `aria-work-e88c006e`) — it's
                 // what `mc agent remote message --to-agent-id` accepts, and
@@ -952,8 +952,8 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &MissionControlClient) ->
                     .or_else(|| result.get("id").and_then(|v| v.as_str()))
                     .unwrap_or("?");
                 println!(
-                    "Enrolled agent {display_id} ({} in mission {})",
-                    a.runtime, a.mission
+                    "Enrolled agent {display_id} ({} in domain {})",
+                    a.runtime, a.domain
                 );
                 println!(
                     "\nSet a profile: mc daemon agent profile {display_id} --role \"...\" --name \"...\""
@@ -970,14 +970,14 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &MissionControlClient) ->
                     .collect();
                 let profile_str = a.profile.as_ref().map(|p| p.to_string_lossy().into_owned());
                 let agent_id = crate::local_db::enroll(
-                    &a.mission,
+                    &a.domain,
                     &a.runtime.replace('-', "_"),
                     supervision,
                     &caps,
                     profile_str.as_deref(),
                 )
                 .context("enrolling agent in local registry")?;
-                println!("Enrolled agent {agent_id} ({} in mission {}) [standalone]", a.runtime, a.mission);
+                println!("Enrolled agent {agent_id} ({} in domain {}) [standalone]", a.runtime, a.domain);
                 println!("The mcd daemon will pick this up on its next reconcile tick.");
             }
             Ok(())
@@ -986,7 +986,7 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &MissionControlClient) ->
         DaemonAgentCommand::EnrollHome(a) => {
             if crate::local_db::is_federated() {
                 println!(
-                    "Federated mode — the home mission is auto-provisioned at \
+                    "Federated mode — the home domain is auto-provisioned at \
                      `mc daemon profile add` time. Use `mc daemon agent ls` to inspect."
                 );
                 return Ok(());
@@ -1011,16 +1011,16 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &MissionControlClient) ->
             if slug.is_empty() {
                 anyhow::bail!("hostname {hostname:?} produced an empty slug");
             }
-            let mission_id = format!("home-{slug}");
+            let domain_id = format!("home-{slug}");
             let runtime = a.runtime.replace('-', "_");
 
             // Idempotency: bail if a matching home agent already exists.
-            let existing = crate::local_db::list(Some(&mission_id))
+            let existing = crate::local_db::list(Some(&domain_id))
                 .context("checking local registry for existing home agent")?;
             if let Some(found) = existing.iter().find(|x| x.runtime_kind == runtime) {
                 println!(
-                    "Home mission {} already has a {} agent ({}). Nothing to do.",
-                    mission_id, runtime, found.id
+                    "Home domain {} already has a {} agent ({}). Nothing to do.",
+                    domain_id, runtime, found.id
                 );
                 return Ok(());
             }
@@ -1038,7 +1038,7 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &MissionControlClient) ->
             .collect();
 
             let agent_id = crate::local_db::enroll(
-                &mission_id,
+                &domain_id,
                 &runtime,
                 "persistent",
                 &caps,
@@ -1046,7 +1046,7 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &MissionControlClient) ->
             )
             .context("enrolling home agent in local registry")?;
 
-            println!("Provisioned home mission {} [standalone]", mission_id);
+            println!("Provisioned home domain {} [standalone]", domain_id);
             println!("  agent: {agent_id} ({runtime}, persistent)");
             println!("The mcd daemon will pick this up on its next reconcile tick.");
             Ok(())
@@ -1056,16 +1056,16 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &MissionControlClient) ->
             if crate::local_db::is_federated() {
                 // Federated: PATCH on controlplane.
                 let path = format!("/work/agents/{}/reassign", a.agent_id);
-                let body = json!({ "mission_id": a.mission });
+                let body = json!({ "domain_id": a.domain });
                 client.post_json(&path, &body).await
-                    .with_context(|| format!("reassigning {} to {}", a.agent_id, a.mission))?;
-                println!("Reassigned {} → {}", a.agent_id, a.mission);
+                    .with_context(|| format!("reassigning {} to {}", a.agent_id, a.domain))?;
+                println!("Reassigned {} → {}", a.agent_id, a.domain);
             } else {
                 // Standalone: update local registry.
-                let found = crate::local_db::reassign(&a.agent_id, &a.mission)
+                let found = crate::local_db::reassign(&a.agent_id, &a.domain)
                     .context("updating local registry")?;
                 if found {
-                    println!("Reassigned {} → {} [standalone]", a.agent_id, a.mission);
+                    println!("Reassigned {} → {} [standalone]", a.agent_id, a.domain);
                     println!("The mcd daemon will pick this up on its next reconcile tick.");
                 } else {
                     anyhow::bail!("agent {} not found in local registry", a.agent_id);
@@ -1280,20 +1280,20 @@ async fn handle_agent_profile(a: AgentProfileArgs, client: &MissionControlClient
 }
 
 // ---------------------------------------------------------------------------
-// Kluster commands
+// Mission commands
 // ---------------------------------------------------------------------------
 
-async fn handle_kluster(cmd: DaemonKlusterCommand, client: &MissionControlClient) -> Result<()> {
+async fn handle_mission(cmd: DaemonMissionCommand, client: &MissionControlClient) -> Result<()> {
     match cmd {
-        DaemonKlusterCommand::Ls(a) => {
-            let mission_id = a.mission.as_deref().unwrap_or_default();
-            if mission_id.is_empty() {
-                anyhow::bail!("--mission is required");
+        DaemonMissionCommand::Ls(a) => {
+            let domain_id = a.domain.as_deref().unwrap_or_default();
+            if domain_id.is_empty() {
+                anyhow::bail!("--domain is required");
             }
-            let klusters = client
-                .get_json(&format!("/missions/{mission_id}/k"))
+            let missions = client
+                .get_json(&format!("/domains/{domain_id}/m"))
                 .await?;
-            if let Some(arr) = klusters.as_array() {
+            if let Some(arr) = missions.as_array() {
                 println!("{:<38} {}", "ID", "NAME");
                 println!("{}", "-".repeat(60));
                 for k in arr {
@@ -1306,11 +1306,11 @@ async fn handle_kluster(cmd: DaemonKlusterCommand, client: &MissionControlClient
             }
             Ok(())
         }
-        DaemonKlusterCommand::Show(a) => {
+        DaemonMissionCommand::Show(a) => {
             let graph = client
-                .get_json(&format!("/work/klusters/{}/graph", a.kluster_id))
+                .get_json(&format!("/work/missions/{}/graph", a.mission_id))
                 .await?;
-            println!("Kluster {}", a.kluster_id);
+            println!("Mission {}", a.mission_id);
             if let Some(nodes) = graph["nodes"].as_array() {
                 println!("\nTasks ({}):", nodes.len());
                 println!("{:<38} {:<12} {}", "ID", "STATUS", "TITLE");
@@ -1338,7 +1338,7 @@ async fn handle_kluster(cmd: DaemonKlusterCommand, client: &MissionControlClient
             }
             Ok(())
         }
-        DaemonKlusterCommand::Watch(a) => watch_kluster(&a.kluster_id, client).await,
+        DaemonMissionCommand::Watch(a) => watch_mission(&a.mission_id, client).await,
     }
 }
 
@@ -1382,7 +1382,7 @@ async fn handle_task(cmd: DaemonTaskCommand, client: &MissionControlClient) -> R
             });
 
             let result = client
-                .post_json(&format!("/work/klusters/{}/tasks", a.kluster_id), &body)
+                .post_json(&format!("/work/missions/{}/tasks", a.mission_id), &body)
                 .await?;
 
             let task_id = result["id"].as_str().unwrap_or("?");
@@ -1393,15 +1393,15 @@ async fn handle_task(cmd: DaemonTaskCommand, client: &MissionControlClient) -> R
             Ok(())
         }
         DaemonTaskCommand::Ls(a) => {
-            if let Some(kluster_id) = &a.kluster {
+            if let Some(mission_id) = &a.mission {
                 let path = match &a.status {
-                    Some(s) => format!("/work/klusters/{kluster_id}/tasks?status={s}"),
-                    None => format!("/work/klusters/{kluster_id}/tasks"),
+                    Some(s) => format!("/work/missions/{mission_id}/tasks?status={s}"),
+                    None => format!("/work/missions/{mission_id}/tasks"),
                 };
                 let tasks = client.get_json(&path).await?;
                 print_tasks(&tasks);
             } else {
-                anyhow::bail!("--kluster is required");
+                anyhow::bail!("--mission is required");
             }
             Ok(())
         }
@@ -1541,11 +1541,11 @@ async fn watch_task(
     Ok(())
 }
 
-/// Stream /work/klusters/{id}/stream via WebSocket with exponential-backoff reconnect.
-async fn watch_kluster(kluster_id: &str, client: &MissionControlClient) -> Result<()> {
-    println!("Watching kluster {kluster_id} (Ctrl-C to stop)…\n");
+/// Stream /work/missions/{id}/stream via WebSocket with exponential-backoff reconnect.
+async fn watch_mission(mission_id: &str, client: &MissionControlClient) -> Result<()> {
+    println!("Watching mission {mission_id} (Ctrl-C to stop)…\n");
     watch_ws_stream(
-        &format!("/work/klusters/{kluster_id}/stream"),
+        &format!("/work/missions/{mission_id}/stream"),
         client,
     )
     .await
@@ -1595,20 +1595,20 @@ async fn watch_ws_stream(path: &str, client: &MissionControlClient) -> Result<()
     }
 }
 
-// Legacy REST poll kept for reference; replaced by watch_kluster above.
+// Legacy REST poll kept for reference; replaced by watch_mission above.
 #[allow(dead_code)]
-async fn _watch_kluster_rest(kluster_id: &str, client: &MissionControlClient) -> Result<()> {
-    println!("Watching kluster {kluster_id} (REST poll, Ctrl-C to stop)…\n");
+async fn _watch_mission_rest(mission_id: &str, client: &MissionControlClient) -> Result<()> {
+    println!("Watching mission {mission_id} (REST poll, Ctrl-C to stop)…\n");
     let mut _last_progress_id: i64 = 0;
     let mut last_msg_id: i64 = 0;
 
     loop {
         let tasks = client
-            .get_json(&format!("/work/klusters/{kluster_id}/tasks"))
+            .get_json(&format!("/work/missions/{mission_id}/tasks"))
             .await?;
         let msgs = client
             .get_json(&format!(
-                "/work/klusters/{kluster_id}/messages?since_id={last_msg_id}"
+                "/work/missions/{mission_id}/messages?since_id={last_msg_id}"
             ))
             .await?;
 
@@ -1646,7 +1646,7 @@ async fn _watch_kluster_rest(kluster_id: &str, client: &MissionControlClient) ->
                 )
             });
             if !arr.is_empty() && all_done {
-                println!("\nAll tasks in kluster {kluster_id} are done.");
+                println!("\nAll tasks in mission {mission_id} are done.");
                 break;
             }
         }
@@ -1668,36 +1668,36 @@ async fn handle_msg(cmd: DaemonMsgCommand, client: &MissionControlClient) -> Res
                 "channel": a.channel,
                 "body_json": json!({ "text": a.body }).to_string(),
             });
-            if let Some(kluster_id) = &a.kluster {
-                client
-                    .post_json(&format!("/work/klusters/{kluster_id}/messages"), &body)
-                    .await?;
-                println!("Message sent to kluster {kluster_id}.");
-            } else if let Some(mission_id) = &a.mission {
+            if let Some(mission_id) = &a.mission {
                 client
                     .post_json(&format!("/work/missions/{mission_id}/messages"), &body)
                     .await?;
                 println!("Message sent to mission {mission_id}.");
+            } else if let Some(domain_id) = &a.domain {
+                client
+                    .post_json(&format!("/work/domains/{domain_id}/messages"), &body)
+                    .await?;
+                println!("Message sent to domain {domain_id}.");
             } else {
-                anyhow::bail!("--kluster or --mission is required");
+                anyhow::bail!("--mission or --domain is required");
             }
             Ok(())
         }
         DaemonMsgCommand::Tail(a) => {
-            let is_kluster = a.kluster.is_some();
+            let is_mission = a.mission.is_some();
             let scope_id = a
-                .kluster
-                .or(a.mission)
-                .context("--kluster or --mission is required")?;
+                .mission
+                .or(a.domain)
+                .context("--mission or --domain is required")?;
 
             println!("Tailing messages for {scope_id} (Ctrl-C to stop)…\n");
             let mut last_id: i64 = 0;
 
             loop {
-                let path = if is_kluster {
-                    format!("/work/klusters/{scope_id}/messages?since_id={last_id}")
-                } else {
+                let path = if is_mission {
                     format!("/work/missions/{scope_id}/messages?since_id={last_id}")
+                } else {
+                    format!("/work/domains/{scope_id}/messages?since_id={last_id}")
                 };
                 let msgs = client.get_json(&path).await?;
                 if let Some(arr) = msgs.as_array() {
@@ -1721,14 +1721,14 @@ async fn handle_msg(cmd: DaemonMsgCommand, client: &MissionControlClient) -> Res
 // ---------------------------------------------------------------------------
 
 async fn handle_watch(args: DaemonWatchArgs, client: &MissionControlClient) -> Result<()> {
-    if let Some(kluster_id) = &args.kluster {
-        println!("Watching kluster {kluster_id} (Ctrl-C to stop)…\n");
-        watch_ws_stream(&format!("/work/klusters/{kluster_id}/stream"), client).await
-    } else if let Some(mission_id) = &args.mission {
+    if let Some(mission_id) = &args.mission {
         println!("Watching mission {mission_id} (Ctrl-C to stop)…\n");
         watch_ws_stream(&format!("/work/missions/{mission_id}/stream"), client).await
+    } else if let Some(domain_id) = &args.domain {
+        println!("Watching domain {domain_id} (Ctrl-C to stop)…\n");
+        watch_ws_stream(&format!("/work/domains/{domain_id}/stream"), client).await
     } else {
-        anyhow::bail!("--mission or --kluster is required for `mc daemon watch`")
+        anyhow::bail!("--domain or --mission is required for `mc daemon watch`")
     }
 }
 
@@ -2139,7 +2139,7 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
         });
 
         // Auto-detect Tailscale FQDN if the user didn't supply one. The home
-        // mission slug is derived from this (FQDN leaf > hostname > node_name)
+        // domain slug is derived from this (FQDN leaf > hostname > node_name)
         // on the server side, so a real FQDN gives the nicest naming.
         let tailscale_fqdn = a
             .tailscale_fqdn
@@ -2171,8 +2171,8 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("register response missing `attach_secret`"))?
             .to_string();
-        // Phase 6: register_node returns `home: {mission_id, agent_id}` when
-        // home-mission auto-provisioning succeeded.
+        // Phase 6: register_node returns `home: {domain_id, agent_id}` when
+        // home-domain auto-provisioning succeeded.
         let home = resp.get("home").cloned();
         (nid, sec, tailscale_fqdn, home)
     } else {
@@ -2221,8 +2221,8 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
             }
         }
         if let Some(home) = &home_info {
-            let mid = home.get("mission_id").and_then(|v| v.as_str()).unwrap_or("?");
-            println!("  home mission: {mid}");
+            let mid = home.get("domain_id").and_then(|v| v.as_str()).unwrap_or("?");
+            println!("  home domain: {mid}");
         }
     } else {
         println!("Saved profile '{}' (url: {}).", a.name, a.url);
@@ -2235,7 +2235,7 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &MissionControlClient) -
     Ok(())
 }
 
-/// Slug-safe form of a hostname for use in stable mission IDs. Mirrors the
+/// Slug-safe form of a hostname for use in stable domain IDs. Mirrors the
 /// controlplane's `slug_hostname` so federated and standalone provisioning
 /// produce identical names for the same node.
 fn slug_hostname(input: &str) -> String {
@@ -2463,7 +2463,7 @@ mod tests {
 
     // Mirror of mc-controlplane's slug_hostname tests — the two implementations
     // must produce identical output so federated and standalone provisioning
-    // converge on the same mission IDs for a given hostname.
+    // converge on the same domain IDs for a given hostname.
 
     #[test]
     fn plain_hostname_unchanged() {

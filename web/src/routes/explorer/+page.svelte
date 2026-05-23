@@ -9,9 +9,9 @@
   const auth = useAuthState();
 
   let searchInput = $state('');
-  let selectedNodeType = $state<'mission' | 'kluster' | 'task' | null>(null);
-  let selectedNodeKey = $state<{ type: 'mission' | 'kluster' | 'task'; id: string } | null>(null);
-  let selectedMissionData = $state<{ mission: unknown; klusters: unknown[]; tasks: unknown[] } | null>(null);
+  let selectedNodeType = $state<'domain' | 'mission' | 'task' | null>(null);
+  let selectedNodeKey = $state<{ type: 'domain' | 'mission' | 'task'; id: string } | null>(null);
+  let selectedDomainData = $state<{ domain: unknown; missions: unknown[]; tasks: unknown[] } | null>(null);
 
   const treeQuery = createQuery(() => ({
     queryKey: queryKeys.explorer.tree(),
@@ -27,9 +27,9 @@
     enabled: auth.isLoggedIn && !!selectedNodeKey
   }));
 
-  let filteredMissions = $derived(
-    ((treeQuery.data?.missions ?? []) as unknown[]).filter(
-      (m: unknown) => !searchInput || (m as { name?: string }).name?.toLowerCase().includes(searchInput.toLowerCase())
+  let filteredDomains = $derived(
+    ((treeQuery.data?.domains ?? []) as unknown[]).filter(
+      (d: unknown) => !searchInput || (d as { name?: string }).name?.toLowerCase().includes(searchInput.toLowerCase())
     )
   );
 
@@ -40,7 +40,7 @@
   let explorerBusy = $derived(nodeQuery.isFetching && !!selectedNodeKey);
 
   let selectedNodeData = $derived.by(() => {
-    if (selectedNodeType === 'mission') return selectedMissionData;
+    if (selectedNodeType === 'domain') return selectedDomainData;
     return (nodeQuery.data as Record<string, unknown>) ?? null;
   });
 
@@ -56,18 +56,18 @@
     return (tasks as { status?: string }[]).filter(t => String(t.status ?? '').toLowerCase() === status).length;
   }
 
-  function selectExplorerNode(type: 'mission' | 'kluster' | 'task', node: unknown) {
+  function selectExplorerNode(type: 'domain' | 'mission' | 'task', node: unknown) {
     selectedNodeType = type;
-    if (type === 'mission') {
-      selectedMissionData = {
-        mission: node,
-        klusters: (node as { klusters?: unknown[] }).klusters ?? [],
+    if (type === 'domain') {
+      selectedDomainData = {
+        domain: node,
+        missions: (node as { missions?: unknown[] }).missions ?? [],
         tasks: []
       };
       selectedNodeKey = null;
       return;
     }
-    selectedMissionData = null;
+    selectedDomainData = null;
     const nodeId =
       type === 'task'
         ? String((node as { public_id?: unknown; id?: unknown }).public_id ?? (node as { id?: unknown }).id ?? '')
@@ -75,8 +75,8 @@
     selectedNodeKey = nodeId ? { type, id: nodeId } : null;
   }
 
+  function selectDomain(d: unknown) { return selectExplorerNode('domain', d); }
   function selectMission(m: unknown) { return selectExplorerNode('mission', m); }
-  function selectKluster(k: unknown) { return selectExplorerNode('kluster', k); }
   function selectTask(t: unknown) { return selectExplorerNode('task', t); }
 
   function refreshTree() {
@@ -105,29 +105,29 @@
 <div class="glass-panel">
   <div class="grid">
     <div>
-      <h3>Mission Tree</h3>
+      <h3>Domain Tree</h3>
       <button class="ghost" onclick={refreshTree}>Refresh</button>
       {#if lastRefreshed}<small class="muted">Updated {lastRefreshed}</small>{/if}
     </div>
-    <input bind:value={searchInput} placeholder="Filter missions..." style="max-width:220px" />
+    <input bind:value={searchInput} placeholder="Filter domains..." style="max-width:220px" />
   </div>
   <div class="grid">
     <section class="glass-panel">
-      <h4>Missions {filteredMissions.length > 0 ? `(${filteredMissions.length})` : ''}</h4>
+      <h4>Domains {filteredDomains.length > 0 ? `(${filteredDomains.length})` : ''}</h4>
       <ul class="explorer-list">
-        {#each filteredMissions as mission}
+        {#each filteredDomains as domain}
           <li>
-            <button class="ghost explorer-node-btn" onclick={() => selectMission(mission)}>
-              <span>{(mission as { name?: string }).name}</span>
-              <span class={`status-badge ${statusClass((mission as { status?: string }).status)}`}>{(mission as { status?: string }).status ?? 'unknown'}</span>
+            <button class="ghost explorer-node-btn" onclick={() => selectDomain(domain)}>
+              <span>{(domain as { name?: string }).name}</span>
+              <span class={`status-badge ${statusClass((domain as { status?: string }).status)}`}>{(domain as { status?: string }).status ?? 'unknown'}</span>
             </button>
-            {#if (mission as { klusters?: unknown[] }).klusters?.length}
+            {#if (domain as { missions?: unknown[] }).missions?.length}
               <ul class="explorer-sublist">
-                {#each (mission as { klusters: unknown[] }).klusters as kluster}
+                {#each (domain as { missions: unknown[] }).missions as mission}
                   <li>
-                    <button class="ghost explorer-subnode-btn" onclick={() => selectKluster(kluster)}>
-                      <span>{(kluster as { name?: string }).name}</span>
-                      <span class="muted">{(kluster as { task_count?: number; recent_tasks?: unknown[] }).task_count ?? (kluster as { recent_tasks?: unknown[] }).recent_tasks?.length ?? 0} tasks</span>
+                    <button class="ghost explorer-subnode-btn" onclick={() => selectMission(mission)}>
+                      <span>{(mission as { name?: string }).name}</span>
+                      <span class="muted">{(mission as { task_count?: number; recent_tasks?: unknown[] }).task_count ?? (mission as { recent_tasks?: unknown[] }).recent_tasks?.length ?? 0} tasks</span>
                     </button>
                   </li>
                 {/each}
@@ -135,7 +135,7 @@
             {/if}
           </li>
         {:else}
-          <li class="muted">No missions yet.</li>
+          <li class="muted">No domains yet.</li>
         {/each}
       </ul>
     </section>
@@ -144,31 +144,31 @@
       {#if explorerBusy}
         <p class="muted">Loading node details...</p>
       {:else if selectedNodeData}
-        {#if selectedNodeType === 'mission' && (selectedNodeData as { mission?: unknown }).mission}
-          {@const m = (selectedNodeData as { mission: { name?: string; status?: string; description?: string; task_count?: number }; klusters?: unknown[] })}
+        {#if selectedNodeType === 'domain' && (selectedNodeData as { domain?: unknown }).domain}
+          {@const d = (selectedNodeData as { domain: { name?: string; status?: string; description?: string; task_count?: number }; missions?: unknown[] })}
+          <div class="explorer-detail-header">
+            <h4>{d.domain.name}</h4>
+            <span class={`status-badge ${statusClass(d.domain.status)}`}>{d.domain.status ?? 'unknown'}</span>
+          </div>
+          <p class="muted">{d.domain.description || 'No domain description.'}</p>
+          <div class="detail-metrics">
+            <div class="status-chip">Missions: {d.missions?.length ?? 0}</div>
+            <div class="status-chip">Tasks: {d.domain.task_count ?? 0}</div>
+          </div>
+        {:else if selectedNodeType === 'mission' && (selectedNodeData as { mission?: unknown }).mission}
+          {@const m = (selectedNodeData as { mission: { name?: string; status?: string; description?: string }; tasks?: unknown[] })}
           <div class="explorer-detail-header">
             <h4>{m.mission.name}</h4>
             <span class={`status-badge ${statusClass(m.mission.status)}`}>{m.mission.status ?? 'unknown'}</span>
           </div>
           <p class="muted">{m.mission.description || 'No mission description.'}</p>
           <div class="detail-metrics">
-            <div class="status-chip">Klusters: {m.klusters?.length ?? 0}</div>
-            <div class="status-chip">Tasks: {m.mission.task_count ?? 0}</div>
-          </div>
-        {:else if selectedNodeType === 'kluster' && (selectedNodeData as { kluster?: unknown }).kluster}
-          {@const k = (selectedNodeData as { kluster: { name?: string; status?: string; description?: string }; tasks?: unknown[] })}
-          <div class="explorer-detail-header">
-            <h4>{k.kluster.name}</h4>
-            <span class={`status-badge ${statusClass(k.kluster.status)}`}>{k.kluster.status ?? 'unknown'}</span>
-          </div>
-          <p class="muted">{k.kluster.description || 'No kluster description.'}</p>
-          <div class="detail-metrics">
-            <div class="status-chip">Sub-tasks: {k.tasks?.length ?? 0}</div>
-            <div class="status-chip">In Progress: {taskCountByStatus(k.tasks ?? [], 'in_progress')}</div>
-            <div class="status-chip">Blocked: {taskCountByStatus(k.tasks ?? [], 'blocked')}</div>
+            <div class="status-chip">Sub-tasks: {m.tasks?.length ?? 0}</div>
+            <div class="status-chip">In Progress: {taskCountByStatus(m.tasks ?? [], 'in_progress')}</div>
+            <div class="status-chip">Blocked: {taskCountByStatus(m.tasks ?? [], 'blocked')}</div>
           </div>
           <div class="task-cards">
-            {#each k.tasks ?? [] as task}
+            {#each m.tasks ?? [] as task}
               <article class="task-card">
                 <div class="explorer-detail-header">
                   <strong>{(task as { title?: string }).title}</strong>
@@ -178,7 +178,7 @@
                 <button class="ghost" onclick={() => selectTask(task)}>Open Task</button>
               </article>
             {:else}
-              <p class="muted">No sub-tasks for this kluster yet.</p>
+              <p class="muted">No sub-tasks for this mission yet.</p>
             {/each}
           </div>
         {:else if selectedNodeType === 'task' && (selectedNodeData as { task?: unknown }).task}
@@ -193,7 +193,7 @@
           <pre>{JSON.stringify(selectedNodeData, null, 2)}</pre>
         {/if}
       {:else}
-        <p class="muted">Choose a mission or kluster to inspect.</p>
+        <p class="muted">Choose a domain or mission to inspect.</p>
       {/if}
     </section>
   </div>

@@ -326,7 +326,7 @@ fn render_agent_table(buf: &mut Buffer, area: Rect, state: &AgentScreenState) {
         Span::styled(format!("{:<20} ", "Agent"), theme::muted()),
         Span::styled(format!("{:<16} ", "Node"), theme::muted()),
         Span::styled(format!("{:<10} ", "Runtime"), theme::muted()),
-        Span::styled(format!("{:<22} ", "Mission"), theme::muted()),
+        Span::styled(format!("{:<22} ", "Domain"), theme::muted()),
         Span::styled("Active Task", theme::muted()),
     ]);
     Paragraph::new(header).style(theme::normal()).render(header_area, buf);
@@ -350,7 +350,7 @@ fn render_agent_table(buf: &mut Buffer, area: Rect, state: &AgentScreenState) {
                 if selected { theme::selected() } else { runtime_style },
             ),
             Span::styled(
-                format!("{:<22} ", truncate(agent.mission_name.as_deref().unwrap_or("—"), 20)),
+                format!("{:<22} ", truncate(agent.domain_name.as_deref().unwrap_or("—"), 20)),
                 if selected { theme::selected() } else { theme::muted() },
             ),
             Span::styled(
@@ -447,8 +447,8 @@ fn render_detail_panel(buf: &mut Buffer, area: Rect, state: &AgentScreenState) {
         Line::from(Span::styled("Current Task", Style::default().fg(theme::TEXT_MUTED).add_modifier(Modifier::BOLD))),
         Line::from(""),
         Line::from(vec![
-            Span::styled("Mission ", theme::muted()),
-            Span::styled(agent.mission_name.as_deref().unwrap_or("—").to_string(), theme::normal()),
+            Span::styled("Domain ", theme::muted()),
+            Span::styled(agent.domain_name.as_deref().unwrap_or("—").to_string(), theme::normal()),
         ]),
         Line::from(vec![
             Span::styled("Task    ", theme::muted()),
@@ -520,8 +520,8 @@ mod tests {
             updated_at: None,
             runtime: None,
             node_id: node.map(String::from),
-            mission_id: None,
-            mission_name: None,
+            domain_id: None,
+            domain_name: None,
             current_task_title: None,
             last_seen: None,
             metadata: None,

@@ -7,7 +7,7 @@
 //! mcd instance supervises. For each match (up to `max_concurrent_subagents`),
 //! it:
 //!
-//!   1. Enrolls an ephemeral `MeshAgent` under the fleet-ops mission.
+//!   1. Enrolls an ephemeral `MeshAgent` under the fleet-ops domain.
 //!   2. Claims the task via the agent.
 //!   3. Allocates a per-task working directory (`~/.mc/worktrees/<task_id>/`).
 //!   4. Starts a durable `AgentRun` audit record.
@@ -18,7 +18,7 @@
 //! # Phase 3 — triage loop
 //!
 //! A second long-running tokio task that examines unscoped tasks in the intake
-//! kluster (tasks with no `target_profile` in `claim_policy` and no prior triage
+//! mission (tasks with no `target_profile` in `claim_policy` and no prior triage
 //! attempt). For each such task, it applies three-tier routing:
 //!
 //!   1. **Rule tier**: if the task already has a `target_profile` in
@@ -54,10 +54,10 @@
 //!
 //! # HTTP endpoint surface used (P2)
 //!
-//! - `GET /missions` — discover all missions for kluster scanning.
-//! - `GET /missions/{id}/k` — list klusters per mission.
-//! - `GET /work/klusters/{id}/tasks?status=ready` — poll ready tasks per kluster.
-//! - `POST /work/missions/{mission_id}/agents/enroll` — enroll ephemeral MeshAgent.
+//! - `GET /domains` — discover all domains for mission scanning.
+//! - `GET /domains/{id}/k` — list missions per domain.
+//! - `GET /work/missions/{id}/tasks?status=ready` — poll ready tasks per mission.
+//! - `POST /work/domains/{domain_id}/agents/enroll` — enroll ephemeral MeshAgent.
 //! - `POST /work/tasks/{task_id}/claim` — claim task with enrolled agent.
 //! - `POST /runs` — start durable AgentRun.
 //! - `POST /runs/{run_id}/complete` — complete AgentRun on subprocess exit.
@@ -66,20 +66,20 @@
 //!
 //! # HTTP endpoint surface used (P3 triage)
 //!
-//! - `GET /missions` → `GET /missions/{id}/k` → find intake kluster by name.
-//! - `GET /work/klusters/{intake_kluster_id}/tasks?status=ready` — list unscoped tasks.
-//! - `POST /work/klusters/{intake_kluster_id}/tasks` — create child meshtask.
+//! - `GET /domains` → `GET /domains/{id}/k` → find intake mission by name.
+//! - `GET /work/missions/{intake_mission_id}/tasks?status=ready` — list unscoped tasks.
+//! - `POST /work/missions/{intake_mission_id}/tasks` — create child meshtask.
 //! - `POST /work/tasks/{intake_task_id}/dispatched` — mark intake task finished (routed).
 //!   Single admin-or-owner call; transitions `ready` → `finished` without a claim.
 //!   Shipped in 0.15.10 specifically to replace the 4-call temp-agent dance.
 //! - `POST /work/tasks/{intake_task_id}/block` — mark intake task blocked (low-confidence).
 //!
-//! # Cross-kluster scan trade-off
+//! # Cross-mission scan trade-off
 //!
-//! The controlplane exposes `GET /work/klusters/{id}/tasks` per-kluster but has
-//! no cross-kluster scan endpoint. This module scans missions → klusters → tasks
+//! The controlplane exposes `GET /work/missions/{id}/tasks` per-mission but has
+//! no cross-mission scan endpoint. This module scans domains → missions → tasks
 //! (three round-trips per poll). For the typical single-node fleet this adds
-//! < 100ms per poll cycle and is acceptable. If kluster count grows beyond ~50,
+//! < 100ms per poll cycle and is acceptable. If mission count grows beyond ~50,
 //! a dedicated `GET /work/tasks?status=ready&target_profile=X` index endpoint
 //! should be added to the controlplane (tracked as a tech-debt item).
 //!
@@ -257,59 +257,59 @@ async fn poll_and_claim(
     }
 }
 
-/// Scan all missions → klusters → tasks, returning ready tasks whose
+/// Scan all domains → missions → tasks, returning ready tasks whose
 /// `claim_policy.target_profile` matches one of the supervised profiles.
 ///
-/// # Cross-kluster scan
+/// # Cross-mission scan
 ///
-/// There is no single endpoint for cross-kluster task listing. This function
-/// traverses missions → klusters → tasks (3 round-trips). For the current
-/// fleet scale (< 20 klusters) this is fine. A dedicated index endpoint
-/// would be the right optimisation if kluster count grows significantly.
+/// There is no single endpoint for cross-mission task listing. This function
+/// traverses domains → missions → tasks (3 round-trips). For the current
+/// fleet scale (< 20 missions) this is fine. A dedicated index endpoint
+/// would be the right optimisation if mission count grows significantly.
 async fn scan_ready_tasks(
     client: &BackendClient,
     supervised: &HashSet<String>,
 ) -> anyhow::Result<Vec<Value>> {
-    let missions: Vec<Value> = client
-        .get("/missions")
+    let domains: Vec<Value> = client
+        .get("/domains")
         .await
-        .map_err(|e| anyhow::anyhow!("GET /missions failed: {e:#}"))?;
+        .map_err(|e| anyhow::anyhow!("GET /domains failed: {e:#}"))?;
 
     let mut claimable = Vec::new();
 
-    for mission in &missions {
-        let mission_id = match mission.get("id").and_then(|v| v.as_str()) {
+    for domain in &domains {
+        let domain_id = match domain.get("id").and_then(|v| v.as_str()) {
             Some(id) => id,
             None => continue,
         };
 
-        let klusters: Vec<Value> = match client
-            .get(&format!("/missions/{mission_id}/k"))
+        let missions: Vec<Value> = match client
+            .get(&format!("/domains/{domain_id}/m"))
             .await
         {
             Ok(k) => k,
             Err(e) => {
                 tracing::warn!(
-                    "task_worker: GET /missions/{mission_id}/k failed: {e:#}, skipping"
+                    "task_worker: GET /domains/{domain_id}/m failed: {e:#}, skipping"
                 );
                 continue;
             }
         };
 
-        for kluster in &klusters {
-            let kluster_id = match kluster.get("id").and_then(|v| v.as_str()) {
+        for mission in &missions {
+            let mission_id = match mission.get("id").and_then(|v| v.as_str()) {
                 Some(id) => id,
                 None => continue,
             };
 
             let tasks: Vec<Value> = match client
-                .get(&format!("/work/klusters/{kluster_id}/tasks?status=ready"))
+                .get(&format!("/work/missions/{mission_id}/tasks?status=ready"))
                 .await
             {
                 Ok(t) => t,
                 Err(e) => {
                     tracing::warn!(
-                        "task_worker: GET /work/klusters/{kluster_id}/tasks failed: {e:#}, \
+                        "task_worker: GET /work/missions/{mission_id}/tasks failed: {e:#}, \
                          skipping"
                     );
                     continue;
@@ -341,10 +341,10 @@ async fn run_task_lifecycle(client: &BackendClient, config: &DaemonConfig, task:
             return;
         }
     };
-    let mission_id = match task.get("mission_id").and_then(|v| v.as_str()) {
+    let domain_id = match task.get("domain_id").and_then(|v| v.as_str()) {
         Some(id) => id,
         None => {
-            tracing::warn!("task_worker: task {task_id} missing mission_id, skipping");
+            tracing::warn!("task_worker: task {task_id} missing domain_id, skipping");
             return;
         }
     };
@@ -358,7 +358,7 @@ async fn run_task_lifecycle(client: &BackendClient, config: &DaemonConfig, task:
 
     tracing::info!(
         "task_worker: starting lifecycle for task={task_id} profile={target_profile} \
-         mission={mission_id}"
+         domain={domain_id}"
     );
 
     // ── Step 1: Enroll ephemeral MeshAgent ────────────────────────────────
@@ -378,7 +378,7 @@ async fn run_task_lifecycle(client: &BackendClient, config: &DaemonConfig, task:
 
     let enroll_resp: Value = match client
         .post(
-            &format!("/work/missions/{mission_id}/agents/enroll"),
+            &format!("/work/domains/{domain_id}/agents/enroll"),
             &enroll_body,
         )
         .await
@@ -800,7 +800,7 @@ pub struct CategorizationResult {
 
 /// Entry point for the P3 triage loop. Spawned alongside the P2 claimer loop
 /// by `daemon.rs`. Loops forever at a slower cadence than P2 (default 60s vs
-/// 30s), examining unscoped ready tasks in the intake kluster.
+/// 30s), examining unscoped ready tasks in the intake mission.
 ///
 /// Uses a `Mutex<bool>` to prevent overlapping triage cycles — if a cycle
 /// takes longer than the poll interval, the next tick is skipped silently.
@@ -846,37 +846,37 @@ pub async fn run_triage_loop(client: Arc<BackendClient>, config: DaemonConfig) {
     }
 }
 
-/// One triage cycle: find unscoped ready tasks in the intake kluster and
+/// One triage cycle: find unscoped ready tasks in the intake mission and
 /// attempt to route or surface each one.
 async fn triage_cycle(
     client: &Arc<BackendClient>,
     config: &DaemonConfig,
     supervised: &HashSet<String>,
 ) {
-    // Resolve intake kluster.
-    let (intake_kluster_id, intake_mission_id) =
-        match resolve_intake_kluster(client).await {
+    // Resolve intake mission.
+    let (intake_mission_id, intake_domain_id) =
+        match resolve_intake_mission(client).await {
             Some(pair) => pair,
             None => {
                 tracing::debug!(
-                    "triage: intake kluster not found, skipping cycle \
+                    "triage: intake mission not found, skipping cycle \
                      (bootstrap may not have run yet)"
                 );
                 return;
             }
         };
 
-    // Fetch ready tasks from the intake kluster.
+    // Fetch ready tasks from the intake mission.
     let tasks: Vec<Value> = match client
         .get(&format!(
-            "/work/klusters/{intake_kluster_id}/tasks?status=ready"
+            "/work/missions/{intake_mission_id}/tasks?status=ready"
         ))
         .await
     {
         Ok(t) => t,
         Err(e) => {
             tracing::warn!(
-                "triage: GET /work/klusters/{intake_kluster_id}/tasks failed: {e:#}"
+                "triage: GET /work/missions/{intake_mission_id}/tasks failed: {e:#}"
             );
             return;
         }
@@ -890,12 +890,12 @@ async fn triage_cycle(
         .collect();
 
     if unscoped.is_empty() {
-        tracing::debug!("triage: no unscoped tasks in intake kluster");
+        tracing::debug!("triage: no unscoped tasks in intake mission");
         return;
     }
 
     tracing::info!(
-        "triage: {} unscoped task(s) to triage in intake kluster {intake_kluster_id}",
+        "triage: {} unscoped task(s) to triage in intake mission {intake_mission_id}",
         unscoped.len()
     );
 
@@ -904,8 +904,8 @@ async fn triage_cycle(
             client,
             config,
             task,
-            &intake_kluster_id,
             &intake_mission_id,
+            &intake_domain_id,
             supervised,
         )
         .await;
@@ -919,8 +919,8 @@ async fn triage_one(
     client: &Arc<BackendClient>,
     config: &DaemonConfig,
     task: &Value,
-    intake_kluster_id: &str,
     intake_mission_id: &str,
+    intake_domain_id: &str,
     supervised: &HashSet<String>,
 ) {
     let task_id = match task.get("id").and_then(|v| v.as_str()) {
@@ -955,7 +955,7 @@ async fn triage_one(
             result.confidence,
             result.reason,
         );
-        route_task(client, config, task, intake_kluster_id, intake_mission_id, &result.target_profile).await;
+        route_task(client, config, task, intake_mission_id, intake_domain_id, &result.target_profile).await;
     } else {
         let reason_summary = categorization
             .as_ref()
@@ -965,7 +965,7 @@ async fn triage_one(
         tracing::info!(
             "triage: low-confidence for task={task_id} — blocking + surfacing ({reason_summary})"
         );
-        surface_to_inbox(client, task, &categorization, intake_kluster_id, config.task_worker_surface_command.as_ref()).await;
+        surface_to_inbox(client, task, &categorization, intake_mission_id, config.task_worker_surface_command.as_ref()).await;
     }
 }
 
@@ -978,8 +978,8 @@ async fn route_task(
     client: &Arc<BackendClient>,
     config: &DaemonConfig,
     intake_task: &Value,
-    intake_kluster_id: &str,
     intake_mission_id: &str,
+    intake_domain_id: &str,
     target_profile: &str,
 ) {
     let intake_task_id = match intake_task.get("id").and_then(|v| v.as_str()) {
@@ -990,7 +990,7 @@ async fn route_task(
         }
     };
 
-    // ── Step 1: Create child meshtask in the intake kluster ────────────────
+    // ── Step 1: Create child meshtask in the intake mission ────────────────
     //
     // Child task carries the work; intake task becomes the routing record.
     // claim_policy routes to the target profile. parent_task_id links back.
@@ -1007,7 +1007,7 @@ async fn route_task(
 
     let child_resp: Value = match client
         .post(
-            &format!("/work/klusters/{intake_kluster_id}/tasks"),
+            &format!("/work/missions/{intake_mission_id}/tasks"),
             &child_body,
         )
         .await
@@ -1019,7 +1019,7 @@ async fn route_task(
                  Falling back to vault surface."
             );
             // Fall back to blocking + surfacing rather than leaving task unhandled.
-            surface_to_inbox_low_confidence(client, intake_task, "child task creation failed", intake_kluster_id, config.task_worker_surface_command.as_ref()).await;
+            surface_to_inbox_low_confidence(client, intake_task, "child task creation failed", intake_mission_id, config.task_worker_surface_command.as_ref()).await;
             return;
         }
     };
@@ -1049,7 +1049,7 @@ async fn route_task(
 
     tracing::info!(
         "triage: intake task={intake_task_id} marked finished (routed to profile={target_profile}, \
-         child={child_id}, mission={intake_mission_id})"
+         child={child_id}, domain={intake_domain_id})"
     );
 
     // ── Step 3: Ignore goose_timeout_secs here — used by call_goose_categorize ─
@@ -1061,7 +1061,7 @@ async fn surface_to_inbox(
     client: &Arc<BackendClient>,
     intake_task: &Value,
     categorization: &Option<CategorizationResult>,
-    intake_kluster_id: &str,
+    intake_mission_id: &str,
     surface_command: Option<&Vec<String>>,
 ) {
     let reason = categorization
@@ -1071,7 +1071,7 @@ async fn surface_to_inbox(
             r.confidence, r.target_profile, r.reason
         ))
         .unwrap_or_else(|| "goose categorization returned no result".to_string());
-    surface_to_inbox_low_confidence(client, intake_task, &reason, intake_kluster_id, surface_command).await;
+    surface_to_inbox_low_confidence(client, intake_task, &reason, intake_mission_id, surface_command).await;
 }
 
 /// Internal helper: block the intake task and (optionally) invoke a
@@ -1087,7 +1087,7 @@ async fn surface_to_inbox_low_confidence(
     client: &Arc<BackendClient>,
     intake_task: &Value,
     reason: &str,
-    _intake_kluster_id: &str,
+    _intake_mission_id: &str,
     surface_command: Option<&Vec<String>>,
 ) {
     let task_id = intake_task
@@ -1154,38 +1154,38 @@ async fn surface_to_inbox_low_confidence(
     }
 }
 
-/// Resolve the intake kluster id and its parent mission id.
+/// Resolve the intake mission id and its parent domain id.
 ///
-/// Walks missions → klusters, looking for a kluster named `INTAKE_KLUSTER_NAME`.
-/// Returns `None` if the intake kluster doesn't exist yet (bootstrap hasn't run)
+/// Walks domains → missions, looking for a mission named `INTAKE_MISSION_NAME`.
+/// Returns `None` if the intake mission doesn't exist yet (bootstrap hasn't run)
 /// or if the controlplane is unreachable.
-async fn resolve_intake_kluster(client: &Arc<BackendClient>) -> Option<(String, String)> {
-    use crate::bootstrap::INTAKE_KLUSTER_NAME;
+async fn resolve_intake_mission(client: &Arc<BackendClient>) -> Option<(String, String)> {
+    use crate::bootstrap::INTAKE_MISSION_NAME;
 
-    let missions: Vec<Value> = match client.get("/missions").await {
+    let domains: Vec<Value> = match client.get("/domains").await {
         Ok(m) => m,
         Err(e) => {
-            tracing::warn!("triage: GET /missions failed: {e:#}");
+            tracing::warn!("triage: GET /domains failed: {e:#}");
             return None;
         }
     };
 
-    for mission in &missions {
-        let mission_id = mission.get("id").and_then(|v| v.as_str())?;
+    for domain in &domains {
+        let domain_id = domain.get("id").and_then(|v| v.as_str())?;
 
-        let klusters: Vec<Value> = match client
-            .get(&format!("/missions/{mission_id}/k"))
+        let missions: Vec<Value> = match client
+            .get(&format!("/domains/{domain_id}/m"))
             .await
         {
             Ok(k) => k,
             Err(_) => continue,
         };
 
-        for k in &klusters {
-            if k.get("name").and_then(|v| v.as_str()) == Some(INTAKE_KLUSTER_NAME)
+        for k in &missions {
+            if k.get("name").and_then(|v| v.as_str()) == Some(INTAKE_MISSION_NAME)
                 && let Some(kid) = k.get("id").and_then(|v| v.as_str())
             {
-                return Some((kid.to_string(), mission_id.to_string()));
+                return Some((kid.to_string(), domain_id.to_string()));
             }
         }
     }

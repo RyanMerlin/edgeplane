@@ -29,8 +29,8 @@ jobs:
       - name: Compile sanity
         run: python -m compileall app alembic tests
 
-      - name: Enforce kluster naming
-        run: python ../scripts/enforce_kluster_naming.py
+      - name: Enforce mission naming
+        run: python ../scripts/enforce_mission_naming.py
 
       - name: Reset CI database
         run: rm -f ./ci_migrations.db

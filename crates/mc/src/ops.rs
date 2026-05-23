@@ -7,19 +7,19 @@ use serde_json::{Value, json};
 
 #[derive(Subcommand, Debug)]
 pub enum OpsCommand {
-    /// Mission-level lifecycle actions that build on workspace leases.
-    Mission(MissionOpsArgs),
+    /// Domain-level lifecycle actions that build on workspace leases.
+    Domain(DomainOpsArgs),
 }
 
 #[derive(Args, Debug)]
-pub struct MissionOpsArgs {
-    /// Mission action to execute.
+pub struct DomainOpsArgs {
+    /// Domain action to execute.
     #[arg(long, value_enum)]
-    pub action: MissionAction,
+    pub action: DomainAction,
 
-    /// Target kluster (required for start).
+    /// Target mission (required for start).
     #[arg(long)]
-    pub kluster_id: Option<String>,
+    pub mission_id: Option<String>,
 
     /// Lease ID to manage.
     #[arg(long)]
@@ -51,7 +51,7 @@ pub struct MissionOpsArgs {
 }
 
 #[derive(ValueEnum, Clone, Debug)]
-pub enum MissionAction {
+pub enum DomainAction {
     Start,
     Heartbeat,
     Commit,
@@ -65,23 +65,23 @@ pub async fn run(
     schema_pack: &SchemaPack,
 ) -> Result<()> {
     match command {
-        OpsCommand::Mission(args) => run_mission(args, client, booster, schema_pack).await,
+        OpsCommand::Domain(args) => run_domain(args, client, booster, schema_pack).await,
     }
 }
 
-async fn run_mission(
-    args: MissionOpsArgs,
+async fn run_domain(
+    args: DomainOpsArgs,
     client: &MissionControlClient,
     booster: &AgentBooster,
     schema_pack: &SchemaPack,
 ) -> Result<()> {
     match args.action {
-        MissionAction::Start => {
-            let kluster_id = args
-                .kluster_id
+        DomainAction::Start => {
+            let mission_id = args
+                .mission_id
                 .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("--kluster-id is required for start"))?;
-            let mut payload = json!({ "kluster_id": kluster_id });
+                .ok_or_else(|| anyhow::anyhow!("--mission-id is required for start"))?;
+            let mut payload = json!({ "mission_id": mission_id });
             if let Some(label) = args.workspace_label {
                 payload["workspace_label"] = json!(label);
             }
@@ -95,13 +95,13 @@ async fn run_mission(
                 client,
                 Some(booster),
                 Some(schema_pack),
-                "load_kluster_workspace",
+                "load_mission_workspace",
                 payload,
             )
             .await?;
             print_json(&response);
         }
-        MissionAction::Heartbeat => {
+        DomainAction::Heartbeat => {
             let lease_id = args
                 .lease_id
                 .as_deref()
@@ -117,7 +117,7 @@ async fn run_mission(
             .await?;
             print_json(&response);
         }
-        MissionAction::Commit => {
+        DomainAction::Commit => {
             let lease_id = args
                 .lease_id
                 .as_deref()
@@ -135,13 +135,13 @@ async fn run_mission(
                 client,
                 Some(booster),
                 Some(schema_pack),
-                "commit_kluster_workspace",
+                "commit_mission_workspace",
                 payload,
             )
             .await?;
             print_json(&response);
         }
-        MissionAction::Release => {
+        DomainAction::Release => {
             let lease_id = args
                 .lease_id
                 .as_deref()
@@ -154,7 +154,7 @@ async fn run_mission(
                 client,
                 Some(booster),
                 Some(schema_pack),
-                "release_kluster_workspace",
+                "release_mission_workspace",
                 payload,
             )
             .await?;

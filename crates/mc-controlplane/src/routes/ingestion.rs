@@ -23,14 +23,14 @@ pub fn router() -> Router<Arc<AppState>> {
 
 #[derive(Deserialize)]
 struct IngestRequest {
-    kluster_id: String,
+    mission_id: String,
     #[serde(default)]
     config: serde_json::Value,
 }
 
 #[derive(Deserialize)]
 struct ListQuery {
-    kluster_id: Option<String>,
+    mission_id: Option<String>,
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
@@ -40,7 +40,7 @@ fn not_found(msg: &str) -> axum::response::Response {
 fn row_to_job(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     serde_json::json!({
         "id": row.get::<i32, _>("id"),
-        "kluster_id": row.get::<String, _>("kluster_id"),
+        "mission_id": row.get::<String, _>("mission_id"),
         "source": row.get::<String, _>("source"),
         "status": row.get::<String, _>("status"),
         "config": row.get::<String, _>("config"),
@@ -53,17 +53,17 @@ fn row_to_job(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 
 async fn create_job(
     db: &sqlx::PgPool,
-    kluster_id: &str,
+    mission_id: &str,
     source: &str,
     config: &serde_json::Value,
 ) -> Result<serde_json::Value, sqlx::Error> {
     let config_str = serde_json::to_string(config).unwrap_or_else(|_| "{}".to_string());
     let now = Utc::now().naive_utc();
     let row = sqlx::query(
-        "INSERT INTO ingestionjob (kluster_id, source, status, config, logs, result_summary, created_at, updated_at) \
+        "INSERT INTO ingestionjob (mission_id, source, status, config, logs, result_summary, created_at, updated_at) \
          VALUES ($1,$2,'queued',$3,'','',$4,$4) RETURNING *",
     )
-    .bind(kluster_id)
+    .bind(mission_id)
     .bind(source)
     .bind(&config_str)
     .bind(now)
@@ -77,7 +77,7 @@ async fn ingest_github(
     _principal: Principal,
     Json(body): Json<IngestRequest>,
 ) -> impl IntoResponse {
-    match create_job(&state.db, &body.kluster_id, "github", &body.config).await {
+    match create_job(&state.db, &body.mission_id, "github", &body.config).await {
         Ok(job) => Json(job).into_response(),
         Err(e) => {
             tracing::error!("ingest_github: {e}");
@@ -91,7 +91,7 @@ async fn ingest_drive(
     _principal: Principal,
     Json(body): Json<IngestRequest>,
 ) -> impl IntoResponse {
-    match create_job(&state.db, &body.kluster_id, "google_drive", &body.config).await {
+    match create_job(&state.db, &body.mission_id, "google_drive", &body.config).await {
         Ok(job) => Json(job).into_response(),
         Err(e) => {
             tracing::error!("ingest_drive: {e}");
@@ -105,7 +105,7 @@ async fn ingest_slack(
     _principal: Principal,
     Json(body): Json<IngestRequest>,
 ) -> impl IntoResponse {
-    match create_job(&state.db, &body.kluster_id, "slack", &body.config).await {
+    match create_job(&state.db, &body.mission_id, "slack", &body.config).await {
         Ok(job) => Json(job).into_response(),
         Err(e) => {
             tracing::error!("ingest_slack: {e}");
@@ -119,11 +119,11 @@ async fn list_jobs(
     _principal: Principal,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
-    let rows = if let Some(kluster_id) = &q.kluster_id {
+    let rows = if let Some(mission_id) = &q.mission_id {
         sqlx::query(
-            "SELECT * FROM ingestionjob WHERE kluster_id=$1 ORDER BY updated_at DESC",
+            "SELECT * FROM ingestionjob WHERE mission_id=$1 ORDER BY updated_at DESC",
         )
-        .bind(kluster_id)
+        .bind(mission_id)
         .fetch_all(&state.db)
         .await
     } else {

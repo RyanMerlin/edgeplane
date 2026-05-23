@@ -10,8 +10,8 @@ SCENARIO_FILE="${MC_COLLAB_SCENARIO_FILE:-$ROOT_DIR/scripts/pressure-scenarios/r
 DURATION_SEC="${MC_COLLAB_DURATION_SEC:-600}"
 POLL_SEC="${MC_COLLAB_POLL_SEC:-5}"
 STACK_PROFILE="${MC_STACK_PROFILE:-full}"
+DOMAIN_ID="${MC_COLLAB_DOMAIN_ID:-}"
 MISSION_ID="${MC_COLLAB_MISSION_ID:-}"
-KLUSTER_ID="${MC_COLLAB_KLUSTER_ID:-}"
 ACTOR="${MC_COLLAB_ACTOR:-token-client}"
 
 if [[ -z "$TOKEN" ]]; then
@@ -52,31 +52,31 @@ mcp_call() {
 }
 
 create_seed_if_needed() {
-  if [[ -n "$MISSION_ID" && -n "$KLUSTER_ID" ]]; then
+  if [[ -n "$DOMAIN_ID" && -n "$MISSION_ID" ]]; then
     return 0
   fi
 
-  local scenario_name mission_name kluster_name create_mission_resp create_kluster_resp
+  local scenario_name domain_name mission_name create_domain_resp create_mission_resp
   scenario_name="$(jq -r '.name // "reliability-trio"' "$SCENARIO_FILE")"
-  mission_name="missioncontrol-improves-missioncontrol-${scenario_name}-${RUN_ID}"
-  kluster_name="collab-${scenario_name}-${RUN_ID}"
+  domain_name="missioncontrol-improves-missioncontrol-${scenario_name}-${RUN_ID}"
+  mission_name="collab-${scenario_name}-${RUN_ID}"
 
-  create_mission_resp="$(mcp_call create_mission "$(jq -cn --arg name "$mission_name" --arg owners "$ACTOR" '{name:$name,owners:$owners,description:"Live collaboration mission"}')")"
+  create_domain_resp="$(mcp_call create_domain "$(jq -cn --arg name "$domain_name" --arg owners "$ACTOR" '{name:$name,owners:$owners,description:"Live collaboration domain"}')")"
+  if [[ "$(jq -r '.ok' <<<"$create_domain_resp")" != "true" ]]; then
+    echo "create_domain failed: $create_domain_resp" >&2
+    exit 1
+  fi
+  DOMAIN_ID="$(jq -r '.result.id' <<<"$create_domain_resp")"
+
+  create_mission_resp="$(mcp_call create_mission "$(jq -cn --arg domain_id "$DOMAIN_ID" --arg name "$mission_name" --arg owners "$ACTOR" '{domain_id:$domain_id,name:$name,owners:$owners,description:"Live collaboration workstream"}')")"
   if [[ "$(jq -r '.ok' <<<"$create_mission_resp")" != "true" ]]; then
     echo "create_mission failed: $create_mission_resp" >&2
     exit 1
   fi
-  MISSION_ID="$(jq -r '.result.mission.id' <<<"$create_mission_resp")"
-
-  create_kluster_resp="$(mcp_call create_kluster "$(jq -cn --arg mission_id "$MISSION_ID" --arg name "$kluster_name" --arg owners "$ACTOR" '{mission_id:$mission_id,name:$name,owners:$owners,description:"Live collaboration workstream"}')")"
-  if [[ "$(jq -r '.ok' <<<"$create_kluster_resp")" != "true" ]]; then
-    echo "create_kluster failed: $create_kluster_resp" >&2
-    exit 1
-  fi
-  KLUSTER_ID="$(jq -r '.result.kluster.id' <<<"$create_kluster_resp")"
+  MISSION_ID="$(jq -r '.result.id' <<<"$create_mission_resp")"
 
   while IFS=$'\t' read -r title description; do
-    mcp_call create_task "$(jq -cn --arg kluster_id "$KLUSTER_ID" --arg title "$title" --arg owner "$ACTOR" --arg description "$description" '{kluster_id:$kluster_id,title:$title,description:$description,owner:$owner}')" >/dev/null
+    mcp_call create_task "$(jq -cn --arg mission_id "$MISSION_ID" --arg title "$title" --arg owner "$ACTOR" --arg description "$description" '{mission_id:$mission_id,title:$title,description:$description,owner:$owner}')" >/dev/null
   done < <(jq -r '.tasks[] | [.title, (.description // "")] | @tsv' "$SCENARIO_FILE")
 }
 
@@ -104,8 +104,8 @@ echo "== MC collab driver =="
 echo "run_id=$RUN_ID"
 echo "base_url=$BASE_URL"
 echo "stack_profile=$STACK_PROFILE"
+echo "domain_id=$DOMAIN_ID"
 echo "mission_id=$MISSION_ID"
-echo "kluster_id=$KLUSTER_ID"
 echo "duration_sec=$DURATION_SEC poll_sec=$POLL_SEC"
 echo "out_dir=$RUN_DIR"
 
@@ -113,11 +113,11 @@ cat > "$RUN_DIR/run-context.env" <<EOF
 RUN_ID=${RUN_ID}
 MC_BASE_URL=${BASE_URL}
 MC_STACK_PROFILE=${STACK_PROFILE}
+MC_COLLAB_DOMAIN_ID=${DOMAIN_ID}
 MC_COLLAB_MISSION_ID=${MISSION_ID}
-MC_COLLAB_KLUSTER_ID=${KLUSTER_ID}
 EOF
 echo
-echo "Other sessions can now collaborate on this kluster by updating task status/description:"
+echo "Other sessions can now collaborate on this mission by updating task status/description:"
 echo "  1) Stabilize codex MCP handshake under concurrency"
 echo "  2) Instrument pressure harness with codex stall diagnostics"
 echo "  3) Draft operator runbook for agent-vs-playbook gates"
@@ -126,14 +126,14 @@ echo
 start_ts="$(date +%s)"
 end_ts=$((start_ts + DURATION_SEC))
 
-initial_tasks="$(mcp_call list_tasks "$(jq -cn --arg kluster_id "$KLUSTER_ID" '{kluster_id:$kluster_id}')")"
+initial_tasks="$(mcp_call list_tasks "$(jq -cn --arg mission_id "$MISSION_ID" '{mission_id:$mission_id}')")"
 echo "$initial_tasks" > "$RUN_DIR/initial-tasks.json"
 
 changes=0
 sample_count=0
 while [[ "$(date +%s)" -lt "$end_ts" ]]; do
   sample_count=$((sample_count + 1))
-  current="$(mcp_call list_tasks "$(jq -cn --arg kluster_id "$KLUSTER_ID" '{kluster_id:$kluster_id}')")"
+  current="$(mcp_call list_tasks "$(jq -cn --arg mission_id "$MISSION_ID" '{mission_id:$mission_id}')")"
   echo "$current" > "$RUN_DIR/sample-${sample_count}.json"
 
   current_updates="$(jq -r '.result.tasks[]?.updated_at // ""' <<<"$current" | sort -u)"
@@ -145,14 +145,14 @@ while [[ "$(date +%s)" -lt "$end_ts" ]]; do
 done
 
 final_tasks_file="$RUN_DIR/final-tasks.json"
-mcp_call list_tasks "$(jq -cn --arg kluster_id "$KLUSTER_ID" '{kluster_id:$kluster_id}')" > "$final_tasks_file"
+mcp_call list_tasks "$(jq -cn --arg mission_id "$MISSION_ID" '{mission_id:$mission_id}')" > "$final_tasks_file"
 
 summary_file="$RUN_DIR/summary.json"
 jq -n \
   --arg run_id "$RUN_ID" \
   --arg base_url "$BASE_URL" \
+  --arg domain_id "$DOMAIN_ID" \
   --arg mission_id "$MISSION_ID" \
-  --arg kluster_id "$KLUSTER_ID" \
   --arg scenario_file "$SCENARIO_FILE" \
   --argjson duration_sec "$DURATION_SEC" \
   --argjson poll_sec "$POLL_SEC" \
@@ -162,8 +162,8 @@ jq -n \
   '{
     run_id:$run_id,
     base_url:$base_url,
+    domain_id:$domain_id,
     mission_id:$mission_id,
-    kluster_id:$kluster_id,
     scenario_file:$scenario_file,
     duration_sec:$duration_sec,
     poll_sec:$poll_sec,

@@ -313,9 +313,9 @@ fn print_describe_human(envelope: &Value) {
     if let Some(s) = agent.get("source").and_then(|v| v.as_str()) {
         println!("source_tag:    {s}");
     }
-    if let Some(m) = agent.get("mission_id").and_then(|v| v.as_str()) {
+    if let Some(m) = agent.get("domain_id").and_then(|v| v.as_str()) {
         if !m.is_empty() {
-            println!("mission_id:    {m}");
+            println!("domain_id:    {m}");
         }
     }
     if let Some(zs) = agent.get("zellij_session").and_then(|v| v.as_str()) {

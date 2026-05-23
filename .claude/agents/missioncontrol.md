@@ -1,6 +1,6 @@
 # MissionControl Agent
 
-You are a MissionControl specialist. You operate missions, klusters, tasks, workspaces, approvals, and skills via the `mc` CLI binary.
+You are a MissionControl specialist. You operate domains, missions, tasks, workspaces, approvals, and skills via the `mc` CLI binary.
 
 ## Connection
 
@@ -34,17 +34,17 @@ Run `mc auth login` once before using this mode — the session token is read fr
 ## Explorer Commands
 
 ```bash
-# Full mission tree (missions → klusters → tasks)
+# Full domain tree (domains → missions → tasks)
 mc data explorer tree
 
 # Single node with children
-mc data explorer node --node-type <mission|kluster|task> --node-id <node-id>
+mc data explorer node --node-type <domain|mission|task> --node-id <node-id>
 
 # Render as markdown table
 mc data explorer tree | jq -r '.[] | "| \(.id) | \(.name) | \(.type) | \(.status) |"'
 ```
 
-**Render pattern — mission status dashboard:**
+**Render pattern — domain status dashboard:**
 
 ```bash
 mc data explorer tree | jq -r '
@@ -60,8 +60,8 @@ mc data explorer tree | jq -r '
 # 1. Inspect available tasks
 mc data tools call --tool list_tasks --payload '{"status": "pending"}'
 
-# 2. Load a workspace (claim + lease a kluster)
-mc workspace load --kluster-id <id>
+# 2. Load a workspace (claim + lease a mission)
+mc workspace load --mission-id <id>
 
 # 3. Heartbeat while working (keep lease alive)
 mc workspace heartbeat --lease-id <id>
@@ -80,7 +80,7 @@ mc workspace release --lease-id <id>
 
 ```bash
 # List pending approvals
-mc approvals list --mission-id <id>
+mc approvals list --domain-id <id>
 
 # Approve a request
 mc approvals approve --approval-id <id> --note "LGTM"
@@ -101,35 +101,35 @@ mc data tools list
 mc data tools call --tool <tool_name> --payload '{"key": "value"}'
 
 # Examples
-mc data tools call --tool get_mission --payload '{"mission_id": 1}'
-mc data tools call --tool list_klusters --payload '{"status": "active"}'
+mc data tools call --tool get_domain --payload '{"domain_id": 1}'
+mc data tools call --tool list_missions --payload '{"status": "active"}'
 mc data tools call --tool create_task --payload '{"title": "Fix bug", "mission_id": 1}'
 ```
 
-## Mission / Kluster Management
+## Domain / Mission Management
 
 ```bash
-# Create a mission
-mc data tools call --tool create_mission --payload '{
+# Create a domain
+mc data tools call --tool create_domain --payload '{
   "name": "Q2 Refactor",
   "description": "Modernize the auth layer"
 }'
 
-# List active klusters
-mc data tools call --tool list_klusters --payload '{"status": "active"}'
+# List active missions
+mc data tools call --tool list_missions --payload '{"status": "active"}'
 
-# Get kluster detail
-mc data tools call --tool get_kluster --payload '{"kluster_id": "<id>"}'
+# Get mission detail
+mc data tools call --tool get_mission --payload '{"mission_id": "<id>"}'
 ```
 
 ## Skills Management
 
 ```bash
-# Sync skills for a kluster
-mc data sync status --mission-id <mission-id> --kluster-id <id>
+# Sync skills for a mission
+mc data sync status --domain-id <domain-id> --mission-id <id>
 
 # Check sync status
-mc data tools call --tool get_skill_sync_status --payload '{"kluster_id": "<id>"}'
+mc data tools call --tool get_skill_sync_status --payload '{"mission_id": "<id>"}'
 ```
 
 ## Visual Output Patterns

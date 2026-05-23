@@ -17,9 +17,9 @@ use uuid::Uuid;
 use crate::{auth::Principal, state::AppState};
 
 // ── Task-available notification registry ──────────────────────────────────────
-// Keyed by mission_id. Agents subscribe per-mission; senders are created on
+// Keyed by domain_id. Agents subscribe per-domain; senders are created on
 // demand and never removed (the channel stays alive for the process lifetime,
-// which is fine since we never have more missions than fit in RAM).
+// which is fine since we never have more domains than fit in RAM).
 
 type NotifyRegistry = tokio::sync::Mutex<HashMap<String, broadcast::Sender<String>>>;
 
@@ -29,15 +29,15 @@ pub fn notify_registry() -> &'static NotifyRegistry {
     NOTIFY_REGISTRY.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
 }
 
-pub async fn broadcast_task_available(mission_id: &str, kluster_id: &str, task_id: &str) {
+pub async fn broadcast_task_available(domain_id: &str, mission_id: &str, task_id: &str) {
     let msg = serde_json::json!({
         "type": "task_available",
-        "kluster_id": kluster_id,
+        "mission_id": mission_id,
         "task_id": task_id,
     })
     .to_string();
     let reg = notify_registry().lock().await;
-    if let Some(tx) = reg.get(mission_id) {
+    if let Some(tx) = reg.get(domain_id) {
         let _ = tx.send(msg); // best-effort; no subscribers is fine
     }
 }
@@ -45,7 +45,7 @@ pub async fn broadcast_task_available(mission_id: &str, kluster_id: &str, task_i
 // ── Node-keyed assignment-change notifications ────────────────────────────────
 //
 // Parallel to `notify_registry()` above, but keyed by `runtime_node_id`
-// (the runtimenode UUID) instead of mission_id. mcd daemons subscribe
+// (the runtimenode UUID) instead of domain_id. mcd daemons subscribe
 // here at startup and react to add/remove/reassign by spawning, shutting
 // down, or rebalancing supervisors live — no daemon restart, no yaml edit.
 //
@@ -53,7 +53,7 @@ pub async fn broadcast_task_available(mission_id: &str, kluster_id: &str, task_i
 //   {"type":"agent.assigned",   "agent_id":"…", "agent": {…}}
 //   {"type":"agent.unassigned", "agent_id":"…"}
 //   {"type":"agent.reassigned", "agent_id":"…", "agent": {…},
-//                               "old_mission_id":"…", "new_mission_id":"…"}
+//                               "old_domain_id":"…", "new_domain_id":"…"}
 
 static NODE_NOTIFY_REGISTRY: OnceLock<NotifyRegistry> = OnceLock::new();
 
@@ -77,8 +77,8 @@ pub async fn broadcast_assignment_changed(
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         // Tasks
-        .route("/work/klusters/{kluster_id}/tasks", get(list_tasks).post(create_task))
-        .route("/work/klusters/{kluster_id}/graph", get(task_graph))
+        .route("/work/missions/{mission_id}/tasks", get(list_tasks).post(create_task))
+        .route("/work/missions/{mission_id}/graph", get(task_graph))
         .route("/work/tasks/{task_id}", get(get_task))
         .route("/work/tasks/{task_id}/cancel", post(cancel_task))
         .route("/work/tasks/{task_id}/retry", post(retry_task))
@@ -92,12 +92,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/work/tasks/{task_id}/dispatched", post(dispatch_task))
         .route("/work/tasks/{task_id}/gates", get(list_gates).post(create_gate))
         .route("/work/tasks/{task_id}/gates/{gate_id}/resolve", post(resolve_gate))
-        // Missions
-        .route("/work/missions/{mission_id}/agents/enroll", post(enroll_agent))
-        .route("/work/missions/{mission_id}/agents", get(list_mission_agents))
-        .route("/work/missions/{mission_id}/messages", get(list_mission_messages).post(send_mission_message))
-        .route("/work/missions/{mission_id}/roster", get(mission_roster))
-        .route("/work/missions/{mission_id}/stream", get(mission_stream))
+        // Domains
+        .route("/work/domains/{domain_id}/agents/enroll", post(enroll_agent))
+        .route("/work/domains/{domain_id}/agents", get(list_domain_agents))
+        .route("/work/domains/{domain_id}/messages", get(list_domain_messages).post(send_domain_message))
+        .route("/work/domains/{domain_id}/roster", get(domain_roster))
+        .route("/work/domains/{domain_id}/stream", get(domain_stream))
         // Agents
         .route("/work/agents/{agent_id}/heartbeat", post(agent_heartbeat))
         .route("/work/agents/{agent_id}/status", post(set_agent_status))
@@ -105,9 +105,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/work/agents/{agent_id}", get(get_agent).delete(delete_agent))
         .route("/work/agents/{agent_id}/messages", get(get_agent_messages))
         .route("/work/agents/{agent_id}/notify", get(agent_notify_ws))
-        // Kluster messages + stream
-        .route("/work/klusters/{kluster_id}/messages", get(list_kluster_messages).post(send_kluster_message))
-        .route("/work/klusters/{kluster_id}/stream", get(kluster_stream))
+        // Mission messages + stream
+        .route("/work/missions/{mission_id}/messages", get(list_mission_messages).post(send_mission_message))
+        .route("/work/missions/{mission_id}/stream", get(mission_stream))
         // Global SSE feed — TUI agent feed; polls meshprogressevent for all agents
         .route("/sse", get(global_sse))
 }
@@ -129,8 +129,8 @@ fn bad_request(msg: &str) -> axum::response::Response {
 fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     serde_json::json!({
         "id": row.get::<String, _>("id"),
-        "kluster_id": row.get::<String, _>("kluster_id"),
         "mission_id": row.get::<String, _>("mission_id"),
+        "domain_id": row.get::<String, _>("domain_id"),
         "parent_task_id": row.get::<Option<String>, _>("parent_task_id"),
         "title": row.get::<String, _>("title"),
         "description": row.get::<String, _>("description"),
@@ -179,7 +179,7 @@ pub fn row_to_agent(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         "id": &meshagent_id,
         "public_id": public_id,
         "agent_public_id": agent_public_id,
-        "mission_id": row.get::<String, _>("mission_id"),
+        "domain_id": row.get::<String, _>("domain_id"),
         "node_id": row.get::<Option<String>, _>("node_id"),
         "runtime_kind": row.get::<String, _>("runtime_kind"),
         "runtime_version": row.get::<String, _>("runtime_version"),
@@ -222,8 +222,8 @@ fn row_to_message(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         .unwrap_or(serde_json::json!({}));
     serde_json::json!({
         "id": row.get::<i64, _>("id"),
-        "mission_id": row.get::<String, _>("mission_id"),
-        "kluster_id": row.get::<Option<String>, _>("kluster_id"),
+        "domain_id": row.get::<String, _>("domain_id"),
+        "mission_id": row.get::<Option<String>, _>("mission_id"),
         "from_agent_id": row.get::<String, _>("from_agent_id"),
         "to_agent_id": row.get::<Option<String>, _>("to_agent_id"),
         "task_id": row.get::<Option<String>, _>("task_id"),
@@ -388,16 +388,16 @@ struct AgentMessagesQuery {
 
 const LEASE_TTL_SECS: i64 = 120;
 
-/// Expire stale leases for a kluster before listing tasks.
-async fn expire_stale_leases(db: &sqlx::PgPool, kluster_id: &str) {
+/// Expire stale leases for a mission before listing tasks.
+async fn expire_stale_leases(db: &sqlx::PgPool, mission_id: &str) {
     let now = Utc::now().naive_utc();
     let _ = sqlx::query(
         "UPDATE meshtask SET status='ready', claimed_by_agent_id=NULL, lease_expires_at=NULL, updated_at=$1 \
-         WHERE kluster_id=$2 AND status IN ('claimed','running') AND claim_policy != 'broadcast' \
+         WHERE mission_id=$2 AND status IN ('claimed','running') AND claim_policy != 'broadcast' \
            AND lease_expires_at IS NOT NULL AND lease_expires_at < $1",
     )
     .bind(now)
-    .bind(kluster_id)
+    .bind(mission_id)
     .execute(db)
     .await;
 }
@@ -405,12 +405,12 @@ async fn expire_stale_leases(db: &sqlx::PgPool, kluster_id: &str) {
 /// DFS cycle detection when adding a new task with dependencies.
 async fn detect_cycle(
     db: &sqlx::PgPool,
-    kluster_id: &str,
+    mission_id: &str,
     new_id: &str,
     depends_on: &[String],
 ) -> Result<bool, sqlx::Error> {
-    let rows = sqlx::query("SELECT id, depends_on FROM meshtask WHERE kluster_id=$1")
-        .bind(kluster_id)
+    let rows = sqlx::query("SELECT id, depends_on FROM meshtask WHERE mission_id=$1")
+        .bind(mission_id)
         .fetch_all(db)
         .await?;
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
@@ -449,11 +449,11 @@ async fn detect_cycle(
 }
 
 /// After a task finishes, find and unblock any dependents whose deps are all finished.
-async fn unblock_dependents(db: &sqlx::PgPool, kluster_id: &str, finished_id: &str) -> Vec<String> {
+async fn unblock_dependents(db: &sqlx::PgPool, mission_id: &str, finished_id: &str) -> Vec<String> {
     let candidates = sqlx::query(
-        "SELECT id, depends_on FROM meshtask WHERE kluster_id=$1 AND status IN ('pending','blocked')",
+        "SELECT id, depends_on FROM meshtask WHERE mission_id=$1 AND status IN ('pending','blocked')",
     )
-    .bind(kluster_id)
+    .bind(mission_id)
     .fetch_all(db)
     .await
     .unwrap_or_default();
@@ -495,24 +495,24 @@ async fn unblock_dependents(db: &sqlx::PgPool, kluster_id: &str, finished_id: &s
 async fn list_tasks(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(kluster_id): Path<String>,
+    Path(mission_id): Path<String>,
     Query(q): Query<TaskListQuery>,
 ) -> impl IntoResponse {
-    expire_stale_leases(&state.db, &kluster_id).await;
+    expire_stale_leases(&state.db, &mission_id).await;
 
     let rows = if let Some(status) = &q.status {
         sqlx::query(
-            "SELECT * FROM meshtask WHERE kluster_id=$1 AND status=$2 ORDER BY priority DESC, created_at ASC",
+            "SELECT * FROM meshtask WHERE mission_id=$1 AND status=$2 ORDER BY priority DESC, created_at ASC",
         )
-        .bind(&kluster_id)
+        .bind(&mission_id)
         .bind(status)
         .fetch_all(&state.db)
         .await
     } else {
         sqlx::query(
-            "SELECT * FROM meshtask WHERE kluster_id=$1 ORDER BY priority DESC, created_at ASC",
+            "SELECT * FROM meshtask WHERE mission_id=$1 ORDER BY priority DESC, created_at ASC",
         )
-        .bind(&kluster_id)
+        .bind(&mission_id)
         .fetch_all(&state.db)
         .await
     };
@@ -529,19 +529,19 @@ async fn list_tasks(
 async fn create_task(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(kluster_id): Path<String>,
+    Path(mission_id): Path<String>,
     Json(body): Json<TaskCreate>,
 ) -> impl IntoResponse {
-    // Resolve mission_id from kluster
-    let kluster_row = sqlx::query("SELECT id, mission_id FROM kluster WHERE id=$1")
-        .bind(&kluster_id)
+    // Resolve domain_id from mission
+    let mission_row = sqlx::query("SELECT id, domain_id FROM mission WHERE id=$1")
+        .bind(&mission_id)
         .fetch_optional(&state.db)
         .await;
-    let mission_id = match kluster_row {
-        Ok(Some(r)) => r.get::<Option<String>, _>("mission_id").unwrap_or_default(),
-        Ok(None) => return not_found("Kluster not found"),
+    let domain_id = match mission_row {
+        Ok(Some(r)) => r.get::<Option<String>, _>("domain_id").unwrap_or_default(),
+        Ok(None) => return not_found("Mission not found"),
         Err(e) => {
-            tracing::error!("create_task fetch kluster: {e}");
+            tracing::error!("create_task fetch mission: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
@@ -549,9 +549,9 @@ async fn create_task(
     // Validate depends_on tasks exist
     for dep_id in &body.depends_on {
         let exists: Option<i32> =
-            sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1 AND kluster_id=$2")
+            sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1 AND mission_id=$2")
                 .bind(dep_id)
-                .bind(&kluster_id)
+                .bind(&mission_id)
                 .fetch_optional(&state.db)
                 .await
                 .unwrap_or(None);
@@ -564,7 +564,7 @@ async fn create_task(
 
     // Detect cycles if there are dependencies
     if !body.depends_on.is_empty() {
-        match detect_cycle(&state.db, &kluster_id, &new_id, &body.depends_on).await {
+        match detect_cycle(&state.db, &mission_id, &new_id, &body.depends_on).await {
             Ok(true) => return bad_request("Dependency cycle detected"),
             Ok(false) => {}
             Err(e) => {
@@ -606,7 +606,7 @@ async fn create_task(
         serde_json::to_string(&body.required_capabilities).unwrap_or_else(|_| "[]".to_string());
 
     let row = sqlx::query(
-        "INSERT INTO meshtask (id, kluster_id, mission_id, parent_task_id, title, description, \
+        "INSERT INTO meshtask (id, mission_id, domain_id, parent_task_id, title, description, \
          input_json, claim_policy, depends_on, produces, consumes, required_capabilities, \
          status, claimed_by_agent_id, result_artifact_id, priority, \
          lease_expires_at, claim_lease_id, version_counter, \
@@ -615,8 +615,8 @@ async fn create_task(
          RETURNING *",
     )
     .bind(&new_id)
-    .bind(&kluster_id)
     .bind(&mission_id)
+    .bind(&domain_id)
     .bind(&body.parent_task_id)
     .bind(&body.title)
     .bind(&body.description)
@@ -637,7 +637,7 @@ async fn create_task(
         Ok(r) => {
             if initial_status == "ready" {
                 let tid: String = r.get("id");
-                broadcast_task_available(&mission_id, &kluster_id, &tid).await;
+                broadcast_task_available(&domain_id, &mission_id, &tid).await;
             }
             (StatusCode::CREATED, Json(row_to_task(&r))).into_response()
         }
@@ -651,10 +651,10 @@ async fn create_task(
 async fn task_graph(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(kluster_id): Path<String>,
+    Path(mission_id): Path<String>,
 ) -> impl IntoResponse {
-    let rows = sqlx::query("SELECT id, title, status, depends_on FROM meshtask WHERE kluster_id=$1")
-        .bind(&kluster_id)
+    let rows = sqlx::query("SELECT id, title, status, depends_on FROM meshtask WHERE mission_id=$1")
+        .bind(&mission_id)
         .fetch_all(&state.db)
         .await;
 
@@ -1116,7 +1116,7 @@ async fn complete_task(
         }
     }
 
-    let kluster_id: String = task_row.get("kluster_id");
+    let mission_id: String = task_row.get("mission_id");
     let now = Utc::now().naive_utc();
 
     // Check for pending review gates
@@ -1158,10 +1158,10 @@ async fn complete_task(
     .await
     {
         Ok(r) => {
-            let mission_id: String = r.get("mission_id");
-            let unblocked = unblock_dependents(&state.db, &kluster_id, &task_id).await;
+            let domain_id: String = r.get("domain_id");
+            let unblocked = unblock_dependents(&state.db, &mission_id, &task_id).await;
             for tid in &unblocked {
-                broadcast_task_available(&mission_id, &kluster_id, tid).await;
+                broadcast_task_available(&domain_id, &mission_id, tid).await;
             }
             let mut val = row_to_task(&r);
             val["unblocked_tasks"] = serde_json::json!(unblocked);
@@ -1264,7 +1264,7 @@ async fn block_task(
 
 /// Mark a `ready` task as dispatched — terminal status `finished`, no claim
 /// needed. Exists specifically for the triage routing pattern: the triage
-/// layer creates a child meshtask under the routed kluster (which carries
+/// layer creates a child meshtask under the routed mission (which carries
 /// the work), and the intake task itself needs to transition to terminal
 /// without the claim-then-complete dance that `complete_task` requires.
 ///
@@ -1559,7 +1559,7 @@ async fn resolve_gate(
     };
 
     let task_status: String = task_row.get("status");
-    let kluster_id: String = task_row.get("kluster_id");
+    let mission_id: String = task_row.get("mission_id");
 
     if task_status == "waiting_review" {
         // Re-fetch all gates for this task
@@ -1595,10 +1595,10 @@ async fn resolve_gate(
             .bind(now)
             .execute(&state.db)
             .await;
-            let mission_id: String = task_row.get("mission_id");
-            let unblocked = unblock_dependents(&state.db, &kluster_id, &task_id).await;
+            let domain_id: String = task_row.get("domain_id");
+            let unblocked = unblock_dependents(&state.db, &mission_id, &task_id).await;
             for tid in &unblocked {
-                broadcast_task_available(&mission_id, &kluster_id, tid).await;
+                broadcast_task_available(&domain_id, &mission_id, tid).await;
             }
         }
         // else: some still pending, leave as waiting_review
@@ -1619,9 +1619,9 @@ async fn agent_notify_ws(
 }
 
 async fn handle_agent_notify(mut socket: WebSocket, state: Arc<AppState>, agent_id: String) {
-    // Look up the agent's mission so we can subscribe to the right channel.
-    let mission_id = match sqlx::query_scalar::<_, String>(
-        "SELECT mission_id FROM meshagent WHERE id=$1",
+    // Look up the agent's domain so we can subscribe to the right channel.
+    let domain_id = match sqlx::query_scalar::<_, String>(
+        "SELECT domain_id FROM meshagent WHERE id=$1",
     )
     .bind(&agent_id)
     .fetch_optional(&state.db)
@@ -1631,11 +1631,11 @@ async fn handle_agent_notify(mut socket: WebSocket, state: Arc<AppState>, agent_
         _ => return,
     };
 
-    // Subscribe to the mission's broadcast channel, creating it on demand.
+    // Subscribe to the domain's broadcast channel, creating it on demand.
     let mut rx = {
         let mut reg = notify_registry().lock().await;
         let tx = reg
-            .entry(mission_id.clone())
+            .entry(domain_id.clone())
             .or_insert_with(|| broadcast::channel::<String>(64).0);
         tx.subscribe()
     };
@@ -1669,17 +1669,17 @@ async fn handle_agent_notify(mut socket: WebSocket, state: Arc<AppState>, agent_
 async fn enroll_agent(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(mission_id): Path<String>,
+    Path(domain_id): Path<String>,
     Json(body): Json<AgentEnroll>,
 ) -> impl IntoResponse {
-    // Verify mission exists
-    let mission_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
-        .bind(&mission_id)
+    // Verify domain exists
+    let domain_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
+        .bind(&domain_id)
         .fetch_optional(&state.db)
         .await
         .unwrap_or(None);
-    if mission_exists.is_none() {
-        return not_found("Mission not found");
+    if domain_exists.is_none() {
+        return not_found("Domain not found");
     }
 
     // If runtime_node_id provided, validate it exists and belongs to principal
@@ -1742,14 +1742,14 @@ async fn enroll_agent(
     };
 
     let row = sqlx::query(
-        "INSERT INTO meshagent (id, mission_id, node_id, runtime_kind, runtime_version, \
+        "INSERT INTO meshagent (id, domain_id, node_id, runtime_kind, runtime_version, \
          capabilities, labels, status, current_task_id, enrolled_by_subject, enrolled_at, \
          last_heartbeat_at, runtime_node_id, profile_json, machine_json, runtime_json, \
          supervision_mode, agent_public_id) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,'online',NULL,$8,$9,NULL,$10,$11,$12,$13,NULL,$14) RETURNING *",
     )
     .bind(&agent_id)
-    .bind(&mission_id)
+    .bind(&domain_id)
     .bind(&body.node_id)
     .bind(&body.runtime_kind)
     .bind(&body.runtime_version)
@@ -1790,28 +1790,28 @@ async fn enroll_agent(
     }
 }
 
-async fn list_mission_agents(
+async fn list_domain_agents(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
-    Path(mission_id): Path<String>,
+    Path(domain_id): Path<String>,
 ) -> impl IntoResponse {
-    let mission_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
-        .bind(&mission_id)
+    let domain_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
+        .bind(&domain_id)
         .fetch_optional(&state.db)
         .await
         .unwrap_or(None);
-    if mission_exists.is_none() {
-        return not_found("Mission not found");
+    if domain_exists.is_none() {
+        return not_found("Domain not found");
     }
 
-    match sqlx::query("SELECT * FROM meshagent WHERE mission_id=$1 ORDER BY enrolled_at ASC")
-        .bind(&mission_id)
+    match sqlx::query("SELECT * FROM meshagent WHERE domain_id=$1 ORDER BY enrolled_at ASC")
+        .bind(&domain_id)
         .fetch_all(&state.db)
         .await
     {
         Ok(rows) => Json(rows.iter().map(row_to_agent).collect::<Vec<_>>()).into_response(),
         Err(e) => {
-            tracing::error!("list_mission_agents: {e}");
+            tracing::error!("list_domain_agents: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
@@ -1862,16 +1862,16 @@ async fn delete_agent(
     Path(agent_id): Path<String>,
 ) -> impl IntoResponse {
     let row = sqlx::query(
-        "SELECT enrolled_by_subject, node_id, mission_id FROM meshagent WHERE id=$1",
+        "SELECT enrolled_by_subject, node_id, domain_id FROM meshagent WHERE id=$1",
     )
     .bind(&agent_id)
     .fetch_optional(&state.db)
     .await;
-    let (enrolled_by, node_id, mission_id): (String, Option<String>, String) = match row {
+    let (enrolled_by, node_id, domain_id): (String, Option<String>, String) = match row {
         Ok(Some(r)) => (
             r.get("enrolled_by_subject"),
             r.get::<Option<String>, _>("node_id"),
-            r.get("mission_id"),
+            r.get("domain_id"),
         ),
         Ok(None) => return not_found("Agent not found"),
         Err(e) => {
@@ -1899,7 +1899,7 @@ async fn delete_agent(
             serde_json::json!({
                 "type": "agent.deleted",
                 "agent_id": agent_id,
-                "mission_id": mission_id,
+                "domain_id": domain_id,
             }),
         )
         .await;
@@ -2019,13 +2019,13 @@ async fn get_agent_messages(
     Path(agent_id): Path<String>,
     Query(q): Query<AgentMessagesQuery>,
 ) -> impl IntoResponse {
-    // Look up the agent's mission so we can also surface mission broadcasts.
-    let mission_id: String = match sqlx::query("SELECT mission_id FROM meshagent WHERE id=$1")
+    // Look up the agent's domain so we can also surface domain broadcasts.
+    let domain_id: String = match sqlx::query("SELECT domain_id FROM meshagent WHERE id=$1")
         .bind(&agent_id)
         .fetch_optional(&state.db)
         .await
     {
-        Ok(Some(r)) => r.get("mission_id"),
+        Ok(Some(r)) => r.get("domain_id"),
         Ok(None) => return not_found("Agent not found"),
         Err(e) => {
             tracing::error!("get_agent_messages lookup: {e}");
@@ -2033,18 +2033,18 @@ async fn get_agent_messages(
         }
     };
 
-    // Direct messages addressed to this agent + mission-scoped broadcasts.
+    // Direct messages addressed to this agent + domain-scoped broadcasts.
     // since_id paging in the caller dedupes broadcasts across polls.
     match sqlx::query(
         "SELECT * FROM meshmessage \
          WHERE id > $1 \
            AND (to_agent_id = $2 \
-                OR (to_agent_id IS NULL AND mission_id = $3)) \
+                OR (to_agent_id IS NULL AND domain_id = $3)) \
          ORDER BY id ASC",
     )
     .bind(q.since_id)
     .bind(&agent_id)
-    .bind(&mission_id)
+    .bind(&domain_id)
     .fetch_all(&state.db)
     .await
     {
@@ -2071,6 +2071,145 @@ async fn get_agent_messages(
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
+}
+
+// ── Domain message handlers ───────────────────────────────────────────────────
+
+async fn list_domain_messages(
+    State(state): State<Arc<AppState>>,
+    _principal: Principal,
+    Path(domain_id): Path<String>,
+    Query(q): Query<MessageListQuery>,
+) -> impl IntoResponse {
+    let domain_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+    if domain_exists.is_none() {
+        return not_found("Domain not found");
+    }
+
+    let since_id = q.since_id.unwrap_or(0);
+
+    let rows = if let Some(channel) = &q.channel {
+        sqlx::query(
+            "SELECT * FROM meshmessage WHERE domain_id=$1 AND channel=$2 AND id > $3 \
+             ORDER BY id ASC",
+        )
+        .bind(&domain_id)
+        .bind(channel)
+        .bind(since_id)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query(
+            "SELECT * FROM meshmessage WHERE domain_id=$1 AND id > $2 ORDER BY id ASC",
+        )
+        .bind(&domain_id)
+        .bind(since_id)
+        .fetch_all(&state.db)
+        .await
+    };
+
+    match rows {
+        Ok(rows) => Json(rows.iter().map(row_to_message).collect::<Vec<_>>()).into_response(),
+        Err(e) => {
+            tracing::error!("list_domain_messages: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn send_domain_message(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(domain_id): Path<String>,
+    Json(body): Json<MessageCreate>,
+) -> impl IntoResponse {
+    let domain_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+    if domain_exists.is_none() {
+        return not_found("Domain not found");
+    }
+
+    let body_json_str = if let Some(ref v) = body.body {
+        serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string())
+    } else {
+        body.body_json.clone()
+    };
+
+    let now = Utc::now().naive_utc();
+
+    let row = sqlx::query(
+        "INSERT INTO meshmessage (domain_id, mission_id, from_agent_id, to_agent_id, task_id, \
+         channel, body_json, in_reply_to, created_at, read_at) \
+         VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8,NULL) RETURNING id, created_at",
+    )
+    .bind(&domain_id)
+    .bind(&principal.subject)
+    .bind(&body.to_agent_id)
+    .bind(&body.task_id)
+    .bind(&body.channel)
+    .bind(&body_json_str)
+    .bind(body.in_reply_to)
+    .bind(now)
+    .fetch_one(&state.db)
+    .await;
+
+    match row {
+        Ok(r) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "id": r.get::<i64, _>("id"),
+                "created_at": r.get::<chrono::NaiveDateTime, _>("created_at"),
+            })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("send_domain_message: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn domain_roster(
+    State(state): State<Arc<AppState>>,
+    _principal: Principal,
+    Path(domain_id): Path<String>,
+) -> impl IntoResponse {
+    let domain_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+    if domain_exists.is_none() {
+        return not_found("Domain not found");
+    }
+
+    // Return agents grouped by status
+    let agents = sqlx::query("SELECT * FROM meshagent WHERE domain_id=$1 ORDER BY enrolled_at ASC")
+        .bind(&domain_id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    let mut roster: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
+    for row in &agents {
+        let status: String = row.get("status");
+        roster.entry(status).or_default().push(row_to_agent(row));
+    }
+
+    Json(serde_json::json!({
+        "domain_id": domain_id,
+        "agents": agents.iter().map(row_to_agent).collect::<Vec<_>>(),
+        "by_status": roster,
+        "total": agents.len(),
+    }))
+    .into_response()
 }
 
 // ── Mission message handlers ───────────────────────────────────────────────────
@@ -2127,14 +2266,19 @@ async fn send_mission_message(
     Path(mission_id): Path<String>,
     Json(body): Json<MessageCreate>,
 ) -> impl IntoResponse {
-    let mission_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
+    let mission_row = sqlx::query("SELECT id, domain_id FROM mission WHERE id=$1")
         .bind(&mission_id)
         .fetch_optional(&state.db)
-        .await
-        .unwrap_or(None);
-    if mission_exists.is_none() {
-        return not_found("Mission not found");
-    }
+        .await;
+
+    let domain_id = match mission_row {
+        Ok(Some(r)) => r.get::<Option<String>, _>("domain_id").unwrap_or_default(),
+        Ok(None) => return not_found("Mission not found"),
+        Err(e) => {
+            tracing::error!("send_mission_message fetch mission: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     let body_json_str = if let Some(ref v) = body.body {
         serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string())
@@ -2145,10 +2289,11 @@ async fn send_mission_message(
     let now = Utc::now().naive_utc();
 
     let row = sqlx::query(
-        "INSERT INTO meshmessage (mission_id, kluster_id, from_agent_id, to_agent_id, task_id, \
+        "INSERT INTO meshmessage (domain_id, mission_id, from_agent_id, to_agent_id, task_id, \
          channel, body_json, in_reply_to, created_at, read_at) \
-         VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8,NULL) RETURNING id, created_at",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL) RETURNING id, created_at",
     )
+    .bind(&domain_id)
     .bind(&mission_id)
     .bind(&principal.subject)
     .bind(&body.to_agent_id)
@@ -2176,160 +2321,7 @@ async fn send_mission_message(
     }
 }
 
-async fn mission_roster(
-    State(state): State<Arc<AppState>>,
-    _principal: Principal,
-    Path(mission_id): Path<String>,
-) -> impl IntoResponse {
-    let mission_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
-        .bind(&mission_id)
-        .fetch_optional(&state.db)
-        .await
-        .unwrap_or(None);
-    if mission_exists.is_none() {
-        return not_found("Mission not found");
-    }
-
-    // Return agents grouped by status
-    let agents = sqlx::query("SELECT * FROM meshagent WHERE mission_id=$1 ORDER BY enrolled_at ASC")
-        .bind(&mission_id)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
-
-    let mut roster: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
-    for row in &agents {
-        let status: String = row.get("status");
-        roster.entry(status).or_default().push(row_to_agent(row));
-    }
-
-    Json(serde_json::json!({
-        "mission_id": mission_id,
-        "agents": agents.iter().map(row_to_agent).collect::<Vec<_>>(),
-        "by_status": roster,
-        "total": agents.len(),
-    }))
-    .into_response()
-}
-
-// ── Kluster message handlers ───────────────────────────────────────────────────
-
-async fn list_kluster_messages(
-    State(state): State<Arc<AppState>>,
-    _principal: Principal,
-    Path(kluster_id): Path<String>,
-    Query(q): Query<MessageListQuery>,
-) -> impl IntoResponse {
-    let kluster_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM kluster WHERE id=$1")
-        .bind(&kluster_id)
-        .fetch_optional(&state.db)
-        .await
-        .unwrap_or(None);
-    if kluster_exists.is_none() {
-        return not_found("Kluster not found");
-    }
-
-    let since_id = q.since_id.unwrap_or(0);
-
-    let rows = if let Some(channel) = &q.channel {
-        sqlx::query(
-            "SELECT * FROM meshmessage WHERE kluster_id=$1 AND channel=$2 AND id > $3 \
-             ORDER BY id ASC",
-        )
-        .bind(&kluster_id)
-        .bind(channel)
-        .bind(since_id)
-        .fetch_all(&state.db)
-        .await
-    } else {
-        sqlx::query(
-            "SELECT * FROM meshmessage WHERE kluster_id=$1 AND id > $2 ORDER BY id ASC",
-        )
-        .bind(&kluster_id)
-        .bind(since_id)
-        .fetch_all(&state.db)
-        .await
-    };
-
-    match rows {
-        Ok(rows) => Json(rows.iter().map(row_to_message).collect::<Vec<_>>()).into_response(),
-        Err(e) => {
-            tracing::error!("list_kluster_messages: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
-    }
-}
-
-async fn send_kluster_message(
-    State(state): State<Arc<AppState>>,
-    principal: Principal,
-    Path(kluster_id): Path<String>,
-    Json(body): Json<MessageCreate>,
-) -> impl IntoResponse {
-    let kluster_row = sqlx::query("SELECT id, mission_id FROM kluster WHERE id=$1")
-        .bind(&kluster_id)
-        .fetch_optional(&state.db)
-        .await;
-
-    let mission_id = match kluster_row {
-        Ok(Some(r)) => r.get::<Option<String>, _>("mission_id").unwrap_or_default(),
-        Ok(None) => return not_found("Kluster not found"),
-        Err(e) => {
-            tracing::error!("send_kluster_message fetch kluster: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    let body_json_str = if let Some(ref v) = body.body {
-        serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string())
-    } else {
-        body.body_json.clone()
-    };
-
-    let now = Utc::now().naive_utc();
-
-    let row = sqlx::query(
-        "INSERT INTO meshmessage (mission_id, kluster_id, from_agent_id, to_agent_id, task_id, \
-         channel, body_json, in_reply_to, created_at, read_at) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL) RETURNING id, created_at",
-    )
-    .bind(&mission_id)
-    .bind(&kluster_id)
-    .bind(&principal.subject)
-    .bind(&body.to_agent_id)
-    .bind(&body.task_id)
-    .bind(&body.channel)
-    .bind(&body_json_str)
-    .bind(body.in_reply_to)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await;
-
-    match row {
-        Ok(r) => (
-            StatusCode::CREATED,
-            Json(serde_json::json!({
-                "id": r.get::<i64, _>("id"),
-                "created_at": r.get::<chrono::NaiveDateTime, _>("created_at"),
-            })),
-        )
-            .into_response(),
-        Err(e) => {
-            tracing::error!("send_kluster_message: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
-    }
-}
-
 // ── WebSocket streams ──────────────────────────────────────────────────────────
-
-async fn kluster_stream(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
-    Path(kluster_id): Path<String>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| poll_ledger_stream(socket, state, "kluster_id".into(), kluster_id))
-}
 
 async fn mission_stream(
     ws: WebSocketUpgrade,
@@ -2337,6 +2329,14 @@ async fn mission_stream(
     Path(mission_id): Path<String>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| poll_ledger_stream(socket, state, "mission_id".into(), mission_id))
+}
+
+async fn domain_stream(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+    Path(domain_id): Path<String>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| poll_ledger_stream(socket, state, "domain_id".into(), domain_id))
 }
 
 async fn poll_ledger_stream(

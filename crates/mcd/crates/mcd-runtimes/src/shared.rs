@@ -127,11 +127,11 @@ pub async fn spawn_cli(
     Ok(cmd.spawn()?)
 }
 
-/// Build a rich prompt for a task, injecting agent profile and mission roster.
+/// Build a rich prompt for a task, injecting agent profile and domain roster.
 ///
 /// Structure:
 ///   [AGENT CONTEXT]  — who this agent is, its role, instructions, scope, constraints
-///   [MISSION ROSTER] — other agents in the pool (for delegation decisions)
+///   [DOMAIN ROSTER] — other agents in the pool (for delegation decisions)
 ///   [TASK]           — the actual work to do
 ///
 /// Any section is omitted if the data isn't available.
@@ -219,14 +219,14 @@ pub fn build_prompt(task: &TaskSpec) -> String {
         parts.push(deps.join("\n"));
     }
 
-    // --- Mission roster ---
-    if !task.mission_roster.is_empty() {
-        let mut roster = vec!["[MISSION ROSTER]".to_string()];
+    // --- Domain roster ---
+    if !task.domain_roster.is_empty() {
+        let mut roster = vec!["[DOMAIN ROSTER]".to_string()];
         roster.push(
-            "Other agents in this mission (you can create tasks for them or message them):"
+            "Other agents in this domain (you can create tasks for them or message them):"
                 .to_string(),
         );
-        for agent in &task.mission_roster {
+        for agent in &task.domain_roster {
             let id = agent.get("id").and_then(|v| v.as_str()).unwrap_or("?");
             let name = agent.get("name").and_then(|v| v.as_str()).unwrap_or(
                 agent
@@ -269,7 +269,7 @@ pub fn build_prompt(task: &TaskSpec) -> String {
             }
         }
         roster.push(
-            "To delegate: POST /klusters/{kluster_id}/tasks with claim_policy=assigned and claimed_by_agent_id set, or send a message via POST /klusters/{kluster_id}/messages.".to_string()
+            "To delegate: POST /missions/{mission_id}/tasks with claim_policy=assigned and claimed_by_agent_id set, or send a message via POST /missions/{mission_id}/messages.".to_string()
         );
         parts.push(roster.join("\n"));
     }
@@ -428,8 +428,8 @@ mod tests {
         use mcd_core::types::{DependencyResult, TaskSpec};
         let task = TaskSpec {
             id: "t-2".into(),
-            kluster_id: "k-1".into(),
-            mission_id: "m-1".into(),
+            mission_id: "k-1".into(),
+            domain_id: "m-1".into(),
             title: "Write report".into(),
             description: "Summarize findings.".into(),
             input_json: "{}".into(),
@@ -437,7 +437,7 @@ mod tests {
             produces: serde_json::json!({}),
             consumes: serde_json::json!({}),
             agent_profile: None,
-            mission_roster: vec![],
+            domain_roster: vec![],
             dependency_results: vec![
                 DependencyResult {
                     task_id: "t-1a".into(),
@@ -472,8 +472,8 @@ mod tests {
         use mcd_core::types::TaskSpec;
         let task = TaskSpec {
             id: "t-1".into(),
-            kluster_id: "k-1".into(),
-            mission_id: "m-1".into(),
+            mission_id: "k-1".into(),
+            domain_id: "m-1".into(),
             title: "Solo task".into(),
             description: "no deps.".into(),
             input_json: "{}".into(),
@@ -481,7 +481,7 @@ mod tests {
             produces: serde_json::json!({}),
             consumes: serde_json::json!({}),
             agent_profile: None,
-            mission_roster: vec![],
+            domain_roster: vec![],
             dependency_results: vec![],
             pending_messages: vec![],
         };
@@ -495,8 +495,8 @@ mod tests {
         use mcd_core::types::{PendingPeerMessage, TaskSpec};
         let task = TaskSpec {
             id: "t-3".into(),
-            kluster_id: "k-1".into(),
-            mission_id: "m-1".into(),
+            mission_id: "k-1".into(),
+            domain_id: "m-1".into(),
             title: "Continue work".into(),
             description: "".into(),
             input_json: "{}".into(),
@@ -504,7 +504,7 @@ mod tests {
             produces: serde_json::json!({}),
             consumes: serde_json::json!({}),
             agent_profile: None,
-            mission_roster: vec![],
+            domain_roster: vec![],
             dependency_results: vec![],
             pending_messages: vec![
                 PendingPeerMessage {

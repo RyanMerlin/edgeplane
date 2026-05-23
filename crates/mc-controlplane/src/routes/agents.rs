@@ -25,7 +25,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/agents/{agent_id}", get(get_agent).patch(update_agent).delete(delete_agent))
         .route("/agents/{agent_id}/restart", post(restart_agent))
         .route("/agents/{agent_id}/clear-context", post(clear_agent_context))
-        .route("/agents/{agent_id}/mission", patch(attach_mission))
+        .route("/agents/{agent_id}/domain", patch(attach_domain))
         .route("/agents/{agent_id}/sessions", get(list_sessions).post(start_session))
         .route("/agents/{agent_id}/sessions/{session_id}/end", post(end_session))
         .route("/agents/{agent_id}/message", post(send_message))
@@ -45,9 +45,9 @@ fn row_to_agent(row: &sqlx::postgres::PgRow) -> Agent {
         capabilities: row.get("capabilities"),
         status: row.get("status"),
         metadata,
-        home_mission_id: row.try_get("home_mission_id").unwrap_or(None),
-        current_mission_id: row.try_get("current_mission_id").unwrap_or(None),
-        mission_name: row.try_get("mission_name").unwrap_or(None),
+        home_domain_id: row.try_get("home_domain_id").unwrap_or(None),
+        current_domain_id: row.try_get("current_domain_id").unwrap_or(None),
+        domain_name: row.try_get("domain_name").unwrap_or(None),
         runtime,
         node_id,
         created_at: row.get("created_at"),
@@ -177,17 +177,17 @@ async fn list_agents(
     let archived_clause = if q.include_archived { "" } else { " AND a.archived_at IS NULL" };
     let rows = if let Some(s) = &q.status {
         let sql = format!(
-            "SELECT a.*, m.name AS mission_name \
+            "SELECT a.*, m.name AS domain_name \
              FROM agent a \
-             LEFT JOIN mission m ON m.id = a.current_mission_id \
+             LEFT JOIN domain m ON m.id = a.current_domain_id \
              WHERE a.status=$1{archived_clause} ORDER BY a.updated_at DESC LIMIT $2"
         );
         sqlx::query(&sql).bind(s).bind(limit).fetch_all(&state.db).await
     } else {
         let sql = format!(
-            "SELECT a.*, m.name AS mission_name \
+            "SELECT a.*, m.name AS domain_name \
              FROM agent a \
-             LEFT JOIN mission m ON m.id = a.current_mission_id \
+             LEFT JOIN domain m ON m.id = a.current_domain_id \
              WHERE 1=1{archived_clause} ORDER BY a.updated_at DESC LIMIT $1"
         );
         sqlx::query(&sql).bind(limit).fetch_all(&state.db).await
@@ -236,29 +236,29 @@ async fn create_agent(
     };
 
     let agent_id: i32 = row.get("id");
-    let home_mission_id: Option<String> = row.try_get("home_mission_id").unwrap_or(None);
+    let home_domain_id: Option<String> = row.try_get("home_domain_id").unwrap_or(None);
 
-    // Auto-provision a home mission + Inbox kluster on first registration.
-    if home_mission_id.is_none() {
-        match provision_home_mission(&state.db, agent_id, &payload.name).await {
-            Ok(mission_id) => {
-                // Re-fetch so the response includes the new home/current mission fields.
+    // Auto-provision a home domain + Inbox mission on first registration.
+    if home_domain_id.is_none() {
+        match provision_home_domain(&state.db, agent_id, &payload.name).await {
+            Ok(domain_id) => {
+                // Re-fetch so the response includes the new home/current domain fields.
                 match sqlx::query(
-                    "SELECT a.*, m.name AS mission_name \
-                     FROM agent a LEFT JOIN mission m ON m.id = a.current_mission_id \
+                    "SELECT a.*, m.name AS domain_name \
+                     FROM agent a LEFT JOIN domain m ON m.id = a.current_domain_id \
                      WHERE a.id=$1"
                 ).bind(agent_id).fetch_one(&state.db).await {
                     Ok(refreshed) => return (StatusCode::OK, Json(row_to_agent(&refreshed))).into_response(),
                     Err(e) => {
                         tracing::error!("create_agent re-fetch after provision: {e}");
-                        // Return the original row without mission fields rather than failing.
+                        // Return the original row without domain fields rather than failing.
                     }
                 }
-                let _ = mission_id;
+                let _ = domain_id;
             }
             Err(e) => {
-                tracing::error!("create_agent home mission provision for {}: {e}", payload.name);
-                // Non-fatal — agent is registered, mission can be provisioned by backfill.
+                tracing::error!("create_agent home domain provision for {}: {e}", payload.name);
+                // Non-fatal — agent is registered, domain can be provisioned by backfill.
             }
         }
     }
@@ -266,63 +266,63 @@ async fn create_agent(
     (StatusCode::OK, Json(row_to_agent(&row))).into_response()
 }
 
-/// Create a home mission + Inbox kluster for an agent that has none, then
-/// set both `home_mission_id` and `current_mission_id` on the agent row.
+/// Create a home domain + Inbox mission for an agent that has none, then
+/// set both `home_domain_id` and `current_domain_id` on the agent row.
 /// Wrapped in a transaction so a partial provision can't leave orphaned rows.
-pub async fn provision_home_mission(db: &sqlx::PgPool, agent_id: i32, agent_name: &str) -> anyhow::Result<String> {
+pub async fn provision_home_domain(db: &sqlx::PgPool, agent_id: i32, agent_name: &str) -> anyhow::Result<String> {
     let now = chrono::Utc::now().naive_utc();
 
-    // Generate a unique mission id (6-byte hex, same pattern as missions.rs).
-    let mut mission_id = hex_id();
+    // Generate a unique domain id (6-byte hex, same pattern as domains.rs).
+    let mut domain_id = hex_id();
     for _ in 0..5 {
-        let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
-            .bind(&mission_id).fetch_optional(db).await.unwrap_or(None);
+        let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
+            .bind(&domain_id).fetch_optional(db).await.unwrap_or(None);
         if exists.is_none() { break; }
-        mission_id = hex_id();
+        domain_id = hex_id();
     }
 
     let mut tx = db.begin().await?;
 
     sqlx::query(
-        "INSERT INTO mission \
+        "INSERT INTO domain \
             (id, name, description, owners, contributors, tags, visibility, status, \
              northstar_md, northstar_version, northstar_created_by, northstar_modified_by, \
              northstar_created_at, northstar_modified_at, created_at, updated_at) \
          VALUES ($1,$2,$3,$4,'','','public','active','',1,'','',NULL,NULL,$5,$5)"
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .bind(agent_name)
-    .bind(format!("Home mission for {agent_name}"))
+    .bind(format!("Home domain for {agent_name}"))
     .bind(agent_name)
     .bind(now)
     .execute(&mut *tx).await?;
 
-    // Inbox kluster under the home mission.
-    let kluster_id = hex_id();
+    // Inbox mission under the home domain.
+    let mission_id = hex_id();
     sqlx::query(
-        "INSERT INTO kluster \
-            (id, mission_id, name, description, owners, contributors, tags, status, \
+        "INSERT INTO mission \
+            (id, domain_id, name, description, owners, contributors, tags, status, \
              workstream_md, workstream_version, workstream_created_by, workstream_modified_by, \
              workstream_created_at, workstream_modified_at, created_at, updated_at) \
-         VALUES ($1,$2,'Inbox','Default inbox kluster',$3,'','','active','',1,'','',NULL,NULL,$4,$4)"
+         VALUES ($1,$2,'Inbox','Default inbox mission',$3,'','','active','',1,'','',NULL,NULL,$4,$4)"
     )
-    .bind(&kluster_id)
     .bind(&mission_id)
+    .bind(&domain_id)
     .bind(agent_name)
     .bind(now)
     .execute(&mut *tx).await?;
 
     sqlx::query(
-        "UPDATE agent SET home_mission_id=$1, current_mission_id=$1 WHERE id=$2"
+        "UPDATE agent SET home_domain_id=$1, current_domain_id=$1 WHERE id=$2"
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .bind(agent_id)
     .execute(&mut *tx).await?;
 
     tx.commit().await?;
 
-    tracing::info!(agent_id, mission_id = %mission_id, "provisioned home mission");
-    Ok(mission_id)
+    tracing::info!(agent_id, domain_id = %domain_id, "provisioned home domain");
+    Ok(domain_id)
 }
 
 fn hex_id() -> String {
@@ -340,8 +340,8 @@ async fn get_agent(
         Err(resp) => return resp,
     };
     match sqlx::query(
-        "SELECT a.*, m.name AS mission_name \
-         FROM agent a LEFT JOIN mission m ON m.id = a.current_mission_id \
+        "SELECT a.*, m.name AS domain_name \
+         FROM agent a LEFT JOIN domain m ON m.id = a.current_domain_id \
          WHERE a.id=$1"
     ).bind(agent_id).fetch_optional(&state.db).await {
         Ok(Some(row)) => Json(row_to_agent(&row)).into_response(),
@@ -470,58 +470,58 @@ async fn update_agent(
     }
 }
 
-// ── Mission attachment ────────────────────────────────────────────────────────
+// ── Domain attachment ────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct AttachMission {
-    /// Target mission id. Omit (or null) to detach — resets current_mission_id to home_mission_id.
-    mission_id: Option<String>,
+struct AttachDomain {
+    /// Target domain id. Omit (or null) to detach — resets current_domain_id to home_domain_id.
+    domain_id: Option<String>,
 }
 
-async fn attach_mission(
+async fn attach_domain(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
     Path(ident): Path<AgentIdent>,
-    Json(payload): Json<AttachMission>,
+    Json(payload): Json<AttachDomain>,
 ) -> impl IntoResponse {
     let agent_id = match resolve_agent_or_404(&ident, &state.db).await {
         Ok(id) => id,
         Err(resp) => return resp,
     };
 
-    let new_current_id: Option<String> = match &payload.mission_id {
+    let new_current_id: Option<String> = match &payload.domain_id {
         Some(mid) => {
-            // Validate mission exists.
-            let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
+            // Validate domain exists.
+            let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
                 .bind(mid).fetch_optional(&state.db).await.unwrap_or(None);
-            if exists.is_none() { return not_found("Mission not found"); }
+            if exists.is_none() { return not_found("Domain not found"); }
             Some(mid.clone())
         }
         None => {
             // Detach: return to home.
-            sqlx::query_scalar::<_, String>("SELECT home_mission_id FROM agent WHERE id=$1")
+            sqlx::query_scalar::<_, String>("SELECT home_domain_id FROM agent WHERE id=$1")
                 .bind(agent_id).fetch_optional(&state.db).await.unwrap_or(None)
         }
     };
 
     let now = Utc::now().naive_utc();
     match sqlx::query(
-        "UPDATE agent SET current_mission_id=$1, updated_at=$2 WHERE id=$3 RETURNING id"
+        "UPDATE agent SET current_domain_id=$1, updated_at=$2 WHERE id=$3 RETURNING id"
     )
     .bind(&new_current_id).bind(now).bind(agent_id)
     .fetch_optional(&state.db).await {
         Ok(None) => not_found("Agent not found"),
         Ok(_) => {
             match sqlx::query(
-                "SELECT a.*, m.name AS mission_name \
-                 FROM agent a LEFT JOIN mission m ON m.id = a.current_mission_id \
+                "SELECT a.*, m.name AS domain_name \
+                 FROM agent a LEFT JOIN domain m ON m.id = a.current_domain_id \
                  WHERE a.id=$1"
             ).bind(agent_id).fetch_one(&state.db).await {
                 Ok(row) => Json(row_to_agent(&row)).into_response(),
-                Err(e) => { tracing::error!("attach_mission re-fetch: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+                Err(e) => { tracing::error!("attach_domain re-fetch: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
             }
         }
-        Err(e) => { tracing::error!("attach_mission: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => { tracing::error!("attach_domain: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
 }
 

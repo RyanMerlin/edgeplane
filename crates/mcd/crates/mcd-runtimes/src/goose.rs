@@ -78,7 +78,7 @@ fn detect_version() -> String {
 }
 
 /// Build the prompt to send to goose from a TaskSpec.
-/// Uses the shared builder which injects agent profile and mission roster.
+/// Uses the shared builder which injects agent profile and domain roster.
 fn build_prompt(task: &TaskSpec) -> String {
     crate::shared::build_prompt(task)
 }

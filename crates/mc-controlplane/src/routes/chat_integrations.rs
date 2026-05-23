@@ -20,7 +20,7 @@ pub fn router() -> Router<Arc<AppState>> {
 
 #[derive(Deserialize)]
 struct CreateBindingBody {
-    mission_id: String,
+    domain_id: String,
     channel_id: String,
     #[serde(default)]
     provider: String,
@@ -33,7 +33,7 @@ struct CreateBindingBody {
 
 #[derive(Deserialize)]
 struct ListQuery {
-    mission_id: String,
+    domain_id: String,
     #[serde(default)]
     provider: String,
     limit: Option<i64>,
@@ -50,7 +50,7 @@ fn row_to_binding(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     serde_json::json!({
         "id": row.get::<i32, _>("id"),
         "provider": row.get::<String, _>("provider"),
-        "mission_id": row.get::<String, _>("mission_id"),
+        "domain_id": row.get::<String, _>("domain_id"),
         "workspace_external_id": row.get::<String, _>("workspace_external_id"),
         "channel_id": row.get::<String, _>("channel_id"),
         "channel_name": row.get::<String, _>("channel_name"),
@@ -76,10 +76,10 @@ async fn create_binding(
 
     // Check for existing binding first
     let existing = sqlx::query(
-        "SELECT * FROM slackchannelbinding WHERE provider=$1 AND mission_id=$2 AND channel_id=$3",
+        "SELECT * FROM slackchannelbinding WHERE provider=$1 AND domain_id=$2 AND channel_id=$3",
     )
     .bind(&provider)
-    .bind(&body.mission_id)
+    .bind(&body.domain_id)
     .bind(&body.channel_id)
     .fetch_optional(&state.db)
     .await;
@@ -95,12 +95,12 @@ async fn create_binding(
 
     let result = sqlx::query(
         "INSERT INTO slackchannelbinding \
-         (provider, mission_id, workspace_external_id, channel_id, channel_name, \
+         (provider, domain_id, workspace_external_id, channel_id, channel_name, \
           channel_metadata_json, created_by, created_at, updated_at) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8) RETURNING *",
     )
     .bind(&provider)
-    .bind(&body.mission_id)
+    .bind(&body.domain_id)
     .bind(&body.workspace_external_id)
     .bind(&body.channel_id)
     .bind(&body.channel_name)
@@ -128,11 +128,11 @@ async fn list_bindings(
     let limit = q.limit.unwrap_or(100).min(500);
 
     let rows = sqlx::query(
-        "SELECT * FROM slackchannelbinding WHERE provider=$1 AND mission_id=$2 \
+        "SELECT * FROM slackchannelbinding WHERE provider=$1 AND domain_id=$2 \
          ORDER BY updated_at DESC LIMIT $3",
     )
     .bind(&provider)
-    .bind(&q.mission_id)
+    .bind(&q.domain_id)
     .bind(limit)
     .fetch_all(&state.db)
     .await;

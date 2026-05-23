@@ -1,6 +1,6 @@
 # MissionControl — Philosophy
 
-> **For precise entity definitions (Mission, Kluster, Task, Artifact, Session, Agent), see [`docs/architecture/entities.md`](docs/architecture/entities.md).** This doc is the *why*; entities.md is the *what*. If they disagree, entities.md wins until reconciled.
+> **For precise entity definitions (Domain, Mission, Task, Artifact, Session, Agent), see [`docs/architecture/entities.md`](docs/architecture/entities.md).** This doc is the *why*; entities.md is the *what*. If they disagree, entities.md wins until reconciled.
 
 ## The Coordination Layer
 
@@ -20,7 +20,7 @@ It is not a workflow runner. It is not a pipeline framework. It is not
 a chatbot UI.
 
 > Kubernetes orchestrates containers.\
-> MissionControl orchestrates agents, missions, and knowledge.
+> MissionControl orchestrates agents, domains, missions, and knowledge.
 
 ------------------------------------------------------------------------
 
@@ -38,7 +38,7 @@ They lack:
 -   Governance boundaries
 -   Permission hierarchies
 -   Organizational context
--   Mission-scoped tooling
+-   Domain/mission-scoped tooling
 -   Personal operational profiles that travel with the operator
 -   A working file store decoupled from prompt context
 -   A long-term memory of record beyond the current session
@@ -93,11 +93,11 @@ agents request actions, MissionControl authorizes and records them.
 
 ------------------------------------------------------------------------
 
-# Mission-Centric Organizational Model
+# Domain-Centric Organizational Model
 
-MissionControl organizes work around **Missions**.
+MissionControl organizes work around **Domains** and **Missions**.
 
-A Mission is:
+A Domain is:
 
 -   A bounded objective
 -   A scoped knowledge domain
@@ -105,7 +105,7 @@ A Mission is:
 -   A permission boundary
 -   A tool/skill profile
 
-Each Mission defines a **Mission Profile**:
+Each Domain defines a **Domain Profile**:
 
 -   Approved tools and integrations
 -   Required skills and knowledge domains
@@ -113,7 +113,10 @@ Each Mission defines a **Mission Profile**:
 -   Permission tiers
 -   Artifact structure expectations
 
-Teams and agents can switch between Mission Profiles when moving between
+A Mission is a workstream inside a Domain — where artifacts cohere and
+context continuity lives.
+
+Teams and agents can switch between Domain Profiles when moving between
 projects without losing integrity or context.
 
 Context switching becomes structured, intentional, and safe.
@@ -140,7 +143,7 @@ Profiles are:
     in MissionControl (config + auth references + policy-relevant context)
 
 This means an agent operator can move between machines, reinstall their
-toolchain, onboard to a new mission, or hand off context to a teammate
+toolchain, onboard to a new domain or mission, or hand off context to a teammate
 without losing their working configuration.
 
 The agent's operational identity — its environment, its instruction
@@ -171,7 +174,7 @@ the same regardless of which channel surfaces them.
 
 The communication layer provides:
 
--   Mission-aware notifications
+-   Domain/mission-aware notifications
 -   Task creation from conversation threads
 -   Overlap warnings delivered in-channel
 -   Artifact publish alerts
@@ -184,7 +187,7 @@ platform your organization already uses.
 
 Non-technical stakeholders can:
 
--   View mission state
+-   View domain and mission state
 -   Search knowledge
 -   Review artifacts
 -   Trigger workflows
@@ -203,8 +206,8 @@ MissionControl is not only agent-native — it is organization-native.
 
 Agents and humans operate against durable, structured entities:
 
--   Missions - high level organizational goal/initiative
--   Klusters - knoweldge cluster inside mission for a targeted outcome
+-   Domains - high level organizational goal/initiative (bounded org objective)
+-   Missions - knowledge cluster inside a domain for a targeted outcome (workstream)
 -   Tasks
 -   Artifacts
 -   Documents
@@ -226,7 +229,7 @@ Before a task or artifact is created:
 
 -   Fuzzy similarity analysis runs
 -   Vector similarity search runs
--   Existing mission state is checked
+-   Existing domain and mission state is checked
 -   Artifact history is evaluated
 
 Collisions are detected proactively.
@@ -244,7 +247,7 @@ MissionControl implements:
 ## Role Types
 
 -   Admin: Full mutation and policy control
--   Contributor: Can create and modify within mission scope
+-   Contributor: Can create and modify within domain scope
 -   Viewer: Can search, inspect, and utilize artifacts but cannot mutate
     state
 
@@ -267,7 +270,7 @@ Each serves a specific role in the information lifecycle.
 
 ## PostgreSQL — Structured State and Collaboration
 
-The operational database. All structured entities — missions, klusters,
+The operational database. All structured entities — domains, missions,
 tasks, roles, governance policies, approval records — live in Postgres
 with pgvector for semantic indexing.
 
@@ -287,9 +290,9 @@ Artifact content — documents, binaries, skill bundles, agent outputs —
 is stored in S3-compatible object storage, not inline in the database.
 
 S3 is the working store: immediately available, mutable during active
-work, and scoped per mission and kluster:
+work, and scoped per domain and mission:
 
-    missions/{mission_id}/klusters/{kluster_id}/{entity}/{filename}
+    domains/{domain_id}/missions/{mission_id}/{entity}/{filename}
 
 This means agents can read, write, and iterate on file content without
 polluting the structured state database. Storage scales independently.
@@ -322,7 +325,7 @@ This creates:
 
 -   Traceable AI actions with deterministic lineage
 -   Audit-ready change history outside the control plane
--   Reproducible mission state from Git alone if needed
+-   Reproducible domain/mission state from Git alone if needed
 -   A permanent organizational knowledge base that survives
     infrastructure changes
 
@@ -338,8 +341,9 @@ MissionControl is AI-first infrastructure.
 Agents interact via structured MCP tool calls:
 
 -   search_tasks
--   search_klusters
+-   search_missions
 -   detect_overlaps
+-   create_domain
 -   create_mission
 -   publish_pending_ledger_events
 -   list_pending_ledger_events
@@ -356,16 +360,16 @@ MissionControl becomes a central nervous system for:
 
 -   Rapid onboarding of new contributors and agents
 -   Encoding institutional knowledge into durable, searchable state
--   Standardizing toolchains across teams and missions
--   Defining mission-scoped skills and capability profiles
+-   Standardizing toolchains across teams and domains
+-   Defining domain/mission-scoped skills and capability profiles
 -   Switching operational contexts safely and intentionally
 -   Surfacing AI workflows through the communication tools teams
     already use
 
-A new contributor — human or agent — attaches to a Mission Profile and
+A new contributor — human or agent — attaches to a Domain Profile and
 loads their personal agent profile.
 
-The Mission defines:
+The Domain defines:
 
 -   Tools and approved integrations
 -   Skills and knowledge domains
@@ -373,8 +377,10 @@ The Mission defines:
 -   State, ownership, and permission tiers
 -   Communication surface (whichever channel the team uses)
 
+Within a domain, missions (workstreams) carry the active work context.
+
 This compresses onboarding time and reduces cognitive overhead for both
-humans and AI agents joining a mission mid-flight.
+humans and AI agents joining a domain or mission mid-flight.
 
 ------------------------------------------------------------------------
 
@@ -389,7 +395,7 @@ Without coordination:
 
 With MissionControl:
 
--   Parallel task execution is structured by mission and kluster scope
+-   Parallel task execution is structured by domain and mission scope
 -   Overlap is detected before damage occurs
 -   Ownership is explicit and role-enforced
 -   State is synchronized across agents, sessions, and machines
@@ -414,5 +420,5 @@ MissionControl ensures that intelligence scales without fragmentation.
 It connects agents, humans, governance, and communication into a single
 coordinated execution layer.
 
-It turns isolated AI capability into governed, mission-driven execution
-at scale.
+It turns isolated AI capability into governed, domain-and-mission-driven
+execution at scale.

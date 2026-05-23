@@ -16,7 +16,7 @@
 //! 1. Shuts down agents present in `running` but absent from `desired`.
 //! 2. Spawns agents present in `desired` but absent from `running`.
 //! 3. For agents in both, restarts iff the spec materially changed
-//!    (mission_id, runtime_kind, supervision_mode). Capability-only
+//!    (domain_id, runtime_kind, supervision_mode). Capability-only
 //!    changes don't require restart.
 //!
 //! ## Shutdown policy
@@ -83,7 +83,7 @@ pub type RunningAgents = Arc<Mutex<HashMap<String, RunningAgent>>>;
 /// Diff `desired` against `running`. Returns three lists:
 /// - `to_remove`: agent_ids to shut down (in running, not in desired)
 /// - `to_spawn`: specs to spawn (in desired, not in running)
-/// - `to_restart`: specs whose stable fields changed (mission_id,
+/// - `to_restart`: specs whose stable fields changed (domain_id,
 ///   runtime_kind, supervision_mode). Returned in (old_id, new_spec) form.
 pub fn diff_specs(
     desired: &[AgentSpec],
@@ -123,7 +123,7 @@ pub fn diff_specs(
 /// don't require restart — they take effect on the next task claim.
 pub fn specs_match(a: &AgentSpec, b: &AgentSpec) -> bool {
     a.agent_id == b.agent_id
-        && a.mission_id == b.mission_id
+        && a.domain_id == b.domain_id
         && a.runtime_kind == b.runtime_kind
         && a.session_mode == b.session_mode
         && a.profile_path == b.profile_path
@@ -276,10 +276,10 @@ mod tests {
     use super::*;
     use crate::config::SessionMode;
 
-    fn spec(id: &str, mission: &str, mode: SessionMode) -> AgentSpec {
+    fn spec(id: &str, domain: &str, mode: SessionMode) -> AgentSpec {
         AgentSpec {
             agent_id: id.into(),
-            mission_id: mission.into(),
+            domain_id: domain.into(),
             runtime_kind: "claude_agent_acp".into(),
             session_mode: mode,
             capabilities: vec![],
@@ -333,13 +333,13 @@ mod tests {
     }
 
     #[test]
-    fn diff_mission_change_goes_to_restart() {
+    fn diff_domain_change_goes_to_restart() {
         let old = spec("a-1", "m-1", SessionMode::Persistent);
         let new = spec("a-1", "m-2", SessionMode::Persistent);
         let running = running_with(old);
         let plan = diff_specs(&[new], &running);
         assert_eq!(plan.to_restart.len(), 1);
-        assert_eq!(plan.to_restart[0].mission_id, "m-2");
+        assert_eq!(plan.to_restart[0].domain_id, "m-2");
         assert!(plan.to_spawn.is_empty());
         assert!(plan.to_remove.is_empty());
     }

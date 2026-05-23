@@ -38,9 +38,9 @@
 
   function typeColor(t: string) {
     const v = t.toLowerCase();
+    if (v.includes('domain')) return 'type-domain';
     if (v.includes('mission')) return 'type-mission';
     if (v.includes('task')) return 'type-task';
-    if (v.includes('kluster') || v.includes('cluster')) return 'type-kluster';
     if (v.includes('agent')) return 'type-agent';
     if (v.includes('error') || v.includes('fail')) return 'type-error';
     return '';
@@ -213,9 +213,9 @@
     background: rgba(255,255,255,0.06);
     color: var(--text);
   }
-  .type-mission { border-color: rgba(217,74,43,0.4); background: rgba(217,74,43,0.12); color: #f87c60; }
+  .type-domain  { border-color: rgba(217,74,43,0.4); background: rgba(217,74,43,0.12); color: #f87c60; }
+  .type-mission { border-color: rgba(167,139,250,0.4); background: rgba(167,139,250,0.12); color: #c4b5fd; }
   .type-task    { border-color: rgba(56,189,248,0.4); background: rgba(56,189,248,0.12); color: #7dd3fc; }
-  .type-kluster { border-color: rgba(167,139,250,0.4); background: rgba(167,139,250,0.12); color: #c4b5fd; }
   .type-agent   { border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.12); color: #6ee7b7; }
   .type-error   { border-color: rgba(251,113,133,0.4); background: rgba(251,113,133,0.12); color: #fda4af; }
 </style>

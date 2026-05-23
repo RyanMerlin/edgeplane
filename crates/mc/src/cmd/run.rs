@@ -28,9 +28,9 @@ pub struct ExecArgs {
     #[arg(long)]
     pub timeout: Option<u32>,
 
-    /// Mission ID for receipt correlation
+    /// Domain ID for receipt correlation
     #[arg(long)]
-    pub mission_id: Option<String>,
+    pub domain_id: Option<String>,
 
     /// Agent ID for receipt correlation
     #[arg(long)]
@@ -83,7 +83,7 @@ pub async fn run(args: ExecArgs, host: Option<String>) -> Result<()> {
             parsed_args,
             args.dry_run,
             args.timeout,
-            args.mission_id,
+            args.domain_id,
             args.agent_id,
         )
         .await;

@@ -25,7 +25,7 @@ async fn test_client_uses_first_live_server() {
 async fn test_client_fails_over_to_second_server() {
     let live = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/missions"))
+        .and(path("/domains"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
         .mount(&live)
         .await;
@@ -39,7 +39,7 @@ async fn test_client_fails_over_to_second_server() {
     )
     .unwrap();
 
-    let res = client.get_json("/missions").await.unwrap();
+    let res = client.get_json("/domains").await.unwrap();
     assert_eq!(res, serde_json::json!([]));
 }
 

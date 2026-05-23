@@ -39,9 +39,9 @@ pub struct DriftIngestArgs {
 
 #[derive(Args, Debug)]
 pub struct DriftTriageArgs {
-    /// Optional mission id for bookkeeping.
+    /// Optional domain id for bookkeeping.
     #[arg(long)]
-    pub mission: Option<String>,
+    pub domain: Option<String>,
 
     /// Optional provider filter.
     #[arg(long)]
@@ -72,7 +72,7 @@ struct CapabilityDelta {
 struct PolicyDecision {
     schema: &'static str,
     decision_id: String,
-    mission: Option<String>,
+    domain: Option<String>,
     provider: Option<String>,
     compat_status: String,
     drift_severity: String,
@@ -152,7 +152,7 @@ fn triage(args: DriftTriageArgs) -> Result<()> {
     let policy = PolicyDecision {
         schema: "mc/policy-decision/v1",
         decision_id: format!("decision-{}", Utc::now().timestamp_millis()),
-        mission: args.mission,
+        domain: args.domain,
         provider: args.provider,
         compat_status,
         drift_severity,

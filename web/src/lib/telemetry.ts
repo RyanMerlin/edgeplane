@@ -11,8 +11,8 @@ type MatrixEvent = {
   id?: string;
   event?: string;
   type?: string;
+  domain_id?: string;
   mission_id?: string;
-  kluster_id?: string;
   agent_id?: string;
   status?: string;
   payload: any;

@@ -72,7 +72,7 @@ fn row_to_json(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     let context_str: String = row.try_get("request_context_json").unwrap_or_default();
     serde_json::json!({
         "id": row.get::<i32, _>("id"),
-        "mission_id": row.get::<String, _>("mission_id"),
+        "domain_id": row.get::<String, _>("domain_id"),
         "action": row.get::<String, _>("action"),
         "channel": row.get::<String, _>("channel"),
         "reason": row.get::<String, _>("reason"),
@@ -112,14 +112,14 @@ async fn create_approval_request(
 
     let row = sqlx::query(
         "INSERT INTO approvalrequest \
-         (mission_id, action, channel, reason, target_entity_type, target_entity_id, \
+         (domain_id, action, channel, reason, target_entity_type, target_entity_id, \
           request_context_json, status, requested_by, approved_by, rejected_by, \
           decision_note, approval_nonce, approval_expires_at, created_at, updated_at, \
           executed_action, executed_request_id) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8,'','','','',$9,$10,$10,'','') \
          RETURNING *",
     )
-    .bind(&payload.mission_id)
+    .bind(&payload.domain_id)
     .bind(payload.action.trim())
     .bind(payload.channel.as_deref().unwrap_or("api").trim().to_string())
     .bind(payload.reason.as_deref().unwrap_or(""))
@@ -147,9 +147,9 @@ async fn list_approvals(
     Query(q): Query<ApprovalListQuery>,
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(50).min(100).max(1);
-    let rows = match (&q.mission_id, &q.status) {
+    let rows = match (&q.domain_id, &q.status) {
         (Some(mid), Some(status)) => sqlx::query(
-            "SELECT * FROM approvalrequest WHERE mission_id=$1 AND status=$2 \
+            "SELECT * FROM approvalrequest WHERE domain_id=$1 AND status=$2 \
              ORDER BY created_at DESC LIMIT $3",
         )
         .bind(mid)
@@ -158,7 +158,7 @@ async fn list_approvals(
         .fetch_all(&state.db)
         .await,
         (Some(mid), None) => sqlx::query(
-            "SELECT * FROM approvalrequest WHERE mission_id=$1 \
+            "SELECT * FROM approvalrequest WHERE domain_id=$1 \
              ORDER BY created_at DESC LIMIT $2",
         )
         .bind(mid)
@@ -283,11 +283,11 @@ async fn do_approve(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": e.to_string()}))).into_response(),
     };
 
-    let mission_id: String = updated_row.get("mission_id");
+    let domain_id: String = updated_row.get("domain_id");
     let action: String = updated_row.get("action");
     let token_payload = serde_json::json!({
         "approval_request_id": approval_id,
-        "mission_id": mission_id,
+        "domain_id": domain_id,
         "action": action,
         "request_id": format!("approval-{approval_id}"),
         "approved_by": actor,

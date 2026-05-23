@@ -54,7 +54,7 @@ fn ensure_schema(conn: &Connection) -> Result<()> {
          CREATE TABLE IF NOT EXISTS agent (
              id                TEXT NOT NULL,
              source            TEXT NOT NULL,
-             mission_id        TEXT NOT NULL,
+             domain_id        TEXT NOT NULL,
              runtime_kind      TEXT NOT NULL,
              supervision_mode  TEXT NOT NULL,
              capabilities_json TEXT NOT NULL DEFAULT '[]',
@@ -73,7 +73,7 @@ fn ensure_schema(conn: &Connection) -> Result<()> {
 
 pub struct LocalAgent {
     pub id: String,
-    pub mission_id: String,
+    pub domain_id: String,
     pub runtime_kind: String,
     pub supervision_mode: String,
     pub capabilities: Vec<String>,
@@ -83,7 +83,7 @@ pub struct LocalAgent {
 
 /// Enroll a new agent in standalone mode. Returns the assigned agent ID.
 pub fn enroll(
-    mission_id: &str,
+    domain_id: &str,
     runtime_kind: &str,
     supervision_mode: &str,
     capabilities: &[String],
@@ -95,12 +95,12 @@ pub fn enroll(
     let caps_json = serde_json::to_string(capabilities).unwrap_or_else(|_| "[]".into());
     conn.execute(
         "INSERT INTO agent
-            (id, source, mission_id, runtime_kind, supervision_mode,
+            (id, source, domain_id, runtime_kind, supervision_mode,
              capabilities_json, profile_path, enrolled_at)
          VALUES (?1, 'local', ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             agent_id,
-            mission_id,
+            domain_id,
             runtime_kind,
             supervision_mode,
             caps_json,
@@ -111,12 +111,12 @@ pub fn enroll(
     Ok(agent_id)
 }
 
-/// Reassign a local agent to a different mission. Returns false if not found.
-pub fn reassign(agent_id: &str, new_mission_id: &str) -> Result<bool> {
+/// Reassign a local agent to a different domain. Returns false if not found.
+pub fn reassign(agent_id: &str, new_domain_id: &str) -> Result<bool> {
     let conn = open()?;
     let n = conn.execute(
-        "UPDATE agent SET mission_id = ?1 WHERE source = 'local' AND id = ?2",
-        params![new_mission_id, agent_id],
+        "UPDATE agent SET domain_id = ?1 WHERE source = 'local' AND id = ?2",
+        params![new_domain_id, agent_id],
     )?;
     Ok(n > 0)
 }
@@ -131,20 +131,20 @@ pub fn unenroll(agent_id: &str) -> Result<bool> {
     Ok(n > 0)
 }
 
-/// List all locally-enrolled agents, optionally filtered by mission.
-pub fn list(mission_filter: Option<&str>) -> Result<Vec<LocalAgent>> {
+/// List all locally-enrolled agents, optionally filtered by domain.
+pub fn list(domain_filter: Option<&str>) -> Result<Vec<LocalAgent>> {
     let conn = open()?;
-    let (sql, param): (&str, Option<&str>) = if let Some(m) = mission_filter {
+    let (sql, param): (&str, Option<&str>) = if let Some(m) = domain_filter {
         (
-            "SELECT id, mission_id, runtime_kind, supervision_mode, \
+            "SELECT id, domain_id, runtime_kind, supervision_mode, \
                      capabilities_json, profile_path, enrolled_at \
-              FROM agent WHERE source = 'local' AND mission_id = ?1 \
+              FROM agent WHERE source = 'local' AND domain_id = ?1 \
               ORDER BY enrolled_at ASC",
             Some(m),
         )
     } else {
         (
-            "SELECT id, mission_id, runtime_kind, supervision_mode, \
+            "SELECT id, domain_id, runtime_kind, supervision_mode, \
                      capabilities_json, profile_path, enrolled_at \
               FROM agent WHERE source = 'local' \
               ORDER BY enrolled_at ASC",
@@ -168,7 +168,7 @@ fn row_to_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalAgent> {
     let capabilities: Vec<String> = serde_json::from_str(&caps_json).unwrap_or_default();
     Ok(LocalAgent {
         id: row.get(0)?,
-        mission_id: row.get(1)?,
+        domain_id: row.get(1)?,
         runtime_kind: row.get(2)?,
         supervision_mode: row.get(3)?,
         capabilities,

@@ -323,8 +323,8 @@ mod tests {
         };
         let task = TaskSpec {
             id: "t".into(),
-            kluster_id: "".into(),
             mission_id: "".into(),
+            domain_id: "".into(),
             title: "".into(),
             description: "".into(),
             input_json: "{}".into(),
@@ -332,7 +332,7 @@ mod tests {
             produces: serde_json::Value::Null,
             consumes: serde_json::Value::Null,
             agent_profile: None,
-            mission_roster: vec![],
+            domain_roster: vec![],
             dependency_results: vec![],
             pending_messages: vec![],
         };

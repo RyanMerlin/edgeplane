@@ -24,9 +24,9 @@ pub fn router() -> Router<Arc<AppState>> {
 
 #[derive(Deserialize)]
 struct FeedbackCreate {
-    mission_id: String,
+    domain_id: String,
     #[serde(default)]
-    kluster_id: String,
+    mission_id: String,
     #[serde(default)]
     provider: String,
     #[serde(default)]
@@ -56,7 +56,7 @@ struct TriageUpdate {
 
 #[derive(Deserialize)]
 struct ListFeedbackQuery {
-    mission_id: String,
+    domain_id: String,
     triage_status: Option<String>,
     source_type: Option<String>,
     priority: Option<String>,
@@ -70,7 +70,7 @@ fn default_50() -> i64 {
 
 #[derive(Deserialize)]
 struct SummaryQuery {
-    mission_id: String,
+    domain_id: String,
 }
 
 fn row_to_feedback(row: &sqlx::postgres::PgRow) -> serde_json::Value {
@@ -79,8 +79,8 @@ fn row_to_feedback(row: &sqlx::postgres::PgRow) -> serde_json::Value {
             .unwrap_or(serde_json::json!({}));
     serde_json::json!({
         "id": row.get::<i64, _>("id"),
+        "domain_id": row.get::<String, _>("domain_id"),
         "mission_id": row.get::<String, _>("mission_id"),
-        "kluster_id": row.get::<String, _>("kluster_id"),
         "source_type": row.get::<String, _>("source_type"),
         "source_subject": row.get::<String, _>("source_subject"),
         "provider": row.get::<String, _>("provider"),
@@ -139,14 +139,14 @@ async fn create_feedback(
 
     match sqlx::query(
         "INSERT INTO feedbackentry \
-         (mission_id, kluster_id, source_type, source_subject, provider, channel_id, \
+         (domain_id, mission_id, source_type, source_subject, provider, channel_id, \
           category, severity, summary, recommendation, status, triage_status, priority, \
           owner, disposition, outcome_ref, metadata_json, created_at, updated_at) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open','new','p2','','','', $11,$12,$12) \
          RETURNING *",
     )
+    .bind(&body.domain_id)
     .bind(&body.mission_id)
-    .bind(&body.kluster_id)
     .bind(source_type)
     .bind(&principal.subject)
     .bind(&body.provider)
@@ -177,13 +177,13 @@ async fn list_feedback(
 
     match sqlx::query(
         "SELECT * FROM feedbackentry \
-         WHERE mission_id=$1 \
+         WHERE domain_id=$1 \
            AND ($2::text IS NULL OR triage_status=$2) \
            AND ($3::text IS NULL OR source_type=$3) \
            AND ($4::text IS NULL OR priority=$4) \
          ORDER BY updated_at DESC LIMIT $5",
     )
-    .bind(&q.mission_id)
+    .bind(&q.domain_id)
     .bind(&q.triage_status)
     .bind(&q.source_type)
     .bind(&q.priority)
@@ -259,9 +259,9 @@ async fn feedback_summary(
     Query(q): Query<SummaryQuery>,
 ) -> impl IntoResponse {
     let rows = match sqlx::query(
-        "SELECT * FROM feedbackentry WHERE mission_id=$1",
+        "SELECT * FROM feedbackentry WHERE domain_id=$1",
     )
-    .bind(&q.mission_id)
+    .bind(&q.domain_id)
     .fetch_all(&state.db)
     .await
     {
@@ -294,7 +294,7 @@ async fn feedback_summary(
     }
 
     Json(serde_json::json!({
-        "mission_id": q.mission_id,
+        "domain_id": q.domain_id,
         "total": total,
         "by_source_type": by_source_type,
         "by_severity": by_severity,

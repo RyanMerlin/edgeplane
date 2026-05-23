@@ -312,12 +312,12 @@ mod public_path_tests {
             "/agents",
             "/agents/4",
             "/agents/aria-work-e88c006e",
-            "/missions",
+            "/domains",
             "/mcp/call",
             "/auth/me",
             "/auth/sessions",
             "/integrations/slack/channels", // admin path, not the webhook
-            "/work/missions/m/agents/enroll",
+            "/work/domains/m/agents/enroll",
         ] {
             assert!(!is_public_path(p), "{p} should NOT be public");
         }

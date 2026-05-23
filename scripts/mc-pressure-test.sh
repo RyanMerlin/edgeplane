@@ -473,7 +473,7 @@ jq -s \
     },
     end_state: {
       playbook_results_count: (($playbook_results // []) | length),
-      all_cleanup_succeeded: (($playbook_results // []) | all(.cleanup.kluster_deleted == true and .cleanup.mission_deleted == true)),
+      all_cleanup_succeeded: (($playbook_results // []) | all(.cleanup.mission_deleted == true and .cleanup.domain_deleted == true)),
       task_counts_match: (($playbook_results // []) | all(.actual_task_count >= .expected_task_count))
     }
   }' "${status_files[@]}" > "$RUN_DIR/summary.json"

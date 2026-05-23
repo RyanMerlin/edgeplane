@@ -244,7 +244,7 @@ impl AgentDriver for ClaudeDriver {
 /// Injects:
 /// - UserPromptSubmit: emit profile-updated marker (existing behaviour)
 /// - SessionStart (startup/resume): HTTP POST to /hooks/claude/session-start
-/// - SessionStart (compact): re-inject mission context via shell script
+/// - SessionStart (compact): re-inject domain context via shell script
 /// - SessionEnd: HTTP POST to /hooks/claude/session-end
 /// - PostToolUse (mcp__missioncontrol__.*): HTTP POST to /hooks/claude/tool-audit
 /// - PreCompact: dump current context summary to stdout
@@ -1375,17 +1375,17 @@ fn upsert_launch_session(base_mc_home: &Path, record: LaunchSessionRecord) -> Re
 
 /// Write (or refresh) `$MC_INSTANCE_HOME/mc/context.json` with the current
 /// agent context. Called at launch and patched live by the MCP server after
-/// tool calls that return mission/kluster IDs.
+/// tool calls that return domain/mission IDs.
 ///
 /// The file is read by the PreCompact and SessionStart(compact) hook scripts
-/// to re-inject mission context into Claude's window after compaction.
+/// to re-inject domain context into Claude's window after compaction.
 pub fn write_mc_context_json(
     instance_mc_home: &Path,
     base_url: &str,
     active_profile: &str,
     runtime_session_id: &str,
 ) -> Result<()> {
-    // Load existing file so we can preserve active_mission_id / active_kluster_id
+    // Load existing file so we can preserve active_domain_id / active_mission_id
     // written by the MCP server between launch invocations.
     let existing: Value = if instance_mc_home.join("context.json").exists() {
         let raw = fs::read_to_string(instance_mc_home.join("context.json"))?;
@@ -1398,8 +1398,8 @@ pub fn write_mc_context_json(
         "runtime_session_id": runtime_session_id,
         "base_url": base_url,
         "active_profile": active_profile,
+        "active_domain_id": existing.get("active_domain_id").cloned().unwrap_or(Value::Null),
         "active_mission_id": existing.get("active_mission_id").cloned().unwrap_or(Value::Null),
-        "active_kluster_id": existing.get("active_kluster_id").cloned().unwrap_or(Value::Null),
         "last_sync_at": chrono::Utc::now().to_rfc3339(),
     });
 

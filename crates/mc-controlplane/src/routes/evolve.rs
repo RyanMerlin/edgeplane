@@ -15,9 +15,9 @@ use crate::{auth::Principal, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/evolve/missions", post(seed_mission))
-        .route("/evolve/missions/{mission_id}/run", post(run_mission))
-        .route("/evolve/missions/{mission_id}/status", get(mission_status))
+        .route("/evolve/domains", post(seed_domain))
+        .route("/evolve/domains/{domain_id}/run", post(run_domain))
+        .route("/evolve/domains/{domain_id}/status", get(domain_status))
 }
 
 // ── Request types ─────────────────────────────────────────────────────────────
@@ -61,23 +61,23 @@ fn count_tasks(spec_json: &str) -> i64 {
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
-async fn seed_mission(
+async fn seed_domain(
     State(state): State<Arc<AppState>>,
     principal: Principal,
     Json(payload): Json<EvolveSpec>,
 ) -> impl IntoResponse {
-    let mission_id = new_evolve_id("evolve");
+    let domain_id = new_evolve_id("evolve");
     let owner_subject = principal.subject.clone();
     let spec_json = serde_json::to_string(&payload.spec).unwrap_or_else(|_| "{}".into());
     let now = Utc::now().naive_utc();
 
     let result = sqlx::query(
         "INSERT INTO evolvemission \
-         (mission_id, owner_subject, status, spec_json, created_at, updated_at) \
+         (domain_id, owner_subject, status, spec_json, created_at, updated_at) \
          VALUES ($1, $2, 'seeded', $3, $4, $4) \
-         RETURNING mission_id, status, created_at, spec_json",
+         RETURNING domain_id, status, created_at, spec_json",
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .bind(&owner_subject)
     .bind(&spec_json)
     .bind(now)
@@ -86,14 +86,14 @@ async fn seed_mission(
 
     match result {
         Ok(row) => {
-            let returned_mission_id: String = row.get("mission_id");
+            let returned_domain_id: String = row.get("domain_id");
             let status: String = row.get("status");
             let created_at: chrono::NaiveDateTime = row.get("created_at");
             let returned_spec_json: String = row.get("spec_json");
             let task_count = count_tasks(&returned_spec_json);
 
             Json(serde_json::json!({
-                "mission_id": returned_mission_id,
+                "domain_id": returned_domain_id,
                 "status": status,
                 "created_at": created_at,
                 "task_count": task_count,
@@ -101,40 +101,40 @@ async fn seed_mission(
             .into_response()
         }
         Err(e) => {
-            tracing::error!("seed_mission: {e}");
+            tracing::error!("seed_domain: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
 }
 
-async fn run_mission(
+async fn run_domain(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(mission_id): Path<String>,
+    Path(domain_id): Path<String>,
     Json(payload): Json<EvolveRunRequest>,
 ) -> impl IntoResponse {
-    // Verify mission exists and caller is the owner
-    let mission_row = sqlx::query(
-        "SELECT mission_id, owner_subject, status FROM evolvemission WHERE mission_id = $1",
+    // Verify domain exists and caller is the owner
+    let domain_row = sqlx::query(
+        "SELECT domain_id, owner_subject, status FROM evolvemission WHERE domain_id = $1",
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .fetch_optional(&state.db)
     .await;
 
-    let mission_row = match mission_row {
+    let domain_row = match domain_row {
         Ok(Some(r)) => r,
-        Ok(None) => return not_found("Mission not found"),
+        Ok(None) => return not_found("Domain not found"),
         Err(e) => {
-            tracing::error!("run_mission fetch: {e}");
+            tracing::error!("run_domain fetch: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let owner_subject: String = mission_row.get("owner_subject");
+    let owner_subject: String = domain_row.get("owner_subject");
     if owner_subject != principal.subject && !principal.is_admin {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"detail": "not the mission owner"})),
+            Json(serde_json::json!({"detail": "not the domain owner"})),
         )
             .into_response();
     }
@@ -145,12 +145,12 @@ async fn run_mission(
     // Insert EvolveRun
     let run_result = sqlx::query(
         "INSERT INTO evolverun \
-         (run_id, mission_id, owner_subject, agent, status, started_at) \
+         (run_id, domain_id, owner_subject, agent, status, started_at) \
          VALUES ($1, $2, $3, $4, 'running', $5) \
-         RETURNING run_id, mission_id, agent, status, started_at",
+         RETURNING run_id, domain_id, agent, status, started_at",
     )
     .bind(&run_id)
-    .bind(&mission_id)
+    .bind(&domain_id)
     .bind(&owner_subject)
     .bind(&payload.runtime_kind)
     .bind(now)
@@ -160,28 +160,28 @@ async fn run_mission(
     let run_row = match run_result {
         Ok(r) => r,
         Err(e) => {
-            tracing::error!("run_mission insert run: {e}");
+            tracing::error!("run_domain insert run: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    // Update mission status to "running"
+    // Update domain status to "running"
     let _ = sqlx::query(
-        "UPDATE evolvemission SET status = 'running', updated_at = $2 WHERE mission_id = $1",
+        "UPDATE evolvemission SET status = 'running', updated_at = $2 WHERE domain_id = $1",
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .bind(now)
     .execute(&state.db)
     .await;
 
     let returned_run_id: String = run_row.get("run_id");
-    let returned_mission_id: String = run_row.get("mission_id");
+    let returned_domain_id: String = run_row.get("domain_id");
     let agent: String = run_row.get("agent");
     let status: String = run_row.get("status");
     let started_at: chrono::NaiveDateTime = run_row.get("started_at");
 
     Json(serde_json::json!({
-        "mission_id": returned_mission_id,
+        "domain_id": returned_domain_id,
         "run_id": returned_run_id,
         "agent": agent,
         "runtime_kind": payload.runtime_kind,
@@ -192,48 +192,48 @@ async fn run_mission(
     .into_response()
 }
 
-async fn mission_status(
+async fn domain_status(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(mission_id): Path<String>,
+    Path(domain_id): Path<String>,
 ) -> impl IntoResponse {
-    // Fetch mission; verify owner
-    let mission_row = sqlx::query(
-        "SELECT mission_id, owner_subject, status, spec_json, created_at FROM evolvemission WHERE mission_id = $1",
+    // Fetch domain; verify owner
+    let domain_row = sqlx::query(
+        "SELECT domain_id, owner_subject, status, spec_json, created_at FROM evolvemission WHERE domain_id = $1",
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .fetch_optional(&state.db)
     .await;
 
-    let mission_row = match mission_row {
+    let domain_row = match domain_row {
         Ok(Some(r)) => r,
-        Ok(None) => return not_found("Mission not found"),
+        Ok(None) => return not_found("Domain not found"),
         Err(e) => {
-            tracing::error!("mission_status fetch: {e}");
+            tracing::error!("domain_status fetch: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let owner_subject: String = mission_row.get("owner_subject");
+    let owner_subject: String = domain_row.get("owner_subject");
     if owner_subject != principal.subject && !principal.is_admin {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"detail": "not the mission owner"})),
+            Json(serde_json::json!({"detail": "not the domain owner"})),
         )
             .into_response();
     }
 
-    let status: String = mission_row.get("status");
-    let spec_json: String = mission_row.get("spec_json");
-    let created_at: chrono::NaiveDateTime = mission_row.get("created_at");
+    let status: String = domain_row.get("status");
+    let spec_json: String = domain_row.get("spec_json");
+    let created_at: chrono::NaiveDateTime = domain_row.get("created_at");
     let task_count = count_tasks(&spec_json);
 
     // Fetch runs
     let runs_result = sqlx::query(
-        "SELECT run_id, mission_id, owner_subject, agent, status, started_at, ai_session_id, score, recipe_path \
-         FROM evolverun WHERE mission_id = $1 ORDER BY started_at ASC",
+        "SELECT run_id, domain_id, owner_subject, agent, status, started_at, ai_session_id, score, recipe_path \
+         FROM evolverun WHERE domain_id = $1 ORDER BY started_at ASC",
     )
-    .bind(&mission_id)
+    .bind(&domain_id)
     .fetch_all(&state.db)
     .await;
 
@@ -243,7 +243,7 @@ async fn mission_status(
             .map(|r| {
                 serde_json::json!({
                     "run_id": r.get::<String, _>("run_id"),
-                    "mission_id": r.get::<String, _>("mission_id"),
+                    "domain_id": r.get::<String, _>("domain_id"),
                     "owner_subject": r.get::<String, _>("owner_subject"),
                     "agent": r.get::<String, _>("agent"),
                     "status": r.get::<String, _>("status"),
@@ -255,7 +255,7 @@ async fn mission_status(
             })
             .collect::<Vec<_>>(),
         Err(e) => {
-            tracing::error!("mission_status fetch runs: {e}");
+            tracing::error!("domain_status fetch runs: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
@@ -263,7 +263,7 @@ async fn mission_status(
     let run_count = runs.len() as i64;
 
     Json(serde_json::json!({
-        "mission_id": mission_id,
+        "domain_id": domain_id,
         "status": status,
         "created_at": created_at,
         "task_count": task_count,

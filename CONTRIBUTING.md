@@ -36,7 +36,7 @@ By signing off, you certify the Developer Certificate of Origin (DCO).
 Use clear, imperative messages. Example:
 
 ```text
-mcp: add idempotency check for create_kluster
+mcp: add idempotency check for create_mission
 ```
 
 ## Security-Sensitive Changes

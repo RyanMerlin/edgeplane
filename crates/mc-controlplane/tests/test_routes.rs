@@ -65,7 +65,7 @@ async fn test_schema_pack_returns_json() {
 #[tokio::test]
 async fn test_evolve_seed_requires_auth() {
     let res = server()
-        .post("/evolve/missions")
+        .post("/evolve/domains")
         .json(&serde_json::json!({"spec": {}}))
         .await;
     // 401 (no token) or 500 (DB hit) — either is acceptable; must not be 200
@@ -75,7 +75,7 @@ async fn test_evolve_seed_requires_auth() {
 
 #[tokio::test]
 async fn test_evolve_status_requires_auth() {
-    let res = server().get("/evolve/missions/evolve-testid/status").await;
+    let res = server().get("/evolve/domains/evolve-testid/status").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 200);
 }

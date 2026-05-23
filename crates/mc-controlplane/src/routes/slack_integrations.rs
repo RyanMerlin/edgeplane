@@ -131,11 +131,11 @@ fn verify_slack(headers: &HeaderMap, body: &[u8]) -> VerifyResult {
 fn inbound_event_key(
     event_type: &str,
     body: &[u8],
-    mission_id: &str,
+    domain_id: &str,
     channel_id: &str,
 ) -> String {
     let raw_hash = sha256_hex(body);
-    format!("slack:{event_type}:{mission_id}:{channel_id}:{raw_hash}")
+    format!("slack:{event_type}:{domain_id}:{channel_id}:{raw_hash}")
 }
 
 /// Returns `true` if the receipt was newly inserted, `false` if duplicate.
@@ -159,15 +159,15 @@ async fn record_receipt(
 async fn binding_exists(
     db: &sqlx::PgPool,
     provider: &str,
-    mission_id: &str,
+    domain_id: &str,
     channel_id: &str,
 ) -> bool {
     sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM slackchannelbinding \
-         WHERE provider=$1 AND mission_id=$2 AND channel_id=$3)",
+         WHERE provider=$1 AND domain_id=$2 AND channel_id=$3)",
     )
     .bind(provider)
-    .bind(mission_id)
+    .bind(domain_id)
     .bind(channel_id)
     .fetch_one(db)
     .await
@@ -185,7 +185,7 @@ fn row_to_binding(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     serde_json::json!({
         "id": row.get::<i32, _>("id"),
         "provider": row.get::<String, _>("provider"),
-        "mission_id": row.get::<String, _>("mission_id"),
+        "domain_id": row.get::<String, _>("domain_id"),
         "workspace_external_id": row.get::<String, _>("workspace_external_id"),
         "channel_id": row.get::<String, _>("channel_id"),
         "channel_name": row.get::<String, _>("channel_name"),
@@ -202,7 +202,7 @@ fn row_to_binding(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 
 #[derive(Deserialize)]
 struct CreateBindingBody {
-    mission_id: String,
+    domain_id: String,
     channel_id: String,
     #[serde(default)]
     provider: String,
@@ -215,7 +215,7 @@ struct CreateBindingBody {
 
 #[derive(Deserialize)]
 struct ListBindingsQuery {
-    mission_id: String,
+    domain_id: String,
     #[serde(default)]
     provider: String,
     limit: Option<i64>,
@@ -247,10 +247,10 @@ async fn create_binding(
     // Return existing binding if present (upsert-style idempotency)
     match sqlx::query(
         "SELECT * FROM slackchannelbinding \
-         WHERE provider=$1 AND mission_id=$2 AND channel_id=$3",
+         WHERE provider=$1 AND domain_id=$2 AND channel_id=$3",
     )
     .bind(&provider)
-    .bind(&body.mission_id)
+    .bind(&body.domain_id)
     .bind(&body.channel_id)
     .fetch_optional(&state.db)
     .await
@@ -265,12 +265,12 @@ async fn create_binding(
 
     match sqlx::query(
         "INSERT INTO slackchannelbinding \
-         (provider, mission_id, workspace_external_id, channel_id, channel_name, \
+         (provider, domain_id, workspace_external_id, channel_id, channel_name, \
           channel_metadata_json, created_by, created_at, updated_at) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8) RETURNING *",
     )
     .bind(&provider)
-    .bind(&body.mission_id)
+    .bind(&body.domain_id)
     .bind(&body.workspace_external_id)
     .bind(&body.channel_id)
     .bind(&body.channel_name)
@@ -302,11 +302,11 @@ async fn list_bindings(
 
     match sqlx::query(
         "SELECT * FROM slackchannelbinding \
-         WHERE provider=$1 AND mission_id=$2 \
+         WHERE provider=$1 AND domain_id=$2 \
          ORDER BY updated_at DESC LIMIT $3",
     )
     .bind(&provider)
-    .bind(&q.mission_id)
+    .bind(&q.domain_id)
     .bind(limit)
     .fetch_all(&state.db)
     .await
@@ -408,21 +408,21 @@ async fn slack_events(
         .unwrap_or("")
         .to_string();
 
-    let mission_id = payload
-        .get("mission_id")
+    let domain_id = payload
+        .get("domain_id")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim()
         .to_string();
 
     // Binding check (only when both are present)
-    if !mission_id.is_empty()
+    if !domain_id.is_empty()
         && !channel_id.is_empty()
-        && !binding_exists(&state.db, "slack", &mission_id, &channel_id).await
+        && !binding_exists(&state.db, "slack", &domain_id, &channel_id).await
     {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"detail": "Slack channel is not bound to mission"})),
+            Json(serde_json::json!({"detail": "Slack channel is not bound to domain"})),
         )
             .into_response();
     }
@@ -433,7 +433,7 @@ async fn slack_events(
         .unwrap_or("event")
         .to_string();
 
-    let event_key = inbound_event_key(&event_type, &body, &mission_id, &channel_id);
+    let event_key = inbound_event_key(&event_type, &body, &domain_id, &channel_id);
 
     match record_receipt(&state.db, &event_key, "event").await {
         Ok(false) => {
@@ -448,7 +448,7 @@ async fn slack_events(
 
     tracing::info!(
         event_type = %event_type,
-        mission_id = %mission_id,
+        domain_id = %domain_id,
         channel_id = %channel_id,
         "slack event received"
     );
@@ -520,31 +520,31 @@ async fn slack_commands(
     let user_id = form.get("user_id").cloned().unwrap_or_default();
     let command = form.get("command").cloned().unwrap_or_default();
     let text = form.get("text").cloned().unwrap_or_default();
-    // mission_id may be passed as a form field or embedded in text as `mission_id=<id>`
-    let mission_id = form
-        .get("mission_id")
+    // domain_id may be passed as a form field or embedded in text as `domain_id=<id>`
+    let domain_id = form
+        .get("domain_id")
         .cloned()
         .unwrap_or_default()
         .trim()
         .to_string();
-    let mission_id = if mission_id.is_empty() {
-        extract_kv_mission_id(&text)
+    let domain_id = if domain_id.is_empty() {
+        extract_kv_domain_id(&text)
     } else {
-        mission_id
+        domain_id
     };
 
     // Binding check
-    if !mission_id.is_empty()
+    if !domain_id.is_empty()
         && !channel_id.is_empty()
-        && !binding_exists(&state.db, "slack", &mission_id, &channel_id).await
+        && !binding_exists(&state.db, "slack", &domain_id, &channel_id).await
     {
         let msg = format!(
-            "Channel `{channel_id}` is not bound to mission `{mission_id}`."
+            "Channel `{channel_id}` is not bound to domain `{domain_id}`."
         );
         return Json(slack_ephemeral_response(&msg)).into_response();
     }
 
-    let event_key = inbound_event_key("command", &body, &mission_id, &channel_id);
+    let event_key = inbound_event_key("command", &body, &domain_id, &channel_id);
     match record_receipt(&state.db, &event_key, "command").await {
         Ok(false) => {
             return Json(slack_ephemeral_response(
@@ -563,7 +563,7 @@ async fn slack_commands(
         command = %command,
         user_id = %user_id,
         channel_id = %channel_id,
-        mission_id = %mission_id,
+        domain_id = %domain_id,
         "slack command received"
     );
 
@@ -573,10 +573,10 @@ async fn slack_commands(
     .into_response()
 }
 
-/// Extract `mission_id=<value>` from a free-text command string.
-fn extract_kv_mission_id(text: &str) -> String {
+/// Extract `domain_id=<value>` from a free-text command string.
+fn extract_kv_domain_id(text: &str) -> String {
     for token in text.split_whitespace() {
-        if let Some(v) = token.strip_prefix("mission_id=") {
+        if let Some(v) = token.strip_prefix("domain_id=") {
             return v.trim().to_string();
         }
     }
@@ -630,21 +630,21 @@ async fn slack_interactions(
         .unwrap_or("")
         .to_string();
 
-    let mission_id = payload
-        .get("mission_id")
+    let domain_id = payload
+        .get("domain_id")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim()
         .to_string();
 
     // Binding check
-    if !mission_id.is_empty()
+    if !domain_id.is_empty()
         && !channel_id.is_empty()
-        && !binding_exists(&state.db, "slack", &mission_id, &channel_id).await
+        && !binding_exists(&state.db, "slack", &domain_id, &channel_id).await
     {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"detail": "Slack channel is not bound to mission"})),
+            Json(serde_json::json!({"detail": "Slack channel is not bound to domain"})),
         )
             .into_response();
     }
@@ -655,7 +655,7 @@ async fn slack_interactions(
         .unwrap_or("interaction")
         .to_string();
 
-    let event_key = inbound_event_key(&interaction_type, body.as_ref(), &mission_id, &channel_id);
+    let event_key = inbound_event_key(&interaction_type, body.as_ref(), &domain_id, &channel_id);
     match record_receipt(&state.db, &event_key, "interaction").await {
         Ok(false) => {
             return Json(serde_json::json!({"ok": true, "duplicate": true})).into_response()
@@ -670,7 +670,7 @@ async fn slack_interactions(
     tracing::info!(
         interaction_type = %interaction_type,
         channel_id = %channel_id,
-        mission_id = %mission_id,
+        domain_id = %domain_id,
         "slack interaction received"
     );
 

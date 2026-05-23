@@ -29,7 +29,7 @@ Concretely, for one task lifecycle:
 | Entity | Lifetime | Identity |
 |--------|----------|----------|
 | `Agent` | Permanent | Parent profile (e.g. `aria-mc-engineer`, `agent.public_id = "aria-mc-engineer-a1b2c3d4"`). **Reused, never created per task.** |
-| `MeshTask` | Task lifecycle | Created by dispatcher (e.g. health check) via `submit_mesh_task` with `required_capabilities` and target `kluster_id` |
+| `MeshTask` | Task lifecycle | Created by dispatcher (e.g. health check) via `submit_mesh_task` with `required_capabilities` and target `mission_id` |
 | `MeshAgent` | Task lifecycle | **New per subagent.** `agent_public_id` FK back to parent. `current_task_id` set, `last_heartbeat_at` ticked while running. Archived/superseded on completion. |
 | `ExecutionSession` | Task lifecycle | Compute lease for the subagent process. Released on exit. |
 | `AISession` | Task lifecycle | A fresh claude session (`runtime_kind = "claude_agent_acp"` or `"claude_headless"`). No resume by default — ephemerality is the point. |
@@ -38,7 +38,7 @@ Concretely, for one task lifecycle:
 **Why this works:**
 
 - `entities.md` line 96: *"One agent identity can have multiple meshagent rows over time as it enrolls on different nodes."* This is exactly that pattern: one `Agent` identity, N concurrent `MeshAgent` projections (one persistent operator + M ephemeral task subagents).
-- `entities.md` line 131: *"This is what you query to answer 'what session did agent X use last time it touched kluster Y?'"* `AgentRun` is the durable trace. Even after the subagent's `MeshAgent` and `AISession` are gone, the `AgentRun` row stays, with `total_cost_cents`, `idempotency_key`, `resume_token`, and `parent_run_id` intact.
+- `entities.md` line 131: *"This is what you query to answer 'what session did agent X use last time it touched mission Y?'"* `AgentRun` is the durable trace. Even after the subagent's `MeshAgent` and `AISession` are gone, the `AgentRun` row stays, with `total_cost_cents`, `idempotency_key`, `resume_token`, and `parent_run_id` intact.
 - `meshagent.current_task_id` is singular (per schema) — that's why we need a *new* `MeshAgent` per concurrent subagent, not multiple claims on one row.
 
 ---
@@ -50,7 +50,7 @@ Per entity model, MC retains full visibility despite ephemerality:
 - **`mc agent list`** — shows the parent identity plus its active subagent projections. UI can collapse them under the parent (e.g. *"aria-mc-engineer (3 in flight)"*).
 - **`list_mesh_tasks`** — shows the work in progress with `claimed_by_agent_id` pointing at the ephemeral `MeshAgent`.
 - **`get_entity_history`** on the parent `Agent` — joins through `AgentRun` to show every subagent execution ever, including the ephemeral ones long after their `MeshAgent` is gone.
-- **Cost rollup** — `agentrun.total_cost_cents` summed per parent agent, per kluster, per mission — gives clean accountability.
+- **Cost rollup** — `agentrun.total_cost_cents` summed per parent agent, per mission, per domain — gives clean accountability.
 
 The ephemeral nature is in the runtime projection, not the audit trail.
 
@@ -60,7 +60,7 @@ The ephemeral nature is in the runtime projection, not the audit trail.
 
 ```
 1. Dispatcher (e.g. cron job, signal handler, another agent)
-   └─> submit_mesh_task(kluster_id, prompt, required_capabilities, target_agent_hint)
+   └─> submit_mesh_task(mission_id, prompt, required_capabilities, target_agent_hint)
        returns: meshtask.id
 
 2. Spawner worker (mcd's `task-worker` module — new component)
@@ -68,7 +68,7 @@ The ephemeral nature is in the runtime projection, not the audit trail.
    └─> For each match:
        a. enroll_mesh_agent(
             agent_public_id = parent.public_id,
-            mission_id = parent.current_mission_id,
+            domain_id = parent.current_domain_id,
             node_id = local node,
             runtime_kind = "claude_headless" | "claude_agent_acp",
             capabilities = parent.capabilities,
@@ -88,7 +88,7 @@ The ephemeral nature is in the runtime projection, not the audit trail.
 
 3. Subagent process runs
    └─> Periodic heartbeat → meshagent.last_heartbeat_at
-   └─> Work product written as artifacts (S3 via kluster path)
+   └─> Work product written as artifacts (S3 via mission path)
    └─> On done: emits result_artifact_uri + status
 
 4. Spawner worker observes exit
@@ -161,7 +161,7 @@ The ephemeral nature is in the runtime projection, not the audit trail.
 **Code-surface gaps that don't block (but worth noting):**
 
 1. `enroll_mesh_agent` HTTP handler (`work.rs:1678`) hardcodes `supervision_mode = NULL` and `status = 'online'` on insert. To tag a subagent as ephemeral, **use the `labels` JSON field** (e.g. `{"role": "task-subagent", "ephemeral": true}`). Zero code change. `supervision_mode` enum can be extended later if we want it first-class.
-2. `enroll_mesh_agent` MCP tool (`mcp.rs:112`) accepts only `mission_id`, `agent_id`, `capabilities_json`, `runtime_kind`, `agent_name` — no `labels`. The mcd spawner runs on the same host as the controlplane with admin auth, so **it should call the HTTP API directly**. MCP tool extension is a follow-up if cross-host MCP-driven spawning becomes a use case.
+2. `enroll_mesh_agent` MCP tool (`mcp.rs:112`) accepts only `domain_id`, `agent_id`, `capabilities_json`, `runtime_kind`, `agent_name` — no `labels`. The mcd spawner runs on the same host as the controlplane with admin auth, so **it should call the HTTP API directly**. MCP tool extension is a follow-up if cross-host MCP-driven spawning becomes a use case.
 3. `submit_mesh_task` MCP tool (`mcp.rs:100`) doesn't accept `required_capabilities` or `claim_policy` even though the columns exist. Same workaround: spawner uses HTTP API. MCP extension is a separate ticket.
 
 **Bottom line:** the entity model is sound and the database is ready. The only build work is the mcd spawner + the 3 small MCP tool extensions (which are independent and can ship later).
@@ -180,7 +180,7 @@ The only path that issues `DELETE FROM meshagent` is `revoke_node_agent` at `DEL
 
 **Fix:** add `DELETE /work/agents/{agent_id}` to `crates/mc-controlplane/src/routes/work.rs`, requiring admin or `meshagent.enrolled_by_subject == principal.subject`. Reuses the existing `DELETE FROM meshagent WHERE id=$1` SQL. Estimated 30 lines. **This must land before `mcd::task_worker` can clean up after itself.**
 
-Aside from these two, the schema-level FK behavior (`ON DELETE SET NULL` on `agentrun.mesh_agent_id`) is enforced by Postgres and does not require runtime testing — declaring the constraint in migrations/0001 is sufficient proof. Prototype confirmed lifecycle steps 1–9 (mission → kluster → meshtask → enroll meshagent → claim → start AgentRun with proper FKs → spawn `claude -p` → complete) work end-to-end against the live controlplane.
+Aside from these two, the schema-level FK behavior (`ON DELETE SET NULL` on `agentrun.mesh_agent_id`) is enforced by Postgres and does not require runtime testing — declaring the constraint in migrations/0001 is sufficient proof. Prototype confirmed lifecycle steps 1–9 (domain → mission → meshtask → enroll meshagent → claim → start AgentRun with proper FKs → spawn `claude -p` → complete) work end-to-end against the live controlplane.
 
 ---
 
@@ -206,8 +206,8 @@ After walking through the open questions, the following were locked:
 | 2 | **No resume tokens in v1.** Fresh AISession per task. | Subagents chain via artifacts (S3-stored) + `parent_run_id` audit, not session state. YAGNI on cross-session resume. |
 | 3 | **Restrict capabilities** via dispatcher-declared `required_capabilities`, enforced via `claude -p --allowed-tools`. | Forces dispatchers to declare blast radius. Limits damage from buggy automation. |
 | 4 | **`mcd::task_worker` module**, per-node sharding by supervised profiles. | mcd is the supervisor; spawning is supervision. Per-node naturally shards without a central coordinator. |
-| 5 | **One fleet-ops mission + one `intake` kluster**, spawner-as-triage. | Walked back the per-node `home-{hostname}` model — `Mission.kind` was a write-only column with zero readers (leaked Aria-specific operational pattern into MC's schema). Replaced with a single mission (`home` by default, overridable via `MC_HOME_MISSION_NAME`) holding one `intake` kluster. **Triage** in spawner: rule (target_profile set → claim) → goose categorization at confidence >0.85 → low-confidence → mark blocked + optional deployment-configured surface command (default behavior: just block, discoverable via `mc task ls --status blocked`). Non-interruptive throughout. |
-| S2 | **Routing creates child meshtasks**, not kluster_id rebinds. | Intake task stays in intake kluster as routing log (status=`dispatched`); child meshtask under the routed kluster carries the work. Uses existing `parent_task_id` schema, no new mutations. |
+| 5 | **One fleet-ops domain + one `intake` mission**, spawner-as-triage. | Walked back the per-node `home-{hostname}` model — `Mission.kind` was a write-only column with zero readers (leaked Aria-specific operational pattern into MC's schema). Replaced with a single domain (`home` by default, overridable via `MC_HOME_DOMAIN_NAME`) holding one `intake` mission. **Triage** in spawner: rule (target_profile set → claim) → goose categorization at confidence >0.85 → low-confidence → mark blocked + optional deployment-configured surface command (default behavior: just block, discoverable via `mc task ls --status blocked`). Non-interruptive throughout. |
+| S2 | **Routing creates child meshtasks**, not mission_id rebinds. | Intake task stays in intake mission as routing log (status=`dispatched`); child meshtask under the routed mission carries the work. Uses existing `parent_task_id` schema, no new mutations. |
 | MCP | **Don't extend the MCP tool surface** for write operations. | Every MCP tool definition costs context tokens in every session forever. CLI (`mc daemon task submit` etc.) is the same effort with zero context tax. The spawner calls HTTP directly anyway. |
 
 **Soft-deprecated:** `Mission.kind` column. New code MUST NOT write or filter on it. Existing `provision_home_for_node` in `routes/runtime.rs` still writes `kind='home'` but is dormant (no runtime nodes registered) — flagged as cleanup follow-up.
@@ -218,7 +218,7 @@ After walking through the open questions, the following were locked:
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **P1: Bootstrap** | mcd auto-provisions `home` mission + `intake` kluster on startup. Idempotent, soft-fail. | ✓ done — `crates/mcd/crates/mcd/src/bootstrap.rs` |
+| **P1: Bootstrap** | mcd auto-provisions `home` domain + `intake` mission on startup. Idempotent, soft-fail. | ✓ done — `crates/mcd/crates/mcd/src/bootstrap.rs` |
 | **P2: Claimer loop** | `mcd::task_worker` polls open meshtasks, claims via lease, spawns `claude -p` in a per-task worktree, completes the task. Handles tasks with explicit `target_profile` only. | Next |
 | **P3: Triage logic** | Three-tier triage (rule → goose → vault surface). Introduces parent/child task pattern for intake routing. | After P2 |
 | **P4: Capability enforcement** | `required_capabilities` → `--allowed-tools` translation. Coarse vocabulary: `shell:read/write`, `fs:read/write`, `vault:read/write`, `mc:read/write`, `web:fetch`, `gh:read/write`. | After P2 |

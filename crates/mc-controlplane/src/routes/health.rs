@@ -32,7 +32,7 @@ async fn root_handler(headers: HeaderMap) -> Response {
                 "endpoints": {
                     "health": "/health",
                     "auth": "/auth/oidc/start",
-                    "missions": "/missions",
+                    "domains": "/domains",
                     "tasks": "/tasks",
                     "agents": "/agents",
                 }

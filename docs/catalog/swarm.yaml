@@ -6,7 +6,7 @@ owners:
   - platform
 summary: >
   Multi-session Codex swarm workflow where a driver session orchestrates worker sessions
-  via MissionControl tasks and klusters. A collaboration driver script coordinates
+  via MissionControl tasks and missions. A collaboration driver script coordinates
   fan-out, task claiming, and result aggregation. Currently experimental.
 
 source_of_truth:
@@ -33,7 +33,7 @@ interfaces:
 implemented:
   - driver script for multi-session coordination
   - task claim/update/complete cycle
-  - kluster-scoped workspace leases
+  - mission-scoped workspace leases
   - results aggregation via task artifacts
 
 gaps:

@@ -77,7 +77,7 @@ pub enum McCommand {
     /// Workspace lifecycle helpers (load/heartbeat/artifact/commit/release).
     #[command(subcommand)]
     Workspace(WorkspaceCommand),
-    /// Mission operations (lifecycle orchestration and execution workflows).
+    /// Domain operations (lifecycle orchestration and execution workflows).
     #[command(subcommand)]
     Ops(ops::OpsCommand),
     /// Launch an agent with a fully wired MissionControl harness.
@@ -122,9 +122,9 @@ pub enum McCommand {
     /// Manage named controlplane connection contexts.
     #[command(subcommand)]
     Context(ContextCommand),
-    /// Mission attachment and home-mission management for this agent.
+    /// Domain attachment and home-domain management for this agent.
     #[command(subcommand)]
-    Mission(MissionCommand),
+    Domain(DomainCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -171,10 +171,10 @@ pub enum DataCommand {
     /// Inspect and invoke MissionControl MCP tools.
     #[command(subcommand)]
     Tools(ToolsCommand),
-    /// Manage local skill sync state for Klusters and missions.
+    /// Manage local skill sync state for Missions and domains.
     #[command(subcommand)]
     Sync(SyncCommand),
-    /// Explore missions, klusters, and tasks via the explorer endpoints.
+    /// Explore domains, missions, and tasks via the explorer endpoints.
     #[command(subcommand)]
     Explorer(ExplorerCommand),
 }
@@ -259,15 +259,15 @@ pub enum CronCommand {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum MissionCommand {
-    /// Show this agent's home mission.
+pub enum DomainCommand {
+    /// Show this agent's home domain.
     Home,
-    /// Attach this agent to a mission (sets current_mission_id).
+    /// Attach this agent to a domain (sets current_domain_id).
     Attach {
-        /// Mission ID to attach to.
-        mission_id: String,
+        /// Domain ID to attach to.
+        domain_id: String,
     },
-    /// Detach from the current mission and return to the home mission.
+    /// Detach from the current domain and return to the home domain.
     Detach,
 }
 
@@ -436,9 +436,9 @@ pub struct StatusArgs {
 
 #[derive(Args, Debug, Default)]
 pub struct TuiArgs {
-    /// Open the TUI pre-focused on a specific mission by ID.
+    /// Open the TUI pre-focused on a specific domain by ID.
     #[arg(long)]
-    pub mission: Option<String>,
+    pub domain: Option<String>,
 }
 
 #[derive(Args, Debug, Default)]
@@ -455,18 +455,18 @@ pub struct UseArgs {
     #[arg(long)]
     profile: Option<String>,
     #[arg(long)]
-    kluster_id: Option<String>,
+    mission_id: Option<String>,
     #[arg(long, default_value_t = 900)]
     lease_seconds: u64,
     #[arg(long)]
     workspace_label: Option<String>,
-    /// Auto-release existing lease when switching klusters.
+    /// Auto-release existing lease when switching missions.
     #[arg(long, default_value_t = false)]
     auto_release: bool,
     /// Non-interactive confirmation for releasing/switching.
     #[arg(short = 'y', long, default_value_t = false)]
     yes: bool,
-    /// Release currently attached lease instead of attaching a kluster.
+    /// Release currently attached lease instead of attaching a mission.
     #[arg(long, default_value_t = false)]
     release: bool,
 }
@@ -528,7 +528,7 @@ pub enum ArtifactCommand {
         lease_id: Option<String>,
         #[arg(long)]
         mime: Option<String>,
-        /// Confirm cross-kluster mutation without explicit --lease-id.
+        /// Confirm cross-mission mutation without explicit --lease-id.
         #[arg(short = 'y', long, default_value_t = false)]
         yes: bool,
     },
@@ -543,7 +543,7 @@ pub enum ArtifactCommand {
         lease_id: Option<String>,
         #[arg(long)]
         mime: Option<String>,
-        /// Confirm cross-kluster mutation without explicit --lease-id.
+        /// Confirm cross-mission mutation without explicit --lease-id.
         #[arg(short = 'y', long, default_value_t = false)]
         yes: bool,
     },
@@ -551,10 +551,10 @@ pub enum ArtifactCommand {
 
 #[derive(Subcommand, Debug)]
 pub enum WorkspaceCommand {
-    /// Load and lease a Kluster workspace.
+    /// Load and lease a Mission workspace.
     Load {
         #[arg(long)]
-        kluster_id: String,
+        mission_id: String,
         #[arg(long)]
         workspace_label: Option<String>,
         #[arg(long)]
@@ -601,7 +601,7 @@ pub enum WorkspaceCommand {
 
 #[derive(Args, Debug)]
 pub struct ToolsCallArgs {
-    /// Name of the MCP tool to call (e.g. missioncontrol.kluster.load).
+    /// Name of the MCP tool to call (e.g. missioncontrol.mission.load).
     #[arg(long, short)]
     tool: String,
     /// JSON payload to send as MCP tool args. Defaults to empty object.
@@ -611,7 +611,7 @@ pub struct ToolsCallArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum SyncCommand {
-    /// Retrieve the last sync status for a mission/kluster/agent.
+    /// Retrieve the last sync status for a domain/mission/agent.
     Status(SyncStatusArgs),
     /// Promote a skill sync snapshot to Mission Control’s ledger.
     Promote(SyncPromoteArgs),
@@ -703,9 +703,9 @@ pub enum ProfileCommand {
 #[derive(Args, Debug)]
 pub struct SyncStatusArgs {
     #[arg(long)]
-    mission_id: String,
+    domain_id: String,
     #[arg(long)]
-    kluster_id: Option<String>,
+    mission_id: Option<String>,
     #[arg(long)]
     agent_id: Option<String>,
 }
@@ -713,7 +713,7 @@ pub struct SyncStatusArgs {
 #[derive(Args, Debug)]
 pub struct SyncPromoteArgs {
     #[arg(long)]
-    mission_id: String,
+    domain_id: String,
     #[arg(long)]
     snapshot_id: String,
     #[arg(long)]
@@ -721,7 +721,7 @@ pub struct SyncPromoteArgs {
     #[arg(long)]
     local_overlay_sha256: Option<String>,
     #[arg(long)]
-    kluster_id: Option<String>,
+    mission_id: Option<String>,
     #[arg(long)]
     agent_id: Option<String>,
     #[arg(long, default_value_t = false)]
@@ -734,16 +734,16 @@ pub struct SyncPromoteArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum ExplorerCommand {
-    /// Dump the tree-view of missions, klusters, and recent tasks.
+    /// Dump the tree-view of domains, missions, and recent tasks.
     Tree(ExplorerTreeArgs),
-    /// Inspect a single mission/kluster/task node.
+    /// Inspect a single domain/mission/task node.
     Node(ExplorerNodeArgs),
 }
 
 #[derive(Args, Debug)]
 pub struct ExplorerTreeArgs {
     #[arg(long)]
-    mission_id: Option<String>,
+    domain_id: Option<String>,
     #[arg(long)]
     status: Option<String>,
     #[arg(long)]
@@ -751,7 +751,7 @@ pub struct ExplorerTreeArgs {
     #[arg(long)]
     limit_tasks_per_cluster: Option<u32>,
     #[arg(long)]
-    limit_klusters: Option<u32>,
+    limit_missions: Option<u32>,
 }
 
 #[derive(Args, Debug)]
@@ -764,16 +764,16 @@ pub struct ExplorerNodeArgs {
 
 #[derive(ValueEnum, Clone, Debug)]
 pub enum ExplorerNodeType {
+    Domain,
     Mission,
-    Kluster,
     Task,
 }
 
 impl ExplorerNodeType {
     fn as_str(&self) -> &'static str {
         match self {
+            ExplorerNodeType::Domain => "domain",
             ExplorerNodeType::Mission => "mission",
-            ExplorerNodeType::Kluster => "kluster",
             ExplorerNodeType::Task => "task",
         }
     }
@@ -807,10 +807,10 @@ pub enum AdminPolicyCommand {
 
 #[derive(Subcommand, Debug)]
 pub enum ApprovalCommand {
-    /// Create an approval request for a mission action.
+    /// Create an approval request for a domain action.
     Create {
         #[arg(long)]
-        mission_id: String,
+        domain_id: String,
         #[arg(long)]
         action: String,
         #[arg(long)]
@@ -826,10 +826,10 @@ pub enum ApprovalCommand {
         #[arg(long)]
         expires_in_seconds: Option<u64>,
     },
-    /// List approval requests for a mission.
+    /// List approval requests for a domain.
     List {
         #[arg(long)]
-        mission_id: String,
+        domain_id: String,
         #[arg(long)]
         status: Option<String>,
         #[arg(long)]
@@ -911,7 +911,7 @@ pub async fn run(
         McCommand::Discover(args) => discover::run(args).await,
         McCommand::Tui(args) => handle_tui(args, &config),
         McCommand::Context(cmd) => handle_context(cmd),
-        McCommand::Mission(cmd) => handle_mission(cmd, client, &config).await,
+        McCommand::Domain(cmd) => handle_domain(cmd, client, &config).await,
     }
 }
 
@@ -988,7 +988,7 @@ fn handle_tui(args: TuiArgs, config: &McConfig) -> Result<()> {
         base_url: config.base_url.to_string(),
         token: config.token.clone(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        initial_mission: args.mission,
+        initial_domain: args.domain,
         context_name,
     };
     crate::tui::run(cfg)
@@ -997,8 +997,8 @@ fn handle_tui(args: TuiArgs, config: &McConfig) -> Result<()> {
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct ActiveWorkspaceState {
     lease_id: Option<String>,
+    domain_id: Option<String>,
     mission_id: Option<String>,
-    kluster_id: Option<String>,
     status: Option<String>,
 }
 
@@ -1044,15 +1044,15 @@ fn extract_workspace_state(response: &Value) -> ActiveWorkspaceState {
             .and_then(|v| v.as_str())
             .or_else(|| response.get("lease_id").and_then(|v| v.as_str()))
             .map(|s| s.to_string()),
+        domain_id: lease
+            .get("domain_id")
+            .and_then(|v| v.as_str())
+            .or_else(|| response.get("domain_id").and_then(|v| v.as_str()))
+            .map(|s| s.to_string()),
         mission_id: lease
             .get("mission_id")
             .and_then(|v| v.as_str())
             .or_else(|| response.get("mission_id").and_then(|v| v.as_str()))
-            .map(|s| s.to_string()),
-        kluster_id: lease
-            .get("kluster_id")
-            .and_then(|v| v.as_str())
-            .or_else(|| response.get("kluster_id").and_then(|v| v.as_str()))
             .map(|s| s.to_string()),
         status: lease
             .get("status")
@@ -1133,20 +1133,20 @@ async fn handle_use(
         )
         .await;
     }
-    let kluster_id = args
-        .kluster_id
-        .ok_or_else(|| anyhow::anyhow!("`mc use` requires --kluster-id (or --profile)"))?;
+    let mission_id = args
+        .mission_id
+        .ok_or_else(|| anyhow::anyhow!("`mc use` requires --mission-id (or --profile)"))?;
     let current = load_active_workspace();
-    if let (Some(existing_lease), Some(existing_kluster)) =
-        (current.lease_id.clone(), current.kluster_id.clone())
+    if let (Some(existing_lease), Some(existing_mission)) =
+        (current.lease_id.clone(), current.mission_id.clone())
     {
-        if existing_kluster != kluster_id {
+        if existing_mission != mission_id {
             let should_release = if args.auto_release || args.yes {
                 true
             } else {
                 prompt_confirm(&format!(
-                    "Release existing lease {} for kluster {} and switch to {}? [y/N] ",
-                    existing_lease, existing_kluster, kluster_id
+                    "Release existing lease {} for mission {} and switch to {}? [y/N] ",
+                    existing_lease, existing_mission, mission_id
                 ))?
             };
             if !should_release {
@@ -1156,22 +1156,22 @@ async fn handle_use(
                 &client,
                 None,
                 None,
-                "release_kluster_workspace",
-                json!({"lease_id": existing_lease, "reason": "switch kluster via mc use"}),
+                "release_mission_workspace",
+                json!({"lease_id": existing_lease, "reason": "switch mission via mc use"}),
             )
             .await?;
             clear_active_workspace()?;
         }
     }
     let mut tool_args = json!({
-        "kluster_id": kluster_id,
+        "mission_id": mission_id,
         "lease_seconds": args.lease_seconds,
     });
     if let Some(label) = args.workspace_label {
         tool_args["workspace_label"] = json!(label);
     }
     let response =
-        mcp_tools::call_tool(&client, None, None, "load_kluster_workspace", tool_args).await?;
+        mcp_tools::call_tool(&client, None, None, "load_mission_workspace", tool_args).await?;
     let state = extract_workspace_state(&response);
     save_active_workspace(&state)?;
     output::print_value(
@@ -1201,7 +1201,7 @@ async fn handle_release(
         &client,
         None,
         None,
-        "release_kluster_workspace",
+        "release_mission_workspace",
         json!({
             "lease_id": lease_id,
             "reason": args.reason.unwrap_or_else(|| "released via mc release".to_string())
@@ -1383,19 +1383,19 @@ async fn handle_artifact(
             yes,
         } => {
             let artifact = client.get_json(&format!("/artifacts/{id}")).await?;
-            let artifact_kluster = artifact
-                .get("kluster_id")
+            let artifact_mission = artifact
+                .get("mission_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
             let active = load_active_workspace();
             if lease_id.is_none() {
-                if let Some(active_kluster) = active.kluster_id.as_deref() {
-                    if !artifact_kluster.is_empty() && active_kluster != artifact_kluster && !yes {
+                if let Some(active_mission) = active.mission_id.as_deref() {
+                    if !artifact_mission.is_empty() && active_mission != artifact_mission && !yes {
                         anyhow::bail!(
-                            "cross-kluster mutation without --lease-id requires -y (active={}, target={})",
-                            active_kluster,
-                            artifact_kluster
+                            "cross-mission mutation without --lease-id requires -y (active={}, target={})",
+                            active_mission,
+                            artifact_mission
                         );
                     }
                 }
@@ -1516,19 +1516,19 @@ async fn handle_artifact(
             yes,
         } => {
             let artifact = client.get_json(&format!("/artifacts/{id}")).await?;
-            let artifact_kluster = artifact
-                .get("kluster_id")
+            let artifact_mission = artifact
+                .get("mission_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
             let active = load_active_workspace();
             if lease_id.is_none() {
-                if let Some(active_kluster) = active.kluster_id.as_deref() {
-                    if !artifact_kluster.is_empty() && active_kluster != artifact_kluster && !yes {
+                if let Some(active_mission) = active.mission_id.as_deref() {
+                    if !artifact_mission.is_empty() && active_mission != artifact_mission && !yes {
                         anyhow::bail!(
-                            "cross-kluster mutation without --lease-id requires -y (active={}, target={})",
-                            active_kluster,
-                            artifact_kluster
+                            "cross-mission mutation without --lease-id requires -y (active={}, target={})",
+                            active_mission,
+                            artifact_mission
                         );
                     }
                 }
@@ -1621,8 +1621,8 @@ async fn handle_status(
         },
         "context": {
             "lease_id": workspace.lease_id,
+            "domain_id": workspace.domain_id,
             "mission_id": workspace.mission_id,
-            "kluster_id": workspace.kluster_id,
             "status": workspace.status,
         },
         "lease_verification": lease_verification,
@@ -2512,9 +2512,9 @@ async fn handle_sync(command: SyncCommand, client: MissionControlClient) -> Resu
     match command {
         SyncCommand::Status(args) => {
             let mut serializer = form_urlencoded::Serializer::new(String::new());
-            serializer.append_pair("mission_id", &args.mission_id);
-            if let Some(kluster) = &args.kluster_id {
-                serializer.append_pair("kluster_id", kluster);
+            serializer.append_pair("domain_id", &args.domain_id);
+            if let Some(mission) = &args.mission_id {
+                serializer.append_pair("mission_id", mission);
             }
             if let Some(agent) = &args.agent_id {
                 serializer.append_pair("agent_id", agent);
@@ -2525,14 +2525,14 @@ async fn handle_sync(command: SyncCommand, client: MissionControlClient) -> Resu
         }
         SyncCommand::Promote(args) => {
             let mut body = json!({
-                "mission_id": args.mission_id,
+                "domain_id": args.domain_id,
                 "snapshot_id": args.snapshot_id,
                 "snapshot_sha256": args.snapshot_sha256,
                 "degraded_offline": args.degraded_offline,
                 "drift_flag": args.drift_flag,
             });
-            if let Some(kluster_id) = args.kluster_id {
-                body["kluster_id"] = json!(kluster_id);
+            if let Some(mission_id) = args.mission_id {
+                body["mission_id"] = json!(mission_id);
             }
             if let Some(agent_id) = args.agent_id {
                 body["agent_id"] = json!(agent_id);
@@ -3149,13 +3149,13 @@ async fn handle_workspace(
     let json_output = output_mode.is_machine();
     match command {
         WorkspaceCommand::Load {
-            kluster_id,
+            mission_id,
             workspace_label,
             agent_id,
             lease_seconds,
         } => {
             let mut args = json!({
-                "kluster_id": kluster_id,
+                "mission_id": mission_id,
                 "lease_seconds": lease_seconds,
             });
             if let Some(label) = workspace_label {
@@ -3168,7 +3168,7 @@ async fn handle_workspace(
                 &client,
                 booster,
                 schema_pack,
-                "load_kluster_workspace",
+                "load_mission_workspace",
                 args,
             )
             .await?;
@@ -3261,7 +3261,7 @@ async fn handle_workspace(
                 &client,
                 booster,
                 schema_pack,
-                "commit_kluster_workspace",
+                "commit_mission_workspace",
                 args,
             )
             .await?;
@@ -3280,7 +3280,7 @@ async fn handle_workspace(
                 &client,
                 booster,
                 schema_pack,
-                "release_kluster_workspace",
+                "release_mission_workspace",
                 args,
             )
             .await?;
@@ -3322,8 +3322,8 @@ async fn handle_explorer(command: ExplorerCommand, client: MissionControlClient)
     match command {
         ExplorerCommand::Tree(args) => {
             let mut serializer = form_urlencoded::Serializer::new(String::new());
-            if let Some(mission_id) = &args.mission_id {
-                serializer.append_pair("mission_id", mission_id);
+            if let Some(domain_id) = &args.domain_id {
+                serializer.append_pair("domain_id", domain_id);
             }
             if let Some(status) = &args.status {
                 serializer.append_pair("status", status);
@@ -3334,8 +3334,8 @@ async fn handle_explorer(command: ExplorerCommand, client: MissionControlClient)
             if let Some(limit) = args.limit_tasks_per_cluster {
                 serializer.append_pair("limit_tasks_per_cluster", &limit.to_string());
             }
-            if let Some(limit) = args.limit_klusters {
-                serializer.append_pair("limit_klusters", &limit.to_string());
+            if let Some(limit) = args.limit_missions {
+                serializer.append_pair("limit_missions", &limit.to_string());
             }
             let path = build_path_with_query("/explorer/tree", serializer.finish());
             let response = client.get_json(&path).await?;
@@ -3391,7 +3391,7 @@ async fn handle_approvals(
     let json_output = output_mode.is_machine();
     match command {
         ApprovalCommand::Create {
-            mission_id,
+            domain_id,
             action,
             channel,
             reason,
@@ -3401,7 +3401,7 @@ async fn handle_approvals(
             expires_in_seconds,
         } => {
             let mut body = json!({
-                "mission_id": mission_id,
+                "domain_id": domain_id,
                 "action": action,
             });
             if let Some(channel) = channel {
@@ -3431,12 +3431,12 @@ async fn handle_approvals(
             }
         }
         ApprovalCommand::List {
-            mission_id,
+            domain_id,
             status,
             limit,
         } => {
             let mut serializer = form_urlencoded::Serializer::new(String::new());
-            serializer.append_pair("mission_id", &mission_id);
+            serializer.append_pair("domain_id", &domain_id);
             if let Some(status) = status {
                 serializer.append_pair("status", &status);
             }
@@ -3503,8 +3503,8 @@ fn print_approvals_list_human(value: &Value) {
     ui_row("Count", &items.len().to_string(), crate::ui::CYAN);
     for item in items {
         let id = item.get("id").and_then(|v| v.as_i64()).unwrap_or_default();
-        let mission_id = item
-            .get("mission_id")
+        let domain_id = item
+            .get("domain_id")
             .and_then(|v| v.as_str())
             .unwrap_or("-");
         let action = item.get("action").and_then(|v| v.as_str()).unwrap_or("-");
@@ -3521,7 +3521,7 @@ fn print_approvals_list_human(value: &Value) {
             id,
             crate::ui::RESET,
             crate::ui::CYAN,
-            mission_id,
+            domain_id,
             crate::ui::RESET,
             crate::ui::BOLD,
             action,
@@ -3550,8 +3550,8 @@ fn print_approval_single(title: &str, value: &Value) {
     if let Some(action) = value.get("action").and_then(|v| v.as_str()) {
         ui_row("Action", action, crate::ui::BOLD);
     }
-    if let Some(mission) = value.get("mission_id").and_then(|v| v.as_str()) {
-        ui_row("Mission", mission, crate::ui::CYAN);
+    if let Some(domain) = value.get("domain_id").and_then(|v| v.as_str()) {
+        ui_row("Domain", domain, crate::ui::CYAN);
     }
 }
 
@@ -3565,9 +3565,9 @@ async fn call_mcp_tool(
     mcp_tools::call_tool(client, Some(booster), Some(schema_pack), tool, args).await
 }
 
-// ── mc mission ────────────────────────────────────────────────────────────────
+// ── mc domain ────────────────────────────────────────────────────────────────
 
-async fn handle_mission(cmd: MissionCommand, client: MissionControlClient, config: &McConfig) -> Result<()> {
+async fn handle_domain(cmd: DomainCommand, client: MissionControlClient, config: &McConfig) -> Result<()> {
     // Resolve the agent id for this runtime. Prefer the configured agent_id;
     // fall back to the default derived from the session state file.
     let agent_id = config
@@ -3578,27 +3578,27 @@ async fn handle_mission(cmd: MissionCommand, client: MissionControlClient, confi
         .context("No agent_id configured. Run `mc init` or set MC_AGENT_ID.")?;
 
     match cmd {
-        MissionCommand::Home => {
+        DomainCommand::Home => {
             let agent = client.get_json(&format!("/agents/{agent_id}")).await?;
-            let home_id   = agent.get("home_mission_id").and_then(|v| v.as_str()).unwrap_or("—");
-            let curr_id   = agent.get("current_mission_id").and_then(|v| v.as_str()).unwrap_or("—");
-            let miss_name = agent.get("mission_name").and_then(|v| v.as_str()).unwrap_or("—");
-            println!("Home mission : {home_id}");
+            let home_id   = agent.get("home_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
+            let curr_id   = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
+            let miss_name = agent.get("domain_name").and_then(|v| v.as_str()).unwrap_or("—");
+            println!("Home domain : {home_id}");
             println!("Current      : {curr_id}  ({miss_name})");
         }
-        MissionCommand::Attach { mission_id } => {
-            let body = json!({ "mission_id": mission_id });
-            let agent = client.patch_json(&format!("/agents/{agent_id}/mission"), &body).await?;
-            let curr  = agent.get("current_mission_id").and_then(|v| v.as_str()).unwrap_or("—");
-            let name  = agent.get("mission_name").and_then(|v| v.as_str()).unwrap_or("—");
-            println!("Attached to mission {curr} ({name})");
+        DomainCommand::Attach { domain_id } => {
+            let body = json!({ "domain_id": domain_id });
+            let agent = client.patch_json(&format!("/agents/{agent_id}/domain"), &body).await?;
+            let curr  = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
+            let name  = agent.get("domain_name").and_then(|v| v.as_str()).unwrap_or("—");
+            println!("Attached to domain {curr} ({name})");
         }
-        MissionCommand::Detach => {
-            let body = json!({ "mission_id": null });
-            let agent = client.patch_json(&format!("/agents/{agent_id}/mission"), &body).await?;
-            let curr  = agent.get("current_mission_id").and_then(|v| v.as_str()).unwrap_or("—");
-            let name  = agent.get("mission_name").and_then(|v| v.as_str()).unwrap_or("—");
-            println!("Detached — returned to home mission {curr} ({name})");
+        DomainCommand::Detach => {
+            let body = json!({ "domain_id": null });
+            let agent = client.patch_json(&format!("/agents/{agent_id}/domain"), &body).await?;
+            let curr  = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
+            let name  = agent.get("domain_name").and_then(|v| v.as_str()).unwrap_or("—");
+            println!("Detached — returned to home domain {curr} ({name})");
         }
     }
     Ok(())

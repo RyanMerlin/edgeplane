@@ -1,8 +1,8 @@
 import { request, authHeader } from './client';
 
 export type ExplorerTree = {
+	domains?: unknown[];
 	missions?: unknown[];
-	klusters?: unknown[];
 	tasks?: unknown[];
 };
 

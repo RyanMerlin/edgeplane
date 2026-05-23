@@ -81,8 +81,8 @@ impl Capability {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskSpec {
     pub id: String,
-    pub kluster_id: String,
     pub mission_id: String,
+    pub domain_id: String,
     pub title: String,
     pub description: String,
     pub input_json: String,
@@ -92,9 +92,9 @@ pub struct TaskSpec {
     /// This agent's own profile (name, role, instructions, scope, constraints).
     /// Injected by the daemon before calling inject_task.
     pub agent_profile: Option<serde_json::Value>,
-    /// Concise roster of other agents in this mission.
+    /// Concise roster of other agents in this domain.
     /// Each entry: {id, name, role, description, scope, capabilities, status, hostname}.
-    pub mission_roster: Vec<serde_json::Value>,
+    pub domain_roster: Vec<serde_json::Value>,
     /// Last `phase_finished` summary from each upstream dependency, fetched
     /// by the task loop before inject. Empty when the task has no
     /// dependencies or none have produced a phase_finished event yet.
@@ -132,7 +132,7 @@ pub struct PendingPeerMessage {
 #[derive(Debug, Clone, Default)]
 pub struct LaunchContext {
     pub agent_id: String,
-    pub mission_id: String,
+    pub domain_id: String,
     /// Working directory the agent will start in.
     pub work_dir: std::path::PathBuf,
     /// Base URL of the MissionControl backend.
@@ -144,7 +144,7 @@ pub struct LaunchContext {
     /// This agent's profile (name, role, instructions, scope, constraints).
     /// Injected into every task prompt so the agent knows who it is.
     pub profile: Option<serde_json::Value>,
-    /// Concise roster of other agents in the mission.
+    /// Concise roster of other agents in the domain.
     /// Injected into every task prompt so the agent can reason about delegation.
     pub roster: Vec<serde_json::Value>,
     /// If true, the runtime should attempt to enable RTK (Rust Token Killer) hooks
@@ -274,7 +274,7 @@ pub type PtyStream = tokio::sync::mpsc::Receiver<Vec<u8>>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshAgentRecord {
     pub id: String,
-    pub mission_id: String,
+    pub domain_id: String,
     pub runtime_kind: String,
     pub status: String,
     pub current_task_id: Option<String>,
@@ -284,8 +284,8 @@ pub struct MeshAgentRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshTaskRecord {
     pub id: String,
-    pub kluster_id: String,
     pub mission_id: String,
+    pub domain_id: String,
     pub title: String,
     pub description: String,
     pub status: String,

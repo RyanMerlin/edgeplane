@@ -6,7 +6,7 @@ owners:
   - platform
 summary: >
   SvelteKit 2 frontend at /ui/. Default experience is a chat-first AI console
-  with a prompt composer. Mission/kluster explorer, governance policy editor,
+  with a prompt composer. Domain/mission explorer, governance policy editor,
   and matrix dashboard are accessible as secondary views. Write tools create
   pending approval actions before execution.
 
@@ -31,7 +31,7 @@ entrypoints:
 interfaces:
   routes:
     - /ui/                   # AI Console (chat-first)
-    - /ui/explorer           # Mission/kluster navigator
+    - /ui/explorer           # Domain/mission navigator
     - /ui/matrix             # Kubernetes-style status matrix
     - /ui/governance         # Policy editor
     - /ui/onboarding         # Initial setup wizard
@@ -42,7 +42,7 @@ interfaces:
 implemented:
   - chat-first AI Console with transcript view
   - prompt composer
-  - mission/kluster explorer
+  - domain/mission explorer
   - real-time event streaming for AI turns and approvals
   - dark mode default with toggle
   - OIDC + token login

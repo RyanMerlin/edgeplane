@@ -8,17 +8,17 @@
 
 AI agents can write code, run tools, and reason over architecture. What they can't do is coordinate. Without a shared system of record, parallel agents duplicate effort, diverge on state, and collide on artifacts with no resolution path.
 
-MissionControl is a control plane for AI agents and human collaborators. It provides structured missions, durable task ownership, overlap detection before mutations, HMAC-signed governance, and a three-tier persistence model (Postgres + S3 + Git). The `mc` CLI is a compiled Rust binary. Agents interact via standard MCP stdio — no custom SDK required.
+MissionControl is a control plane for AI agents and human collaborators. It provides structured domains, durable task ownership, overlap detection before mutations, HMAC-signed governance, and a three-tier persistence model (Postgres + S3 + Git). The `mc` CLI is a compiled Rust binary. Agents interact via standard MCP stdio — no custom SDK required.
 
 ## Core Capabilities
 
-- **Missions & Klusters** — organizational units that scope knowledge, tools, permissions, and governance. Agents and humans switch profiles without losing context or integrity.
+- **Domains & Missions** — organizational units that scope knowledge, tools, permissions, and governance. Agents and humans switch profiles without losing context or integrity.
 - **Overlap Detection** — fuzzy + vector similarity runs before task and artifact creation. Collisions surface as `overlap_suggestions` in the API response before damage occurs.
 - **Artifact Ledger** — every mutation recorded in Postgres, vector-indexed for search, and committed to Git with full provenance metadata on publish.
-- **MCP-Native Interface** — standard MCP stdio tools: `search_tasks`, `get_overlap_suggestions`, `load_kluster_workspace`, `publish_pending_ledger_events`. Works with any MCP-compatible agent.
+- **MCP-Native Interface** — standard MCP stdio tools: `search_tasks`, `get_overlap_suggestions`, `load_mission_workspace`, `publish_pending_ledger_events`. Works with any MCP-compatible agent.
 - **Governance & Approvals** — versioned policy lifecycle (draft → active → rollback), role-based access (Admin / Contributor / Viewer), HMAC-signed approval tokens on sensitive mutations.
 - **Persistent Agent Sessions** — `mcd` manages long-running agent processes on each node via ACP (Agent Client Protocol). Sessions survive crashes and reconnects. Remote attach via the web UI renders structured conversation — assistant turns, tool calls, permission prompts — not raw terminal output.
-- **Semantic Search** — tasks, docs, and klusters are vector-indexed (pgvector) for similarity and hybrid search.
+- **Semantic Search** — tasks, docs, and missions are vector-indexed (pgvector) for similarity and hybrid search.
 - **S3-Backed File Persistence** — artifact content stored in S3-compatible object storage. RustFS is bundled in the Docker Compose stack. Swap in AWS S3 or MinIO with env vars — no code changes.
 - **Chat Integration** — Slack-native notifications, task creation from threads, approval workflows, and in-channel search. Teams and Google Chat provider skeletons included.
 
@@ -40,8 +40,8 @@ MissionControl is a control plane for AI agents and human collaborators. It prov
 │                     MissionControl API                       │
 │                       Axum  ·  MQTT                          │
 ├─────────────────┬──────────────────────┬─────────────────────┤
-│  Missions &     │  Tasks · Overlap     │  Governance &       │
-│  Klusters       │  Detection · Semantic│  Approvals          │
+│  Domains &      │  Tasks · Overlap     │  Governance &       │
+│  Missions       │  Detection · Semantic│  Approvals          │
 │                 │  Search              │  Slack / ChatOps    │
 └─────────────────┴──────────────────────┴─────────────────────┘
          │                    │                      │
@@ -180,10 +180,10 @@ curl -X POST http://localhost:8008/mcp/call \
   -H "Content-Type: application/json" \
   -d '{"tool":"search_tasks","args":{"query":"overlap detection","limit":5}}'
 
-# Load kluster workspace
+# Load mission workspace
 curl -X POST http://localhost:8008/mcp/call \
   -H "Content-Type: application/json" \
-  -d '{"tool":"load_kluster_workspace","args":{"kluster_id":"<kluster-id>"}}'
+  -d '{"tool":"load_mission_workspace","args":{"mission_id":"<mission-id>"}}'
 ```
 
 ## Persistence Model

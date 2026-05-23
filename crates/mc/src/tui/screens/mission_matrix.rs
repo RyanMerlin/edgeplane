@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Widget},
 };
 
-use crate::tui::data::{KlusterSummary, MissionSummary, TaskSummary};
+use crate::tui::data::{MissionSummary, DomainSummary, TaskSummary};
 use crate::tui::theme;
 
 /// Which filter is currently being typed.
@@ -14,53 +14,53 @@ use crate::tui::theme;
 pub enum FilterActive {
     #[default]
     None,
+    Domain,
     Mission,
-    Kluster,
 }
 
 /// Which pane has keyboard focus.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Focus {
+    Domains,
     Missions,
-    Klusters,
     Tasks,
     Detail,
 }
 
-/// A node in the left tree — either a mission or a kluster under it.
+/// A node in the left tree — either a domain or a mission under it.
 /// Kept for backwards compatibility with app.rs matrix_enter logic.
 #[derive(Debug, Clone)]
 pub enum TreeNode {
-    Mission { idx: usize },
-    Kluster { mission_idx: usize, kluster_idx: usize },
+    Domain { idx: usize },
+    Mission { domain_idx: usize, mission_idx: usize },
 }
 
 #[derive(Debug, Default)]
 pub struct MissionMatrixState {
     pub focus: Focus,
+    pub domains: Vec<DomainSummary>,
     pub missions: Vec<MissionSummary>,
-    pub klusters: Vec<KlusterSummary>,
     pub tasks: Vec<TaskSummary>,
     // Legacy field kept for compat; not used in rendering after v3
     pub tree_selection: usize,
     pub task_selection: usize,
+    pub loading_domains: bool,
     pub loading_missions: bool,
-    pub loading_klusters: bool,
     pub loading_tasks: bool,
+    pub selected_domain_id: Option<String>,
     pub selected_mission_id: Option<String>,
-    pub selected_kluster_id: Option<String>,
     // New v3 fields
+    pub domain_selection: usize,
     pub mission_selection: usize,
-    pub kluster_selection: usize,
+    pub domain_filter: String,
     pub mission_filter: String,
-    pub kluster_filter: String,
     pub filter_active: FilterActive,
     pub error: Option<String>,
 }
 
 impl Default for Focus {
     fn default() -> Self {
-        Focus::Missions
+        Focus::Domains
     }
 }
 
@@ -75,22 +75,22 @@ impl MissionMatrixState {
             match key {
                 Char(c) => {
                     match self.filter_active {
+                        FilterActive::Domain => self.domain_filter.push(c),
                         FilterActive::Mission => self.mission_filter.push(c),
-                        FilterActive::Kluster => self.kluster_filter.push(c),
                         FilterActive::None => {}
                     }
                 }
                 Backspace => {
                     match self.filter_active {
+                        FilterActive::Domain => { self.domain_filter.pop(); }
                         FilterActive::Mission => { self.mission_filter.pop(); }
-                        FilterActive::Kluster => { self.kluster_filter.pop(); }
                         FilterActive::None => {}
                     }
                 }
                 Esc => {
                     match self.filter_active {
+                        FilterActive::Domain => self.domain_filter.clear(),
                         FilterActive::Mission => self.mission_filter.clear(),
-                        FilterActive::Kluster => self.kluster_filter.clear(),
                         FilterActive::None => {}
                     }
                     self.filter_active = FilterActive::None;
@@ -104,38 +104,38 @@ impl MissionMatrixState {
             // Left/Right move focus between the three columns
             Right => {
                 self.focus = match self.focus {
-                    Focus::Missions => Focus::Klusters,
-                    Focus::Klusters => Focus::Tasks,
+                    Focus::Domains => Focus::Missions,
+                    Focus::Missions => Focus::Tasks,
                     Focus::Tasks | Focus::Detail => Focus::Tasks,
                 };
                 true
             }
             Left => {
                 self.focus = match self.focus {
-                    Focus::Tasks | Focus::Detail => Focus::Klusters,
-                    Focus::Klusters => Focus::Missions,
-                    Focus::Missions => Focus::Missions,
+                    Focus::Tasks | Focus::Detail => Focus::Missions,
+                    Focus::Missions => Focus::Domains,
+                    Focus::Domains => Focus::Domains,
                 };
                 true
             }
             Char('/') => {
                 match self.focus {
+                    Focus::Domains => { self.filter_active = FilterActive::Domain; }
                     Focus::Missions => { self.filter_active = FilterActive::Mission; }
-                    Focus::Klusters => { self.filter_active = FilterActive::Kluster; }
                     _ => {}
                 }
                 true
             }
             Up => {
                 match self.focus {
+                    Focus::Domains => {
+                        if self.domain_selection > 0 {
+                            self.domain_selection -= 1;
+                        }
+                    }
                     Focus::Missions => {
                         if self.mission_selection > 0 {
                             self.mission_selection -= 1;
-                        }
-                    }
-                    Focus::Klusters => {
-                        if self.kluster_selection > 0 {
-                            self.kluster_selection -= 1;
                         }
                     }
                     Focus::Tasks => {
@@ -148,17 +148,17 @@ impl MissionMatrixState {
                 true
             }
             Down => {
+                let visible_domains = self.visible_domains();
                 let visible_missions = self.visible_missions();
-                let visible_klusters = self.visible_klusters();
                 match self.focus {
+                    Focus::Domains => {
+                        if self.domain_selection + 1 < visible_domains.len() {
+                            self.domain_selection += 1;
+                        }
+                    }
                     Focus::Missions => {
                         if self.mission_selection + 1 < visible_missions.len() {
                             self.mission_selection += 1;
-                        }
-                    }
-                    Focus::Klusters => {
-                        if self.kluster_selection + 1 < visible_klusters.len() {
-                            self.kluster_selection += 1;
                         }
                     }
                     Focus::Tasks => {
@@ -174,41 +174,41 @@ impl MissionMatrixState {
         }
     }
 
+    /// Visible domains after applying domain_filter.
+    pub fn visible_domains(&self) -> Vec<&DomainSummary> {
+        if self.domain_filter.is_empty() {
+            return self.domains.iter().collect();
+        }
+        let q = self.domain_filter.to_lowercase();
+        self.domains.iter().filter(|m| m.name.to_lowercase().contains(&q)).collect()
+    }
+
     /// Visible missions after applying mission_filter.
     pub fn visible_missions(&self) -> Vec<&MissionSummary> {
         if self.mission_filter.is_empty() {
             return self.missions.iter().collect();
         }
         let q = self.mission_filter.to_lowercase();
-        self.missions.iter().filter(|m| m.name.to_lowercase().contains(&q)).collect()
-    }
-
-    /// Visible klusters after applying kluster_filter.
-    pub fn visible_klusters(&self) -> Vec<&KlusterSummary> {
-        if self.kluster_filter.is_empty() {
-            return self.klusters.iter().collect();
-        }
-        let q = self.kluster_filter.to_lowercase();
-        self.klusters.iter().filter(|k| k.name.to_lowercase().contains(&q)).collect()
+        self.missions.iter().filter(|k| k.name.to_lowercase().contains(&q)).collect()
     }
 
     /// Flattened list of tree nodes in display order (kept for app.rs compat).
     pub fn tree_nodes(&self) -> Vec<TreeNode> {
         let mut nodes = vec![];
-        for (mi, _) in self.missions.iter().enumerate() {
-            nodes.push(TreeNode::Mission { idx: mi });
-            if Some(mi) == self.selected_mission_idx() {
-                for (ki, _) in self.klusters.iter().enumerate() {
-                    nodes.push(TreeNode::Kluster { mission_idx: mi, kluster_idx: ki });
+        for (mi, _) in self.domains.iter().enumerate() {
+            nodes.push(TreeNode::Domain { idx: mi });
+            if Some(mi) == self.selected_domain_idx() {
+                for (ki, _) in self.missions.iter().enumerate() {
+                    nodes.push(TreeNode::Mission { domain_idx: mi, mission_idx: ki });
                 }
             }
         }
         nodes
     }
 
-    fn selected_mission_idx(&self) -> Option<usize> {
-        if let Some(mid) = &self.selected_mission_id {
-            self.missions.iter().position(|m| &m.id == mid)
+    fn selected_domain_idx(&self) -> Option<usize> {
+        if let Some(mid) = &self.selected_domain_id {
+            self.domains.iter().position(|m| &m.id == mid)
         } else {
             None
         }
@@ -229,7 +229,7 @@ impl<'a> Widget for MissionMatrix<'a> {
         let bg_block = Block::default().style(theme::normal());
         bg_block.render(area, buf);
 
-        // 3 flat panes: Missions | Klusters | Tasks (33% / 33% / 34%)
+        // 3 flat panes: Domains | Missions | Tasks (33% / 33% / 34%)
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
@@ -239,10 +239,88 @@ impl<'a> Widget for MissionMatrix<'a> {
             ])
             .split(area);
 
-        render_missions_pane(buf, chunks[0], self.state);
-        render_klusters_pane(buf, chunks[1], self.state);
+        render_domains_pane(buf, chunks[0], self.state);
+        render_missions_pane(buf, chunks[1], self.state);
         render_tasks_pane(buf, chunks[2], self.state);
     }
+}
+
+fn render_domains_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState) {
+    let focused = state.focus == Focus::Domains;
+    let filter_active = state.filter_active == FilterActive::Domain;
+
+    let title = format!(
+        " Domains [/ search]{}",
+        if !state.domain_filter.is_empty() {
+            format!(" · \"{}\"", state.domain_filter)
+        } else {
+            String::new()
+        }
+    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(theme::border_for(focused))
+        .title(Span::styled(title, theme::panel_title()))
+        .style(theme::normal());
+    let inner = block.inner(area);
+    block.render(area, buf);
+
+    if state.loading_domains {
+        Paragraph::new(Span::styled("loading…", theme::dim()))
+            .style(theme::normal())
+            .render(inner, buf);
+        return;
+    }
+
+    let (list_area, filter_area) = if filter_active {
+        let va = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Fill(1)])
+            .split(inner);
+        (va[1], Some(va[0]))
+    } else {
+        (inner, None)
+    };
+
+    // Filter input line
+    if let Some(fa) = filter_area {
+        let filter_line = Line::from(vec![
+            Span::styled("/ ", theme::accent()),
+            Span::styled(state.domain_filter.clone(), theme::normal()),
+            Span::styled("_", theme::accent()),
+        ]);
+        Paragraph::new(filter_line).style(theme::normal()).render(fa, buf);
+    }
+
+    let visible = state.visible_domains();
+    if visible.is_empty() {
+        Paragraph::new(Span::styled("no domains", theme::muted()))
+            .style(theme::normal())
+            .render(list_area, buf);
+        return;
+    }
+
+    let items: Vec<ListItem> = visible.iter().enumerate().map(|(i, m)| {
+        let selected = i == state.domain_selection;
+        let style = if selected && focused { theme::selected() } else if selected { Style::default().fg(theme::ACCENT) } else { theme::normal() };
+        let dot = status_dot(&m.status);
+        let prefix = if selected { "▶ " } else { "  " };
+        ListItem::new(Line::from(vec![
+            Span::styled(prefix, style),
+            Span::styled(dot, status_style(&m.status)),
+            Span::styled(format!(" {}", m.name), style),
+        ]))
+    }).collect();
+
+    let sel = if focused { Some(state.domain_selection) } else { None };
+    let mut ls = ListState::default().with_selected(sel);
+    ratatui::widgets::StatefulWidget::render(
+        List::new(items).style(theme::normal()),
+        list_area,
+        buf,
+        &mut ls,
+    );
 }
 
 fn render_missions_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState) {
@@ -273,6 +351,13 @@ fn render_missions_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState
         return;
     }
 
+    if state.selected_domain_id.is_none() {
+        Paragraph::new(Span::styled("select a domain", theme::muted()))
+            .style(theme::normal())
+            .render(inner, buf);
+        return;
+    }
+
     let (list_area, filter_area) = if filter_active {
         let va = Layout::default()
             .direction(Direction::Vertical)
@@ -283,7 +368,6 @@ fn render_missions_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState
         (inner, None)
     };
 
-    // Filter input line
     if let Some(fa) = filter_area {
         let filter_line = Line::from(vec![
             Span::styled("/ ", theme::accent()),
@@ -301,92 +385,8 @@ fn render_missions_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState
         return;
     }
 
-    let items: Vec<ListItem> = visible.iter().enumerate().map(|(i, m)| {
-        let selected = i == state.mission_selection;
-        let style = if selected && focused { theme::selected() } else if selected { Style::default().fg(theme::ACCENT) } else { theme::normal() };
-        let dot = status_dot(&m.status);
-        let prefix = if selected { "▶ " } else { "  " };
-        ListItem::new(Line::from(vec![
-            Span::styled(prefix, style),
-            Span::styled(dot, status_style(&m.status)),
-            Span::styled(format!(" {}", m.name), style),
-        ]))
-    }).collect();
-
-    let sel = if focused { Some(state.mission_selection) } else { None };
-    let mut ls = ListState::default().with_selected(sel);
-    ratatui::widgets::StatefulWidget::render(
-        List::new(items).style(theme::normal()),
-        list_area,
-        buf,
-        &mut ls,
-    );
-}
-
-fn render_klusters_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState) {
-    let focused = state.focus == Focus::Klusters;
-    let filter_active = state.filter_active == FilterActive::Kluster;
-
-    let title = format!(
-        " Klusters [/ search]{}",
-        if !state.kluster_filter.is_empty() {
-            format!(" · \"{}\"", state.kluster_filter)
-        } else {
-            String::new()
-        }
-    );
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(theme::border_for(focused))
-        .title(Span::styled(title, theme::panel_title()))
-        .style(theme::normal());
-    let inner = block.inner(area);
-    block.render(area, buf);
-
-    if state.loading_klusters {
-        Paragraph::new(Span::styled("loading…", theme::dim()))
-            .style(theme::normal())
-            .render(inner, buf);
-        return;
-    }
-
-    if state.selected_mission_id.is_none() {
-        Paragraph::new(Span::styled("select a mission", theme::muted()))
-            .style(theme::normal())
-            .render(inner, buf);
-        return;
-    }
-
-    let (list_area, filter_area) = if filter_active {
-        let va = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Fill(1)])
-            .split(inner);
-        (va[1], Some(va[0]))
-    } else {
-        (inner, None)
-    };
-
-    if let Some(fa) = filter_area {
-        let filter_line = Line::from(vec![
-            Span::styled("/ ", theme::accent()),
-            Span::styled(state.kluster_filter.clone(), theme::normal()),
-            Span::styled("_", theme::accent()),
-        ]);
-        Paragraph::new(filter_line).style(theme::normal()).render(fa, buf);
-    }
-
-    let visible = state.visible_klusters();
-    if visible.is_empty() {
-        Paragraph::new(Span::styled("no klusters", theme::muted()))
-            .style(theme::normal())
-            .render(list_area, buf);
-        return;
-    }
-
     let items: Vec<ListItem> = visible.iter().enumerate().map(|(i, k)| {
-        let selected = i == state.kluster_selection;
+        let selected = i == state.mission_selection;
         let style = if selected && focused { theme::selected() } else if selected { Style::default().fg(theme::ACCENT) } else { theme::normal() };
         let dot = status_dot(&k.status);
         let prefix = if selected { "▶ " } else { "  " };
@@ -397,7 +397,7 @@ fn render_klusters_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState
         ]))
     }).collect();
 
-    let sel = if focused { Some(state.kluster_selection) } else { None };
+    let sel = if focused { Some(state.mission_selection) } else { None };
     let mut ls = ListState::default().with_selected(sel);
     ratatui::widgets::StatefulWidget::render(
         List::new(items).style(theme::normal()),
@@ -427,7 +427,7 @@ fn render_tasks_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState) {
 
     if state.tasks.is_empty() {
         Paragraph::new(Span::styled(
-            if state.selected_kluster_id.is_some() { "no tasks" } else { "select a kluster" },
+            if state.selected_mission_id.is_some() { "no tasks" } else { "select a mission" },
             theme::muted(),
         ))
         .style(theme::normal())

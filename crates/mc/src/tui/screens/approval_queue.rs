@@ -12,7 +12,7 @@ use crate::tui::theme;
 pub struct ApprovalRequest {
     pub id: i64,
     #[serde(default)]
-    pub mission_id: Option<String>,
+    pub domain_id: Option<String>,
     pub action: String,
     #[serde(default)]
     pub channel: Option<String>,
@@ -168,7 +168,7 @@ fn render_queue(buf: &mut Buffer, area: Rect, state: &ApprovalQueueState) {
             ListItem::new(Line::from(vec![
                 Span::styled(format!("{:<20} ", truncate(&req.action, 18)), style),
                 Span::styled(
-                    req.mission_id.as_deref().unwrap_or("—"),
+                    req.domain_id.as_deref().unwrap_or("—"),
                     theme::dim(),
                 ),
             ]))
@@ -239,8 +239,8 @@ fn render_detail(buf: &mut Buffer, area: Rect, state: &ApprovalQueueState) {
             Span::styled(req.requested_by.as_deref().unwrap_or("—"), theme::dim()),
         ]),
         Line::from(vec![
-            Span::styled("Mission ", theme::muted()),
-            Span::styled(req.mission_id.as_deref().unwrap_or("—"), theme::dim()),
+            Span::styled("Domain ", theme::muted()),
+            Span::styled(req.domain_id.as_deref().unwrap_or("—"), theme::dim()),
         ]),
         Line::from(""),
     ];
@@ -327,7 +327,7 @@ mod tests {
 
     fn req(id: i64, action: &str) -> ApprovalRequest {
         ApprovalRequest {
-            id, mission_id: None, action: action.into(),
+            id, domain_id: None, action: action.into(),
             channel: None, reason: None, requested_by: None,
             status: "pending".into(), request_context: None,
         }

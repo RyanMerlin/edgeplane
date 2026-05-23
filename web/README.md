@@ -25,7 +25,7 @@ npm run build
 
 - **AI Console (default)** — chat-first transcript + composer, natural-language planning, compact tool/event cards, and approval cards for write actions.
 - **Matrix timeline** — SSE-driven feed shows approvals, inbox events, and the rate-limit status described in [`docs/reference/REAL-TIME.md`](../docs/reference/REAL-TIME.md).
-- **Explorer panel** — mission/kluster tree plus detail view, leveraging `/explorer/tree` and `/explorer/node/{type}/{id}`.
+- **Explorer panel** — domain/mission tree plus detail view, leveraging `/explorer/tree` and `/explorer/node/{type}/{id}`.
 - **Onboarding** — generate manifest endpoints, bootstrap commands, and config snippets for agent swarms and `mc doctor`.
 - **Governance** — view active policy, inspect policy events, and refresh drafts without leaving the UI.
 

@@ -37,17 +37,17 @@ pub fn humanize_since(iso: &str) -> String {
 // ─── domain types ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MissionSummary {
+pub struct DomainSummary {
     pub id: String,
     pub name: String,
     pub status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KlusterSummary {
+pub struct MissionSummary {
     pub id: String,
     #[serde(default)]
-    pub mission_id: Option<String>,
+    pub domain_id: Option<String>,
     pub name: String,
     pub status: String,
 }
@@ -56,7 +56,7 @@ pub struct KlusterSummary {
 pub struct TaskSummary {
     pub id: i32,
     pub public_id: String,
-    pub kluster_id: String,
+    pub mission_id: String,
     pub title: String,
     pub status: String,
     pub owner: String,
@@ -70,7 +70,7 @@ pub struct TaskSummary {
 pub struct ApprovalSummary {
     pub id: i64,
     #[serde(default)]
-    pub mission_id: Option<String>,
+    pub domain_id: Option<String>,
     pub action: String,
     #[serde(default)]
     pub channel: Option<String>,
@@ -116,9 +116,9 @@ pub struct AgentSummary {
     #[serde(default)]
     pub node_id: Option<String>,
     #[serde(default)]
-    pub mission_id: Option<String>,
+    pub domain_id: Option<String>,
     #[serde(default)]
-    pub mission_name: Option<String>,
+    pub domain_name: Option<String>,
     #[serde(default)]
     pub current_task_title: Option<String>,
     #[serde(default)]
@@ -138,7 +138,7 @@ impl AgentSummary {
         let Ok(meta) = serde_json::from_str::<serde_json::Value>(&raw) else { return };
         if self.runtime.is_none() { self.runtime = meta["runtime"].as_str().map(String::from); }
         if self.node_id.is_none() { self.node_id = meta["node_id"].as_str().map(String::from); }
-        if self.mission_name.is_none() { self.mission_name = meta["mission_name"].as_str().map(String::from); }
+        if self.domain_name.is_none() { self.domain_name = meta["domain_name"].as_str().map(String::from); }
         if self.current_task_title.is_none() { self.current_task_title = meta["current_task"].as_str().map(String::from); }
         if self.last_seen.is_none() { self.last_seen = meta["last_seen"].as_str().map(String::from); }
     }
@@ -149,10 +149,10 @@ impl AgentSummary {
 #[async_trait::async_trait]
 pub trait DataClient: Send + Sync {
     async fn ping(&self) -> Result<Option<String>>;
-    async fn list_missions(&self) -> Result<Vec<MissionSummary>>;
-    async fn list_klusters(&self, mission_id: &str) -> Result<Vec<KlusterSummary>>;
-    async fn list_tasks(&self, mission_id: &str, kluster_id: &str) -> Result<Vec<TaskSummary>>;
-    async fn list_approvals(&self, mission_id: Option<&str>) -> Result<Vec<ApprovalSummary>>;
+    async fn list_domains(&self) -> Result<Vec<DomainSummary>>;
+    async fn list_missions(&self, domain_id: &str) -> Result<Vec<MissionSummary>>;
+    async fn list_tasks(&self, domain_id: &str, mission_id: &str) -> Result<Vec<TaskSummary>>;
+    async fn list_approvals(&self, domain_id: Option<&str>) -> Result<Vec<ApprovalSummary>>;
     async fn respond_approval(&self, approval_id: &str, decision: &str, note: Option<&str>) -> Result<()>;
     async fn list_agents(&self) -> Result<Vec<AgentSummary>>;
     async fn delete_agent(&self, agent_id: &str) -> Result<()>;
@@ -166,26 +166,26 @@ pub trait DataClient: Send + Sync {
 
 #[derive(Default)]
 pub struct FixtureDataClient {
-    pub missions: Vec<MissionSummary>,
+    pub domains: Vec<DomainSummary>,
 }
 
 #[async_trait::async_trait]
 impl DataClient for FixtureDataClient {
     async fn ping(&self) -> Result<Option<String>> { Ok(None) }
 
-    async fn list_missions(&self) -> Result<Vec<MissionSummary>> {
-        Ok(self.missions.clone())
+    async fn list_domains(&self) -> Result<Vec<DomainSummary>> {
+        Ok(self.domains.clone())
     }
 
-    async fn list_klusters(&self, _mission_id: &str) -> Result<Vec<KlusterSummary>> {
+    async fn list_missions(&self, _domain_id: &str) -> Result<Vec<MissionSummary>> {
         Ok(vec![])
     }
 
-    async fn list_tasks(&self, _mission_id: &str, _kluster_id: &str) -> Result<Vec<TaskSummary>> {
+    async fn list_tasks(&self, _domain_id: &str, _mission_id: &str) -> Result<Vec<TaskSummary>> {
         Ok(vec![])
     }
 
-    async fn list_approvals(&self, _mission_id: Option<&str>) -> Result<Vec<ApprovalSummary>> {
+    async fn list_approvals(&self, _domain_id: Option<&str>) -> Result<Vec<ApprovalSummary>> {
         Ok(vec![])
     }
 
@@ -270,22 +270,22 @@ impl DataClient for RemoteDataClient {
         Ok(ver)
     }
 
-    async fn list_missions(&self) -> Result<Vec<MissionSummary>> {
-        self.get("/missions").await
+    async fn list_domains(&self) -> Result<Vec<DomainSummary>> {
+        self.get("/domains").await
     }
 
-    async fn list_klusters(&self, mission_id: &str) -> Result<Vec<KlusterSummary>> {
-        self.get(&format!("/missions/{mission_id}/k")).await
+    async fn list_missions(&self, domain_id: &str) -> Result<Vec<MissionSummary>> {
+        self.get(&format!("/domains/{domain_id}/m")).await
     }
 
-    // Uses the canonical auth-required path rather than the /klusters/:id/t shortcut.
-    async fn list_tasks(&self, mission_id: &str, kluster_id: &str) -> Result<Vec<TaskSummary>> {
-        self.get(&format!("/missions/{mission_id}/k/{kluster_id}/t")).await
+    // Uses the canonical auth-required path rather than the /missions/:id/t shortcut.
+    async fn list_tasks(&self, domain_id: &str, mission_id: &str) -> Result<Vec<TaskSummary>> {
+        self.get(&format!("/domains/{domain_id}/m/{mission_id}/t")).await
     }
 
-    async fn list_approvals(&self, mission_id: Option<&str>) -> Result<Vec<ApprovalSummary>> {
-        let path = if let Some(mid) = mission_id {
-            format!("/approvals?mission_id={mid}&status=pending")
+    async fn list_approvals(&self, domain_id: Option<&str>) -> Result<Vec<ApprovalSummary>> {
+        let path = if let Some(mid) = domain_id {
+            format!("/approvals?domain_id={mid}&status=pending")
         } else {
             "/approvals?status=pending".to_string()
         };

@@ -91,8 +91,8 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     tracing::info!("backend: {}", cfg.backend_url);
     tracing::info!("work_dir: {}", cfg.work_dir.display());
     tracing::info!(
-        "missions: {:?}",
-        cfg.missions.iter().map(|m| &m.mission_id).collect::<Vec<_>>()
+        "domains: {:?}",
+        cfg.domains.iter().map(|m| &m.domain_id).collect::<Vec<_>>()
     );
 
     // Fail-fast port probe. The singleton lock already catches the dominant
@@ -106,7 +106,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     // Phase 5a: open (or create) the local SQLite registry. Used in both
     // standalone mode (source of truth) and federated mode (synced cache).
     // On failure: log and continue — federated still works, standalone falls
-    // back to legacy yaml missions.
+    // back to legacy yaml domains.
     let registry: Option<LocalRegistry> = LocalRegistry::default_path()
         .and_then(|p| {
             tracing::info!("local registry: {}", p.display());
@@ -115,7 +115,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         .map_err(|e| {
             tracing::warn!(
                 "Could not open local registry: {e:#}. \
-                 Standalone mode will fall back to yaml missions."
+                 Standalone mode will fall back to yaml domains."
             );
             e
         })
@@ -151,27 +151,27 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
 
     let client = Arc::new(BackendClient::new(&cfg.backend_url, &cfg.token));
 
-    // Bootstrap: idempotently provision `home-{hostname}` mission + `intake`
-    // kluster for per-node coordination. Runs after fleet_import (which
+    // Bootstrap: idempotently provision `home-{hostname}` domain + `intake`
+    // mission for per-node coordination. Runs after fleet_import (which
     // establishes the agent registry) and after the client is constructed.
     // Soft-fail: controlplane unreachable is logged as a warning; mcd continues.
     match bootstrap::run(&client).await {
         Ok(summary) => {
-            if summary.mission_created || summary.kluster_created {
+            if summary.domain_created || summary.mission_created {
                 tracing::info!(
-                    "bootstrap: provisioned home mission={} intake kluster={} \
-                     (mission_created={}, kluster_created={})",
+                    "bootstrap: provisioned home domain={} intake mission={} \
+                     (domain_created={}, mission_created={})",
+                    summary.domain_id,
                     summary.mission_id,
-                    summary.kluster_id,
+                    summary.domain_created,
                     summary.mission_created,
-                    summary.kluster_created,
                 );
             } else {
                 tracing::debug!(
-                    "bootstrap: home mission and intake kluster already exist \
-                     (mission={}, kluster={})",
+                    "bootstrap: home domain and intake mission already exist \
+                     (domain={}, mission={})",
+                    summary.domain_id,
                     summary.mission_id,
-                    summary.kluster_id,
                 );
             }
         }
@@ -197,7 +197,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     }
 
     // Phase 3 — Triage loop.
-    // Examines unscoped ready tasks in the intake kluster and either routes
+    // Examines unscoped ready tasks in the intake mission and either routes
     // them to a profile (via child meshtask) or surfaces them for human
     // triage in `mc-engineer/inbox.md`. Runs independently of P2 at a slower
     // cadence (default 60s vs 30s). Gated by `task_worker_triage_enabled`.
@@ -332,7 +332,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         tracing::warn!(
             "No agents assigned. Either enroll agents to this node via \
              `mc daemon agent enroll` (controlplane-driven) or add legacy \
-             `missions:` entries to {} (deprecated path).",
+             `domains:` entries to {} (deprecated path).",
             DaemonConfig::user_config_path().display()
         );
     }
@@ -698,9 +698,9 @@ impl Spawner {
         for spec in &plan.to_restart {
             if let Some(ra) = running.remove(&spec.agent_id) {
                 tracing::info!(
-                    "Reconcile: restarting agent {} (mission={}, mode={:?})",
+                    "Reconcile: restarting agent {} (domain={}, mode={:?})",
                     spec.agent_id,
-                    spec.mission_id,
+                    spec.domain_id,
                     spec.session_mode
                 );
                 ra.shutdown().await;
@@ -817,7 +817,7 @@ impl Spawner {
             .supervisor
             .spawn(
                 spec.agent_id.clone(),
-                spec.mission_id.clone(),
+                spec.domain_id.clone(),
                 rt.clone(),
                 vec![],
                 spec.launch_overrides.clone(),
@@ -845,7 +845,7 @@ impl Spawner {
                     agent_handle,
                     rt.clone(),
                     self.client.clone(),
-                    spec.mission_id.clone(),
+                    spec.domain_id.clone(),
                     spec.agent_id.clone(),
                     self.watchdog.clone(),
                 ));
@@ -919,14 +919,14 @@ impl Spawner {
         }
 
         tracing::info!(
-            "Spawned {} loop for {} agent {} in mission {}",
+            "Spawned {} loop for {} agent {} in domain {}",
             match spec.session_mode {
                 SessionMode::Task => "task",
                 SessionMode::Persistent => "persistent-session",
             },
             spec.runtime_kind,
             spec.agent_id,
-            spec.mission_id
+            spec.domain_id
         );
 
         Some(RunningAgent::new(spec.clone(), handles))
@@ -937,11 +937,11 @@ impl Spawner {
 
 /// Internal flat representation of one agent the daemon should spawn.
 /// Built from either the controlplane (preferred when state.node_id is set)
-/// or yaml-defined missions (legacy fallback during the deprecation window).
+/// or yaml-defined domains (legacy fallback during the deprecation window).
 #[derive(Debug, Clone)]
 pub struct AgentSpec {
     pub agent_id: String,
-    pub mission_id: String,
+    pub domain_id: String,
     pub runtime_kind: String,
     pub session_mode: SessionMode,
     pub capabilities: Vec<String>,
@@ -961,13 +961,13 @@ pub struct AgentSpec {
 /// Priority order for the "base" specs (one of these three is selected):
 /// 1. Controlplane GET (federated — when `cfg.node_id` is set).
 /// 2. Local SQLite registry (`source = 'local'`) — standalone mode.
-/// 3. Legacy yaml `missions:` — deprecated fallback for pre-Phase-4 configs.
+/// 3. Legacy yaml `domains:` — deprecated fallback for pre-Phase-4 configs.
 ///
 /// **Additive layer (always on when a registry is present):**
 /// fleet-imported agents (`source = 'fleet_import'`) are appended to whatever
 /// the base path returns. These represent the local Aria fleet (operator,
 /// work, etc.) — they coexist with controlplane assignments and yaml legacy
-/// missions, not replace them. Each fleet_import spec gets its
+/// domains, not replace them. Each fleet_import spec gets its
 /// `launch_overrides` populated from the `agent_launch_context` table so
 /// the runtime knows which Zellij session to address.
 async fn resolve_agent_specs(
@@ -1020,14 +1020,14 @@ async fn base_agent_specs(
     if let Some(node_id) = cfg.node_id.as_deref() {
         match fetch_node_agents(client, node_id).await {
             Ok(specs) => {
-                if !cfg.missions.is_empty() {
-                    let yaml_missions: Vec<&str> =
-                        cfg.missions.iter().map(|m| m.mission_id.as_str()).collect();
+                if !cfg.domains.is_empty() {
+                    let yaml_domains: Vec<&str> =
+                        cfg.domains.iter().map(|m| m.domain_id.as_str()).collect();
                     tracing::warn!(
-                        "yaml carries `missions:` ({:?}) but node {} is registered with the \
+                        "yaml carries `domains:` ({:?}) but node {} is registered with the \
                          controlplane; using controlplane assignment list. \
-                         Remove `missions:` from config.yaml.",
-                        yaml_missions,
+                         Remove `domains:` from config.yaml.",
+                        yaml_domains,
                         node_id
                     );
                 }
@@ -1061,7 +1061,7 @@ async fn base_agent_specs(
             Ok(_) => {
                 tracing::info!(
                     "Standalone mode: local registry is empty. \
-                     Checking legacy yaml missions."
+                     Checking legacy yaml domains."
                 );
             }
             Err(e) => {
@@ -1070,7 +1070,7 @@ async fn base_agent_specs(
         }
     } else {
         tracing::info!(
-            "No node_id in state file and no local registry; falling back to legacy yaml missions. \
+            "No node_id in state file and no local registry; falling back to legacy yaml domains. \
              Run `mc daemon profile add` to register with a controlplane, \
              or `mc daemon agent enroll` to add agents in standalone mode."
         );
@@ -1112,10 +1112,10 @@ fn agent_spec_from_json(v: &serde_json::Value) -> Result<AgentSpec> {
         .or_else(|| v.get("id").and_then(|s| s.as_str()))
         .ok_or_else(|| anyhow!("agent record missing `public_id` (and `id` fallback)"))?
         .to_string();
-    let mission_id = v
-        .get("mission_id")
+    let domain_id = v
+        .get("domain_id")
         .and_then(|s| s.as_str())
-        .ok_or_else(|| anyhow!("agent {agent_id} missing `mission_id`"))
+        .ok_or_else(|| anyhow!("agent {agent_id} missing `domain_id`"))
         .with_context(|| format!("agent_id={agent_id}"))?
         .to_string();
     let runtime_kind = v
@@ -1159,7 +1159,7 @@ fn agent_spec_from_json(v: &serde_json::Value) -> Result<AgentSpec> {
         .map(String::from);
     Ok(AgentSpec {
         agent_id,
-        mission_id,
+        domain_id,
         runtime_kind,
         session_mode,
         capabilities,
@@ -1171,11 +1171,11 @@ fn agent_spec_from_json(v: &serde_json::Value) -> Result<AgentSpec> {
 
 fn yaml_specs(cfg: &DaemonConfig) -> Vec<AgentSpec> {
     let mut out = Vec::new();
-    for m in &cfg.missions {
+    for m in &cfg.domains {
         for a in &m.agents {
             out.push(AgentSpec {
                 agent_id: a.agent_id.clone(),
-                mission_id: m.mission_id.clone(),
+                domain_id: m.domain_id.clone(),
                 runtime_kind: a.runtime_kind.clone(),
                 session_mode: a.session_mode,
                 capabilities: a.capabilities.clone(),
@@ -1194,7 +1194,7 @@ fn yaml_specs(cfg: &DaemonConfig) -> Vec<AgentSpec> {
             "Loaded {} agent(s) from legacy ~/.mc/config.yaml. \
              yaml-only configuration is deprecated. Migrate by running \
              `mc daemon profile add` (federated) or `mc daemon agent enroll-home` \
-             (standalone) — see docs/plans/2026-05-10-mcd-phase6-home-mission-sync.md.",
+             (standalone) — see docs/plans/2026-05-10-mcd-phase6-home-domain-sync.md.",
             out.len()
         );
     }
@@ -1257,12 +1257,12 @@ mod tests {
     fn agent_spec_from_json_minimal() {
         let v = json!({
             "id": "a-1",
-            "mission_id": "m-1",
+            "domain_id": "m-1",
             "runtime_kind": "claude_agent_acp",
         });
         let s = agent_spec_from_json(&v).unwrap();
         assert_eq!(s.agent_id, "a-1");
-        assert_eq!(s.mission_id, "m-1");
+        assert_eq!(s.domain_id, "m-1");
         assert_eq!(s.runtime_kind, "claude_agent_acp");
         // Default mode when supervision_mode is absent.
         assert_eq!(s.session_mode, SessionMode::Task);
@@ -1274,7 +1274,7 @@ mod tests {
     fn agent_spec_from_json_full() {
         let v = json!({
             "id": "a-2",
-            "mission_id": "m-1",
+            "domain_id": "m-1",
             "runtime_kind": "claude_agent_acp",
             "supervision_mode": "persistent",
             "capabilities": ["code.read", "code.edit"],
@@ -1290,7 +1290,7 @@ mod tests {
     fn agent_spec_from_json_unknown_supervision_mode_defaults_task() {
         let v = json!({
             "id": "a-3",
-            "mission_id": "m-1",
+            "domain_id": "m-1",
             "runtime_kind": "claude_code",
             "supervision_mode": "future-mode",
         });
@@ -1301,13 +1301,13 @@ mod tests {
     #[test]
     fn agent_spec_from_json_missing_required_fields_errors() {
         // Missing id
-        let v = json!({"mission_id": "m", "runtime_kind": "claude_code"});
+        let v = json!({"domain_id": "m", "runtime_kind": "claude_code"});
         assert!(agent_spec_from_json(&v).is_err());
-        // Missing mission_id
+        // Missing domain_id
         let v = json!({"id": "a", "runtime_kind": "claude_code"});
         assert!(agent_spec_from_json(&v).is_err());
         // Missing runtime_kind
-        let v = json!({"id": "a", "mission_id": "m"});
+        let v = json!({"id": "a", "domain_id": "m"});
         assert!(agent_spec_from_json(&v).is_err());
     }
 }

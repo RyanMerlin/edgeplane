@@ -100,7 +100,7 @@ impl Default for SchemaPack {
     fn default() -> Self {
         let mut entities = HashMap::new();
         entities.insert(
-            "mission".into(),
+            "domain".into(),
             EntitySpec {
                 required: vec!["name".into()],
                 optional: vec![
@@ -114,7 +114,7 @@ impl Default for SchemaPack {
             },
         );
         entities.insert(
-            "kluster".into(),
+            "mission".into(),
             EntitySpec {
                 required: vec!["name".into()],
                 optional: vec![
@@ -123,14 +123,14 @@ impl Default for SchemaPack {
                     "contributors".into(),
                     "tags".into(),
                     "status".into(),
-                    "mission_id".into(),
+                    "domain_id".into(),
                 ],
             },
         );
         entities.insert(
             "task".into(),
             EntitySpec {
-                required: vec!["kluster_id".into(), "title".into()],
+                required: vec!["mission_id".into(), "title".into()],
                 optional: vec![
                     "description".into(),
                     "status".into(),
@@ -145,21 +145,21 @@ impl Default for SchemaPack {
         entities.insert(
             "doc".into(),
             EntitySpec {
-                required: vec!["kluster_id".into(), "title".into(), "body".into()],
+                required: vec!["mission_id".into(), "title".into(), "body".into()],
                 optional: vec!["doc_type".into(), "status".into(), "provenance".into()],
             },
         );
         entities.insert(
             "artifact".into(),
             EntitySpec {
-                required: vec!["kluster_id".into(), "name".into(), "uri".into()],
+                required: vec!["mission_id".into(), "name".into(), "uri".into()],
                 optional: vec!["artifact_type".into(), "status".into(), "provenance".into()],
             },
         );
         Self {
             version: "v1".into(),
             name: "main".into(),
-            description: "Default mission/kluster/task schema".into(),
+            description: "Default domain/mission/task schema".into(),
             entities,
         }
     }

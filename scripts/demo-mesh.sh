@@ -54,35 +54,35 @@ task_status() {
       | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))"
 }
 
-# ---- 1. Create mission ----
-log "Creating mission…"
-MISSION=$(mc_api POST "/missions" \
+# ---- 1. Create domain ----
+log "Creating domain…"
+DOMAIN=$(mc_api POST "/domains" \
     "{\"name\":\"demo-mesh-$(date +%s)\",\"owners\":\"demo@example.com\"}")
+DOMAIN_ID=$(echo "$DOMAIN" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+log "Domain: $DOMAIN_ID"
+
+# ---- 2. Create mission ----
+log "Creating mission…"
+MISSION=$(mc_api POST "/domains/${DOMAIN_ID}/m" \
+    "{\"name\":\"demo-m\",\"owners\":\"demo@example.com\"}")
 MISSION_ID=$(echo "$MISSION" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Mission: $MISSION_ID"
 
-# ---- 2. Create kluster ----
-log "Creating kluster…"
-KLUSTER=$(mc_api POST "/missions/${MISSION_ID}/k" \
-    "{\"name\":\"demo-k\",\"owners\":\"demo@example.com\"}")
-KLUSTER_ID=$(echo "$KLUSTER" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-log "Kluster: $KLUSTER_ID"
-
 # ---- 3. Seed tasks A → B → C ----
 log "Creating task A (no deps)…"
-A_ID=$(mc_api POST "/work/klusters/${KLUSTER_ID}/tasks" \
+A_ID=$(mc_api POST "/work/missions/${MISSION_ID}/tasks" \
     "{\"title\":\"A - foundation\",\"description\":\"First task\"}" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['id'])")
 log "Task A: $A_ID"
 
 log "Creating task B (depends on A)…"
-B_ID=$(mc_api POST "/work/klusters/${KLUSTER_ID}/tasks" \
+B_ID=$(mc_api POST "/work/missions/${MISSION_ID}/tasks" \
     "{\"title\":\"B - middle\",\"description\":\"Depends on A\",\"depends_on\":[\"${A_ID}\"]}" \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Task B: $B_ID"
 
 log "Creating task C (depends on B)…"
-C_ID=$(mc_api POST "/work/klusters/${KLUSTER_ID}/tasks" \
+C_ID=$(mc_api POST "/work/missions/${MISSION_ID}/tasks" \
     "{\"title\":\"C - final\",\"description\":\"Depends on B\",\"depends_on\":[\"${B_ID}\"]}" \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 log "Task C: $C_ID"
@@ -93,7 +93,7 @@ log "Expected:      A=ready              B=blocked              C=blocked"
 # ---- 4. Start 3 Python workers ----
 log "Starting 3 workers…"
 for i in 1 2 3; do
-    python3 "$WORKER" "$MISSION_ID" "$BASE_URL" "$TOKEN" \
+    python3 "$WORKER" "$DOMAIN_ID" "$BASE_URL" "$TOKEN" \
         > "/tmp/demo-worker-${i}.log" 2>&1 &
     cleanup_pids+=($!)
     log "Worker $i PID ${cleanup_pids[-1]}"

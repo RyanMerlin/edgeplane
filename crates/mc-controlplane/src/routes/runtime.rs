@@ -73,7 +73,7 @@ fn row_to_job(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     serde_json::json!({
         "id": row.get::<String, _>("id"),
         "owner_subject": row.get::<String, _>("owner_subject"),
-        "mission_id": row.get::<String, _>("mission_id"),
+        "domain_id": row.get::<String, _>("domain_id"),
         "task_id": row.get::<Option<i32>, _>("task_id"),
         "runtime_session_id": row.get::<String, _>("runtime_session_id"),
         "runtime_class": row.get::<String, _>("runtime_class"),
@@ -365,7 +365,7 @@ fn default_online() -> String {
 #[derive(serde::Deserialize)]
 struct JobCreate {
     #[serde(default)]
-    mission_id: String,
+    domain_id: String,
     task_id: Option<i32>,
     #[serde(default)]
     runtime_session_id: String,
@@ -722,9 +722,9 @@ async fn list_channels() -> impl IntoResponse {
 // ── Node registration ─────────────────────────────────────────────────────────
 
 // `slug_hostname` + `provision_home_for_node` removed in 0.15.9. The per-node
-// `home-{hostname}` mission pattern + `Mission.kind='home'` write was walked
+// `home-{hostname}` domain pattern + `Domain.kind='home'` write was walked
 // back across 0.15.4 / 0.15.8; the bootstrap module in mcd now ensures a
-// single global `home` mission instead. This helper had zero remaining callers
+// single global `home` domain instead. This helper had zero remaining callers
 // after the cleanup.
 
 async fn register_node(
@@ -887,8 +887,8 @@ async fn register_node(
     .await;
 
     // Return node fields + attach_secret (plaintext, this response only).
-    // Per-node home-mission auto-provisioning was removed in 0.15.9 — mcd's
-    // bootstrap module owns the single-global `home` mission now.
+    // Per-node home-domain auto-provisioning was removed in 0.15.9 — mcd's
+    // bootstrap module owns the single-global `home` domain now.
     let mut resp = row_to_node(&node_row);
     resp["attach_secret"] = serde_json::Value::String(attach_secret);
     (StatusCode::CREATED, Json(resp)).into_response()
@@ -1499,7 +1499,7 @@ async fn upgrade_node(
 
 #[derive(serde::Deserialize)]
 struct NodeAgentAssign {
-    mission_id: String,
+    domain_id: String,
     runtime_kind: String,
     #[serde(default)]
     runtime_version: String,
@@ -1549,8 +1549,8 @@ async fn require_node_owner(
     Ok(owner)
 }
 
-/// Assign a new agent to this node in the requested mission. Mirrors
-/// `enroll_agent` (which is mission-scoped); this variant is convenient for
+/// Assign a new agent to this node in the requested domain. Mirrors
+/// `enroll_agent` (which is domain-scoped); this variant is convenient for
 /// the controlplane / orchestrator to push assignments to a specific node.
 async fn assign_node_agent(
     State(state): State<Arc<AppState>>,
@@ -1562,14 +1562,14 @@ async fn assign_node_agent(
         return resp;
     }
 
-    // Verify the target mission exists.
-    let mission_ok: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
-        .bind(&body.mission_id)
+    // Verify the target domain exists.
+    let domain_ok: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
+        .bind(&body.domain_id)
         .fetch_optional(&state.db)
         .await
         .unwrap_or(None);
-    if mission_ok.is_none() {
-        return not_found("Mission not found");
+    if domain_ok.is_none() {
+        return not_found("Domain not found");
     }
 
     let agent_id = Uuid::new_v4().to_string();
@@ -1626,7 +1626,7 @@ async fn assign_node_agent(
 
     let row = sqlx::query(
         "INSERT INTO meshagent \
-         (id, mission_id, node_id, runtime_kind, runtime_version, capabilities, labels, \
+         (id, domain_id, node_id, runtime_kind, runtime_version, capabilities, labels, \
           status, current_task_id, enrolled_by_subject, enrolled_at, last_heartbeat_at, \
           runtime_node_id, profile_json, machine_json, runtime_json, supervision_mode, \
           agent_public_id) \
@@ -1634,7 +1634,7 @@ async fn assign_node_agent(
          RETURNING *",
     )
     .bind(&agent_id)
-    .bind(&body.mission_id)
+    .bind(&body.domain_id)
     .bind(&node_id)
     .bind(&body.runtime_kind)
     .bind(&body.runtime_version)
@@ -1684,15 +1684,15 @@ async fn revoke_node_agent(
 
     // Ensure the agent belongs to this node before deleting.
     let owner_row = sqlx::query(
-        "SELECT mission_id FROM meshagent \
+        "SELECT domain_id FROM meshagent \
          WHERE id=$1 AND (runtime_node_id=$2 OR node_id=$2)",
     )
     .bind(&agent_id)
     .bind(&node_id)
     .fetch_optional(&state.db)
     .await;
-    let mission_id: String = match owner_row {
-        Ok(Some(r)) => r.get("mission_id"),
+    let domain_id: String = match owner_row {
+        Ok(Some(r)) => r.get("domain_id"),
         Ok(None) => return not_found("Agent not found on this node"),
         Err(e) => {
             tracing::error!("revoke_node_agent lookup: {e}");
@@ -1714,7 +1714,7 @@ async fn revoke_node_agent(
         serde_json::json!({
             "type": "agent.revoked",
             "agent_id": agent_id,
-            "mission_id": mission_id,
+            "domain_id": domain_id,
         }),
     )
     .await;
@@ -1742,7 +1742,7 @@ async fn create_job(
 
     match sqlx::query(
         "INSERT INTO runtimejob \
-         (id, owner_subject, mission_id, task_id, runtime_session_id, runtime_class, image, \
+         (id, owner_subject, domain_id, task_id, runtime_session_id, runtime_class, image, \
           command, args_json, env_json, cwd, mounts_json, artifact_rules_json, timeout_seconds, \
           restart_policy, required_capabilities_json, preferred_labels_json, status, \
           created_at, updated_at) \
@@ -1751,7 +1751,7 @@ async fn create_job(
     )
     .bind(&job_id)
     .bind(&principal.subject)
-    .bind(&body.mission_id)
+    .bind(&body.domain_id)
     .bind(body.task_id)
     .bind(&body.runtime_session_id)
     .bind(&body.runtime_class)
@@ -2632,7 +2632,7 @@ async fn run_attach_proxy(
 // ── Phase 4a: controlplane-driven enrollment ─────────────────────────────────
 //
 // `list_node_agents` and `node_notify_ws` are the two surfaces mcd
-// daemons consume to drive the new "no missions in yaml" flow:
+// daemons consume to drive the new "no domains in yaml" flow:
 //
 //   1. On daemon start, GET this list to discover what to spawn locally.
 //   2. Subscribe to `node_notify_ws` so add/remove/reassign mutations
@@ -2675,11 +2675,11 @@ async fn list_node_agents(
 
     // Pull meshagent rows assigned to this node (Phase 6 also matches the
     // legacy `node_id` column so older enrollments aren't missed) and join
-    // mission for name/kind so the daemon's sync loop can identify home-mission
+    // domain for name/kind so the daemon's sync loop can identify home-domain
     // assignments without a second round-trip.
     let rows = sqlx::query(
-        "SELECT a.*, m.name AS mission_name, m.kind AS mission_kind \
-         FROM meshagent a JOIN mission m ON a.mission_id = m.id \
+        "SELECT a.*, m.name AS domain_name, m.kind AS domain_kind \
+         FROM meshagent a JOIN domain m ON a.domain_id = m.id \
          WHERE a.runtime_node_id = $1 OR a.node_id = $1 \
          ORDER BY a.enrolled_at ASC",
     )
@@ -2693,10 +2693,10 @@ async fn list_node_agents(
                 .iter()
                 .map(|r| {
                     let mut v = crate::routes::work::row_to_agent(r);
-                    v["mission_name"] =
-                        serde_json::Value::String(r.get::<String, _>("mission_name"));
-                    v["mission_kind"] =
-                        serde_json::Value::String(r.get::<String, _>("mission_kind"));
+                    v["domain_name"] =
+                        serde_json::Value::String(r.get::<String, _>("domain_name"));
+                    v["domain_kind"] =
+                        serde_json::Value::String(r.get::<String, _>("domain_kind"));
                     v
                 })
                 .collect();

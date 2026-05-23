@@ -40,7 +40,7 @@ pub async fn run_launch(
     config: &McConfig,
 ) -> Result<()> {
     if headless {
-        bail!("headless mode is not supported for interactive launch; use `mc run goose --mission <id>` instead");
+        bail!("headless mode is not supported for interactive launch; use `mc run goose --domain <id>` instead");
     }
     run_goose_inner(&profile, &passthrough, config)
 }

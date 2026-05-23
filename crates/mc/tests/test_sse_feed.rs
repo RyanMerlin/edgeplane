@@ -11,7 +11,7 @@
 struct ParsedEvent {
     event_type: String,
     agent_id: Option<String>,
-    mission_id: Option<String>,
+    domain_id: Option<String>,
     data: String,
 }
 
@@ -29,11 +29,11 @@ fn parse_sse(raw: &str) -> Vec<ParsedEvent> {
 
         if line.is_empty() {
             if !cur_data.is_empty() {
-                let (agent_id, mission_id) = extract_ids(&cur_data);
+                let (agent_id, domain_id) = extract_ids(&cur_data);
                 events.push(ParsedEvent {
                     event_type: cur_event.clone(),
                     agent_id,
-                    mission_id,
+                    domain_id,
                     data: cur_data.clone(),
                 });
             }
@@ -53,8 +53,8 @@ fn extract_ids(data: &str) -> (Option<String>, Option<String>) {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
         let agent_id = v.get("agent_id").and_then(|x| x.as_str()).map(str::to_string)
             .or_else(|| v.get("agent").and_then(|x| x.as_str()).map(str::to_string));
-        let mission_id = v.get("mission_id").and_then(|x| x.as_str()).map(str::to_string);
-        (agent_id, mission_id)
+        let domain_id = v.get("domain_id").and_then(|x| x.as_str()).map(str::to_string);
+        (agent_id, domain_id)
     } else {
         (None, None)
     }
@@ -64,22 +64,22 @@ fn extract_ids(data: &str) -> (Option<String>, Option<String>) {
 
 #[test]
 fn parses_single_event() {
-    let raw = "event: agent.status\ndata: {\"agent_id\":\"a1\",\"mission_id\":\"m1\",\"message\":\"online\"}\n\n";
+    let raw = "event: agent.status\ndata: {\"agent_id\":\"a1\",\"domain_id\":\"m1\",\"message\":\"online\"}\n\n";
     let events = parse_sse(raw);
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, "agent.status");
     assert_eq!(events[0].agent_id.as_deref(), Some("a1"));
-    assert_eq!(events[0].mission_id.as_deref(), Some("m1"));
+    assert_eq!(events[0].domain_id.as_deref(), Some("m1"));
 }
 
 #[test]
 fn parses_multiple_events() {
     let raw = concat!(
         "event: agent.status\n",
-        "data: {\"agent_id\":\"a1\",\"mission_id\":\"m1\"}\n",
+        "data: {\"agent_id\":\"a1\",\"domain_id\":\"m1\"}\n",
         "\n",
         "event: task.update\n",
-        "data: {\"agent_id\":\"a2\",\"mission_id\":\"m2\"}\n",
+        "data: {\"agent_id\":\"a2\",\"domain_id\":\"m2\"}\n",
         "\n",
     );
     let events = parse_sse(raw);
@@ -139,8 +139,8 @@ fn handles_non_json_data_gracefully() {
 #[test]
 fn agent_field_alias_resolved() {
     // Some backends emit "agent" rather than "agent_id"
-    let raw = "data: {\"agent\":\"b1\",\"mission_id\":\"m9\"}\n\n";
+    let raw = "data: {\"agent\":\"b1\",\"domain_id\":\"m9\"}\n\n";
     let events = parse_sse(raw);
     assert_eq!(events[0].agent_id.as_deref(), Some("b1"));
-    assert_eq!(events[0].mission_id.as_deref(), Some("m9"));
+    assert_eq!(events[0].domain_id.as_deref(), Some("m9"));
 }

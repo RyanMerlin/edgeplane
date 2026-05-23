@@ -74,7 +74,7 @@ fn entry_line(keys: &str, desc: &str) -> Line<'static> {
 /// Default global keybindings shown in every Help overlay.
 pub const GLOBAL_HELP: &[HelpEntry] = &[
     HelpEntry { keys: "Tab/S+Tab", desc: "next/prev tab" },
-    HelpEntry { keys: "a m f p s c", desc: "jump to Agents/Missions/Feed/Approvals/Secrets/Config" },
+    HelpEntry { keys: "a m f p s c", desc: "jump to Agents/Domains/Feed/Approvals/Secrets/Config" },
     HelpEntry { keys: "L", desc: "identity / sign-in instructions" },
     HelpEntry { keys: "R", desc: "refresh panel + re-check session on disk" },
     HelpEntry { keys: "?", desc: "toggle this help" },

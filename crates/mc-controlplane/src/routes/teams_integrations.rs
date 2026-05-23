@@ -141,19 +141,19 @@ async fn teams_events(
         .trim()
         .to_string();
 
-    let mission_id = payload
-        .get("mission_id")
+    let domain_id = payload
+        .get("domain_id")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim()
         .to_string();
 
-    if !mission_id.is_empty() && !channel_id.is_empty() {
+    if !domain_id.is_empty() && !channel_id.is_empty() {
         let exists = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM slackchannelbinding \
-             WHERE provider='teams' AND mission_id=$1 AND channel_id=$2)",
+             WHERE provider='teams' AND domain_id=$1 AND channel_id=$2)",
         )
-        .bind(&mission_id)
+        .bind(&domain_id)
         .bind(&channel_id)
         .fetch_one(&state.db)
         .await
@@ -162,7 +162,7 @@ async fn teams_events(
         if !exists {
             return (
                 StatusCode::FORBIDDEN,
-                Json(serde_json::json!({"detail": "Teams channel is not bound to mission"})),
+                Json(serde_json::json!({"detail": "Teams channel is not bound to domain"})),
             )
                 .into_response();
         }
@@ -172,7 +172,7 @@ async fn teams_events(
     let dedupe_key = format!(
         "teams:{}:{}:{}:{}",
         et,
-        mission_id,
+        domain_id,
         channel_id,
         sha256_hex(&body)
     );
@@ -199,7 +199,7 @@ async fn teams_events(
 
     tracing::info!(
         event_type = %event_type,
-        mission_id = %mission_id,
+        domain_id = %domain_id,
         channel_id = %channel_id,
         "teams event received"
     );

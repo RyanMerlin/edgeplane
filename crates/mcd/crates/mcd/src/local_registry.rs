@@ -87,7 +87,7 @@ fn migrate_to_v1(conn: &Connection) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS agent (
             id                TEXT NOT NULL,
             source            TEXT NOT NULL,
-            mission_id        TEXT NOT NULL,
+            domain_id        TEXT NOT NULL,
             runtime_kind      TEXT NOT NULL,
             supervision_mode  TEXT NOT NULL,
             capabilities_json TEXT NOT NULL DEFAULT '[]',
@@ -228,11 +228,11 @@ impl LocalRegistry {
     pub fn upsert(&self, rec: &AgentRecord) -> Result<()> {
         self.conn.execute(
             "INSERT INTO agent
-                (id, source, mission_id, runtime_kind, supervision_mode,
+                (id, source, domain_id, runtime_kind, supervision_mode,
                  capabilities_json, profile_path, enrolled_at, last_synced_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(source, id) DO UPDATE SET
-                mission_id        = excluded.mission_id,
+                domain_id        = excluded.domain_id,
                 runtime_kind      = excluded.runtime_kind,
                 supervision_mode  = excluded.supervision_mode,
                 capabilities_json = excluded.capabilities_json,
@@ -241,7 +241,7 @@ impl LocalRegistry {
             params![
                 rec.id,
                 rec.source,
-                rec.mission_id,
+                rec.domain_id,
                 rec.runtime_kind,
                 rec.supervision_mode,
                 rec.capabilities_json,
@@ -253,11 +253,11 @@ impl LocalRegistry {
         Ok(())
     }
 
-    /// Reassign an agent to a different mission (updates mission_id in place).
-    pub fn reassign(&self, source: &str, agent_id: &str, new_mission_id: &str) -> Result<bool> {
+    /// Reassign an agent to a different domain (updates domain_id in place).
+    pub fn reassign(&self, source: &str, agent_id: &str, new_domain_id: &str) -> Result<bool> {
         let n = self.conn.execute(
-            "UPDATE agent SET mission_id = ?1 WHERE source = ?2 AND id = ?3",
-            params![new_mission_id, source, agent_id],
+            "UPDATE agent SET domain_id = ?1 WHERE source = ?2 AND id = ?3",
+            params![new_domain_id, source, agent_id],
         )?;
         Ok(n > 0)
     }
@@ -274,7 +274,7 @@ impl LocalRegistry {
     /// List all agent rows for a given source tag.
     pub fn list_by_source(&self, source: &str) -> Result<Vec<AgentRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, source, mission_id, runtime_kind, supervision_mode,
+            "SELECT id, source, domain_id, runtime_kind, supervision_mode,
                     capabilities_json, profile_path, enrolled_at, last_synced_at
              FROM agent WHERE source = ?1 ORDER BY enrolled_at ASC",
         )?;
@@ -282,7 +282,7 @@ impl LocalRegistry {
             Ok(AgentRecord {
                 id: row.get(0)?,
                 source: row.get(1)?,
-                mission_id: row.get(2)?,
+                domain_id: row.get(2)?,
                 runtime_kind: row.get(3)?,
                 supervision_mode: row.get(4)?,
                 capabilities_json: row.get(5)?,
@@ -434,13 +434,13 @@ impl LocalRegistry {
             };
             tx.execute(
                 "INSERT INTO agent
-                    (id, source, mission_id, runtime_kind, supervision_mode,
+                    (id, source, domain_id, runtime_kind, supervision_mode,
                      capabilities_json, profile_path, enrolled_at, last_synced_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     spec.agent_id,
                     source,
-                    spec.mission_id,
+                    spec.domain_id,
                     spec.runtime_kind,
                     supervision,
                     caps,
@@ -460,7 +460,7 @@ impl LocalRegistry {
 pub struct AgentRecord {
     pub id: String,
     pub source: String,
-    pub mission_id: String,
+    pub domain_id: String,
     pub runtime_kind: String,
     /// "task" | "persistent"
     pub supervision_mode: String,
@@ -481,7 +481,7 @@ impl AgentRecord {
         Self {
             id: spec.agent_id.clone(),
             source: source.to_string(),
-            mission_id: spec.mission_id.clone(),
+            domain_id: spec.domain_id.clone(),
             runtime_kind: spec.runtime_kind.clone(),
             supervision_mode: match spec.session_mode {
                 SessionMode::Task => "task".into(),
@@ -507,7 +507,7 @@ impl AgentRecord {
             serde_json::from_str(&self.capabilities_json).unwrap_or_default();
         AgentSpec {
             agent_id: self.id,
-            mission_id: self.mission_id,
+            domain_id: self.domain_id,
             runtime_kind: self.runtime_kind,
             session_mode,
             capabilities,
@@ -956,10 +956,10 @@ mod tests {
         (dir, reg)
     }
 
-    fn spec(id: &str, mission: &str, mode: SessionMode) -> AgentSpec {
+    fn spec(id: &str, domain: &str, mode: SessionMode) -> AgentSpec {
         AgentSpec {
             agent_id: id.into(),
-            mission_id: mission.into(),
+            domain_id: domain.into(),
             runtime_kind: "claude_agent_acp".into(),
             session_mode: mode,
             capabilities: vec![],
@@ -990,25 +990,25 @@ mod tests {
     }
 
     #[test]
-    fn upsert_updates_mission() {
+    fn upsert_updates_domain() {
         let (_dir, reg) = tmp_reg();
         reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
             .unwrap();
         reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-2", SessionMode::Task), SOURCE_LOCAL))
             .unwrap();
         let specs = reg.list_specs_by_source(SOURCE_LOCAL).unwrap();
-        assert_eq!(specs[0].mission_id, "m-2");
+        assert_eq!(specs[0].domain_id, "m-2");
     }
 
     #[test]
-    fn reassign_changes_mission() {
+    fn reassign_changes_domain() {
         let (_dir, reg) = tmp_reg();
         reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
             .unwrap();
         let changed = reg.reassign(SOURCE_LOCAL, "a-1", "m-2").unwrap();
         assert!(changed);
         let specs = reg.list_specs_by_source(SOURCE_LOCAL).unwrap();
-        assert_eq!(specs[0].mission_id, "m-2");
+        assert_eq!(specs[0].domain_id, "m-2");
     }
 
     #[test]

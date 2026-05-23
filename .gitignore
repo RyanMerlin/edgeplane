@@ -195,6 +195,7 @@ crates/mc-controlplane/target/
 docker/mosquitto/passwords/
 artifacts/
 
-# Kluster update artifacts (personal session files)
+# Mission update artifacts (personal session files)
+crates/mc/mission-*.md
 crates/mc/kluster-*.md
 .worktrees/

@@ -96,7 +96,7 @@ pub fn import_into(registry: &LocalRegistry, profiles: &[Profile]) -> Result<Imp
     for profile in profiles {
         let spec = AgentSpec {
             agent_id: profile.name.clone(),
-            mission_id: String::new(),
+            domain_id: String::new(),
             runtime_kind: "zellij_hosted".to_string(),
             session_mode: SessionMode::Persistent,
             capabilities: vec![],

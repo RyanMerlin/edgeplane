@@ -179,7 +179,7 @@ impl McDispatch {
         args: Value,
         dry_run: bool,
         timeout_secs: Option<u32>,
-        mission_id: Option<String>,
+        domain_id: Option<String>,
         agent_id: Option<String>,
     ) -> Result<Value> {
         let params = serde_json::json!({
@@ -187,7 +187,7 @@ impl McDispatch {
             "args": args,
             "dry_run": dry_run,
             "timeout_secs": timeout_secs,
-            "mission_id": mission_id,
+            "domain_id": domain_id,
             "agent_id": agent_id,
         });
 

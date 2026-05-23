@@ -13,12 +13,12 @@ pub fn next_job_id() -> JobId {
 // ─── requests ────────────────────────────────────────────────────────────────
 
 pub enum WorkRequest {
-    /// Fetch the list of missions from the backend.
-    ListMissions { job_id: JobId },
-    /// Fetch klusters for a mission.
-    ListKlusters { mission_id: String, job_id: JobId },
-    /// Fetch tasks for a kluster using the canonical authenticated path.
-    ListTasks { mission_id: String, kluster_id: String, job_id: JobId },
+    /// Fetch the list of domains from the backend.
+    ListDomains { job_id: JobId },
+    /// Fetch missions for a domain.
+    ListMissions { domain_id: String, job_id: JobId },
+    /// Fetch tasks for a mission using the canonical authenticated path.
+    ListTasks { domain_id: String, mission_id: String, job_id: JobId },
     /// Health-ping the backend; used for the status bar.
     Ping { job_id: JobId },
     /// Subscribe to the agent-feed SSE endpoint. The spawned thread streams
@@ -40,8 +40,8 @@ pub enum WorkRequest {
         path: String,
         cfg: mcd_secrets::InfisicalConfig,
     },
-    /// Fetch pending approvals for a mission (or all if mission_id is None).
-    FetchApprovals { job_id: JobId, mission_id: Option<String> },
+    /// Fetch pending approvals for a domain (or all if domain_id is None).
+    FetchApprovals { job_id: JobId, domain_id: Option<String> },
     /// Respond to a pending approval with "approve" or "reject".
     RespondApproval { job_id: JobId, approval_id: String, decision: String, note: Option<String> },
     /// Fetch the list of agents from the backend.
@@ -63,20 +63,20 @@ pub enum WorkRequest {
 // ─── results ─────────────────────────────────────────────────────────────────
 
 pub enum WorkResult {
-    MissionsListed {
+    DomainsListed {
         job_id: JobId,
-        missions: Vec<super::data::MissionSummary>,
+        domains: Vec<super::data::DomainSummary>,
         error: Option<String>,
     },
-    KlustersListed {
+    MissionsListed {
         job_id: JobId,
-        mission_id: String,
-        klusters: Vec<super::data::KlusterSummary>,
+        domain_id: String,
+        missions: Vec<super::data::MissionSummary>,
         error: Option<String>,
     },
     TasksListed {
         job_id: JobId,
-        kluster_id: String,
+        mission_id: String,
         tasks: Vec<super::data::TaskSummary>,
         error: Option<String>,
     },
@@ -177,40 +177,40 @@ impl WorkPool {
                         server_version,
                     });
                 }
-                WorkRequest::ListMissions { job_id } => {
-                    match handle.block_on(client.list_missions()) {
-                        Ok(missions) => {
-                            let _ = tx.send(WorkResult::MissionsListed { job_id, missions, error: None });
+                WorkRequest::ListDomains { job_id } => {
+                    match handle.block_on(client.list_domains()) {
+                        Ok(domains) => {
+                            let _ = tx.send(WorkResult::DomainsListed { job_id, domains, error: None });
                         }
                         Err(e) => {
-                            let _ = tx.send(WorkResult::MissionsListed {
+                            let _ = tx.send(WorkResult::DomainsListed {
                                 job_id,
-                                missions: vec![],
+                                domains: vec![],
                                 error: Some(e.to_string()),
                             });
                         }
                     }
                 }
-                WorkRequest::ListKlusters { mission_id, job_id } => {
-                    match handle.block_on(client.list_klusters(&mission_id)) {
-                        Ok(klusters) => {
-                            let _ = tx.send(WorkResult::KlustersListed { job_id, mission_id, klusters, error: None });
+                WorkRequest::ListMissions { domain_id, job_id } => {
+                    match handle.block_on(client.list_missions(&domain_id)) {
+                        Ok(missions) => {
+                            let _ = tx.send(WorkResult::MissionsListed { job_id, domain_id, missions, error: None });
                         }
                         Err(e) => {
-                            let _ = tx.send(WorkResult::KlustersListed {
-                                job_id, mission_id, klusters: vec![], error: Some(e.to_string()),
+                            let _ = tx.send(WorkResult::MissionsListed {
+                                job_id, domain_id, missions: vec![], error: Some(e.to_string()),
                             });
                         }
                     }
                 }
-                WorkRequest::ListTasks { mission_id, kluster_id, job_id } => {
-                    match handle.block_on(client.list_tasks(&mission_id, &kluster_id)) {
+                WorkRequest::ListTasks { domain_id, mission_id, job_id } => {
+                    match handle.block_on(client.list_tasks(&domain_id, &mission_id)) {
                         Ok(tasks) => {
-                            let _ = tx.send(WorkResult::TasksListed { job_id, kluster_id, tasks, error: None });
+                            let _ = tx.send(WorkResult::TasksListed { job_id, mission_id, tasks, error: None });
                         }
                         Err(e) => {
                             let _ = tx.send(WorkResult::TasksListed {
-                                job_id, kluster_id, tasks: vec![], error: Some(e.to_string()),
+                                job_id, mission_id, tasks: vec![], error: Some(e.to_string()),
                             });
                         }
                     }
@@ -263,8 +263,8 @@ impl WorkPool {
                         }
                     }
                 }
-                WorkRequest::FetchApprovals { job_id, mission_id } => {
-                    match handle.block_on(client.list_approvals(mission_id.as_deref())) {
+                WorkRequest::FetchApprovals { job_id, domain_id } => {
+                    match handle.block_on(client.list_approvals(domain_id.as_deref())) {
                         Ok(approvals) => {
                             let _ = tx.send(WorkResult::ApprovalsListed { job_id, approvals, error: None });
                         }
@@ -625,12 +625,12 @@ async fn stream_feed(base_url: String, token: Option<String>, tx: std::sync::mps
                 // Empty line = dispatch event
                 if !current_data.is_empty() {
                     let ts = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
-                    let (agent_id, mission_id, evdata) =
+                    let (agent_id, domain_id, evdata) =
                         parse_feed_data(&current_data);
                     let ev = super::screens::agent_feed::FeedEvent {
                         ts,
                         agent_id,
-                        mission_id,
+                        domain_id,
                         event_type: current_event_type.clone(),
                         data: evdata,
                     };
@@ -652,15 +652,15 @@ async fn stream_feed(base_url: String, token: Option<String>, tx: std::sync::mps
     let _ = tx.send(WorkResult::FeedDisconnected { error: None });
 }
 
-/// Try to parse agent_id / mission_id from the SSE data payload (expected to be JSON).
+/// Try to parse agent_id / domain_id from the SSE data payload (expected to be JSON).
 fn parse_feed_data(data: &str) -> (Option<String>, Option<String>, String) {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
         let agent_id = v.get("agent_id").and_then(|x| x.as_str()).map(str::to_string)
             .or_else(|| v.get("agent").and_then(|x| x.as_str()).map(str::to_string));
-        let mission_id = v.get("mission_id").and_then(|x| x.as_str()).map(str::to_string);
+        let domain_id = v.get("domain_id").and_then(|x| x.as_str()).map(str::to_string);
         let summary = v.get("message").or_else(|| v.get("data")).or_else(|| v.get("summary"))
             .and_then(|x| x.as_str()).unwrap_or(data).to_string();
-        (agent_id, mission_id, summary)
+        (agent_id, domain_id, summary)
     } else {
         (None, None, data.to_string())
     }
@@ -669,7 +669,7 @@ fn parse_feed_data(data: &str) -> (Option<String>, Option<String>, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::data::{DataClient, FixtureDataClient, MissionSummary};
+    use crate::tui::data::{DataClient, FixtureDataClient, DomainSummary};
     use std::sync::Arc;
 
     #[tokio::test]
@@ -690,24 +690,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pool_delivers_missions_result() {
+    async fn pool_delivers_domains_result() {
         let pool = WorkPool::new();
         let client: Arc<dyn DataClient> = Arc::new(FixtureDataClient {
-            missions: vec![MissionSummary {
+            domains: vec![DomainSummary {
                 id: "m1".into(),
-                name: "Test Mission".into(),
+                name: "Test Domain".into(),
                 status: "active".into(),
             }],
         });
         let job_id = next_job_id();
-        pool.dispatch(client, WorkRequest::ListMissions { job_id });
+        pool.dispatch(client, WorkRequest::ListDomains { job_id });
         let result = pool.result_rx.recv_timeout(std::time::Duration::from_secs(5));
         assert!(result.is_ok());
         match result.unwrap() {
-            WorkResult::MissionsListed { missions, error, .. } => {
+            WorkResult::DomainsListed { domains, error, .. } => {
                 assert!(error.is_none());
-                assert_eq!(missions.len(), 1);
-                assert_eq!(missions[0].name, "Test Mission");
+                assert_eq!(domains.len(), 1);
+                assert_eq!(domains[0].name, "Test Domain");
             }
             _ => panic!("unexpected variant"),
         }

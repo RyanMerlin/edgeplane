@@ -701,7 +701,7 @@ fn render_content(buf: &mut Buffer, area: Rect, state: &ConfigScreenState) {
     let lines = match state.nav_selection {
         0 => panel_server(state),
         1 => panel_auth(state),
-        2 => panel_placeholder("Fleet node data is not yet loaded in the config panel.\n\nVisit the Missions tab to browse your fleet."),
+        2 => panel_placeholder("Fleet node data is not yet loaded in the config panel.\n\nVisit the Domains tab to browse your fleet."),
         3 => panel_placeholder("Agent runtime defaults are not yet configurable from the TUI.\n\nEdit ~/.mc/config.json to adjust defaults."),
         4 => panel_profile(state),
         5 => panel_infisical(state),

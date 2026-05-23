@@ -2,12 +2,12 @@
 """
 Self-contained mesh agent worker for the demo.
 
-Enrolls as a MeshAgent, polls for ready tasks in the mission's klusters,
+Enrolls as a MeshAgent, polls for ready tasks in the domain's missions,
 claims and executes each one (sleep 2s), then posts complete or fail.
 Demonstrates the full backend work loop without needing mc run.
 
 Usage:
-    python3 agent_worker.py <mission_id> [<base_url>] [<token>]
+    python3 agent_worker.py <domain_id> [<base_url>] [<token>]
 """
 import json
 import os
@@ -19,10 +19,10 @@ import urllib.error
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: agent_worker.py <mission_id> [base_url] [token]", file=sys.stderr)
+        print("usage: agent_worker.py <domain_id> [base_url] [token]", file=sys.stderr)
         sys.exit(1)
 
-    mission_id = sys.argv[1]
+    domain_id = sys.argv[1]
     base_url = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("MC_BASE_URL", "http://localhost:8008")
     token = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("MC_TOKEN", "")
     worker_id = f"demo-worker-{os.getpid()}"
@@ -44,8 +44,8 @@ def main():
         print(f"[{worker_id}] {msg}", flush=True)
 
     # Enroll as a mesh agent
-    log(f"enrolling in mission {mission_id}…")
-    enroll = api("POST", f"/work/missions/{mission_id}/agents/enroll", {
+    log(f"enrolling in domain {domain_id}…")
+    enroll = api("POST", f"/work/domains/{domain_id}/agents/enroll", {
         "runtime_kind": "demo_python",
         "capabilities": ["demo"],
         "labels": {"worker": worker_id},
@@ -61,14 +61,14 @@ def main():
     def heartbeat():
         api("POST", f"/work/agents/{agent_id}/heartbeat", {})
 
-    def get_klusters():
-        result = api("GET", f"/missions/{mission_id}/k")
+    def get_missions():
+        result = api("GET", f"/domains/{domain_id}/m")
         if isinstance(result, list):
-            return [k["id"] for k in result if "id" in k]
+            return [m["id"] for m in result if "id" in m]
         return []
 
-    def get_ready_tasks(kluster_id):
-        result = api("GET", f"/work/klusters/{kluster_id}/tasks?status=ready")
+    def get_ready_tasks(mission_id):
+        result = api("GET", f"/work/missions/{mission_id}/tasks?status=ready")
         if isinstance(result, list):
             return [t["id"] for t in result if t.get("status") == "ready"]
         return []
@@ -103,10 +103,10 @@ def main():
             heartbeat()
             last_hb = time.time()
 
-        # Scan klusters for ready tasks
+        # Scan missions for ready tasks
         claimed_something = False
-        for kid in get_klusters():
-            for task_id in get_ready_tasks(kid):
+        for mid in get_missions():
+            for task_id in get_ready_tasks(mid):
                 log(f"  attempting claim on task {task_id}…")
                 claim = claim_task(task_id)
                 if claim is None:
@@ -128,7 +128,7 @@ def main():
                 claimed_something = True
                 break  # one task at a time per outer scan
             if claimed_something:
-                break
+                break  # one mission at a time per outer scan
 
         if not claimed_something:
             time.sleep(poll_interval)

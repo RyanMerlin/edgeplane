@@ -22,7 +22,7 @@ TOKEN=$(jq -r .token ~/.mc/session.json)
 AUTH=(-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
 NODE_ID="${MC_NODE_ID:-excalibur}"
 TS=$(date +%s)
-MISSION_ID="" KLUSTER_ID="" TASK_ID="" AGENT_ID="" RUN_ID=""
+DOMAIN_ID="" MISSION_ID="" TASK_ID="" AGENT_ID="" RUN_ID=""
 
 step() { echo "::: $*"; }
 api()  { curl -sf "${AUTH[@]}" "$@"; }
@@ -34,32 +34,32 @@ cleanup() {
     curl -sf "${AUTH[@]}" -X DELETE "$BASE_URL/runtime/nodes/$NODE_ID/agents/$AGENT_ID" >/dev/null 2>&1 || true
   fi
   if [[ $ec -ne 0 ]]; then
-    echo "::: aborted with exit=$ec — partial state may exist (mission=$MISSION_ID)"
+    echo "::: aborted with exit=$ec — partial state may exist (mission=$DOMAIN_ID)"
   fi
   return 0
 }
 trap cleanup EXIT
 
 step "1. Create throwaway mission"
-MISSION_ID=$(api -X POST "$BASE_URL/missions" -d "{
+DOMAIN_ID=$(api -X POST "$BASE_URL/missions" -d "{
   \"name\": \"proto-subagent-$TS\",
   \"northstar_md\": \"Ephemeral subagent model prototype.\",
   \"owners\": \"admin\",
   \"visibility\": \"private\",
   \"kind\": \"work\"
 }" | jq -r .id)
-echo "    mission_id = $MISSION_ID"
+echo "    domain_id = $DOMAIN_ID"
 
-step "2. Create kluster"
-KLUSTER_ID=$(api -X POST "$BASE_URL/missions/$MISSION_ID/k" -d "{
+step "2. Create mission"
+MISSION_ID=$(api -X POST "$BASE_URL/domains/$DOMAIN_ID/m" -d "{
   \"name\": \"proto-k\",
-  \"workstream_md\": \"Throwaway kluster.\",
+  \"workstream_md\": \"Throwaway mission.\",
   \"owners\": \"admin\"
 }" | jq -r .id)
-echo "    kluster_id = $KLUSTER_ID"
+echo "    mission_id = $MISSION_ID"
 
 step "3. Create meshtask"
-TASK_ID=$(api -X POST "$BASE_URL/work/klusters/$KLUSTER_ID/tasks" -d "{
+TASK_ID=$(api -X POST "$BASE_URL/work/missions/$MISSION_ID/tasks" -d "{
   \"title\": \"echo cwd\",
   \"description\": \"Subagent prints working directory and exits.\",
   \"kind\": \"task\",
@@ -69,7 +69,7 @@ TASK_ID=$(api -X POST "$BASE_URL/work/klusters/$KLUSTER_ID/tasks" -d "{
 echo "    task_id = $TASK_ID"
 
 step "4. Enroll ephemeral meshagent (labels.role=task-subagent)"
-AGENT_ID=$(api -X POST "$BASE_URL/work/missions/$MISSION_ID/agents/enroll" -d "{
+AGENT_ID=$(api -X POST "$BASE_URL/work/domains/$DOMAIN_ID/agents/enroll" -d "{
   \"node_id\": \"$NODE_ID\",
   \"runtime_kind\": \"claude_headless\",
   \"runtime_version\": \"prototype\",
@@ -153,12 +153,12 @@ echo
 rm -rf "$WORKTREE"
 PRIOR_AGENT_ID="$AGENT_ID"; AGENT_ID=""  # prevent trap re-attempt
 echo "::: cleanup: worktree removed. Throwaway entities kept for inspection:"
+echo ":::   mission  $DOMAIN_ID"
 echo ":::   mission  $MISSION_ID"
-echo ":::   kluster  $KLUSTER_ID"
 echo ":::   task     $TASK_ID"
 echo ":::   agent    $PRIOR_AGENT_ID"
 echo ":::   run      $RUN_ID"
 echo "::: drop them with:"
-echo ":::   curl -X DELETE -H \"Authorization: Bearer \$TOKEN\" $BASE_URL/missions/$MISSION_ID/k/$KLUSTER_ID"
-echo ":::   curl -X DELETE -H \"Authorization: Bearer \$TOKEN\" $BASE_URL/missions/$MISSION_ID"
+echo ":::   curl -X DELETE -H \"Authorization: Bearer \$TOKEN\" $BASE_URL/domains/$DOMAIN_ID/m/$MISSION_ID"
+echo ":::   curl -X DELETE -H \"Authorization: Bearer \$TOKEN\" $BASE_URL/domains/$DOMAIN_ID"
 exit 0

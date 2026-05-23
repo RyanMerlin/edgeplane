@@ -13,7 +13,7 @@ use crate::tui::theme;
 pub struct FeedEvent {
     pub ts: String,
     pub agent_id: Option<String>,
-    pub mission_id: Option<String>,
+    pub domain_id: Option<String>,
     pub event_type: String,
     pub data: String,
 }
@@ -64,7 +64,7 @@ impl AgentFeedState {
             if !self.filter.is_empty() {
                 let q = self.filter.to_lowercase();
                 let matches = ev.agent_id.as_deref().unwrap_or("").to_lowercase().contains(&q)
-                    || ev.mission_id.as_deref().unwrap_or("").to_lowercase().contains(&q)
+                    || ev.domain_id.as_deref().unwrap_or("").to_lowercase().contains(&q)
                     || ev.event_type.to_lowercase().contains(&q)
                     || ev.data.to_lowercase().contains(&q);
                 if !matches {
@@ -238,7 +238,7 @@ fn render_feed(buf: &mut Buffer, area: Rect, state: &AgentFeedState) {
         let selected = i == state.selection;
         let style = if selected { theme::selected() } else { theme::normal() };
         let agent = ev.agent_id.as_deref().unwrap_or("?");
-        let context = ev.mission_id.as_deref().unwrap_or("—");
+        let context = ev.domain_id.as_deref().unwrap_or("—");
         let (type_style, type_str) = event_style(&ev.event_type);
 
         // Alert margin prefix
@@ -294,8 +294,8 @@ fn render_detail_panel(buf: &mut Buffer, area: Rect, state: &AgentFeedState) {
             Span::styled(ev.agent_id.as_deref().unwrap_or("—").to_string(), theme::accent()),
         ]),
         Line::from(vec![
-            Span::styled("Mission ", theme::muted()),
-            Span::styled(ev.mission_id.as_deref().unwrap_or("—").to_string(), theme::normal()),
+            Span::styled("Domain ", theme::muted()),
+            Span::styled(ev.domain_id.as_deref().unwrap_or("—").to_string(), theme::normal()),
         ]),
         Line::from(vec![Span::styled("Type    ", theme::muted()), Span::styled(ev.event_type.clone(), theme::muted())]),
         Line::from(""),
@@ -330,8 +330,8 @@ fn event_style(event_type: &str) -> (ratatui::style::Style, &str) {
         "artifact_produced" => (theme::purple(), "artifact_produced"),
         "task_claimed" => (theme::ok(), "task_claimed"),
         "heartbeat" => (theme::dim(), "heartbeat"),
-        "kluster_started" => (theme::accent(), "kluster_started"),
         "mission_started" => (theme::accent(), "mission_started"),
+        "domain_started" => (theme::accent(), "domain_started"),
         "governance" => (theme::warn(), "governance"),
         "overlap_detected" => (theme::warn(), "overlap_detected"),
         _ => (theme::muted(), event_type),

@@ -16,10 +16,10 @@ pub mod governance;
 pub mod health;
 pub mod hooks;
 pub mod ingestion;
-pub mod klusters;
-pub mod mcp;
-pub mod mission_packs;
 pub mod missions;
+pub mod mcp;
+pub mod domain_packs;
+pub mod domains;
 pub mod oidc_web;
 pub mod onboarding;
 pub mod ops;
@@ -50,9 +50,9 @@ pub fn build_router() -> Router<Arc<AppState>> {
         .merge(raft::router())
         .merge(auth::router())
         .merge(oidc_web::router())
-        .merge(missions::router())
+        .merge(domains::router())
         .merge(agents::router())
-        .merge(klusters::router())
+        .merge(missions::router())
         .merge(tasks::router())
         .merge(approvals::router())
         .merge(runs::router())
@@ -65,7 +65,7 @@ pub fn build_router() -> Router<Arc<AppState>> {
         .merge(budgets::router())
         .merge(event_triggers::router())
         .merge(feedback::router())
-        .merge(mission_packs::router())
+        .merge(domain_packs::router())
         .merge(onboarding::router())
         .merge(remotectl::router())
         .merge(artifacts::router())

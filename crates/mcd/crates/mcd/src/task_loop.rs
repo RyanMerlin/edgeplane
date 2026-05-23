@@ -1,7 +1,7 @@
 /// Per-agent task claim → inject → forward loop.
 ///
 /// Each supervised agent runs one of these concurrently.  The loop:
-///   1. Polls the backend for ready tasks in all klusters of the agent's mission
+///   1. Polls the backend for ready tasks in all missions of the agent's domain
 ///   2. Claims the highest-priority eligible task
 ///   3. Injects the task into the agent runtime
 ///   4. Forwards progress events to the backend in real time
@@ -41,7 +41,7 @@ pub async fn run_for_agent(
     agent: Arc<tokio::sync::Mutex<AgentHandle>>,
     runtime: Arc<mcd_core::agent_runtime::DynAgentRuntime>,
     client: Arc<BackendClient>,
-    mission_id: String,
+    domain_id: String,
     agent_id: String,
     watchdog: Arc<mcd_work::watchdog::Watchdog>,
 ) {
@@ -150,28 +150,28 @@ pub async fn run_for_agent(
         }
         watchdog.record_heartbeat_success();
 
-        // Get klusters for this mission.
-        let klusters = match get_mission_klusters(&client, &mission_id).await {
+        // Get missions for this domain.
+        let missions = match get_domain_missions(&client, &domain_id).await {
             Ok(k) => k,
             Err(e) => {
-                tracing::warn!("Could not list klusters for mission {mission_id}: {e}");
+                tracing::warn!("Could not list missions for domain {domain_id}: {e}");
                 tokio::time::sleep(poll_interval).await;
                 poll_interval = (poll_interval * 2).min(POLL_INTERVAL_MAX);
                 continue;
             }
         };
 
-        // Try to claim a task from any kluster.
+        // Try to claim a task from any mission.
         let caps = runtime.capabilities().to_vec();
         let mut claimed: Option<claim::ClaimOutcome> = None;
-        for kluster_id in &klusters {
-            match claim::try_claim_one(&client, kluster_id, &caps).await {
+        for mission_id in &missions {
+            match claim::try_claim_one(&client, mission_id, &caps).await {
                 Ok(Some(outcome)) => {
                     claimed = Some(outcome);
                     break;
                 }
                 Ok(None) => {}
-                Err(e) => tracing::debug!("Claim attempt error in {kluster_id}: {e}"),
+                Err(e) => tracing::debug!("Claim attempt error in {mission_id}: {e}"),
             }
         }
 
@@ -210,13 +210,13 @@ pub async fn run_for_agent(
             )
             .await;
 
-        // Fetch agent profile and mission roster for context injection.
+        // Fetch agent profile and domain roster for context injection.
         let agent_profile = client.get_agent(&agent_id).await
             .ok()
             .and_then(|v| v.get("profile").cloned())
             .filter(|v| !v.is_null());
 
-        let mission_roster = client.get_mission_roster(&mission_id).await
+        let domain_roster = client.get_domain_roster(&domain_id).await
             .unwrap_or_default()
             .into_iter()
             // Exclude this agent from the roster it sees (it knows itself already).
@@ -245,8 +245,8 @@ pub async fn run_for_agent(
         // Build the TaskSpec.
         let task_spec = TaskSpec {
             id: task_record.id.clone(),
-            kluster_id: task_record.kluster_id.clone(),
-            mission_id: mission_id.clone(),
+            mission_id: task_record.mission_id.clone(),
+            domain_id: domain_id.clone(),
             title: task_record.title.clone(),
             description: task_record.description.clone(),
             input_json: "{}".into(),
@@ -254,7 +254,7 @@ pub async fn run_for_agent(
             produces: task_record.produces.clone(),
             consumes: task_record.consumes.clone(),
             agent_profile,
-            mission_roster,
+            domain_roster,
             dependency_results,
             pending_messages,
         };
@@ -354,13 +354,13 @@ async fn stream_and_heartbeat(
     Ok(success)
 }
 
-/// Get all kluster ids for a mission.
-async fn get_mission_klusters(client: &BackendClient, mission_id: &str) -> Result<Vec<String>> {
+/// Get all mission ids for a domain.
+async fn get_domain_missions(client: &BackendClient, domain_id: &str) -> Result<Vec<String>> {
     let resp: serde_json::Value = client
-        .get(&format!("/missions/{mission_id}/k"))
+        .get(&format!("/domains/{domain_id}/m"))
         .await?;
 
-    // Backend returns an array of kluster objects with an "id" field.
+    // Backend returns an array of mission objects with an "id" field.
     let ids = resp
         .as_array()
         .unwrap_or(&vec![])
@@ -397,7 +397,7 @@ pub async fn run_message_relay(
     pending_buffer: Option<Arc<tokio::sync::Mutex<Vec<PendingPeerMessage>>>>,
 ) {
     // We poll the agent-scoped message inbox: GET /agents/{id}/messages
-    // which returns messages addressed to this agent + mission broadcasts.
+    // which returns messages addressed to this agent + domain broadcasts.
     //
     // `last_id` is an in-memory cursor; it resets to 0 on every mcd restart.
     // To avoid re-delivering the full message history on each startup, the

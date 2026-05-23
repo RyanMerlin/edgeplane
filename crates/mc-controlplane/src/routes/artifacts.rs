@@ -43,7 +43,7 @@ fn not_found(msg: &str) -> Response {
 fn row_to_artifact(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     json!({
         "id": row.get::<i32, _>("id"),
-        "kluster_id": row.get::<String, _>("kluster_id"),
+        "mission_id": row.get::<String, _>("mission_id"),
         "name": row.get::<String, _>("name"),
         "artifact_type": row.get::<String, _>("artifact_type"),
         "uri": row.get::<String, _>("uri"),
@@ -63,14 +63,14 @@ fn row_to_artifact(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     })
 }
 
-async fn can_read_mission(db: &sqlx::PgPool, principal: &Principal, mission_id: &str) -> bool {
+async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &str) -> bool {
     if principal.is_admin {
         return true;
     }
     if let Ok(Some(row)) = sqlx::query(
-        "SELECT visibility, owners, contributors FROM mission WHERE id=$1",
+        "SELECT visibility, owners, contributors FROM domain WHERE id=$1",
     )
-    .bind(mission_id)
+    .bind(domain_id)
     .fetch_optional(db)
     .await
     {
@@ -86,22 +86,22 @@ async fn can_read_mission(db: &sqlx::PgPool, principal: &Principal, mission_id: 
         return in_list(&owners) || in_list(&contributors);
     }
     sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM missionrolemembership WHERE mission_id=$1 AND subject=$2)",
+        "SELECT EXISTS(SELECT 1 FROM domainrolemembership WHERE domain_id=$1 AND subject=$2)",
     )
-    .bind(mission_id)
+    .bind(domain_id)
     .bind(&principal.subject)
     .fetch_one(db)
     .await
     .unwrap_or(false)
 }
 
-async fn can_write_mission(db: &sqlx::PgPool, principal: &Principal, mission_id: &str) -> bool {
+async fn can_write_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &str) -> bool {
     if principal.is_admin {
         return true;
     }
     if let Ok(Some(row)) =
-        sqlx::query("SELECT owners, contributors FROM mission WHERE id=$1")
-            .bind(mission_id)
+        sqlx::query("SELECT owners, contributors FROM domain WHERE id=$1")
+            .bind(domain_id)
             .fetch_optional(db)
             .await
     {
@@ -113,9 +113,9 @@ async fn can_write_mission(db: &sqlx::PgPool, principal: &Principal, mission_id:
         return in_list(&owners) || in_list(&contributors);
     }
     sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM missionrolemembership WHERE mission_id=$1 AND subject=$2 AND role IN ('owner','contributor'))",
+        "SELECT EXISTS(SELECT 1 FROM domainrolemembership WHERE domain_id=$1 AND subject=$2 AND role IN ('owner','contributor'))",
     )
-    .bind(mission_id)
+    .bind(domain_id)
     .bind(&principal.subject)
     .fetch_one(db)
     .await
@@ -124,7 +124,7 @@ async fn can_write_mission(db: &sqlx::PgPool, principal: &Principal, mission_id:
 
 #[derive(Deserialize)]
 struct ListArtifactsQuery {
-    kluster_id: Option<String>,
+    mission_id: Option<String>,
     limit: Option<i64>,
 }
 
@@ -133,12 +133,12 @@ async fn create_artifact(
     principal: Principal,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let kluster_id = match payload.get("kluster_id").and_then(|v| v.as_str()) {
+    let mission_id = match payload.get("mission_id").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s.to_string(),
         _ => {
             return (
                 StatusCode::UNPROCESSABLE_ENTITY,
-                Json(json!({"detail": "kluster_id is required"})),
+                Json(json!({"detail": "mission_id is required"})),
             )
                 .into_response()
         }
@@ -210,24 +210,24 @@ async fn create_artifact(
             .into_response();
     }
 
-    // Check kluster exists
-    let kluster_row = match sqlx::query("SELECT id, mission_id FROM kluster WHERE id=$1")
-        .bind(&kluster_id)
+    // Check mission exists
+    let mission_row = match sqlx::query("SELECT id, domain_id FROM mission WHERE id=$1")
+        .bind(&mission_id)
         .fetch_optional(&state.db)
         .await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return not_found("Kluster not found"),
+        Ok(None) => return not_found("Mission not found"),
         Err(e) => {
-            tracing::error!("create_artifact fetch kluster: {e}");
+            tracing::error!("create_artifact fetch mission: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let mission_id: Option<String> =
-        kluster_row.try_get("mission_id").ok().and_then(|v: Option<String>| v);
-    if let Some(ref mid) = mission_id {
-        if !can_write_mission(&state.db, &principal, mid).await {
+    let domain_id: Option<String> =
+        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    if let Some(ref mid) = domain_id {
+        if !can_write_domain(&state.db, &principal, mid).await {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
@@ -329,12 +329,12 @@ async fn create_artifact(
     let now = Utc::now().naive_utc();
     match sqlx::query(
         r#"INSERT INTO artifact
-            (kluster_id, name, artifact_type, uri, storage_backend, content_sha256, size_bytes,
+            (mission_id, name, artifact_type, uri, storage_backend, content_sha256, size_bytes,
              mime_type, storage_class, content_b64, external_pointer, external_uri,
              status, version, provenance, created_at, updated_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,1,$14,$15,$15) RETURNING *"#,
     )
-    .bind(&kluster_id)
+    .bind(&mission_id)
     .bind(&name)
     .bind(&artifact_type)
     .bind(&final_uri)
@@ -367,9 +367,9 @@ async fn list_artifacts(
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(100).min(500);
 
-    let rows = if let Some(ref kid) = q.kluster_id {
+    let rows = if let Some(ref kid) = q.mission_id {
         sqlx::query(
-            "SELECT * FROM artifact WHERE kluster_id=$1 ORDER BY updated_at DESC LIMIT $2",
+            "SELECT * FROM artifact WHERE mission_id=$1 ORDER BY updated_at DESC LIMIT $2",
         )
         .bind(kid)
         .bind(limit)
@@ -395,69 +395,69 @@ async fn list_artifacts(
         return Json(artifacts).into_response();
     }
 
-    // Collect unique kluster_ids
-    let kluster_ids: Vec<String> = rows
+    // Collect unique mission_ids
+    let mission_ids: Vec<String> = rows
         .iter()
-        .map(|r| r.get::<String, _>("kluster_id"))
+        .map(|r| r.get::<String, _>("mission_id"))
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
 
-    if kluster_ids.is_empty() {
+    if mission_ids.is_empty() {
         return Json(serde_json::Value::Array(vec![])).into_response();
     }
 
-    let placeholders: String = kluster_ids
+    let placeholders: String = mission_ids
         .iter()
         .enumerate()
         .map(|(i, _)| format!("${}", i + 1))
         .collect::<Vec<_>>()
         .join(",");
     let query_str = format!(
-        "SELECT id, mission_id FROM kluster WHERE id IN ({})",
+        "SELECT id, domain_id FROM mission WHERE id IN ({})",
         placeholders
     );
     let mut q_builder = sqlx::query(&query_str);
-    for kid in &kluster_ids {
+    for kid in &mission_ids {
         q_builder = q_builder.bind(kid);
     }
-    let kluster_rows = match q_builder.fetch_all(&state.db).await {
+    let mission_rows = match q_builder.fetch_all(&state.db).await {
         Ok(r) => r,
         Err(e) => {
-            tracing::error!("list_artifacts fetch klusters: {e}");
+            tracing::error!("list_artifacts fetch missions: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let mut mission_by_kluster: std::collections::HashMap<String, Option<String>> =
+    let mut domain_by_mission: std::collections::HashMap<String, Option<String>> =
         std::collections::HashMap::new();
-    for kr in &kluster_rows {
+    for kr in &mission_rows {
         let kid: String = kr.get("id");
-        let mid: Option<String> = kr.try_get("mission_id").ok().and_then(|v: Option<String>| v);
-        mission_by_kluster.insert(kid, mid);
+        let mid: Option<String> = kr.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+        domain_by_mission.insert(kid, mid);
     }
 
-    let mission_ids: Vec<String> = mission_by_kluster
+    let domain_ids: Vec<String> = domain_by_mission
         .values()
         .filter_map(|v| v.clone())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
 
-    let mut readable_missions: std::collections::HashSet<String> =
+    let mut readable_domains: std::collections::HashSet<String> =
         std::collections::HashSet::new();
-    for mid in &mission_ids {
-        if can_read_mission(&state.db, &principal, mid).await {
-            readable_missions.insert(mid.clone());
+    for mid in &domain_ids {
+        if can_read_domain(&state.db, &principal, mid).await {
+            readable_domains.insert(mid.clone());
         }
     }
 
     let artifacts: Vec<serde_json::Value> = rows
         .iter()
         .filter(|r| {
-            let kid: String = r.get("kluster_id");
-            if let Some(Some(mid)) = mission_by_kluster.get(&kid) {
-                readable_missions.contains(mid.as_str())
+            let kid: String = r.get("mission_id");
+            if let Some(Some(mid)) = domain_by_mission.get(&kid) {
+                readable_domains.contains(mid.as_str())
             } else {
                 false
             }
@@ -486,25 +486,25 @@ async fn get_artifact(
         }
     };
 
-    let kluster_id: String = artifact_row.get("kluster_id");
-    let kluster_row = match sqlx::query("SELECT id, mission_id FROM kluster WHERE id=$1")
-        .bind(&kluster_id)
+    let mission_id: String = artifact_row.get("mission_id");
+    let mission_row = match sqlx::query("SELECT id, domain_id FROM mission WHERE id=$1")
+        .bind(&mission_id)
         .fetch_optional(&state.db)
         .await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return not_found("Kluster not found"),
+        Ok(None) => return not_found("Mission not found"),
         Err(e) => {
-            tracing::error!("get_artifact fetch kluster: {e}");
+            tracing::error!("get_artifact fetch mission: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let mission_id: Option<String> =
-        kluster_row.try_get("mission_id").ok().and_then(|v: Option<String>| v);
-    match mission_id {
+    let domain_id: Option<String> =
+        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    match domain_id {
         Some(ref mid) => {
-            if !can_read_mission(&state.db, &principal, mid).await {
+            if !can_read_domain(&state.db, &principal, mid).await {
                 return StatusCode::FORBIDDEN.into_response();
             }
         }
@@ -536,25 +536,25 @@ async fn get_artifact_content(
         }
     };
 
-    let kluster_id: String = artifact_row.get("kluster_id");
-    let kluster_row = match sqlx::query("SELECT id, mission_id FROM kluster WHERE id=$1")
-        .bind(&kluster_id)
+    let mission_id: String = artifact_row.get("mission_id");
+    let mission_row = match sqlx::query("SELECT id, domain_id FROM mission WHERE id=$1")
+        .bind(&mission_id)
         .fetch_optional(&state.db)
         .await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return not_found("Kluster not found"),
+        Ok(None) => return not_found("Mission not found"),
         Err(e) => {
-            tracing::error!("get_artifact_content fetch kluster: {e}");
+            tracing::error!("get_artifact_content fetch mission: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let mission_id: Option<String> =
-        kluster_row.try_get("mission_id").ok().and_then(|v: Option<String>| v);
-    match mission_id {
+    let domain_id: Option<String> =
+        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    match domain_id {
         Some(ref mid) => {
-            if !can_read_mission(&state.db, &principal, mid).await {
+            if !can_read_domain(&state.db, &principal, mid).await {
                 return StatusCode::FORBIDDEN.into_response();
             }
         }
@@ -621,11 +621,11 @@ async fn get_artifact_download_url(
         Err(e) => { tracing::error!("get_artifact_download_url: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
     };
 
-    let kluster_id: String = row.get("kluster_id");
-    let mission_id: Option<String> = sqlx::query_scalar("SELECT mission_id FROM kluster WHERE id=$1")
-        .bind(&kluster_id).fetch_optional(&state.db).await.unwrap_or(None).flatten();
-    if let Some(ref mid) = mission_id {
-        if !can_read_mission(&state.db, &principal, mid).await {
+    let mission_id: String = row.get("mission_id");
+    let domain_id: Option<String> = sqlx::query_scalar("SELECT domain_id FROM mission WHERE id=$1")
+        .bind(&mission_id).fetch_optional(&state.db).await.unwrap_or(None).flatten();
+    if let Some(ref mid) = domain_id {
+        if !can_read_domain(&state.db, &principal, mid).await {
             return (StatusCode::FORBIDDEN, Json(serde_json::json!({"detail": "Forbidden"}))).into_response();
         }
     } else if !principal.is_admin {
@@ -672,24 +672,24 @@ async fn update_artifact(
         }
     };
 
-    let kluster_id: String = artifact_row.get("kluster_id");
-    let kluster_row = match sqlx::query("SELECT id, mission_id FROM kluster WHERE id=$1")
-        .bind(&kluster_id)
+    let mission_id: String = artifact_row.get("mission_id");
+    let mission_row = match sqlx::query("SELECT id, domain_id FROM mission WHERE id=$1")
+        .bind(&mission_id)
         .fetch_optional(&state.db)
         .await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return not_found("Kluster not found"),
+        Ok(None) => return not_found("Mission not found"),
         Err(e) => {
-            tracing::error!("update_artifact fetch kluster: {e}");
+            tracing::error!("update_artifact fetch mission: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let mission_id: Option<String> =
-        kluster_row.try_get("mission_id").ok().and_then(|v: Option<String>| v);
-    if let Some(ref mid) = mission_id {
-        if !can_write_mission(&state.db, &principal, mid).await {
+    let domain_id: Option<String> =
+        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    if let Some(ref mid) = domain_id {
+        if !can_write_domain(&state.db, &principal, mid).await {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
@@ -855,24 +855,24 @@ async fn publish_artifact(
         }
     };
 
-    let kluster_id: String = artifact_row.get("kluster_id");
-    let kluster_row = match sqlx::query("SELECT id, mission_id FROM kluster WHERE id=$1")
-        .bind(&kluster_id)
+    let mission_id: String = artifact_row.get("mission_id");
+    let mission_row = match sqlx::query("SELECT id, domain_id FROM mission WHERE id=$1")
+        .bind(&mission_id)
         .fetch_optional(&state.db)
         .await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return not_found("Kluster not found"),
+        Ok(None) => return not_found("Mission not found"),
         Err(e) => {
-            tracing::error!("publish_artifact fetch kluster: {e}");
+            tracing::error!("publish_artifact fetch mission: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let mission_id: Option<String> =
-        kluster_row.try_get("mission_id").ok().and_then(|v: Option<String>| v);
-    if let Some(ref mid) = mission_id {
-        if !can_write_mission(&state.db, &principal, mid).await {
+    let domain_id: Option<String> =
+        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    if let Some(ref mid) = domain_id {
+        if !can_write_domain(&state.db, &principal, mid).await {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
@@ -915,25 +915,25 @@ async fn delete_artifact(
         }
     };
 
-    let kluster_id: String = artifact_row.get("kluster_id");
-    let kluster_row = match sqlx::query("SELECT id, mission_id FROM kluster WHERE id=$1")
-        .bind(&kluster_id)
+    let mission_id: String = artifact_row.get("mission_id");
+    let mission_row = match sqlx::query("SELECT id, domain_id FROM mission WHERE id=$1")
+        .bind(&mission_id)
         .fetch_optional(&state.db)
         .await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return not_found("Kluster not found"),
+        Ok(None) => return not_found("Mission not found"),
         Err(e) => {
-            tracing::error!("delete_artifact fetch kluster: {e}");
+            tracing::error!("delete_artifact fetch mission: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let mission_id: Option<String> =
-        kluster_row.try_get("mission_id").ok().and_then(|v: Option<String>| v);
-    match mission_id {
+    let domain_id: Option<String> =
+        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    match domain_id {
         Some(ref mid) => {
-            if !can_write_mission(&state.db, &principal, mid).await {
+            if !can_write_domain(&state.db, &principal, mid).await {
                 return StatusCode::FORBIDDEN.into_response();
             }
         }

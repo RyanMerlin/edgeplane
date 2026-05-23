@@ -27,7 +27,7 @@ pub struct SupervisedAgent {
     pub agent_id: String,
     pub runtime: Arc<DynAgentRuntime>,
     pub handle: AgentHandle,
-    pub mission_id: String,
+    pub domain_id: String,
 }
 
 pub struct Supervisor {
@@ -51,7 +51,7 @@ impl Supervisor {
     pub async fn spawn(
         &self,
         agent_id: String,
-        mission_id: String,
+        domain_id: String,
         runtime: Arc<DynAgentRuntime>,
         env: Vec<(String, String)>,
         overrides: SpawnOverrides,
@@ -61,7 +61,7 @@ impl Supervisor {
 
         let ctx = LaunchContext {
             agent_id: agent_id.clone(),
-            mission_id: mission_id.clone(),
+            domain_id: domain_id.clone(),
             work_dir,
             backend_url: self.backend_url.clone(),
             backend_token: self.token.clone(),
@@ -91,7 +91,7 @@ impl Supervisor {
             agent_id: agent_id.clone(),
             runtime,
             handle,
-            mission_id,
+            domain_id,
         };
 
         self.agents.lock().await.insert(agent_id, supervised);

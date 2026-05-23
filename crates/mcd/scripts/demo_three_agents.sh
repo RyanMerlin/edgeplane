@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # demo_three_agents.sh — three-agent dependency chain demo
 #
-# Creates a mission with three tasks in a linear dependency chain:
+# Creates a domain + mission with three tasks in a linear dependency chain:
 #
 #   T1 (claude_code) → T2 (codex) → T3 (gemini)
 #
@@ -52,31 +52,31 @@ header() { echo; echo "══ $* ══"; }
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
-header "Creating mission"
-MISSION=$(mc_api POST /missions -d "{
+header "Creating domain"
+DOMAIN=$(mc_api POST /domains -d "{
     \"name\":        \"three-agent-demo-${RUN_ID}\",
     \"description\": \"Dependency chain demo: design to implement to test\",
     \"owners\":      \"demo\",
     \"visibility\":  \"private\",
     \"status\":      \"active\"
 }")
-MISSION_ID=$(echo "$MISSION" | jq -r '.id')
-echo "  mission: $MISSION_ID"
+DOMAIN_ID=$(echo "$DOMAIN" | jq -r '.id')
+echo "  domain: $DOMAIN_ID"
 
-header "Creating kluster"
-KLUSTER=$(mc_api POST "/missions/$MISSION_ID/k" -d "{
-    \"name\":    \"demo-kluster\",
+header "Creating mission"
+MISSION=$(mc_api POST "/domains/$DOMAIN_ID/m" -d "{
+    \"name\":    \"demo-mission\",
     \"owners\":  \"demo\",
     \"status\":  \"active\"
 }")
-KLUSTER_ID=$(echo "$KLUSTER" | jq -r '.id')
-echo "  kluster: $KLUSTER_ID"
+MISSION_ID=$(echo "$MISSION" | jq -r '.id')
+echo "  mission: $MISSION_ID"
 
 # ── Task creation ─────────────────────────────────────────────────────────────
 
 header "Creating tasks"
 
-T1=$(mc_api POST "/work/klusters/$KLUSTER_ID/tasks" -d '{
+T1=$(mc_api POST "/work/missions/$MISSION_ID/tasks" -d '{
     "title":                "Design spec",
     "description":          "Produce a spec document for the feature",
     "claim_policy":         "first_claim",
@@ -89,7 +89,7 @@ T1_ID=$(echo "$T1" | jq -r '.id')
 T1_STATUS=$(echo "$T1" | jq -r '.status')
 echo "  T1 ($T1_ID): $T1_STATUS"
 
-T2=$(mc_api POST "/work/klusters/$KLUSTER_ID/tasks" -d "{
+T2=$(mc_api POST "/work/missions/$MISSION_ID/tasks" -d "{
     \"title\":                \"Implement feature\",
     \"description\":          \"Write the implementation from the spec\",
     \"claim_policy\":         \"first_claim\",
@@ -103,7 +103,7 @@ T2_ID=$(echo "$T2" | jq -r '.id')
 T2_STATUS=$(echo "$T2" | jq -r '.status')
 echo "  T2 ($T2_ID): $T2_STATUS"
 
-T3=$(mc_api POST "/work/klusters/$KLUSTER_ID/tasks" -d "{
+T3=$(mc_api POST "/work/missions/$MISSION_ID/tasks" -d "{
     \"title\":                \"Test implementation\",
     \"description\":          \"Run tests against the implementation\",
     \"claim_policy\":         \"first_claim\",
@@ -173,9 +173,9 @@ assert_status "$T3_ID" "finished"
 # ── Final graph ───────────────────────────────────────────────────────────────
 
 header "Final task graph"
-mc_api GET "/work/klusters/$KLUSTER_ID/graph" | jq '{
+mc_api GET "/work/missions/$MISSION_ID/graph" | jq '{
+    domain:   "'"$DOMAIN_ID"'",
     mission:  "'"$MISSION_ID"'",
-    kluster:  "'"$KLUSTER_ID"'",
     nodes:    .nodes
 }'
 

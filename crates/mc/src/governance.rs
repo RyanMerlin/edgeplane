@@ -7,7 +7,7 @@ use std::fs;
 
 #[derive(Subcommand, Debug)]
 pub enum GovernanceCommand {
-    /// Manage mission-level roles and memberships.
+    /// Manage domain-level roles and memberships.
     #[command(subcommand)]
     Roles(RolesCommand),
     /// Work with governance policies.
@@ -19,7 +19,7 @@ pub enum GovernanceCommand {
 
 #[derive(Subcommand, Debug)]
 pub enum RolesCommand {
-    /// List role assignments for a mission.
+    /// List role assignments for a domain.
     List(RolesListArgs),
     /// Add or update a role.
     Upsert(RolesUpsertArgs),
@@ -30,7 +30,7 @@ pub enum RolesCommand {
 #[derive(Args, Debug)]
 pub struct RolesListArgs {
     #[arg(long)]
-    pub mission_id: String,
+    pub domain_id: String,
     #[arg(long, default_value_t = 50)]
     pub limit: u32,
 }
@@ -38,7 +38,7 @@ pub struct RolesListArgs {
 #[derive(Args, Debug)]
 pub struct RolesUpsertArgs {
     #[arg(long)]
-    pub mission_id: String,
+    pub domain_id: String,
     #[arg(long)]
     pub subject: String,
     #[arg(long)]
@@ -48,7 +48,7 @@ pub struct RolesUpsertArgs {
 #[derive(Args, Debug)]
 pub struct RolesRemoveArgs {
     #[arg(long)]
-    pub mission_id: String,
+    pub domain_id: String,
     #[arg(long)]
     pub subject: String,
 }
@@ -107,7 +107,7 @@ pub async fn run(command: GovernanceCommand, client: &MissionControlClient) -> R
 async fn run_roles(command: RolesCommand, client: &MissionControlClient) -> Result<()> {
     match command {
         RolesCommand::List(args) => {
-            let path = format!("/missions/{}/roles?limit={}", args.mission_id, args.limit);
+            let path = format!("/domains/{}/roles?limit={}", args.domain_id, args.limit);
             let payload = client.get_json(&path).await?;
             print_json(&payload);
         }
@@ -116,12 +116,12 @@ async fn run_roles(command: RolesCommand, client: &MissionControlClient) -> Resu
                 "subject": args.subject,
                 "role": args.role,
             });
-            let path = format!("/missions/{}/roles", args.mission_id);
+            let path = format!("/domains/{}/roles", args.domain_id);
             let payload = client.post_json(&path, &body).await?;
             print_json(&payload);
         }
         RolesCommand::Remove(args) => {
-            let path = format!("/missions/{}/roles/{}", args.mission_id, args.subject);
+            let path = format!("/domains/{}/roles/{}", args.domain_id, args.subject);
             let payload = client
                 .request_builder(Method::DELETE, &path)?
                 .send()
