@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>mc tui — v3 Config</title>
+<title>edgeplane tui — v3 Config</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -105,7 +105,7 @@
 <body>
 
 <div id="topbar">
-  <div id="logo">mc</div>
+  <div id="logo">edgeplane</div>
   <div class="tab">Agents</div>
   <div class="tab">Missions</div>
   <div class="tab">Feed</div>
@@ -174,12 +174,12 @@
   <div id="config-content">
 
     <div class="config-page-title">⚡ Server Connection</div>
-    <div class="config-page-sub">mc-controlplane endpoint and connection settings.</div>
+    <div class="config-page-sub">edgeplane-tower endpoint and connection settings.</div>
 
     <div class="status-row connected">
       <span class="ok">●</span>
       <span>Connected to <span class="accent">http://localhost:8008</span></span>
-      <span class="dim" style="margin-left:auto">mc-controlplane v0.4.2</span>
+      <span class="dim" style="margin-left:auto">edgeplane-tower v0.4.2</span>
     </div>
 
     <div class="config-section">
@@ -188,7 +188,7 @@
       <div class="config-row">
         <div class="config-label-col">
           <div class="config-label">Base URL</div>
-          <div class="config-desc">mc-controlplane REST endpoint. Overridden by MC_BASE_URL env.</div>
+          <div class="config-desc">edgeplane-tower REST endpoint. Overridden by EP_BASE_URL env.</div>
         </div>
         <input class="config-input ok-border" value="http://localhost:8008" />
       </div>
@@ -215,7 +215,7 @@
 
     <div class="config-section">
       <div class="config-section-title">Fleet Nodes</div>
-      <div style="color:#484f58; font-size:11px; margin-bottom:0.8em">Nodes running mcd, registered against this server.</div>
+      <div style="color:#484f58; font-size:11px; margin-bottom:0.8em">Nodes running edgeplaned, registered against this server.</div>
 
       <table class="node-table">
         <thead>
@@ -224,7 +224,7 @@
             <th>Node</th>
             <th>Location</th>
             <th>Agents</th>
-            <th>mcd</th>
+            <th>edgeplaned</th>
             <th>Last Seen</th>
           </tr>
         </thead>
@@ -291,7 +291,7 @@
   <span class="dim">|</span>
   <span class="muted">http://localhost:8008</span>
   <span class="dim">|</span>
-  <span class="muted">mc-controlplane v0.4.2</span>
+  <span class="muted">edgeplane-tower v0.4.2</span>
   <div id="statusbar-right">
     <span class="hint"><b>↑↓</b> nav</span>
     <span class="hint"><b>Enter</b> edit</span>

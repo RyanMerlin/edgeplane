@@ -6,7 +6,7 @@ owners:
   - platform
 summary: >
   Supports token, OIDC, and dual auth flows for API, MCP, and browser sessions.
-  Token mode uses MC_TOKEN header. OIDC uses PKCE browser flow with one-time exchange
+  Token mode uses EP_TOKEN header. OIDC uses PKCE browser flow with one-time exchange
   into an mcs session token. Dual mode allows both.
 
 source_of_truth:
@@ -15,8 +15,8 @@ source_of_truth:
     - docs/guides/OIDC.md
     - docs/guides/DEPLOYMENT.md
   code_paths:
-    - crates/mc-controlplane/src/auth.rs
-    - crates/mc-controlplane/src/routes/auth.rs
+    - crates/edgeplane-tower/src/auth.rs
+    - crates/edgeplane-tower/src/routes/auth.rs
 
 entrypoints:
   run:
@@ -32,7 +32,7 @@ interfaces:
   env_vars:
     - AUTH_MODE          # token | oidc | dual
     - OIDC_REQUIRED      # true | false
-    - MC_TOKEN           # bearer token for token auth
+    - EP_TOKEN           # bearer token for token auth
     - OIDC_ISSUER_URL    # OIDC provider URL
     - OIDC_CLIENT_ID
     - OIDC_CLIENT_SECRET

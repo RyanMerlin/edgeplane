@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bump mc / mcd / mc-controlplane to a unified version, in lockstep.
+# Bump edgeplane / edgeplaned / edgeplane-tower to a unified version, in lockstep.
 # Source of truth: /VERSION at the repo root.
 # CI asserts that VERSION + the three Cargo.toml [workspace.package] versions
 # all agree (see .github/workflows/version-sync.yml).
@@ -22,7 +22,7 @@ cd "$repo_root"
 
 echo "$new" > VERSION
 
-for crate in mc mcd mc-controlplane; do
+for crate in edgeplane edgeplaned edgeplane-tower; do
   toml="crates/$crate/Cargo.toml"
   if [[ ! -f "$toml" ]]; then
     echo "error: $toml not found" >&2

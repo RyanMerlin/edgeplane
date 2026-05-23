@@ -1,18 +1,18 @@
 ---
-title: mc & mcd CLI
-description: Complete reference for the mc CLI, mcd daemon, and mc-controlplane server binaries.
+title: edgeplane & edgeplaned CLI
+description: Complete reference for the edgeplane CLI, edgeplaned daemon, and edgeplane-tower server binaries.
 ---
 
-## mc — Operator CLI
+## edgeplane — Operator CLI
 
-`mc` is the primary operator and agent interface. All interactivity: fleet views, agent launch, capability dispatch, and the TUI.
+`edgeplane` is the primary operator and agent interface. All interactivity: fleet views, agent launch, capability dispatch, and the TUI.
 
 ### Global Flags
 
 | Flag | Meaning |
 |------|---------|
-| `--base-url <URL>` | Control plane base URL (overrides `MC_BASE_URL`) |
-| `--token <TOKEN>` | Bearer token (overrides `MC_TOKEN`) |
+| `--base-url <URL>` | Control plane base URL (overrides `EP_BASE_URL`) |
+| `--token <TOKEN>` | Bearer token (overrides `EP_TOKEN`) |
 | `--json` | Output as JSON |
 | `--output human\|json\|jsonl` | Output format |
 
@@ -20,8 +20,8 @@ description: Complete reference for the mc CLI, mcd daemon, and mc-controlplane 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `MC_BASE_URL` | `http://localhost:8008` | Backend HTTP base URL |
-| `MC_TOKEN` | unset | Bearer token for API auth |
+| `EP_BASE_URL` | `http://localhost:8008` | Backend HTTP base URL |
+| `EP_TOKEN` | unset | Bearer token for API auth |
 | `MC_OUTPUT` | `human` | Default output format |
 
 ---
@@ -31,20 +31,20 @@ description: Complete reference for the mc CLI, mcd daemon, and mc-controlplane 
 ### Status and Health
 
 ```bash
-mc status [--verify-lease]    # combined auth / runtime / workspace status
-mc doctor                     # shortcut to mc system doctor
-mc health [--json]            # backend connectivity and MCP health probe
-mc version                    # local CLI version + backend reachability
-mc config                     # effective local runtime config (secrets redacted)
+edgeplane status [--verify-lease]    # combined auth / runtime / workspace status
+edgeplane doctor                     # shortcut to edgeplane system doctor
+edgeplane health [--json]            # backend connectivity and MCP health probe
+edgeplane version                    # local CLI version + backend reachability
+edgeplane config                     # effective local runtime config (secrets redacted)
 ```
 
 ### TUI
 
 ```bash
-mc tui [--mission <id>]
+edgeplane tui [--mission <id>]
 ```
 
-Full-screen terminal UI. Server and token come from env or `~/.mc/config.json`.
+Full-screen terminal UI. Server and token come from env or `~/.ep/config.json`.
 
 | Key | Tab | Description |
 |-----|-----|-------------|
@@ -61,34 +61,34 @@ Full-screen terminal UI. Server and token come from env or `~/.mc/config.json`.
 ## Auth
 
 ```bash
-mc auth login [--ttl-hours N] [--print-token]    # exchange credentials for a session token
-mc auth whoami                                    # verify identity and session expiry
-mc auth logout [--local-only]                    # revoke server-side and clear local file
+edgeplane auth login [--ttl-hours N] [--print-token]    # exchange credentials for a session token
+edgeplane auth whoami                                    # verify identity and session expiry
+edgeplane auth logout [--local-only]                    # revoke server-side and clear local file
 ```
 
-Session tokens (`mcs_*` prefix) are stored at `~/.missioncontrol/session.json` (chmod 600). They are never written to agent config files on disk — injected at exec time only.
+Session tokens (`mcs_*` prefix) are stored at `~/.edgeplane/session.json` (chmod 600). They are never written to agent config files on disk — injected at exec time only.
 
 ---
 
 ## Agent Launch
 
 ```bash
-mc run claude [-p <profile>] [--mission <id>] [--mode interactive|headless|solo] [-- args]
-mc run codex  [-p <profile>] [--mission <id>] [--mode interactive|headless|solo] [-- args]
-mc run gemini [-p <profile>] [-- args]
-mc launch openclaw    # OpenClaw
-mc launch custom      # Custom ACP agent
+edgeplane run claude [-p <profile>] [--mission <id>] [--mode interactive|headless|solo] [-- args]
+edgeplane run codex  [-p <profile>] [--mission <id>] [--mode interactive|headless|solo] [-- args]
+edgeplane run gemini [-p <profile>] [-- args]
+edgeplane launch openclaw    # OpenClaw
+edgeplane launch custom      # Custom ACP agent
 ```
 
 **Diagnostics:**
 
 ```bash
-mc run claude doctor [-p <profile>] [--fix] [--json]
-mc run codex doctor  [-p <profile>] [--fix] [--json]
-mc run codex status  [-p <profile>] [--json]
+edgeplane run claude doctor [-p <profile>] [--fix] [--json]
+edgeplane run codex doctor  [-p <profile>] [--fix] [--json]
+edgeplane run codex status  [-p <profile>] [--json]
 ```
 
-**Flags for `mc launch` (non-Claude/Codex agents):**
+**Flags for `edgeplane launch` (non-Claude/Codex agents):**
 
 | Flag | Effect |
 |------|--------|
@@ -105,9 +105,9 @@ mc run codex status  [-p <profile>] [--json]
 ## Workspace Lease
 
 ```bash
-mc use --mission-id <id> [--lease-seconds N] [--workspace-label <label>]
-mc use --release
-mc release [--reason <text>] [--ignore-missing]
+edgeplane use --mission-id <id> [--lease-seconds N] [--workspace-label <label>]
+edgeplane use --release
+edgeplane release [--reason <text>] [--ignore-missing]
 ```
 
 ---
@@ -115,36 +115,36 @@ mc release [--reason <text>] [--ignore-missing]
 ## Agent Management
 
 ```bash
-mc agent signal <id> --content "..."        # send a prompt to an agent
-mc agent list [--source local|remote|all] [--json]
-mc agent describe <id> [--json]
-mc agent attach <id> [--web] [--remote]
-mc agent cancel <id>
+edgeplane agent signal <id> --content "..."        # send a prompt to an agent
+edgeplane agent list [--source local|remote|all] [--json]
+edgeplane agent describe <id> [--json]
+edgeplane agent attach <id> [--web] [--remote]
+edgeplane agent cancel <id>
 ```
 
-### Scheduled Jobs (`mc agent cron`)
+### Scheduled Jobs (`edgeplane agent cron`)
 
 ```bash
-mc agent cron list [--json]
-mc agent cron describe <name> [--limit N] [--json]
-mc agent cron reload                         # re-parse cron.toml
-mc agent cron history [--name <n>] [-n N] [--json]
-mc agent cron gc-now [--history-days N]
+edgeplane agent cron list [--json]
+edgeplane agent cron describe <name> [--limit N] [--json]
+edgeplane agent cron reload                         # re-parse cron.toml
+edgeplane agent cron history [--name <n>] [-n N] [--json]
+edgeplane agent cron gc-now [--history-days N]
 ```
 
-Jobs are defined in `~/.mc/mcd/cron.toml`. See [mcd Daemon](/missioncontrol/reference/mcd-daemon/) for the format.
+Jobs are defined in `~/.ep/edgeplaned/cron.toml`. See [edgeplaned Daemon](/edgeplane/reference/edgeplaned-daemon/) for the format.
 
-### Supervision (`mc agent supervise`)
+### Supervision (`edgeplane agent supervise`)
 
 ```bash
-mc agent supervise list [--json]
-mc agent supervise status <id> [--limit N] [--json]
-mc agent supervise restart <id>
-mc agent supervise pause [<id>] [--all]
-mc agent supervise resume [<id>] [--all]
-mc agent supervise history [--agent-id <id>] [-n N] [--json]
-mc agent supervise events [--json]           # stream live supervisor events
-mc agent supervise watch [--poll-secs N]     # ratatui TUI
+edgeplane agent supervise list [--json]
+edgeplane agent supervise status <id> [--limit N] [--json]
+edgeplane agent supervise restart <id>
+edgeplane agent supervise pause [<id>] [--all]
+edgeplane agent supervise resume [<id>] [--all]
+edgeplane agent supervise history [--agent-id <id>] [-n N] [--json]
+edgeplane agent supervise events [--json]           # stream live supervisor events
+edgeplane agent supervise watch [--poll-secs N]     # ratatui TUI
 ```
 
 ---
@@ -152,17 +152,17 @@ mc agent supervise watch [--poll-secs N]     # ratatui TUI
 ## Profiles
 
 ```bash
-mc profile create <name>
-mc profile list
-mc profile show <name>
-mc profile activate <name>               # atomic symlink swap
-mc profile use <name>                    # activate + download in one step
-mc profile download <name> [--out <path>]
-mc profile pull <name>
-mc profile publish <name>
-mc profile pin <name> <sha256>
-mc profile status <name>
-mc profile delete <name>
+edgeplane profile create <name>
+edgeplane profile list
+edgeplane profile show <name>
+edgeplane profile activate <name>               # atomic symlink swap
+edgeplane profile use <name>                    # activate + download in one step
+edgeplane profile download <name> [--out <path>]
+edgeplane profile pull <name>
+edgeplane profile publish <name>
+edgeplane profile pin <name> <sha256>
+edgeplane profile status <name>
+edgeplane profile delete <name>
 ```
 
 ---
@@ -170,10 +170,10 @@ mc profile delete <name>
 ## Capabilities
 
 ```bash
-mc capabilities [--tag <tag>]            # list capability packs
-mc capabilities describe <pack>.<capability>
-mc exec <pack>.<capability> --json [--dry-run]
-mc receipts last [--json]
+edgeplane capabilities [--tag <tag>]            # list capability packs
+edgeplane capabilities describe <pack>.<capability>
+edgeplane exec <pack>.<capability> --json [--dry-run]
+edgeplane receipts last [--json]
 ```
 
 ---
@@ -181,17 +181,17 @@ mc receipts last [--json]
 ## Data and System
 
 ```bash
-mc data tools list
-mc data tools call --tool <name> --payload '<json>'
-mc data sync status --domain-id <id> [--mission-id <id>]
-mc data sync promote ...
-mc data explorer tree
-mc data explorer node ...
+edgeplane data tools list
+edgeplane data tools call --tool <name> --payload '<json>'
+edgeplane data sync status --domain-id <id> [--mission-id <id>]
+edgeplane data sync promote ...
+edgeplane data explorer tree
+edgeplane data explorer node ...
 
-mc system doctor [--fix]
-mc system backup --target postgres|s3|all
-mc system profile-gc ...
-mc system update ...
+edgeplane system doctor [--fix]
+edgeplane system backup --target postgres|s3|all
+edgeplane system profile-gc ...
+edgeplane system update ...
 ```
 
 ---
@@ -199,14 +199,14 @@ mc system update ...
 ## Approvals and Administration
 
 ```bash
-mc approvals list
-mc approvals approve <id>
-mc approvals reject <id>
+edgeplane approvals list
+edgeplane approvals approve <id>
+edgeplane approvals reject <id>
 
-mc admin policy active
-mc admin policy versions
-mc admin policy events
-mc admin governance ...
+edgeplane admin policy active
+edgeplane admin policy versions
+edgeplane admin policy events
+edgeplane admin governance ...
 ```
 
 ---
@@ -214,32 +214,32 @@ mc admin governance ...
 ## Utility
 
 ```bash
-mc init                         # initialize local configuration
-mc serve                        # start MCP stdio server (used by agents)
-mc logs                         # local log tail
-mc completion <shell>           # shell completion generator
+edgeplane init                         # initialize local configuration
+edgeplane serve                        # start MCP stdio server (used by agents)
+edgeplane logs                         # local log tail
+edgeplane completion <shell>           # shell completion generator
 ```
 
 ---
 
-## mcd Daemon
+## edgeplaned Daemon
 
-See [mcd Daemon](/missioncontrol/reference/mcd-daemon/) for the full reference.
+See [edgeplaned Daemon](/edgeplane/reference/edgeplaned-daemon/) for the full reference.
 
 Quick commands:
 
 ```bash
-mcd run --backend-url http://localhost:8008 --token $MC_TOKEN
-mcd version
-mcd get-secret MY_API_KEY    # inside agent subprocess only
+edgeplaned run --backend-url http://localhost:8008 --token $EP_TOKEN
+edgeplaned version
+edgeplaned get-secret MY_API_KEY    # inside agent subprocess only
 ```
 
 ---
 
-## mc-controlplane Server
+## edgeplane-tower Server
 
 ```bash
-mc-controlplane --serve --bind 0.0.0.0:8008
+edgeplane-tower --serve --bind 0.0.0.0:8008
 ```
 
 Native routes: `/health`, `/raft/status`, `/domains`, `/missions`, `/tasks`, `/agents`.
@@ -256,7 +256,7 @@ curl http://localhost:8008/raft/status
 All commands support `--json` for structured output. Always use `--json` when parsing programmatically — human-readable output format is not stable across releases.
 
 ```bash
-mc missions list --json | jq '.[] | .id'
-mc health --json
-mc agent list --json
+edgeplane missions list --json | jq '.[] | .id'
+edgeplane health --json
+edgeplane agent list --json
 ```

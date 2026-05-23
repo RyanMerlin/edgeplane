@@ -1,11 +1,11 @@
-# MissionControl — Canonical Entity Reference
+# Edgeplane — Canonical Entity Reference
 
 **This is the single source of truth for what each MC entity means.** If anything in another doc, code comment, or AI response contradicts this file, this file wins. Update this file *first*, then propagate.
 
 Every entity below cites both the philosophy doc (definition) and the schema (structural truth). Drift between them is a bug — file an issue, fix here first.
 
-- **Schema:** `crates/mc-controlplane/migrations/0001_initial_schema.sql` (vocabulary updated in `0012_swap_mission_domain.sql`)
-- **Philosophy:** `MISSIONCONTROL_PHILOSOPHY.md`
+- **Schema:** `crates/edgeplane-tower/migrations/0001_initial_schema.sql` (vocabulary updated in `0012_swap_mission_domain.sql`)
+- **Philosophy:** `EDGEPLANE_PHILOSOPHY.md`
 
 ---
 
@@ -17,7 +17,7 @@ Every entity below cites both the philosophy doc (definition) and the schema (st
 - Schema: `public.domain` (0001, renamed in 0012) — has `northstar_md`, `owners`, `contributors`, `visibility`, `status`
 - Owns: many missions (`mission.domain_id`)
 
-> **DEPRECATED:** `Domain.kind` (migration 0006, values `'work'` | `'home'`) is soft-deprecated as of 2026-05-21. The column was set in exactly one code path (`provision_home_for_node` in `routes/runtime.rs`) and read by zero — a write-only tag that leaked an Aria-specific operational pattern into the schema. New code MUST NOT write or filter on `kind`. The column stays for now (migrations are forward-only); a future migration may drop it. Operational coordination domains are just regular domains; mcd's bootstrap creates a default domain named `home` (per `bootstrap::DEFAULT_HOME_DOMAIN_NAME`, overridable via `MC_HOME_DOMAIN_NAME` env). `Agent.home_domain_id` still points at home domains as before — that FK was never constrained to `kind='home'` anyway.
+> **DEPRECATED:** `Domain.kind` (migration 0006, values `'work'` | `'home'`) is soft-deprecated as of 2026-05-21. The column was set in exactly one code path (`provision_home_for_node` in `routes/runtime.rs`) and read by zero — a write-only tag that leaked an Aria-specific operational pattern into the schema. New code MUST NOT write or filter on `kind`. The column stays for now (migrations are forward-only); a future migration may drop it. Operational coordination domains are just regular domains; edgeplaned's bootstrap creates a default domain named `home` (per `bootstrap::DEFAULT_HOME_DOMAIN_NAME`, overridable via `EP_HOME_DOMAIN_NAME` env). `Agent.home_domain_id` still points at home domains as before — that FK was never constrained to `kind='home'` anyway.
 
 Domains do **not** complete. They scope. Tasks complete.
 
@@ -81,7 +81,7 @@ Whether `task` and `meshtask` will converge is an open architecture question —
 - Philosophy: line 122–149 (agent profiles travel with the operator)
 - Schema: `public.agent` (0001) — base columns: `name`, `capabilities`, `status`, `metadata`
 - Migration 0007 adds: `archived_at`, `display_name`, `node_id`, `last_seen_at` (lifecycle + presence metadata; reserved-name enforcement happens in code, not as a CHECK constraint)
-- Migration 0008 adds: `public_id` (`{name}-{8-char-suffix}`) — the stable, human-readable identifier used by `/agents/{public_id}/messages` and the unified `mc agent` surface. Immutable after creation
+- Migration 0008 adds: `public_id` (`{name}-{8-char-suffix}`) — the stable, human-readable identifier used by `/agents/{public_id}/messages` and the unified `edgeplane agent` surface. Immutable after creation
 - Migration 0010 adds: `home_domain_id` (permanent anchor — set once at registration, never cleared) and `current_domain_id` (active attachment — follows the agent's working context, resets to home on detach). Both nullable FKs to `domain(id)`. (Renamed in 0012 from `home_mission_id`/`current_mission_id`.)
 
 **Note:** there is no separate `agent_identity` table. Migration 0007 only adds columns to `agent`. Earlier doc revisions claimed a distinct table — that was inaccurate.
@@ -100,7 +100,7 @@ See `MeshAgent` (below) for the discoverable, runtime-bound projection.
 
 Why two tables: `agent` is identity (who); `meshagent` is presence + capability (where + what they can do right now). One agent identity can have multiple meshagent rows over time as it enrolls on different nodes.
 
-**Ephemeral usage pattern (`mcd::task_worker`, shipped 0.15.5–0.15.7):** the same `Agent` identity holds the persistent fleet operator MeshAgent AND N transient task-subagent MeshAgents simultaneously. Each spawned subagent gets its own MeshAgent row (`labels.role=task-subagent, ephemeral=true`), claims one task, runs, and is DELETEd on completion. Audit trail survives via `agentrun.mesh_agent_id` FK (`ON DELETE SET NULL`). See `docs/design/ephemeral-task-subagents.md`.
+**Ephemeral usage pattern (`edgeplaned::task_worker`, shipped 0.15.5–0.15.7):** the same `Agent` identity holds the persistent fleet operator MeshAgent AND N transient task-subagent MeshAgents simultaneously. Each spawned subagent gets its own MeshAgent row (`labels.role=task-subagent, ephemeral=true`), claims one task, runs, and is DELETEd on completion. Audit trail survives via `agentrun.mesh_agent_id` FK (`ON DELETE SET NULL`). See `docs/design/ephemeral-task-subagents.md`.
 
 ---
 
@@ -161,6 +161,6 @@ There are three "session" tables. Confusion here is the root cause of past archi
 
 Before editing this file:
 1. Open the schema migration and confirm columns match what you're about to write.
-2. Open `MISSIONCONTROL_PHILOSOPHY.md` and confirm the definition matches.
+2. Open `EDGEPLANE_PHILOSOPHY.md` and confirm the definition matches.
 3. If schema and philosophy disagree, **stop** — that's a real architectural drift, not a doc edit.
 4. Update this file, then update any contradicting doc.

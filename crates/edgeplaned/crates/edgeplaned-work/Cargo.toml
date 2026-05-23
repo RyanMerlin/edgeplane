@@ -1,0 +1,18 @@
+[package]
+name = "edgeplaned-work"
+version.workspace = true
+edition = "2024"
+description = "Work model: task dispatch, graph, claim, messaging, and watchdog for edgeplaned"
+license = "Apache-2.0"
+
+[dependencies]
+edgeplaned-core = { path = "../edgeplaned-core" }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }

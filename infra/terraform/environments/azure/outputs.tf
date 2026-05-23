@@ -1,5 +1,5 @@
 output "resource_group_name" {
-  value = azurerm_resource_group.missioncontrol.name
+  value = azurerm_resource_group.edgeplane.name
 }
 
 output "postgres_hostname" {

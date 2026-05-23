@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 #
-# Install mc (CLI) and mcd (per-node daemon) from the latest GitHub
+# Install edgeplane (CLI) and edgeplaned (per-node daemon) from the latest GitHub
 # Release. Falls back to building from source if a matching binary
 # isn't published for your platform. Optionally installs a systemd user
-# unit so mcd starts on login.
+# unit so edgeplaned starts on login.
 #
 # Quickstart (no flags):
-#   bash scripts/install-mc.sh
+#   bash scripts/install-edgeplane.sh
 #
 # Common options:
 #   --prefix DIR        Install binaries here (default: ~/.local/bin)
-#   --install-service   Also install + enable the mcd systemd user unit
-#   --no-daemon           Skip mcd; install just the mc CLI
+#   --install-service   Also install + enable the edgeplaned systemd user unit
+#   --no-daemon           Skip edgeplaned; install just the edgeplane CLI
 #   --version TAG       Pin a specific release tag (default: latest)
 #   --env-file FILE     Load env from FILE in the systemd unit
 #
@@ -88,9 +88,9 @@ install_binary() {
   local base_url
 
   if [[ "$VERSION" = "latest" ]]; then
-    base_url="https://github.com/RyanMerlin/missioncontrol/releases/latest/download"
+    base_url="https://github.com/RyanMerlin/edgeplane/releases/latest/download"
   else
-    base_url="https://github.com/RyanMerlin/missioncontrol/releases/download/${VERSION}"
+    base_url="https://github.com/RyanMerlin/edgeplane/releases/download/${VERSION}"
   fi
 
   if [[ -n "$PLATFORM" ]] && curl -fsSL --max-time 30 -o "${target_path}.tmp" "${base_url}/${artifact}" 2>/dev/null; then
@@ -126,7 +126,7 @@ install_binary() {
     exit 1
   fi
   local extra_features=""
-  if [[ "$bin" = "mc" ]]; then extra_features="--features tui"; fi
+  if [[ "$bin" = "edgeplane" ]]; then extra_features="--features tui"; fi
   (
     cd "${ROOT_DIR}/${crate_path}"
     cargo build --release $extra_features
@@ -136,47 +136,47 @@ install_binary() {
   echo "  built and installed $bin from source"
 }
 
-# ── Install mc ────────────────────────────────────────────────────────────────
+# ── Install edgeplane ────────────────────────────────────────────────────────────────
 
-echo "installing mc to ${PREFIX}/mc"
-install_binary mc crates/mc "${PREFIX}/mc"
-"${PREFIX}/mc" --version
+echo "installing edgeplane to ${PREFIX}/edgeplane"
+install_binary edgeplane crates/edgeplane "${PREFIX}/edgeplane"
+"${PREFIX}/edgeplane" --version
 
-# ── Install mcd ───────────────────────────────────────────────────────────
+# ── Install edgeplaned ───────────────────────────────────────────────────────────
 
 if [[ "$INSTALL_DAEMON" = "1" ]]; then
-  echo "installing mcd to ${PREFIX}/mcd"
-  install_binary mcd crates/mcd "${PREFIX}/mcd"
-  if "${PREFIX}/mcd" --version >/dev/null 2>&1; then
-    echo "  $("${PREFIX}/mcd" --version)"
+  echo "installing edgeplaned to ${PREFIX}/edgeplaned"
+  install_binary edgeplaned crates/edgeplaned "${PREFIX}/edgeplaned"
+  if "${PREFIX}/edgeplaned" --version >/dev/null 2>&1; then
+    echo "  $("${PREFIX}/edgeplaned" --version)"
   fi
 else
-  echo "skipping mcd (per --no-daemon)"
+  echo "skipping edgeplaned (per --no-daemon)"
 fi
 
-# ── Optional: systemd user unit for mcd ───────────────────────────────────
+# ── Optional: systemd user unit for edgeplaned ───────────────────────────────────
 
 if [[ "$INSTALL_SERVICE" = "1" && "$INSTALL_DAEMON" = "1" ]]; then
   if ! command -v systemctl >/dev/null 2>&1; then
     echo "systemctl not found — skipping service install" >&2
   else
     UNIT_DIR="${HOME}/.config/systemd/user"
-    UNIT_FILE="${UNIT_DIR}/mcd.service"
-    SRC_UNIT="${ROOT_DIR}/crates/mcd/systemd/mcd.service"
-    mkdir -p "$UNIT_DIR" "${HOME}/.mc/mcd"
+    UNIT_FILE="${UNIT_DIR}/edgeplaned.service"
+    SRC_UNIT="${ROOT_DIR}/crates/edgeplaned/systemd/edgeplaned.service"
+    mkdir -p "$UNIT_DIR" "${HOME}/.ep/edgeplaned"
 
-    # Remove legacy mc-mesh unit if present (clean cutover).
-    LEGACY_UNIT="${UNIT_DIR}/mc-mesh.service"
+    # Remove legacy edgeplane-mesh unit if present (clean cutover).
+    LEGACY_UNIT="${UNIT_DIR}/edgeplane-mesh.service"
     if [[ -f "$LEGACY_UNIT" ]]; then
-      echo "removing legacy mc-mesh.service unit…"
-      systemctl --user disable --now mc-mesh.service 2>/dev/null || true
+      echo "removing legacy edgeplane-mesh.service unit…"
+      systemctl --user disable --now edgeplane-mesh.service 2>/dev/null || true
       rm -f "$LEGACY_UNIT"
       systemctl --user daemon-reload || true
     fi
 
     if [[ -f "$SRC_UNIT" ]]; then
       # Rewrite the ExecStart to point at our actual install prefix.
-      sed "s|%h/\.cargo/bin/mcd|${PREFIX}/mcd|g" "$SRC_UNIT" > "$UNIT_FILE"
+      sed "s|%h/\.cargo/bin/edgeplaned|${PREFIX}/edgeplaned|g" "$SRC_UNIT" > "$UNIT_FILE"
       # If an env file was given, add a corresponding EnvironmentFile line
       # (idempotent — leaves the unit alone if already present).
       if [[ -f "$ENV_FILE" ]] && ! grep -q "EnvironmentFile=" "$UNIT_FILE"; then
@@ -185,11 +185,11 @@ if [[ "$INSTALL_SERVICE" = "1" && "$INSTALL_DAEMON" = "1" ]]; then
       echo "installed systemd user unit: $UNIT_FILE"
 
       systemctl --user daemon-reload || true
-      if systemctl --user enable --now mcd.service 2>&1; then
-        echo "enabled + started mcd.service"
-        systemctl --user --no-pager status mcd.service | head -5 || true
+      if systemctl --user enable --now edgeplaned.service 2>&1; then
+        echo "enabled + started edgeplaned.service"
+        systemctl --user --no-pager status edgeplaned.service | head -5 || true
       else
-        echo "warning: could not enable mcd.service — check 'systemctl --user status mcd'" >&2
+        echo "warning: could not enable edgeplaned.service — check 'systemctl --user status edgeplaned'" >&2
       fi
     else
       echo "unit template not found at $SRC_UNIT — skipping service install" >&2
@@ -201,8 +201,8 @@ fi
 
 append_shell_hook() {
   local rc_file="$1"
-  local marker_begin="# >>> missioncontrol mc env >>>"
-  local marker_end="# <<< missioncontrol mc env <<<"
+  local marker_begin="# >>> edgeplane edgeplane env >>>"
+  local marker_end="# <<< edgeplane edgeplane env <<<"
   [[ ! -f "$rc_file" ]] && touch "$rc_file"
   if grep -Fq "$marker_begin" "$rc_file"; then
     return 0
@@ -229,20 +229,20 @@ fi
 cat <<DONE
 
 Installed:
-  mc       → ${PREFIX}/mc
-$( [[ "$INSTALL_DAEMON" = "1" ]] && echo "  mcd  → ${PREFIX}/mcd" )
+  edgeplane       → ${PREFIX}/edgeplane
+$( [[ "$INSTALL_DAEMON" = "1" ]] && echo "  edgeplaned  → ${PREFIX}/edgeplaned" )
 
 Next steps:
-  1. Sign in:                mc auth login
-  2. Launch the TUI:         mc tui
+  1. Sign in:                edgeplane auth login
+  2. Launch the TUI:         edgeplane tui
 $( [[ "$INSTALL_SERVICE" = "1" && "$INSTALL_DAEMON" = "1" ]] && cat <<SERVICE
-  3. mcd is running as a systemd user service.
-     Check status:           systemctl --user status mcd
-     Tail logs:              journalctl --user -u mcd -f
+  3. edgeplaned is running as a systemd user service.
+     Check status:           systemctl --user status edgeplaned
+     Tail logs:              journalctl --user -u edgeplaned -f
 SERVICE
 )$( [[ "$INSTALL_SERVICE" != "1" && "$INSTALL_DAEMON" = "1" ]] && cat <<MANUAL
-  3. Start mcd manually (or re-run with --install-service):
-     mcd run
+  3. Start edgeplaned manually (or re-run with --install-service):
+     edgeplaned run
 MANUAL
 )
 

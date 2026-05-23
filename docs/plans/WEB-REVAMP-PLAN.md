@@ -1,6 +1,6 @@
 # Web Frontend Revamp Plan
 
-This document is the implementation plan for the current MissionControl web frontend rewrite.
+This document is the implementation plan for the current Edgeplane web frontend rewrite.
 It is intentionally operational: it focuses on what to build next, in what order, and what each step must prove before moving on.
 
 ## Why this needs a revamp
@@ -30,7 +30,7 @@ After the revamp, the web app should feel like a deliberate product with:
 Do not try to solve everything at once:
 
 - Do not redesign backend APIs as part of the first frontend pass.
-- Do not add new user-facing product areas unless they support the existing MissionControl flows.
+- Do not add new user-facing product areas unless they support the existing Edgeplane flows.
 - Do not keep the monolithic `+page.svelte` shape and only restyle it.
 - Do not build a generic design system before the app structure is clarified.
 
@@ -227,7 +227,7 @@ Each slice should pass the existing checks before it is merged:
 - `cd backend && uv run --python ../.venv/bin/python -m unittest discover -s tests -q`
 - `cd web && npm run check`
 - `cd web && npm run build`
-- `cd crates/mc && cargo check -p mc`
+- `cd crates/edgeplane && cargo check -p edgeplane`
 
 If a slice changes UI behavior, add a manual verification note in the PR or commit message describing the flow that was checked.
 

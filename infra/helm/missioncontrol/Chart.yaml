@@ -1,6 +1,6 @@
 apiVersion: v2
-name: missioncontrol
-description: MissionControl API deployment
+name: edgeplane
+description: Edgeplane API deployment
 type: application
 version: 0.1.0
 appVersion: "latest"

@@ -1,7 +1,7 @@
-# MissionControl Trademark Policy
+# Edgeplane Trademark Policy
 
 ## Scope
-This policy governs use of the names "MissionControl", "MissionControl MCP",
+This policy governs use of the names "Edgeplane", "Edgeplane MCP",
 and project logos/wordmarks.
 
 ## What the Open Source License Covers
@@ -11,14 +11,14 @@ rights to use project trademarks beyond fair and descriptive use.
 ## Permitted Use
 You may:
 - Refer to this project by name for factual, nominative purposes.
-- State compatibility (for example, "works with MissionControl") when accurate.
+- State compatibility (for example, "works with Edgeplane") when accurate.
 - Link to the official repository and documentation.
 
 ## Restricted Use Without Written Permission
 You may not, without prior written permission:
-- Use MissionControl trademarks in your company/product/service name.
+- Use Edgeplane trademarks in your company/product/service name.
 - Use logos/wordmarks in a way that implies endorsement or official status.
-- Rebrand modified forks as "MissionControl" without clearly distinguishing them.
+- Rebrand modified forks as "Edgeplane" without clearly distinguishing them.
 - Register confusingly similar domains, organizations, or package names.
 
 ## Forks and Derivative Distributions

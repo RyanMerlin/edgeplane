@@ -16,7 +16,7 @@ source_of_truth:
     - docs/guides/DEPLOYMENT.md
     - docs/architecture/architecture.md
   code_paths:
-    - crates/mc-controlplane/src/routes/artifacts.rs
+    - crates/edgeplane-tower/src/routes/artifacts.rs
 
 entrypoints:
   run:

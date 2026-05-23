@@ -1,0 +1,47 @@
+[package]
+name = "edgeplaned"
+version.workspace = true
+edition = "2024"
+description = "edgeplaned daemon — work-first agent coordination for Edgeplane"
+license = "Apache-2.0"
+
+[[bin]]
+name = "edgeplaned"
+path = "src/main.rs"
+
+[dependencies]
+edgeplaned-acp = { path = "../edgeplaned-acp" }
+edgeplaned-core = { path = "../edgeplaned-core" }
+edgeplaned-secrets = { path = "../edgeplaned-secrets" }
+edgeplaned-packs = { path = "../edgeplaned-packs" }
+edgeplaned-receipts = { path = "../edgeplaned-receipts" }
+edgeplaned-work = { path = "../edgeplaned-work" }
+edgeplaned-runtimes = { path = "../edgeplaned-runtimes" }
+anyhow = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dirs = { workspace = true }
+futures = { workspace = true }
+serde_yaml = { workspace = true }
+chrono = { workspace = true }
+tokio-tungstenite = { workspace = true }
+rusqlite = { workspace = true }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+hostname = "0.4"
+http = "1"
+reqwest = { workspace = true }
+fs2 = "0.4"
+nix = { version = "0.29", features = ["signal"] }
+which = { workspace = true }
+toml = "0.8"
+croner = "3"
+chrono-tz = "0.10"
+
+[dev-dependencies]
+tempfile = "3.9"

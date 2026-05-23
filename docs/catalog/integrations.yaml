@@ -6,7 +6,7 @@ owners:
   - platform
 summary: >
   Platform integrations for Slack, Google Chat, cloud providers, and scheduled
-  agent jobs. Each integration binds a MissionControl mission to an external channel
+  agent jobs. Each integration binds a Edgeplane mission to an external channel
   or trigger. Currently Slack and Google Chat are the primary chat integrations.
 
 source_of_truth:
@@ -14,9 +14,9 @@ source_of_truth:
     - README.md
     - docs/design/CLOUD-INTEGRATION.md
   code_paths:
-    - crates/mc-controlplane/src/routes/slack_integrations.rs
-    - crates/mc-controlplane/src/routes/chat_integrations.rs
-    - crates/mc-controlplane/src/routes/remotectl.rs
+    - crates/edgeplane-tower/src/routes/slack_integrations.rs
+    - crates/edgeplane-tower/src/routes/chat_integrations.rs
+    - crates/edgeplane-tower/src/routes/remotectl.rs
 
 entrypoints:
   verify:

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MCP_PYPI_SPEC="${MCP_PYPI_SPEC:-missioncontrol-mcp}"
-MCP_GITHUB_SPEC="${MCP_GITHUB_SPEC:-git+https://github.com/RyanMerlin/missioncontrol.git#subdirectory=distribution/missioncontrol-mcp}"
-DOCS_URL="${DOCS_URL:-https://github.com/RyanMerlin/missioncontrol#readme}"
+MCP_PYPI_SPEC="${MCP_PYPI_SPEC:-edgeplane-mcp}"
+MCP_GITHUB_SPEC="${MCP_GITHUB_SPEC:-git+https://github.com/RyanMerlin/edgeplane.git#subdirectory=distribution/edgeplane-mcp}"
+DOCS_URL="${DOCS_URL:-https://github.com/RyanMerlin/edgeplane#readme}"
 DEFAULT_LOCAL_ENDPOINT="http://localhost:8008"
 
 ENDPOINT=""
 TOKEN=""
 AGENT="both"
-INSTALL_DIR="${HOME}/.missioncontrol"
+INSTALL_DIR="${HOME}/.edgeplane"
 NO_EMBED_TOKEN=0
 
 usage() {
@@ -17,11 +17,11 @@ usage() {
 Usage: bash install.sh [options]
 
 Options:
-  --endpoint URL         MissionControl base URL (optional)
-  --token TOKEN          MissionControl token (optional)
+  --endpoint URL         Edgeplane base URL (optional)
+  --token TOKEN          Edgeplane token (optional)
   --agent VALUE          codex|claude|gemini|both (default: both)
-  --install-dir DIR      Output directory (default: ~/.missioncontrol)
-  --no-embed-token       Omit MC_TOKEN from written configs (for OIDC / short-lived tokens)
+  --install-dir DIR      Output directory (default: ~/.edgeplane)
+  --no-embed-token       Omit EP_TOKEN from written configs (for OIDC / short-lived tokens)
   -h, --help             Show help
 USAGE
 }
@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --install-dir)
-      INSTALL_DIR="${2:-$HOME/.missioncontrol}"
+      INSTALL_DIR="${2:-$HOME/.edgeplane}"
       shift 2
       ;;
     --no-embed-token)
@@ -93,7 +93,7 @@ ensure_pipx() {
 }
 
 install_mcp() {
-  echo "Installing missioncontrol-mcp (PyPI first)..."
+  echo "Installing edgeplane-mcp (PyPI first)..."
   if pipx install --force "$MCP_PYPI_SPEC"; then
     echo "Installed from PyPI spec: $MCP_PYPI_SPEC"
     return 0
@@ -122,12 +122,12 @@ toml_escape() {
 }
 
 write_env_file() {
-  local env_file="$HOME/.missioncontrol-agent.env"
+  local env_file="$HOME/.edgeplane-agent.env"
   local effective_endpoint="${ENDPOINT:-$DEFAULT_LOCAL_ENDPOINT}"
   mkdir -p "$(dirname "$env_file")"
   cat > "$env_file" <<ENV
-export MC_BASE_URL="${effective_endpoint}"
-export MC_TOKEN="${TOKEN}"
+export EP_BASE_URL="${effective_endpoint}"
+export EP_TOKEN="${TOKEN}"
 ENV
   chmod 600 "$env_file" || true
   echo "$env_file"
@@ -149,26 +149,26 @@ render_templates() {
   if [[ "$NO_EMBED_TOKEN" -eq 1 || -z "$TOKEN" ]]; then
     embed_token=0
     if [[ -z "$TOKEN" && "$NO_EMBED_TOKEN" -eq 0 ]]; then
-      echo "note: MC_TOKEN is empty — omitting token from written configs (set MC_TOKEN at agent launch time)"
+      echo "note: EP_TOKEN is empty — omitting token from written configs (set EP_TOKEN at agent launch time)"
     fi
   fi
 
   if [[ "$AGENT" == "codex" || "$AGENT" == "both" ]]; then
     if [[ "$embed_token" -eq 1 ]]; then
       cat > "$config_dir/codex.mcp.toml" <<TOML
-[mcp_servers.missioncontrol]
-command = "missioncontrol-mcp"
+[mcp_servers.edgeplane]
+command = "edgeplane-mcp"
 startup_timeout_sec = 45
 tool_timeout_sec = 60
-env = { MC_BASE_URL = $endpoint_toml, MC_TOKEN = $token_toml }
+env = { EP_BASE_URL = $endpoint_toml, EP_TOKEN = $token_toml }
 TOML
     else
       cat > "$config_dir/codex.mcp.toml" <<TOML
-[mcp_servers.missioncontrol]
-command = "missioncontrol-mcp"
+[mcp_servers.edgeplane]
+command = "edgeplane-mcp"
 startup_timeout_sec = 45
 tool_timeout_sec = 60
-env = { MC_BASE_URL = $endpoint_toml }
+env = { EP_BASE_URL = $endpoint_toml }
 TOML
     fi
     echo "wrote $config_dir/codex.mcp.toml"
@@ -179,11 +179,11 @@ TOML
       cat > "$config_dir/claude.mcp.json" <<JSON
 {
   "mcpServers": {
-    "missioncontrol": {
-      "command": "missioncontrol-mcp",
+    "edgeplane": {
+      "command": "edgeplane-mcp",
       "env": {
-        "MC_BASE_URL": $endpoint_json,
-        "MC_TOKEN": $token_json
+        "EP_BASE_URL": $endpoint_json,
+        "EP_TOKEN": $token_json
       }
     }
   }
@@ -193,10 +193,10 @@ JSON
       cat > "$config_dir/claude.mcp.json" <<JSON
 {
   "mcpServers": {
-    "missioncontrol": {
-      "command": "missioncontrol-mcp",
+    "edgeplane": {
+      "command": "edgeplane-mcp",
       "env": {
-        "MC_BASE_URL": $endpoint_json
+        "EP_BASE_URL": $endpoint_json
       }
     }
   }
@@ -211,11 +211,11 @@ JSON
       cat > "$config_dir/gemini.mcp.json" <<JSON
 {
   "mcpServers": {
-    "missioncontrol": {
-      "command": "missioncontrol-mcp",
+    "edgeplane": {
+      "command": "edgeplane-mcp",
       "env": {
-        "MC_BASE_URL": $endpoint_json,
-        "MC_TOKEN": $token_json,
+        "EP_BASE_URL": $endpoint_json,
+        "EP_TOKEN": $token_json,
         "MC_MCP_MODE": "shim",
         "MC_DAEMON_HOST": "127.0.0.1",
         "MC_DAEMON_PORT": "8765",
@@ -230,10 +230,10 @@ JSON
       cat > "$config_dir/gemini.mcp.json" <<JSON
 {
   "mcpServers": {
-    "missioncontrol": {
-      "command": "missioncontrol-mcp",
+    "edgeplane": {
+      "command": "edgeplane-mcp",
       "env": {
-        "MC_BASE_URL": $endpoint_json,
+        "EP_BASE_URL": $endpoint_json,
         "MC_MCP_MODE": "shim",
         "MC_DAEMON_HOST": "127.0.0.1",
         "MC_DAEMON_PORT": "8765",
@@ -264,10 +264,10 @@ run_doctor() {
     "$doctor" --endpoint "$effective_endpoint" --token "$TOKEN" || true
     return 0
   fi
-  if missioncontrol-mcp --help >/dev/null 2>&1; then
-    echo "[OK] missioncontrol-mcp --help"
+  if edgeplane-mcp --help >/dev/null 2>&1; then
+    echo "[OK] edgeplane-mcp --help"
   else
-    echo "[WARN] missioncontrol-mcp exists but --help failed"
+    echo "[WARN] edgeplane-mcp exists but --help failed"
   fi
 }
 
@@ -278,7 +278,7 @@ print_next_steps() {
   if [[ -n "${BASH_SOURCE[0]:-}" && "${BASH_SOURCE[0]}" != "bash" ]]; then
     doctor_hint="bash \"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/doctor.sh\""
   else
-    doctor_hint="missioncontrol-mcp --help"
+    doctor_hint="edgeplane-mcp --help"
   fi
 
   cat <<NEXT
@@ -299,7 +299,7 @@ Next steps:
 
 Auth/connect guidance:
 - Default endpoint is localhost ($DEFAULT_LOCAL_ENDPOINT).
-- To use hosted MissionControl, update MC_BASE_URL and MC_TOKEN in $env_file.
+- To use hosted Edgeplane, update EP_BASE_URL and EP_TOKEN in $env_file.
 - Docs: $DOCS_URL
 NEXT
 }
@@ -307,11 +307,11 @@ NEXT
 main() {
   ensure_pipx
   install_mcp
-  if ! command -v missioncontrol-mcp >/dev/null 2>&1; then
+  if ! command -v edgeplane-mcp >/dev/null 2>&1; then
     export PATH="$HOME/.local/bin:$PATH"
   fi
-  if ! command -v missioncontrol-mcp >/dev/null 2>&1; then
-    echo "missioncontrol-mcp is not on PATH after installation" >&2
+  if ! command -v edgeplane-mcp >/dev/null 2>&1; then
+    echo "edgeplane-mcp is not on PATH after installation" >&2
     exit 1
   fi
 

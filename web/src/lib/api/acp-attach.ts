@@ -1,8 +1,8 @@
 /**
  * Typed client for the ACP attach WebSocket.
  *
- * Speaks the same wire protocol as mcd's `pump_acp`
- * (crates/mcd/crates/mcd/src/attach_ws.rs):
+ * Speaks the same wire protocol as edgeplaned's `pump_acp`
+ * (crates/edgeplaned/crates/edgeplaned/src/attach_ws.rs):
  *
  *   Outbound (agent → viewer):
  *     - One-shot `{kind:"hello", protocol:"acp/1"}` on connect.
@@ -20,7 +20,7 @@ import { attachAgentWsUrl } from './agents';
 
 // ── Wire types (loose mirrors of the Rust shapes) ──────────────────────────
 
-/** Hello frame the mcd pump sends on connect. */
+/** Hello frame the edgeplaned pump sends on connect. */
 export interface HelloFrame {
 	kind: 'hello';
 	protocol: string;

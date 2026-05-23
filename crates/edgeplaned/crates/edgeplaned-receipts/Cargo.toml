@@ -1,0 +1,19 @@
+[package]
+name = "edgeplaned-receipts"
+version.workspace = true
+edition = "2024"
+description = "SQLite audit store for edgeplaned capability executions"
+license = "Apache-2.0"
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+rusqlite = { workspace = true }
+dirs = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.9"

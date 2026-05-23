@@ -1,160 +1,160 @@
 ---
 title: Command Map
-description: Authoritative mc CLI command hierarchy at a glance.
+description: Authoritative edgeplane CLI command hierarchy at a glance.
 ---
 
-This is the authoritative `mc` CLI command hierarchy. For full descriptions of each command, see [mc & mcd CLI](/missioncontrol/reference/cli/).
+This is the authoritative `edgeplane` CLI command hierarchy. For full descriptions of each command, see [edgeplane & edgeplaned CLI](/edgeplane/reference/cli/).
 
 ## Top Level
 
 ```
-mc status
-mc doctor
-mc health
-mc version
-mc config
-mc use
-mc release
-mc logs
-mc completion
-mc auth
-mc admin
-mc data
-mc system
-mc agent
-mc approvals
-mc workspace
-mc ops
-mc daemon
-mc launch
-mc run
-mc init
-mc serve
-mc profile
-mc tui
+edgeplane status
+edgeplane doctor
+edgeplane health
+edgeplane version
+edgeplane config
+edgeplane use
+edgeplane release
+edgeplane logs
+edgeplane completion
+edgeplane auth
+edgeplane admin
+edgeplane data
+edgeplane system
+edgeplane agent
+edgeplane approvals
+edgeplane workspace
+edgeplane ops
+edgeplane daemon
+edgeplane launch
+edgeplane run
+edgeplane init
+edgeplane serve
+edgeplane profile
+edgeplane tui
 ```
 
 ## Quick Verbs
 
 | Command | Description |
 |---------|-------------|
-| `mc status [--verify-lease]` | Combined auth/runtime/workspace status |
-| `mc doctor` | Shortcut to `mc system doctor` |
-| `mc health` | Backend MCP health probe |
-| `mc version` | Local CLI version + backend reachability |
-| `mc config` | Effective local runtime config (redacted) |
-| `mc use --profile <name>` | Activate/apply profile |
-| `mc use --mission-id <id> [--lease-seconds N]` | Acquire workspace lease |
-| `mc use --release` | Release current lease |
-| `mc release [--reason <text>]` | Top-level lease release shortcut |
-| `mc logs` | Local log tail |
-| `mc completion <shell>` | Shell completion generator |
+| `edgeplane status [--verify-lease]` | Combined auth/runtime/workspace status |
+| `edgeplane doctor` | Shortcut to `edgeplane system doctor` |
+| `edgeplane health` | Backend MCP health probe |
+| `edgeplane version` | Local CLI version + backend reachability |
+| `edgeplane config` | Effective local runtime config (redacted) |
+| `edgeplane use --profile <name>` | Activate/apply profile |
+| `edgeplane use --mission-id <id> [--lease-seconds N]` | Acquire workspace lease |
+| `edgeplane use --release` | Release current lease |
+| `edgeplane release [--reason <text>]` | Top-level lease release shortcut |
+| `edgeplane logs` | Local log tail |
+| `edgeplane completion <shell>` | Shell completion generator |
 
-## `mc run` — Agent Launch
-
-| Command | Description |
-|---------|-------------|
-| `mc run claude [-p <profile>] [--mission <id>] [--mode ...]` | Launch Claude Code |
-| `mc run codex [-p <profile>] [--mission <id>] [--mode ...]` | Launch Codex CLI |
-| `mc run gemini [-p <profile>] [-- args]` | Launch Gemini CLI |
-| `mc run claude doctor [-p <profile>] [--fix] [--json]` | Inspect/repair Claude runtime |
-| `mc run claude exec [-p <profile>] -- [args]` | Raw Claude passthrough |
-| `mc run codex doctor [-p <profile>] [--fix] [--json]` | Inspect/repair Codex runtime |
-| `mc run codex status [-p <profile>] [--json]` | Read-only Codex status |
-| `mc run codex exec [-p <profile>] -- [args]` | Raw Codex passthrough |
-| `mc run claude hook --event <type>` | Internal Claude lifecycle hook |
-
-## `mc auth`
+## `edgeplane run` — Agent Launch
 
 | Command | Description |
 |---------|-------------|
-| `mc auth login [--ttl-hours N] [--print-token]` | Exchange credentials for session token |
-| `mc auth whoami` | Verify identity and session expiry |
-| `mc auth logout [--local-only]` | Revoke session |
+| `edgeplane run claude [-p <profile>] [--mission <id>] [--mode ...]` | Launch Claude Code |
+| `edgeplane run codex [-p <profile>] [--mission <id>] [--mode ...]` | Launch Codex CLI |
+| `edgeplane run gemini [-p <profile>] [-- args]` | Launch Gemini CLI |
+| `edgeplane run claude doctor [-p <profile>] [--fix] [--json]` | Inspect/repair Claude runtime |
+| `edgeplane run claude exec [-p <profile>] -- [args]` | Raw Claude passthrough |
+| `edgeplane run codex doctor [-p <profile>] [--fix] [--json]` | Inspect/repair Codex runtime |
+| `edgeplane run codex status [-p <profile>] [--json]` | Read-only Codex status |
+| `edgeplane run codex exec [-p <profile>] -- [args]` | Raw Codex passthrough |
+| `edgeplane run claude hook --event <type>` | Internal Claude lifecycle hook |
 
-## `mc agent`
-
-| Command | Description |
-|---------|-------------|
-| `mc agent signal <id> --content "..."` | Send prompt to agent |
-| `mc agent cancel <id>` | Interrupt agent |
-| `mc agent list [--source local\|remote\|all] [--json]` | List agents |
-| `mc agent describe <id> [--json]` | Show agent details |
-| `mc agent attach <id> [--web] [--remote]` | Attach to agent session |
-| `mc agent evolve ...` | Self-improvement loop |
-| `mc agent node register` | Register node |
-| `mc agent node run` | Start resident node-agent daemon |
-| `mc agent node doctor` | Validate node-agent connectivity |
-
-### `mc agent cron`
+## `edgeplane auth`
 
 | Command | Description |
 |---------|-------------|
-| `mc agent cron list [--json]` | List jobs + last-fire status |
-| `mc agent cron describe <name> [--limit N]` | One job + recent fires |
-| `mc agent cron reload` | Re-parse cron.toml |
-| `mc agent cron history [--name <n>] [-n N]` | Recent fires |
-| `mc agent cron gc-now [--history-days N]` | Force retention sweep |
+| `edgeplane auth login [--ttl-hours N] [--print-token]` | Exchange credentials for session token |
+| `edgeplane auth whoami` | Verify identity and session expiry |
+| `edgeplane auth logout [--local-only]` | Revoke session |
 
-### `mc agent supervise`
+## `edgeplane agent`
 
 | Command | Description |
 |---------|-------------|
-| `mc agent supervise list [--json]` | Supervised agents + unit state |
-| `mc agent supervise status <id> [--limit N]` | One agent + restart history |
-| `mc agent supervise restart <id>` | Manual restart |
-| `mc agent supervise pause [<id>] [--all]` | Disable auto-restart |
-| `mc agent supervise resume [<id>] [--all]` | Re-enable auto-restart |
-| `mc agent supervise history [--agent-id <id>] [-n N]` | Restart events |
-| `mc agent supervise events [--json]` | Stream live supervisor events |
-| `mc agent supervise watch [--poll-secs N]` | Ratatui TUI |
+| `edgeplane agent signal <id> --content "..."` | Send prompt to agent |
+| `edgeplane agent cancel <id>` | Interrupt agent |
+| `edgeplane agent list [--source local\|remote\|all] [--json]` | List agents |
+| `edgeplane agent describe <id> [--json]` | Show agent details |
+| `edgeplane agent attach <id> [--web] [--remote]` | Attach to agent session |
+| `edgeplane agent evolve ...` | Self-improvement loop |
+| `edgeplane agent node register` | Register node |
+| `edgeplane agent node run` | Start resident node-agent daemon |
+| `edgeplane agent node doctor` | Validate node-agent connectivity |
 
-## `mc admin`
-
-| Command | Description |
-|---------|-------------|
-| `mc admin policy active` | Show active policy |
-| `mc admin policy versions` | List policy versions |
-| `mc admin policy events` | Show policy events |
-| `mc admin governance ...` | Governance operations |
-
-## `mc data`
+### `edgeplane agent cron`
 
 | Command | Description |
 |---------|-------------|
-| `mc data tools list` | List available MCP tools |
-| `mc data tools call --tool <name> --payload '<json>'` | Call a tool directly |
-| `mc data sync status ...` | Skill sync status |
-| `mc data sync promote ...` | Promote a skill version |
-| `mc data explorer tree` | Entity tree view |
-| `mc data explorer node ...` | Node details |
+| `edgeplane agent cron list [--json]` | List jobs + last-fire status |
+| `edgeplane agent cron describe <name> [--limit N]` | One job + recent fires |
+| `edgeplane agent cron reload` | Re-parse cron.toml |
+| `edgeplane agent cron history [--name <n>] [-n N]` | Recent fires |
+| `edgeplane agent cron gc-now [--history-days N]` | Force retention sweep |
 
-## `mc system`
-
-| Command | Description |
-|---------|-------------|
-| `mc system doctor [--fix]` | Diagnose and repair runtime issues |
-| `mc system backup --target postgres\|s3\|all` | Trigger backup |
-| `mc system profile-gc ...` | Profile garbage collection |
-| `mc system update ...` | Update binaries |
-| `mc system compat ...` | Compatibility checks |
-| `mc system drift ...` | Drift detection |
-
-## `mc profile`
+### `edgeplane agent supervise`
 
 | Command | Description |
 |---------|-------------|
-| `mc profile create <name>` | Create profile shell |
-| `mc profile list` | List owned profiles |
-| `mc profile show <name>` | Show profile metadata |
-| `mc profile activate <name>` | Set active profile (atomic symlink swap) |
-| `mc profile use <name>` | Activate + download (compat alias) |
-| `mc profile download <name> [--out <path>]` | Download bundle |
-| `mc profile pull <name>` | Pull into local cache |
-| `mc profile publish <name>` | Push local profile to backend |
-| `mc profile pin <name> <sha256>` | Pin to content hash |
-| `mc profile status <name>` | Local sync status vs backend |
-| `mc profile delete <name>` | Remove from backend |
+| `edgeplane agent supervise list [--json]` | Supervised agents + unit state |
+| `edgeplane agent supervise status <id> [--limit N]` | One agent + restart history |
+| `edgeplane agent supervise restart <id>` | Manual restart |
+| `edgeplane agent supervise pause [<id>] [--all]` | Disable auto-restart |
+| `edgeplane agent supervise resume [<id>] [--all]` | Re-enable auto-restart |
+| `edgeplane agent supervise history [--agent-id <id>] [-n N]` | Restart events |
+| `edgeplane agent supervise events [--json]` | Stream live supervisor events |
+| `edgeplane agent supervise watch [--poll-secs N]` | Ratatui TUI |
+
+## `edgeplane admin`
+
+| Command | Description |
+|---------|-------------|
+| `edgeplane admin policy active` | Show active policy |
+| `edgeplane admin policy versions` | List policy versions |
+| `edgeplane admin policy events` | Show policy events |
+| `edgeplane admin governance ...` | Governance operations |
+
+## `edgeplane data`
+
+| Command | Description |
+|---------|-------------|
+| `edgeplane data tools list` | List available MCP tools |
+| `edgeplane data tools call --tool <name> --payload '<json>'` | Call a tool directly |
+| `edgeplane data sync status ...` | Skill sync status |
+| `edgeplane data sync promote ...` | Promote a skill version |
+| `edgeplane data explorer tree` | Entity tree view |
+| `edgeplane data explorer node ...` | Node details |
+
+## `edgeplane system`
+
+| Command | Description |
+|---------|-------------|
+| `edgeplane system doctor [--fix]` | Diagnose and repair runtime issues |
+| `edgeplane system backup --target postgres\|s3\|all` | Trigger backup |
+| `edgeplane system profile-gc ...` | Profile garbage collection |
+| `edgeplane system update ...` | Update binaries |
+| `edgeplane system compat ...` | Compatibility checks |
+| `edgeplane system drift ...` | Drift detection |
+
+## `edgeplane profile`
+
+| Command | Description |
+|---------|-------------|
+| `edgeplane profile create <name>` | Create profile shell |
+| `edgeplane profile list` | List owned profiles |
+| `edgeplane profile show <name>` | Show profile metadata |
+| `edgeplane profile activate <name>` | Set active profile (atomic symlink swap) |
+| `edgeplane profile use <name>` | Activate + download (compat alias) |
+| `edgeplane profile download <name> [--out <path>]` | Download bundle |
+| `edgeplane profile pull <name>` | Pull into local cache |
+| `edgeplane profile publish <name>` | Push local profile to backend |
+| `edgeplane profile pin <name> <sha256>` | Pin to content hash |
+| `edgeplane profile status <name>` | Local sync status vs backend |
+| `edgeplane profile delete <name>` | Remove from backend |
 
 ## Removed in 0.11.0
 
@@ -162,5 +162,5 @@ The following commands were removed. Use the replacements shown:
 
 | Removed | Replacement |
 |---------|-------------|
-| `mc signal <id>` | `mc agent signal <id> --remote` |
-| `mc agent remote <verb>` | `mc agent <verb> --remote` |
+| `edgeplane signal <id>` | `edgeplane agent signal <id> --remote` |
+| `edgeplane agent remote <verb>` | `edgeplane agent <verb> --remote` |

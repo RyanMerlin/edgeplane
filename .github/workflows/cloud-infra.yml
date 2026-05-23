@@ -47,23 +47,23 @@ jobs:
           popd
           mkdir -p ~/.kube
           mv /tmp/kubeconfig ~/.kube/azure_kubeconfig
-      - name: Deploy MissionControl
+      - name: Deploy Edgeplane
         if: ${{ inputs.apply }}
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          MC_TOKEN: ${{ secrets.MC_TOKEN }}
+          EP_TOKEN: ${{ secrets.EP_TOKEN }}
         run: |
           RESOURCE_GROUP=$(cat /tmp/mc_rg)
-          az aks get-credentials --name missioncontrol-aks --resource-group "$RESOURCE_GROUP" --file ~/.kube/azure_kubeconfig --overwrite-existing
+          az aks get-credentials --name edgeplane-aks --resource-group "$RESOURCE_GROUP" --file ~/.kube/azure_kubeconfig --overwrite-existing
           export KUBECONFIG=~/.kube/azure_kubeconfig
           POSTGRES_HOST=$(cat /tmp/postgres_host)
-          helm upgrade --install missioncontrol infra/helm/missioncontrol \
-            --values infra/helm/missioncontrol/values.yaml \
+          helm upgrade --install edgeplane infra/helm/edgeplane \
+            --values infra/helm/edgeplane/values.yaml \
             --set config.POSTGRES_HOST="$POSTGRES_HOST" \
             --set-string config.POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            --set-string config.MC_TOKEN="$MC_TOKEN"
+            --set-string config.EP_TOKEN="$EP_TOKEN"
       - name: Smoke Tests
         if: ${{ inputs.apply }}
         run: |
           export KUBECONFIG=~/.kube/azure_kubeconfig
-          kubectl run mc-smoke --image=busybox --restart=Never --rm -- sh -c "wget -qO- http://missioncontrol-api/healthz"
+          kubectl run edgeplane-smoke --image=busybox --restart=Never --rm -- sh -c "wget -qO- http://edgeplane-api/healthz"

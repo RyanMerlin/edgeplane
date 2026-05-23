@@ -2,7 +2,7 @@ nameOverride: ""
 replicaCount: 2
 
 image:
-  repository: ghcr.io/ryanmerlin/missioncontrol
+  repository: ghcr.io/ryanmerlin/edgeplane
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -11,13 +11,13 @@ service:
   port: 80
 
 config:
-  MC_BASE_URL: https://missioncontrol.internal
-  MC_TOKEN: placeholder-token
+  EP_BASE_URL: https://edgeplane.internal
+  EP_TOKEN: placeholder-token
   POSTGRES_HOST: placeholder-postgres
   POSTGRES_USER: mc_admin
   POSTGRES_PASSWORD: placeholder
-  MC_OBJECT_STORAGE_ENDPOINT: http://minio.missioncontrol.svc.cluster.local
-  MC_OBJECT_STORAGE_BUCKET: missioncontrol
+  MC_OBJECT_STORAGE_ENDPOINT: http://minio.edgeplane.svc.cluster.local
+  MC_OBJECT_STORAGE_BUCKET: edgeplane
   MC_OBJECT_STORAGE_ACCESS_KEY: minio
   MC_OBJECT_STORAGE_ACCESS_SECRET: minio123
 

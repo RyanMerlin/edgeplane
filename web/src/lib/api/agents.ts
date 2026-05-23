@@ -2,7 +2,7 @@
  * Helpers for the persistent-agent attach WebSocket.
  *
  * The browser dials the controlplane (same origin), which proxies the
- * connection to the mcd node over Tailscale. Auth is via the
+ * connection to the edgeplaned node over Tailscale. Auth is via the
  * `mc_token` query param — browsers can't set Authorization headers on
  * WebSocket upgrades, so we mirror the existing pattern from
  * `telemetry.ts`'s SSE stream.

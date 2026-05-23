@@ -1,32 +1,32 @@
 # Codex Multi-Session Swarm Workflow (No Nested `codex exec`)
 
-This is the canonical Codex-native swarm workflow for MissionControl.
+This is the canonical Codex-native swarm workflow for Edgeplane.
 
 Goal: run multiple Codex sessions collaborating on the same mission/kluster without using nested `codex exec` pressure workers.
 
 ## Why this path
 
 - Avoids nested MCP handshake contention from `codex exec` inside `codex exec`.
-- Uses the same production control plane (`mc daemon` shim + MissionControl API).
+- Uses the same production control plane (`edgeplane daemon` shim + Edgeplane API).
 - Produces run artifacts for replay/debug (`artifacts/collab/<run_id>/summary.json`).
 
 ## Prerequisites
 
-- MissionControl full stack healthy (`postgres`, `api`, `mcpd`, `mosquitto`, `rustfs`).
+- Edgeplane full stack healthy (`postgres`, `api`, `mcpd`, `mosquitto`, `rustfs`).
 - Local shim reachable at `127.0.0.1:8765`.
-- `MC_TOKEN` valid for your API.
+- `EP_TOKEN` valid for your API.
 
 ## 1) Start a collaboration run (driver session)
 
 Run in one terminal:
 
 ```bash
-MC_BASE_URL=http://localhost:8008 \
-MC_TOKEN="<token>" \
-MC_STACK_PROFILE=full \
-MC_COLLAB_DURATION_SEC=600 \
-MC_COLLAB_POLL_SEC=5 \
-bash scripts/mc-collab-driver.sh
+EP_BASE_URL=http://localhost:8008 \
+EP_TOKEN="<token>" \
+EP_STACK_PROFILE=full \
+EP_COLLAB_DURATION_SEC=600 \
+EP_COLLAB_POLL_SEC=5 \
+bash scripts/edgeplane-collab-driver.sh
 ```
 
 Driver behavior:
@@ -39,12 +39,12 @@ Driver behavior:
 Attach to an existing mission/kluster instead:
 
 ```bash
-MC_BASE_URL=http://localhost:8008 \
-MC_TOKEN="<token>" \
-MC_STACK_PROFILE=full \
-MC_COLLAB_MISSION_ID="<mission_id>" \
-MC_COLLAB_KLUSTER_ID="<kluster_id>" \
-bash scripts/mc-collab-driver.sh
+EP_BASE_URL=http://localhost:8008 \
+EP_TOKEN="<token>" \
+EP_STACK_PROFILE=full \
+EP_COLLAB_MISSION_ID="<mission_id>" \
+EP_COLLAB_KLUSTER_ID="<kluster_id>" \
+bash scripts/edgeplane-collab-driver.sh
 ```
 
 ## 2) Join with additional Codex sessions
@@ -53,7 +53,7 @@ Open 2-5 additional Codex sessions.
 
 Each session should:
 
-- use MissionControl MCP shim (`MC_MCP_MODE=shim`, daemon `127.0.0.1:8765`)
+- use Edgeplane MCP shim (`MC_MCP_MODE=shim`, daemon `127.0.0.1:8765`)
 - target the same `mission_id`/`kluster_id`
 - pick one task and move it through: `proposed -> in_progress -> blocked|done`
 - include concise updates in task descriptions
@@ -83,7 +83,7 @@ Safe claim pattern until a `claim_task` tool exists:
 2. Pick the task you intend to claim and **immediately** call `update_task` setting `status: in_progress` and `owner: <agent_id>`.
 3. Re-read the task and verify `owner` matches your agent ID before proceeding. If another agent claimed it first, pick a different task.
 
-For scripted/parallel launches, assign task IDs explicitly per session using `MC_COLLAB_TASK_ID` or equivalent env vars rather than relying on agents to self-coordinate from `list_tasks`.
+For scripted/parallel launches, assign task IDs explicitly per session using `EP_COLLAB_TASK_ID` or equivalent env vars rather than relying on agents to self-coordinate from `list_tasks`.
 
 ## Known coordination gap
 
@@ -131,12 +131,12 @@ Key fields:
 
 ## 5) Troubleshooting
 
-- If `mcpd` fails to start on `:8765`, stop any local `mc daemon` already bound there.
-- If Codex reports MCP startup incomplete, verify `MC_*` env names (not `MISSIONCONTROL_*`).
+- If `mcpd` fails to start on `:8765`, stop any local `edgeplane daemon` already bound there.
+- If Codex reports MCP startup incomplete, verify `MC_*` env names (not `EDGEPLANE_*`).
 - If stack services are stale, run `bash scripts/dev-up.sh` (defaults to full profile and clears preexisting/orphan containers first).
 
 ## 6) Recommended pressure sequence
 
-1. `playbook` gate (`scripts/mc-pressure-test.sh`) as deterministic baseline.
+1. `playbook` gate (`scripts/edgeplane-pressure-test.sh`) as deterministic baseline.
 2. Codex multi-session swarm run (this doc) for real collaboration behavior.
 3. Only after both are stable, revisit nested `agent` pressure mode.

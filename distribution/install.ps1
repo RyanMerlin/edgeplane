@@ -19,12 +19,12 @@ function Install-McIntegration {
         [string]$InstallDir = ""
     )
 
-    $mcpPypiSpec = if ($env:MCP_PYPI_SPEC) { $env:MCP_PYPI_SPEC } else { "missioncontrol-mcp" }
-    $mcpGithubSpec = if ($env:MCP_GITHUB_SPEC) { $env:MCP_GITHUB_SPEC } else { "git+https://github.com/RyanMerlin/mc-integration.git#subdirectory=missioncontrol-mcp" }
-    $docsUrl = if ($env:DOCS_URL) { $env:DOCS_URL } else { "https://github.com/RyanMerlin/mc-integration#readme" }
+    $mcpPypiSpec = if ($env:MCP_PYPI_SPEC) { $env:MCP_PYPI_SPEC } else { "edgeplane-mcp" }
+    $mcpGithubSpec = if ($env:MCP_GITHUB_SPEC) { $env:MCP_GITHUB_SPEC } else { "git+https://github.com/RyanMerlin/edgeplane-integration.git#subdirectory=edgeplane-mcp" }
+    $docsUrl = if ($env:DOCS_URL) { $env:DOCS_URL } else { "https://github.com/RyanMerlin/edgeplane-integration#readme" }
     $defaultLocalEndpoint = "http://localhost:8008"
     $effectiveHome = if ($env:HOME) { $env:HOME } elseif ($HOME) { $HOME } else { [Environment]::GetFolderPath("UserProfile") }
-    $effectiveInstallDir = if ($InstallDir) { $InstallDir } else { Join-Path $effectiveHome ".missioncontrol" }
+    $effectiveInstallDir = if ($InstallDir) { $InstallDir } else { Join-Path $effectiveHome ".edgeplane" }
 
     if ($Endpoint -and -not ($Endpoint -match '^https?://')) {
         throw "-Endpoint must start with http:// or https://"
@@ -62,7 +62,7 @@ function Install-McIntegration {
     }
 
     function Install-McpBridge {
-        Write-Host "Installing missioncontrol-mcp (PyPI first)..."
+        Write-Host "Installing edgeplane-mcp (PyPI first)..."
         try {
             & pipx install --force $mcpPypiSpec
             Write-Host "Installed from PyPI spec: $mcpPypiSpec"
@@ -94,11 +94,11 @@ function Install-McIntegration {
 
         $jsonConfig = @{
             mcpServers = @{
-                missioncontrol = @{
-                    command = "missioncontrol-mcp"
+                edgeplane = @{
+                    command = "edgeplane-mcp"
                     env = @{
-                        MC_BASE_URL = $effectiveEndpoint
-                        MC_TOKEN = $Token
+                        EP_BASE_URL = $effectiveEndpoint
+                        EP_TOKEN = $Token
                     }
                 }
             }
@@ -116,11 +116,11 @@ function Install-McIntegration {
         $tokenToml = ConvertTo-TomlStringLiteral -Value $Token
 
         $tomlConfig = @"
-[mcp_servers.missioncontrol]
-command = "missioncontrol-mcp"
+[mcp_servers.edgeplane]
+command = "edgeplane-mcp"
 startup_timeout_sec = 45
 tool_timeout_sec = 60
-env = { MC_BASE_URL = $endpointToml, MC_TOKEN = $tokenToml }
+env = { EP_BASE_URL = $endpointToml, EP_TOKEN = $tokenToml }
 "@
 
         Set-Content -Path $OutPath -Value $tomlConfig -Encoding UTF8
@@ -132,22 +132,22 @@ env = { MC_BASE_URL = $endpointToml, MC_TOKEN = $tokenToml }
             [string]$DoctorToken
         )
 
-        if (-not (Get-Command missioncontrol-mcp -ErrorAction SilentlyContinue)) {
-            throw "missioncontrol-mcp not found on PATH"
+        if (-not (Get-Command edgeplane-mcp -ErrorAction SilentlyContinue)) {
+            throw "edgeplane-mcp not found on PATH"
         }
 
-        Write-Host "[OK] missioncontrol-mcp found"
+        Write-Host "[OK] edgeplane-mcp found"
 
         try {
-            & missioncontrol-mcp --help | Out-Null
-            Write-Host "[OK] missioncontrol-mcp --help"
+            & edgeplane-mcp --help | Out-Null
+            Write-Host "[OK] edgeplane-mcp --help"
         }
         catch {
-            Write-Warning "[WARN] missioncontrol-mcp exists but --help failed"
+            Write-Warning "[WARN] edgeplane-mcp exists but --help failed"
         }
 
         if (-not $DoctorEndpoint) {
-            Write-Host "[INFO] No endpoint set. Local bootstrap is complete; set MC_BASE_URL to connect."
+            Write-Host "[INFO] No endpoint set. Local bootstrap is complete; set EP_BASE_URL to connect."
             return
         }
 
@@ -182,14 +182,14 @@ env = { MC_BASE_URL = $endpointToml, MC_TOKEN = $tokenToml }
     Ensure-Pipx
     Install-McpBridge
 
-    if (-not (Get-Command missioncontrol-mcp -ErrorAction SilentlyContinue)) {
-        throw "missioncontrol-mcp not found on PATH after install"
+    if (-not (Get-Command edgeplane-mcp -ErrorAction SilentlyContinue)) {
+        throw "edgeplane-mcp not found on PATH after install"
     }
 
-    $envFile = Join-Path $effectiveHome ".missioncontrol-agent.env"
+    $envFile = Join-Path $effectiveHome ".edgeplane-agent.env"
     @(
-        "MC_BASE_URL=$effectiveEndpoint"
-        "MC_TOKEN=$Token"
+        "EP_BASE_URL=$effectiveEndpoint"
+        "EP_TOKEN=$Token"
     ) | Set-Content -Path $envFile -Encoding UTF8
 
     $scriptRoot = if ($PSScriptRoot) {
@@ -244,7 +244,7 @@ env = { MC_BASE_URL = $endpointToml, MC_TOKEN = $tokenToml }
         Write-Host "2) Run doctor: pwsh $doctorScript"
     }
     else {
-        Write-Host "2) Run doctor: missioncontrol-mcp --help"
+        Write-Host "2) Run doctor: edgeplane-mcp --help"
     }
     Write-Host "3) Add MCP config in your agent from:"
     Write-Host "   - $configDir/codex.mcp.toml"
@@ -252,7 +252,7 @@ env = { MC_BASE_URL = $endpointToml, MC_TOKEN = $tokenToml }
     Write-Host ""
     Write-Host "Auth/connect guidance:"
     Write-Host "- Default endpoint is localhost ($defaultLocalEndpoint)."
-    Write-Host "- To use hosted MissionControl, update endpoint/token in $envFile and rerun doctor."
+    Write-Host "- To use hosted Edgeplane, update endpoint/token in $envFile and rerun doctor."
     Write-Host "- Docs: $docsUrl"
 }
 

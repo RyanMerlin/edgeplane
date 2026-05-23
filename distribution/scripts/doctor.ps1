@@ -6,59 +6,59 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-if (-not (Get-Command missioncontrol-mcp -ErrorAction SilentlyContinue)) {
-    throw "[FAIL] missioncontrol-mcp not found on PATH"
+if (-not (Get-Command edgeplane-mcp -ErrorAction SilentlyContinue)) {
+    throw "[FAIL] edgeplane-mcp not found on PATH"
 }
 
-Write-Host "[OK] missioncontrol-mcp found"
+Write-Host "[OK] edgeplane-mcp found"
 
 try {
-    & missioncontrol-mcp --help | Out-Null
-    Write-Host "[OK] missioncontrol-mcp --help"
+    & edgeplane-mcp --help | Out-Null
+    Write-Host "[OK] edgeplane-mcp --help"
 }
 catch {
-    Write-Warning "[WARN] missioncontrol-mcp exists but --help failed"
+    Write-Warning "[WARN] edgeplane-mcp exists but --help failed"
 }
 
 if ($Endpoint) {
-    $previousBaseUrl = $env:MC_BASE_URL
-    $previousToken = $env:MC_TOKEN
-    $env:MC_BASE_URL = $Endpoint
-    $env:MC_TOKEN = $Token
+    $previousBaseUrl = $env:EP_BASE_URL
+    $previousToken = $env:EP_TOKEN
+    $env:EP_BASE_URL = $Endpoint
+    $env:EP_TOKEN = $Token
     try {
-        $doctorRaw = & missioncontrol-mcp doctor | Out-String
+        $doctorRaw = & edgeplane-mcp doctor | Out-String
         if (-not $doctorRaw) {
-            Write-Warning "[WARN] missioncontrol-mcp doctor returned no output"
+            Write-Warning "[WARN] edgeplane-mcp doctor returned no output"
         }
         else {
             $doctorJson = $doctorRaw | ConvertFrom-Json
             if ($doctorJson.checks.$Endpoint.health_ok -eq $true) {
-                Write-Host "[OK] missioncontrol-mcp doctor health check"
+                Write-Host "[OK] edgeplane-mcp doctor health check"
             }
             else {
-                Write-Warning "[WARN] missioncontrol-mcp doctor reports health check failure"
+                Write-Warning "[WARN] edgeplane-mcp doctor reports health check failure"
             }
             if ($Token) {
                 if ($doctorJson.checks.$Endpoint.tools_ok -eq $true) {
-                    Write-Host "[OK] missioncontrol-mcp doctor tools check"
+                    Write-Host "[OK] edgeplane-mcp doctor tools check"
                 }
                 else {
-                    Write-Warning "[WARN] missioncontrol-mcp doctor reports tools check failure"
+                    Write-Warning "[WARN] edgeplane-mcp doctor reports tools check failure"
                 }
             }
         }
     }
     catch {
-        Write-Warning "[WARN] missioncontrol-mcp doctor command failed"
+        Write-Warning "[WARN] edgeplane-mcp doctor command failed"
     }
     finally {
-        $env:MC_BASE_URL = $previousBaseUrl
-        $env:MC_TOKEN = $previousToken
+        $env:EP_BASE_URL = $previousBaseUrl
+        $env:EP_TOKEN = $previousToken
     }
 }
 
 if (-not $Endpoint) {
-    Write-Host "[INFO] No endpoint set. Local bootstrap is complete; set MC_BASE_URL to connect."
+    Write-Host "[INFO] No endpoint set. Local bootstrap is complete; set EP_BASE_URL to connect."
     exit 0
 }
 
@@ -89,41 +89,41 @@ else {
     Write-Host "[INFO] No token provided; skipping authenticated /mcp/health check."
 }
 
-if (Get-Command missioncontrol-explorer -ErrorAction SilentlyContinue) {
+if (Get-Command edgeplane-explorer -ErrorAction SilentlyContinue) {
     if ($Endpoint) {
-        $previousBaseUrl = $env:MC_BASE_URL
-        $previousToken = $env:MC_TOKEN
-        $env:MC_BASE_URL = $Endpoint
-        $env:MC_TOKEN = $Token
+        $previousBaseUrl = $env:EP_BASE_URL
+        $previousToken = $env:EP_TOKEN
+        $env:EP_BASE_URL = $Endpoint
+        $env:EP_TOKEN = $Token
         try {
-            $explorerRaw = & missioncontrol-explorer tree --format json 2>$null | Out-String
+            $explorerRaw = & edgeplane-explorer tree --format json 2>$null | Out-String
             if (-not $explorerRaw) {
-                Write-Warning "[WARN] missioncontrol-explorer returned no output"
+                Write-Warning "[WARN] edgeplane-explorer returned no output"
             }
             else {
                 $explorerJson = $explorerRaw | ConvertFrom-Json
                 if ($null -ne $explorerJson.mission_count) {
-                    Write-Host "[OK] missioncontrol-explorer tree --format json"
+                    Write-Host "[OK] edgeplane-explorer tree --format json"
                 }
                 else {
-                    Write-Warning "[WARN] missioncontrol-explorer returned unexpected JSON shape"
+                    Write-Warning "[WARN] edgeplane-explorer returned unexpected JSON shape"
                 }
             }
         }
         catch {
-            Write-Warning "[WARN] missioncontrol-explorer failed"
+            Write-Warning "[WARN] edgeplane-explorer failed"
         }
         finally {
-            $env:MC_BASE_URL = $previousBaseUrl
-            $env:MC_TOKEN = $previousToken
+            $env:EP_BASE_URL = $previousBaseUrl
+            $env:EP_TOKEN = $previousToken
         }
     }
     else {
-        Write-Host "[INFO] missioncontrol-explorer found; skipping explorer run because endpoint is empty"
+        Write-Host "[INFO] edgeplane-explorer found; skipping explorer run because endpoint is empty"
     }
 }
 else {
-    Write-Warning "[WARN] missioncontrol-explorer not found on PATH"
+    Write-Warning "[WARN] edgeplane-explorer not found on PATH"
 }
 
 Write-Host "[DONE] doctor checks finished"

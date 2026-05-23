@@ -2,7 +2,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
-const API_DEV = process.env.MC_DEV_API ?? 'http://localhost:8008';
+const API_DEV = process.env.EP_DEV_API ?? 'http://localhost:8008';
 
 // All known API path prefixes. Proxy these to the backend in dev; everything
 // else is served by the Vite/SvelteKit frontend.

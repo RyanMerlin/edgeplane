@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# demo-mesh.sh — end-to-end mc mesh work loop demo.
+# demo-mesh.sh — end-to-end edgeplane mesh work loop demo.
 #
 # Creates a 3-task A → B → C dependency chain, starts 3 self-contained
 # Python workers that implement the mesh agent work loop directly via
 # the REST API, then polls until all tasks reach "finished".
 #
 # Requirements:
-#   - Backend running (MC_BASE_URL, default http://localhost:8008)
+#   - Backend running (EP_BASE_URL, default http://localhost:8008)
 #   - Python 3 on PATH
-#   - MC_TOKEN set or backend accepts unauthenticated requests
+#   - EP_TOKEN set or backend accepts unauthenticated requests
 #
 # Usage:
-#   MC_BASE_URL=http://localhost:8008 MC_TOKEN=<token> ./scripts/demo-mesh.sh
+#   EP_BASE_URL=http://localhost:8008 EP_TOKEN=<token> ./scripts/demo-mesh.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKER="${SCRIPT_DIR}/demo_workers/agent_worker.py"
 
-BASE_URL="${MC_BASE_URL:-http://localhost:8008}"
+BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
 TIMEOUT="${DEMO_TIMEOUT:-90}"
-TOKEN="${MC_TOKEN:-}"
+TOKEN="${EP_TOKEN:-}"
 
 cleanup_pids=()
 

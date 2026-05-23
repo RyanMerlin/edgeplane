@@ -4,7 +4,7 @@ Self-contained mesh agent worker for the demo.
 
 Enrolls as a MeshAgent, polls for ready tasks in the domain's missions,
 claims and executes each one (sleep 2s), then posts complete or fail.
-Demonstrates the full backend work loop without needing mc run.
+Demonstrates the full backend work loop without needing edgeplane run.
 
 Usage:
     python3 agent_worker.py <domain_id> [<base_url>] [<token>]
@@ -23,8 +23,8 @@ def main():
         sys.exit(1)
 
     domain_id = sys.argv[1]
-    base_url = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("MC_BASE_URL", "http://localhost:8008")
-    token = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("MC_TOKEN", "")
+    base_url = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("EP_BASE_URL", "http://localhost:8008")
+    token = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("EP_TOKEN", "")
     worker_id = f"demo-worker-{os.getpid()}"
 
     def api(method, path, body=None):

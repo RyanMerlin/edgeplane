@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # End-to-end smoke test for Execution Substrate v1.
-# Requires a running MissionControl backend.
+# Requires a running Edgeplane backend.
 #
 # Usage:
-#   MC_BASE_URL=http://localhost:8000 MC_TOKEN=<token> ./scripts/smoke-test-exec-substrate.sh
+#   EP_BASE_URL=http://localhost:8000 EP_TOKEN=<token> ./scripts/smoke-test-exec-substrate.sh
 #
 # The script creates a throwaway mission, exercises the major subsystems,
 # and cleans up on exit.
 set -euo pipefail
 
-BASE_URL="${MC_BASE_URL:-http://localhost:8000}"
-TOKEN="${MC_TOKEN:-}"
+BASE_URL="${EP_BASE_URL:-http://localhost:8000}"
+TOKEN="${EP_TOKEN:-}"
 PASS=0
 FAIL=0
 
 if [[ -z "$TOKEN" ]]; then
-  echo "ERROR: MC_TOKEN not set" >&2
+  echo "ERROR: EP_TOKEN not set" >&2
   exit 1
 fi
 

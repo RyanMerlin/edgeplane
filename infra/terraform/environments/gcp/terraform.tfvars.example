@@ -6,4 +6,4 @@ kubernetes_node_count = 2
 kubernetes_node_type  = "e2-standard-2"
 postgres_tier         = "db-custom-1-3840"
 postgres_disk_size    = 50
-backend_bucket        = "missioncontrol-terraform-state"
+backend_bucket        = "edgeplane-terraform-state"

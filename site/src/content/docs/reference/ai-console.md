@@ -1,9 +1,9 @@
 ---
 title: AI Console
-description: MissionControl's chat-first web UI — sessions, approval flows, and planner configuration.
+description: Edgeplane's chat-first web UI — sessions, approval flows, and planner configuration.
 ---
 
-MissionControl ships an AI-first web console at `/ui/`. The default experience is a chat-style transcript with a command composer. Dashboard tabs (missions, agents, approvals) remain available.
+Edgeplane ships an AI-first web console at `/ui/`. The default experience is a chat-style transcript with a command composer. Dashboard tabs (missions, agents, approvals) remain available.
 
 ## Behavior
 
@@ -69,7 +69,7 @@ Allowed `type` values:
 
 ## Planner Configuration
 
-The planner is the component that maps natural-language prompts to MCP tool calls. Configure via environment variables on the `mc-controlplane` server:
+The planner is the component that maps natural-language prompts to MCP tool calls. Configure via environment variables on the `edgeplane-tower` server:
 
 | Variable | Values / Description |
 |----------|---------------------|
@@ -89,7 +89,7 @@ The planner is the component that maps natural-language prompts to MCP tool call
 - OpenAI-compatible gateway: `https://my-gateway.example.com`
 - Full endpoint: `https://my-gateway.example.com/v1/chat/completions`
 
-If no provider config is set, MissionControl uses a local heuristic planner — the console remains usable in dev without an API key.
+If no provider config is set, Edgeplane uses a local heuristic planner — the console remains usable in dev without an API key.
 
 ## Theme
 
@@ -97,5 +97,5 @@ The web UI is dark-mode first. A light/dark toggle is available in the top-right
 
 ## See Also
 
-- [Reference: Real-Time Events](/missioncontrol/reference/real-time/) — SSE event stream
-- [Concepts: Philosophy](/missioncontrol/concepts/philosophy/) — why writes require approval
+- [Reference: Real-Time Events](/edgeplane/reference/real-time/) — SSE event stream
+- [Concepts: Philosophy](/edgeplane/concepts/philosophy/) — why writes require approval

@@ -161,7 +161,7 @@
       entries.push({
         key: `turn-${t.id}`,
         kind: t.role === 'assistant' ? 'assistant' : 'user',
-        title: t.role === 'assistant' ? 'MissionControl' : 'You',
+        title: t.role === 'assistant' ? 'Edgeplane' : 'You',
         body: text,
         payload: t.content,
         createdAt: t.created_at
@@ -222,7 +222,7 @@
 <div class="glass-panel ai-shell">
   <div class="ai-header">
     <div>
-      <h3>MissionControl AI Console</h3>
+      <h3>Edgeplane AI Console</h3>
       <p class="muted">AI-first workspace. Reads auto-run, writes require approval.</p>
     </div>
     <div class="onboarding-actions">
@@ -282,7 +282,7 @@
     <textarea
       bind:value={aiInput}
       rows="3"
-      placeholder="Ask MissionControl AI..."
+      placeholder="Ask Edgeplane AI..."
       onkeydown={(e) => {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(); }
       }}

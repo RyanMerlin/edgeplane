@@ -1,4 +1,4 @@
-resource "aws_eks_cluster" "missioncontrol" {
+resource "aws_eks_cluster" "edgeplane" {
   name     = var.cluster_name
   role_arn = var.cluster_role_arn
 
@@ -9,8 +9,8 @@ resource "aws_eks_cluster" "missioncontrol" {
   depends_on = []
 }
 
-resource "aws_eks_node_group" "missioncontrol" {
-  cluster_name    = aws_eks_cluster.missioncontrol.name
+resource "aws_eks_node_group" "edgeplane" {
+  cluster_name    = aws_eks_cluster.edgeplane.name
   node_group_name = "${var.cluster_name}-nodes"
   node_role_arn   = var.node_role_arn
   subnet_ids      = var.subnet_ids

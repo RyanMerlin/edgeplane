@@ -50,8 +50,8 @@ wait_for_api() {
 
 api_get() {
   local url="$1"
-  if [[ -n "${MC_TOKEN:-}" ]]; then
-    curl -fsS -H "Authorization: Bearer ${MC_TOKEN}" "$url" >/dev/null
+  if [[ -n "${EP_TOKEN:-}" ]]; then
+    curl -fsS -H "Authorization: Bearer ${EP_TOKEN}" "$url" >/dev/null
   else
     curl -fsS "$url" >/dev/null
   fi
@@ -69,7 +69,7 @@ expect_unauthorized() {
 
 check_protected_endpoint() {
   local url="$1"
-  if [[ -n "${MC_TOKEN:-}" ]]; then
+  if [[ -n "${EP_TOKEN:-}" ]]; then
     api_get "$url"
   else
     expect_unauthorized "$url"
@@ -101,7 +101,7 @@ run_profile() {
   check_protected_endpoint "http://localhost:8008/missions"
 
   if [[ "$profile" == "full" ]]; then
-    if ! docker exec missioncontrol-postgres psql -U missioncontrol -d missioncontrol -tAc \
+    if ! docker exec edgeplane-postgres psql -U edgeplane -d edgeplane -tAc \
       "SELECT extname FROM pg_extension WHERE extname='vector';" | grep -q "vector"; then
       echo "[smoke] pgvector extension is not enabled in full profile" >&2
       return 1

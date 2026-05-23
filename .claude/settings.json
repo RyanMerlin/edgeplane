@@ -8,7 +8,7 @@
       "Edit(*)",
       "Glob(*)",
       "Grep(*)",
-      "mcp__missioncontrol__*"
+      "mcp__edgeplane__*"
     ]
   }
 }

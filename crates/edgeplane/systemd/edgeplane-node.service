@@ -1,0 +1,22 @@
+[Unit]
+Description=Edgeplane Node Agent
+Documentation=https://github.com/RyanMerlin/edgeplane
+Wants=network-online.target
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=-/etc/default/%N
+EnvironmentFile=-/etc/sysconfig/%N
+EnvironmentFile=-/etc/edgeplane/%N.env
+ExecStart=/usr/local/bin/edgeplane node run
+Restart=always
+RestartSec=5s
+KillMode=control-group
+TimeoutStartSec=0
+LimitNOFILE=1048576

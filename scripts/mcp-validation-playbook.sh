@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${MC_BASE_URL:-http://localhost:8008}"
-TOKEN="${MC_TOKEN:-}"
-ACTOR="${MC_PLAYBOOK_ACTOR:-token-client}"
-RUN_ID="${MC_PLAYBOOK_RUN_ID:-$(date +%Y%m%d%H%M%S)}"
-SCENARIO_FILE="${MC_PLAYBOOK_SCENARIO_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/pressure-scenarios/reliability-trio.json}"
-SKIP_CLEANUP="${MC_PLAYBOOK_SKIP_CLEANUP:-0}"
+BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
+TOKEN="${EP_TOKEN:-}"
+ACTOR="${EP_PLAYBOOK_ACTOR:-token-client}"
+RUN_ID="${EP_PLAYBOOK_RUN_ID:-$(date +%Y%m%d%H%M%S)}"
+SCENARIO_FILE="${EP_PLAYBOOK_SCENARIO_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/pressure-scenarios/reliability-trio.json}"
+SKIP_CLEANUP="${EP_PLAYBOOK_SKIP_CLEANUP:-0}"
 
 if [[ -z "$TOKEN" ]]; then
-  echo "MC_TOKEN is required" >&2
+  echo "EP_TOKEN is required" >&2
   exit 2
 fi
 if [[ ! -f "$SCENARIO_FILE" ]]; then
-  echo "MC_PLAYBOOK_SCENARIO_FILE not found: $SCENARIO_FILE" >&2
+  echo "EP_PLAYBOOK_SCENARIO_FILE not found: $SCENARIO_FILE" >&2
   exit 2
 fi
 if ! command -v jq >/dev/null 2>&1; then
@@ -23,9 +23,9 @@ fi
 
 API_AUTH=(-H "Authorization: Bearer ${TOKEN}")
 JSON_HDR=(-H "Content-Type: application/json")
-HTTP_RETRIES="${MC_PLAYBOOK_HTTP_RETRIES:-4}"
-HTTP_RETRY_SLEEP_SEC="${MC_PLAYBOOK_HTTP_RETRY_SLEEP_SEC:-0.5}"
-HTTP_RETRY_MAX_SLEEP_SEC="${MC_PLAYBOOK_HTTP_RETRY_MAX_SLEEP_SEC:-5}"
+HTTP_RETRIES="${EP_PLAYBOOK_HTTP_RETRIES:-4}"
+HTTP_RETRY_SLEEP_SEC="${EP_PLAYBOOK_HTTP_RETRY_SLEEP_SEC:-0.5}"
+HTTP_RETRY_MAX_SLEEP_SEC="${EP_PLAYBOOK_HTTP_RETRY_MAX_SLEEP_SEC:-5}"
 
 http_request() {
   local method="$1"
@@ -199,7 +199,7 @@ mission_deleted=false
 domain_deleted=false
 
 if [[ "$SKIP_CLEANUP" == "1" ]]; then
-  echo "== Cleanup skipped (MC_PLAYBOOK_SKIP_CLEANUP=1) — objects preserved for review"
+  echo "== Cleanup skipped (EP_PLAYBOOK_SKIP_CLEANUP=1) — objects preserved for review"
 else
   for task_id in "${task_ids[@]}"; do
     delete_task_resp="$(mcp_call delete_task "$(jq -cn --arg task_id "$task_id" '{task_id:$task_id}')")"

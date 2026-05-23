@@ -1,16 +1,16 @@
 services:
   postgres:
     image: pgvector/pgvector:0.8.2-pg18
-    container_name: missioncontrol-postgres
+    container_name: edgeplane-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: missioncontrol
-      POSTGRES_USER: missioncontrol
-      POSTGRES_PASSWORD: missioncontrol
+      POSTGRES_DB: edgeplane
+      POSTGRES_USER: edgeplane
+      POSTGRES_PASSWORD: edgeplane
     volumes:
-      - missioncontrol-postgres-data:/var/lib/postgresql
+      - edgeplane-postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U missioncontrol -d missioncontrol || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U edgeplane -d edgeplane || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -20,16 +20,16 @@ services:
 
   rustfs:
     image: rustfs/rustfs:latest
-    container_name: missioncontrol-rustfs
+    container_name: edgeplane-rustfs
     restart: unless-stopped
     environment:
-      RUSTFS_ACCESS_KEY: missioncontrol
-      RUSTFS_SECRET_KEY: missioncontrol-secret
+      RUSTFS_ACCESS_KEY: edgeplane
+      RUSTFS_SECRET_KEY: edgeplane-secret
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - missioncontrol-rustfs-data:/data
+      - edgeplane-rustfs-data:/data
     healthcheck:
       test: ["CMD-SHELL", "code=$$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9000/health/live || true); [ \"$$code\" = \"200\" ] || [ \"$$code\" = \"403\" ]"]
       interval: 5s
@@ -42,25 +42,25 @@ services:
   rustfs-init:
     build:
       context: .
-      dockerfile: crates/mc-controlplane/Dockerfile
-    container_name: missioncontrol-rustfs-init
+      dockerfile: crates/edgeplane-tower/Dockerfile
+    container_name: edgeplane-rustfs-init
     depends_on:
       rustfs:
         condition: service_healthy
     environment:
       MC_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
       MC_OBJECT_STORAGE_REGION: us-east-1
-      MC_OBJECT_STORAGE_BUCKET: missioncontrol
-      MC_OBJECT_STORAGE_ACCESS_KEY: missioncontrol
-      MC_OBJECT_STORAGE_ACCESS_SECRET: missioncontrol-secret
-    entrypoint: ["mc-controlplane", "bucket-init"]
+      MC_OBJECT_STORAGE_BUCKET: edgeplane
+      MC_OBJECT_STORAGE_ACCESS_KEY: edgeplane
+      MC_OBJECT_STORAGE_ACCESS_SECRET: edgeplane-secret
+    entrypoint: ["edgeplane-tower", "bucket-init"]
     restart: "no"
 
   api:
     build:
       context: .
-      dockerfile: crates/mc-controlplane/Dockerfile
-    container_name: missioncontrol-api
+      dockerfile: crates/edgeplane-tower/Dockerfile
+    container_name: edgeplane-api
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,14 +68,14 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://missioncontrol:missioncontrol@postgres:5432/missioncontrol
-      MC_TOKEN: ${MC_TOKEN:-}
+      DATABASE_URL: postgres://edgeplane:edgeplane@postgres:5432/edgeplane
+      EP_TOKEN: ${EP_TOKEN:-}
       MC_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
       MC_OBJECT_STORAGE_REGION: us-east-1
-      MC_OBJECT_STORAGE_BUCKET: missioncontrol
+      MC_OBJECT_STORAGE_BUCKET: edgeplane
       MC_OBJECT_STORAGE_SECURE: "false"
-      MC_OBJECT_STORAGE_ACCESS_KEY: missioncontrol
-      MC_OBJECT_STORAGE_ACCESS_SECRET: missioncontrol-secret
+      MC_OBJECT_STORAGE_ACCESS_KEY: edgeplane
+      MC_OBJECT_STORAGE_ACCESS_SECRET: edgeplane-secret
     ports:
       - "8008:8008"
     healthcheck:
@@ -90,18 +90,18 @@ services:
   mcpd:
     build:
       context: .
-      dockerfile: crates/mc/Dockerfile
-    container_name: missioncontrol-mcpd
+      dockerfile: crates/edgeplane/Dockerfile
+    container_name: edgeplane-mcpd
     depends_on:
       api:
         condition: service_healthy
     restart: unless-stopped
     environment:
       MC_MCP_MODE: daemon
-      MC_BASE_URL: http://api:8008
+      EP_BASE_URL: http://api:8008
       MC_DAEMON_HOST: 0.0.0.0
       MC_DAEMON_PORT: "8765"
-      MC_TOKEN: ${MC_TOKEN:-}
+      EP_TOKEN: ${EP_TOKEN:-}
     ports:
       - "8765:8765"
     healthcheck:
@@ -114,5 +114,5 @@ services:
     cpus: 1.0
 
 volumes:
-  missioncontrol-postgres-data:
-  missioncontrol-rustfs-data:
+  edgeplane-postgres-data:
+  edgeplane-rustfs-data:

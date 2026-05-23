@@ -1,4 +1,4 @@
-resource "azurerm_kubernetes_cluster" "missioncontrol" {
+resource "azurerm_kubernetes_cluster" "edgeplane" {
   name                = var.cluster_name
   location            = var.location
   resource_group_name = var.resource_group_name
