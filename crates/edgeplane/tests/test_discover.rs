@@ -43,7 +43,7 @@ fn test_write_servers_file_overwrites_existing() {
 }
 
 #[test]
-fn test_load_server_list_reads_mc_servers_env() {
+fn test_load_server_list_reads_ep_servers_env() {
     let _guard = ENV.lock().unwrap_or_else(|p| p.into_inner());
     unsafe { std::env::set_var("EP_SERVERS", "https://a:8008,https://b:8008") };
     let servers = load_server_list();
