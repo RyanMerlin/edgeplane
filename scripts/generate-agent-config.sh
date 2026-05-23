@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${MC_BASE_URL:-http://localhost:8008}"
+BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
 AGENT="all"
 OUT_DIR="./generated-agent-config"
 
@@ -71,12 +71,12 @@ curl -fsS \
   "$MANIFEST_URL" > "$TMP_MANIFEST"
 mkdir -p "$OUT_DIR"
 
-jq '{missioncontrol: .mcp_server}' "$TMP_MANIFEST" > "$OUT_DIR/missioncontrol.mcp.json"
+jq '{edgeplane: .mcp_server}' "$TMP_MANIFEST" > "$OUT_DIR/edgeplane.mcp.json"
 
 # Codex prefers TOML config entries with timeout controls.
 jq -r '
   . as $m
-  | "[mcp_servers.missioncontrol]\n"
+  | "[mcp_servers.edgeplane]\n"
   + "command = \"" + $m.mcp_server.command + "\"\n"
   + "startup_timeout_sec = " + ($m.mcp_defaults.startup_timeout_sec|tostring) + "\n"
   + "tool_timeout_sec = " + ($m.mcp_defaults.tool_timeout_sec|tostring) + "\n"
@@ -88,7 +88,7 @@ jq -r '
 # Claude/OpenClaw/Custom consume JSON snippets.
 jq '{
   mcpServers: {
-    missioncontrol: {
+    edgeplane: {
       command: .mcp_server.command,
       env: .mcp_server.env
     }
@@ -96,7 +96,7 @@ jq '{
 }' "$TMP_MANIFEST" > "$OUT_DIR/claude.mcp.json"
 
 jq '{
-  missioncontrol: {
+  edgeplane: {
     transport: "acp-bridge",
     mcp_server: .mcp_server,
     endpoint_candidates: .mcp_defaults.endpoint_candidates,
@@ -111,7 +111,7 @@ write_agent_file() {
   local agent_name="$1"
   local manifest_key="$2"
   local file_name="$3"
-  jq --arg key "$manifest_key" '{missioncontrol: .agent_configs[$key].missioncontrol}' "$TMP_MANIFEST" > "$OUT_DIR/$file_name"
+  jq --arg key "$manifest_key" '{edgeplane: .agent_configs[$key].edgeplane}' "$TMP_MANIFEST" > "$OUT_DIR/$file_name"
   echo "wrote $OUT_DIR/$file_name"
 }
 
@@ -141,7 +141,7 @@ case "$AGENT" in
     ;;
 esac
 
-echo "wrote $OUT_DIR/missioncontrol.mcp.json"
+echo "wrote $OUT_DIR/edgeplane.mcp.json"
 echo "wrote $OUT_DIR/codex.mcp.toml"
 echo "wrote $OUT_DIR/claude.mcp.json"
 echo "wrote $OUT_DIR/openclaw.acp.json"

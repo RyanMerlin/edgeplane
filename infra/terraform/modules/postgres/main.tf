@@ -1,4 +1,4 @@
-resource "azurerm_postgresql_flexible_server" "missioncontrol" {
+resource "azurerm_postgresql_flexible_server" "edgeplane" {
   name                = var.server_name
   location            = var.location
   resource_group_name = var.resource_group_name

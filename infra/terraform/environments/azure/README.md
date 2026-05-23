@@ -1,6 +1,6 @@
 # Azure Environment
 
-This directory orchestrates the Azure baseline for MissionControl. Key responsibilities:
+This directory orchestrates the Azure baseline for Edgeplane. Key responsibilities:
 
 - Wire the shared Terraform modules into an Azure subscription.
 - Configure `backend.tf` so Terraform state lives in an Azure Storage account with locking.

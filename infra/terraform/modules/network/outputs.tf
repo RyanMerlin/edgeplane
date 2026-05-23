@@ -3,5 +3,5 @@ output "virtual_network_id" {
 }
 
 output "subnet_id" {
-  value = azurerm_subnet.missioncontrol.id
+  value = azurerm_subnet.edgeplane.id
 }

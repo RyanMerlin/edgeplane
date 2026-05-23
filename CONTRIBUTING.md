@@ -1,4 +1,4 @@
-# Contributing to MissionControl
+# Contributing to Edgeplane
 
 ## Ground Rules
 - Be respectful and constructive.

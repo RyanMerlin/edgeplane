@@ -1,6 +1,6 @@
 # MCP Validation Playbook
 
-This playbook runs a live lifecycle validation against MissionControl using MCP + API.
+This playbook runs a live lifecycle validation against Edgeplane using MCP + API.
 
 ## What it covers
 
@@ -14,9 +14,9 @@ This playbook runs a live lifecycle validation against MissionControl using MCP 
 
 ## Pressure Harness (multi-agent)
 
-For concurrent pressure tests against the Rust `mc daemon` shim path, use:
+For concurrent pressure tests against the Rust `edgeplane daemon` shim path, use:
 
-`scripts/mc-pressure-test.sh`
+`scripts/edgeplane-pressure-test.sh`
 
 Defaults:
 
@@ -24,36 +24,36 @@ Defaults:
 - workers: `5`
 - duration: `600` seconds
 - model: `gpt-5.1-codex-mini`
-- stack profile: `full` (`MC_STACK_PROFILE=full`)
+- stack profile: `full` (`EP_STACK_PROFILE=full`)
 
 Required env:
 
-- `MC_BASE_URL`
-- `MC_TOKEN`
+- `EP_BASE_URL`
+- `EP_TOKEN`
 - local shim must be reachable at `MC_DAEMON_HOST:MC_DAEMON_PORT` (defaults `127.0.0.1:8765`)
 - full Docker stack should be running (`bash scripts/dev-up.sh`)
 
 Example:
 
 ```bash
-export MC_BASE_URL=http://localhost:8008
-export MC_TOKEN="<token>"
+export EP_BASE_URL=http://localhost:8008
+export EP_TOKEN="<token>"
 MC_PRESSURE_MODE=agent MC_PRESSURE_WORKERS=5 MC_PRESSURE_DURATION_SEC=600 \
-scripts/mc-pressure-test.sh
+scripts/edgeplane-pressure-test.sh
 ```
 
 Deterministic baseline mode (no Codex workers):
 
 ```bash
 MC_PRESSURE_MODE=playbook MC_PRESSURE_WORKERS=5 MC_PRESSURE_DURATION_SEC=600 \
-scripts/mc-pressure-test.sh
+scripts/edgeplane-pressure-test.sh
 ```
 
 Quickstart remains available for local debugging only:
 
 ```bash
-MC_STACK_PROFILE=quickstart MC_PRESSURE_MODE=playbook MC_PRESSURE_WORKERS=1 MC_PRESSURE_DURATION_SEC=15 \
-scripts/mc-pressure-test.sh
+EP_STACK_PROFILE=quickstart MC_PRESSURE_MODE=playbook MC_PRESSURE_WORKERS=1 MC_PRESSURE_DURATION_SEC=15 \
+scripts/edgeplane-pressure-test.sh
 ```
 
 For real multi-session Codex collaboration pressure (non-nested), use:
@@ -78,22 +78,22 @@ Report includes strict gate fields:
 ## Prerequisites
 
 - Running API (default `http://localhost:8008`)
-- Auth token exported as `MC_TOKEN`
+- Auth token exported as `EP_TOKEN`
 - `jq` and `curl` installed
 
 ## Run
 
 ```bash
-export MC_BASE_URL=http://localhost:8008
-export MC_TOKEN="<token>"
+export EP_BASE_URL=http://localhost:8008
+export EP_TOKEN="<token>"
 scripts/mcp-validation-playbook.sh
 ```
 
 Optional variables:
 
-- `MC_PLAYBOOK_ACTOR` (default: `token-client`)
-- `MC_PLAYBOOK_RUN_ID` (default: timestamp)
-- `MC_PLAYBOOK_SCENARIO_FILE` (default: `scripts/pressure-scenarios/reliability-trio.json`)
+- `EP_PLAYBOOK_ACTOR` (default: `token-client`)
+- `EP_PLAYBOOK_RUN_ID` (default: timestamp)
+- `EP_PLAYBOOK_SCENARIO_FILE` (default: `scripts/pressure-scenarios/reliability-trio.json`)
 
 ## Notes
 

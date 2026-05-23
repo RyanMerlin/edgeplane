@@ -1,6 +1,0 @@
-{
-  "version": "1.0.0",
-  "title": "MissionControl Self-Update",
-  "description": "Check for a newer mc binary and self-update the node-agent if one is available. Performs a smoke-test before committing the swap.",
-  "prompt": "You are a node management agent. Your task is to safely update the mc binary on this node.\n\n1. Run `mc --version` to record the current version.\n2. Fetch the latest release manifest from the MC backend:\n   `curl -sf ${MC_BACKEND_URL}/runtime/install/manifest 2>/dev/null`\n   If that fails, skip the update and report the backend is unreachable.\n3. Compare the manifest version against the current version.\n   If already up-to-date, output 'Already at latest version <ver>' and stop.\n4. Download the new binary to /tmp/mc-new:\n   `curl -fL <download_url> -o /tmp/mc-new && chmod +x /tmp/mc-new`\n5. Smoke-test the new binary:\n   `/tmp/mc-new --version`\n   If this fails, output 'Smoke test failed \u2014 aborting update' and stop.\n6. Swap the binary:\n   `cp $(which mc) /tmp/mc-backup && cp /tmp/mc-new $(which mc)`\n7. Restart the node-agent service if systemd is available:\n   `systemctl is-active mc-node.service && systemctl restart mc-node.service`\n8. Report the outcome.\n\nEnvironment variables available: MC_BACKEND_URL (set by the job env)."
-}

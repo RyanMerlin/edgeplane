@@ -10,7 +10,7 @@ Use this checklist for each release that includes schema, auth, or deployment ch
 ### 1. Confirm migration state
 
 ```bash
-cd crates/mc-controlplane
+cd crates/edgeplane-tower
 sqlx migrate info
 ```
 
@@ -27,8 +27,8 @@ curl http://localhost:8008/health
 ### 3. Run tests
 
 ```bash
-cargo test -p mc-controlplane
-cargo test -p mc-tui
+cargo test -p edgeplane-tower
+cargo test -p edgeplane-tui
 ```
 
 ### 4. Validate Docker profiles
@@ -42,19 +42,19 @@ bash scripts/smoke.sh --profile full
 
 - OIDC settings are present and valid for the target environment
 - Admin identities set (`MC_ADMIN_SUBJECTS` and/or `MC_ADMIN_EMAILS`)
-- `MC_TOKEN` is set if MCP clients use static token auth
+- `EP_TOKEN` is set if MCP clients use static token auth
 
 ## Release Execution
 
 1. **Take a DB snapshot** in the target environment before proceeding
 2. **Deploy the new image** (or binary, depending on your deployment path)
 3. **Run schema migrations:**
-   - `mc-controlplane` runs migrations automatically on startup
-   - To run manually: `cd crates/mc-controlplane && sqlx migrate run`
+   - `edgeplane-tower` runs migrations automatically on startup
+   - To run manually: `cd crates/edgeplane-tower && sqlx migrate run`
 4. **Verify API health:**
    ```bash
-   curl https://<mc-host>/health
-   curl https://<mc-host>/schema-pack
+   curl https://<edgeplane-host>/health
+   curl https://<edgeplane-host>/schema-pack
    ```
 
 ## Post-Release Validation
@@ -69,10 +69,10 @@ bash scripts/smoke.sh --profile full
 
 ```bash
 # Create and update entities
-mc missions list --json
-# create + update a test mission via mc or MCP tools
+edgeplane missions list --json
+# create + update a test mission via edgeplane or MCP tools
 # run search
-mc missions list --search "test" --json
+edgeplane missions list --search "test" --json
 ```
 
 ### Publish checks (if publication is enabled)
@@ -109,7 +109,7 @@ When in doubt, treat the migration as not backward-safe and keep the DB snapshot
 After any schema change, run:
 
 ```bash
-# From the mc-controlplane crate
+# From the edgeplane-tower crate
 cargo sqlx prepare
 ```
 
@@ -117,5 +117,5 @@ If this produces changes, commit them. Uncommitted schema drift causes CI failur
 
 ## See Also
 
-- [Deployment](/missioncontrol/guides/deployment/) — server setup and systemd/Compose configuration
-- [OIDC Authentication](/missioncontrol/guides/oidc/) — auth configuration
+- [Deployment](/edgeplane/guides/deployment/) — server setup and systemd/Compose configuration
+- [OIDC Authentication](/edgeplane/guides/oidc/) — auth configuration

@@ -1,6 +1,6 @@
 ---
 title: Philosophy
-description: The design principles and thesis behind MissionControl.
+description: The design principles and thesis behind Edgeplane.
 ---
 
 ## The Problem
@@ -21,18 +21,18 @@ They lack:
 - A working file store decoupled from prompt context
 - A long-term memory of record beyond the current session
 
-MissionControl provides these primitives.
+Edgeplane provides these primitives.
 
 ## The Coordination Layer
 
 Without a shared system of record, parallel agents duplicate effort, diverge on state, and collide on artifacts. There is no overlap detection, no structured ownership, no audit trail, no governance boundary. The capability compounds; the coordination doesn't.
 
-MissionControl is the coordination layer. It is a control plane for AI agents and human collaborators operating against shared, durable, governed state.
+Edgeplane is the coordination layer. It is a control plane for AI agents and human collaborators operating against shared, durable, governed state.
 
 It is not a workflow runner. It is not a pipeline framework. It is not a chatbot UI.
 
 > Kubernetes orchestrates containers.  
-> MissionControl orchestrates agents, domains, and knowledge.
+> Edgeplane orchestrates agents, domains, and knowledge.
 
 ## Domain-Centric Organizational Model
 
@@ -50,7 +50,7 @@ Context switching becomes structured, intentional, and safe. A contributor joins
 
 ## Personal Agent Profiles
 
-Every operator — human or AI — carries a personal profile: a curated bundle of environment configuration, tool settings, and instruction files that defines how that operator engages with MissionControl and their local AI toolchain.
+Every operator — human or AI — carries a personal profile: a curated bundle of environment configuration, tool settings, and instruction files that defines how that operator engages with Edgeplane and their local AI toolchain.
 
 Profiles are:
 
@@ -64,7 +64,7 @@ The agent's operational identity — its environment, instruction files, tool pr
 
 ## Overlap Detection as a First-Class Primitive
 
-MissionControl evaluates intent before mutation.
+Edgeplane evaluates intent before mutation.
 
 Before a task or artifact is created:
 
@@ -99,7 +99,7 @@ Governance is integrated directly into the execution path, not bolted on after t
 
 ## Three-Tier Persistence
 
-MissionControl uses three complementary persistence layers. Each serves a specific role in the information lifecycle.
+Edgeplane uses three complementary persistence layers. Each serves a specific role in the information lifecycle.
 
 **PostgreSQL — Structured State**
 
@@ -124,9 +124,9 @@ AI activity becomes accountable. The full trail — who did what, when, approved
 
 ## Rust-Native Trust Boundary
 
-MissionControl is intentionally Rust-forward at the agent edge.
+Edgeplane is intentionally Rust-forward at the agent edge.
 
-The `mc` runtime is a compiled Rust binary that carries MCP transport, policy context, session wiring, and local orchestration in one deterministic artifact.
+The `edgeplane` runtime is a compiled Rust binary that carries MCP transport, policy context, session wiring, and local orchestration in one deterministic artifact.
 
 This supports organizational requirements:
 
@@ -135,11 +135,11 @@ This supports organizational requirements:
 - Stronger operational predictability for IT/SRE teams
 - Clearer audit boundaries between agent runtime and control plane
 
-Security is not bolted on. It is part of the system boundary design: agents request actions, MissionControl authorizes and records them.
+Security is not bolted on. It is part of the system boundary design: agents request actions, Edgeplane authorizes and records them.
 
 ## MCP-Native Interface
 
-MissionControl is AI-first infrastructure. Agents interact via structured MCP tool calls:
+Edgeplane is AI-first infrastructure. Agents interact via structured MCP tool calls:
 
 - `search_tasks` / `search_missions` — semantic search
 - `detect_overlaps` — pre-mutation collision detection
@@ -151,6 +151,6 @@ The system is designed for autonomous orchestration. The TUI and CLI are operato
 
 ## Vision
 
-As AI becomes a primary production actor, coordination becomes the limiting factor. MissionControl ensures that intelligence scales without fragmentation.
+As AI becomes a primary production actor, coordination becomes the limiting factor. Edgeplane ensures that intelligence scales without fragmentation.
 
 It connects agents, humans, governance, and organizational communication into a single coordinated execution layer. Isolated AI capability becomes governed, domain-and-mission-driven execution at scale.

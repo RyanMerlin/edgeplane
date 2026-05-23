@@ -49,7 +49,7 @@
     theme = next;
     if (typeof document !== 'undefined') {
       document.documentElement.dataset.theme = next;
-      localStorage.setItem('missioncontrol:theme', next);
+      localStorage.setItem('edgeplane:theme', next);
     }
   }
 
@@ -58,7 +58,7 @@
   // ── Auth actions ──────────────────────────────────────────────────────────────
 
   function handleToken() {
-    if (!initialToken.trim()) { showToast('Enter a MissionControl token or use OIDC login.'); return; }
+    if (!initialToken.trim()) { showToast('Enter a Edgeplane token or use OIDC login.'); return; }
     loginWithToken(initialToken.trim());
   }
 
@@ -67,7 +67,7 @@
   // ── Mount ─────────────────────────────────────────────────────────────────────
 
   onMount(() => {
-    const saved = localStorage.getItem('missioncontrol:theme');
+    const saved = localStorage.getItem('edgeplane:theme');
     applyTheme(saved === 'light' ? 'light' : 'dark');
 
     const params = new URLSearchParams(window.location.search);
@@ -105,7 +105,7 @@
   <div class="shell">
     <header class="shell-header glass-panel">
       <div>
-        <div class="status-chip">MissionControl</div>
+        <div class="status-chip">Edgeplane</div>
         <p style="margin:0.25rem 0 0;font-size:0.9rem; color: var(--muted);">
           {#if isLoggedIn}Connected{:else}Authenticate to continue{/if}
         </p>
@@ -135,13 +135,13 @@
     {:else}
       <section class="login">
         <div class="login-card">
-          <div class="status-chip">MissionControl Secure</div>
+          <div class="status-chip">Edgeplane Secure</div>
           <h1>Team Console</h1>
           <p class="muted" style="margin:0;">OIDC is the production login path. Token login is for testing.</p>
           <div class="login-actions">
             <button class="primary" onclick={handleOidc}>Sign in via OIDC</button>
           </div>
-          <label>Testing Token<input bind:value={initialToken} type="password" placeholder="MC_TOKEN" /></label>
+          <label>Testing Token<input bind:value={initialToken} type="password" placeholder="EP_TOKEN" /></label>
           <div class="login-actions">
             <button class="ghost" onclick={handleToken}>Continue with token</button>
           </div>

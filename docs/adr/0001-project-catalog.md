@@ -5,7 +5,7 @@
 
 ## Context
 
-MissionControl has useful narrative documentation but it is fragmented for agent consumption. Agents currently need to grep through the codebase or read many docs sequentially to understand subsystem status, commands, gaps, and navigation. Doc drift between files (e.g. architecture.md vs README.md) creates confusion.
+Edgeplane has useful narrative documentation but it is fragmented for agent consumption. Agents currently need to grep through the codebase or read many docs sequentially to understand subsystem status, commands, gaps, and navigation. Doc drift between files (e.g. architecture.md vs README.md) creates confusion.
 
 ## Decision
 

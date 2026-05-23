@@ -1,23 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: missioncontrol-api
+  name: edgeplane-api
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: missioncontrol-api
+      app: edgeplane-api
   template:
     metadata:
       labels:
-        app: missioncontrol-api
+        app: edgeplane-api
     spec:
       containers:
-        - name: missioncontrol
-          image: ghcr.io/ryanmerlin/missioncontrol:latest
+        - name: edgeplane
+          image: ghcr.io/ryanmerlin/edgeplane:latest
           envFrom:
             - configMapRef:
-                name: missioncontrol-config
+                name: edgeplane-config
           ports:
             - containerPort: 8008
           readinessProbe:

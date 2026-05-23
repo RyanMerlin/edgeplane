@@ -187,15 +187,15 @@ web/build/
 web/.svelte-kit/
 
 # Rust build artifacts
-crates/mc/target/
-crates/mcd/target/
-crates/mc-controlplane/target/
+crates/edgeplane/target/
+crates/edgeplaned/target/
+crates/edgeplane-tower/target/
 
 # Local broker credentials (generated for docker compose)
 docker/mosquitto/passwords/
 artifacts/
 
 # Mission update artifacts (personal session files)
-crates/mc/mission-*.md
-crates/mc/kluster-*.md
+crates/edgeplane/mission-*.md
+crates/edgeplane/kluster-*.md
 .worktrees/

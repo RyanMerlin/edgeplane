@@ -1,9 +1,9 @@
 # Ephemeral Task Subagents — Identity Model
 
-**Status:** Shipped 2026-05-21 (mcd 0.15.4–0.15.7). All four phases complete.
+**Status:** Shipped 2026-05-21 (edgeplaned 0.15.4–0.15.7). All four phases complete.
 **Author:** Aria (mc-engineer) with Merlin
 **Supersedes:** signal-injection pattern for delegated work
-**Implementation:** `crates/mcd/crates/mcd/src/{bootstrap,task_worker,capabilities}.rs`
+**Implementation:** `crates/edgeplaned/crates/edgeplaned/src/{bootstrap,task_worker,capabilities}.rs`
 
 ---
 
@@ -11,7 +11,7 @@
 
 Today, when a scheduled job (e.g. `fleet-self-health`) surfaces something actionable, the dispatcher has two bad options:
 
-1. **Signal-inject** into a live profile session via `mc agent signal`. The signal lands as a user message in whatever conversation is active, interrupting focused work and polluting context.
+1. **Signal-inject** into a live profile session via `edgeplane agent signal`. The signal lands as a user message in whatever conversation is active, interrupting focused work and polluting context.
 2. **Write a note to the vault** and hope the operator notices on next check-in. Loses urgency, breaks the loop, no feedback.
 
 What we want: the dispatcher submits a task to MC, an ephemeral subagent claims it, runs it to completion in an isolated context, and reports back. The persistent profile session is never touched. MC retains full visibility.
@@ -47,7 +47,7 @@ Concretely, for one task lifecycle:
 
 Per entity model, MC retains full visibility despite ephemerality:
 
-- **`mc agent list`** — shows the parent identity plus its active subagent projections. UI can collapse them under the parent (e.g. *"aria-mc-engineer (3 in flight)"*).
+- **`edgeplane agent list`** — shows the parent identity plus its active subagent projections. UI can collapse them under the parent (e.g. *"aria-mc-engineer (3 in flight)"*).
 - **`list_mesh_tasks`** — shows the work in progress with `claimed_by_agent_id` pointing at the ephemeral `MeshAgent`.
 - **`get_entity_history`** on the parent `Agent` — joins through `AgentRun` to show every subagent execution ever, including the ephemeral ones long after their `MeshAgent` is gone.
 - **Cost rollup** — `agentrun.total_cost_cents` summed per parent agent, per mission, per domain — gives clean accountability.
@@ -63,7 +63,7 @@ The ephemeral nature is in the runtime projection, not the audit trail.
    └─> submit_mesh_task(mission_id, prompt, required_capabilities, target_agent_hint)
        returns: meshtask.id
 
-2. Spawner worker (mcd's `task-worker` module — new component)
+2. Spawner worker (edgeplaned's `task-worker` module — new component)
    └─> Polls list_mesh_tasks for open tasks matching its supervised profiles
    └─> For each match:
        a. enroll_mesh_agent(
@@ -107,7 +107,7 @@ The ephemeral nature is in the runtime projection, not the audit trail.
 ## Concurrency + collision handling
 
 - **Multiple subagents per parent**: trivially supported — N `MeshAgent` rows, one parent `Agent`. `current_task_id` is per-MeshAgent.
-- **Concurrent git operations on a shared repo**: real hazard. Two `claude -p` subagents both running `git add` in `~/code/aria` can corrupt the index. **Mitigation: per-task git worktrees** — spawner allocates `~/.mc/worktrees/<task-id>/` before launch. Subagent's cwd is the worktree, not the live checkout.
+- **Concurrent git operations on a shared repo**: real hazard. Two `claude -p` subagents both running `git add` in `~/code/aria` can corrupt the index. **Mitigation: per-task git worktrees** — spawner allocates `~/.ep/worktrees/<task-id>/` before launch. Subagent's cwd is the worktree, not the live checkout.
 - **API rate limits**: enforced at the spawner via `max_concurrent_subagents` config (default 3). Tasks pile up in the mesh queue, claimed FIFO as slots free.
 - **Filesystem appends (`.learnings/`, etc.)**: append-only writes from concurrent processes are mostly safe (POSIX guarantee for ≤PIPE_BUF). Vault writes go through `aria vault note write` which is atomic at the git layer.
 
@@ -131,9 +131,9 @@ The ephemeral nature is in the runtime projection, not the audit trail.
    - **Recommend: restrict.** Dispatcher must declare `required_capabilities` on every MeshTask. Spawner enforces by filtering parent's capability set down to the declared subset before launching.
 
 4. **Where does the spawner live?**
-   - Option A: new `mcd::task_worker` module — keeps everything in the daemon already running.
-   - Option B: separate daemon (`mc-task-worker.service`) — clean separation, independent restart.
-   - **Recommend: start in mcd as a module** (already has agent context, registry access, lifecycle hooks). Extract to a separate daemon only if it grows beyond ~500 lines or needs independent scaling.
+   - Option A: new `edgeplaned::task_worker` module — keeps everything in the daemon already running.
+   - Option B: separate daemon (`edgeplane-task-worker.service`) — clean separation, independent restart.
+   - **Recommend: start in edgeplaned as a module** (already has agent context, registry access, lifecycle hooks). Extract to a separate daemon only if it grows beyond ~500 lines or needs independent scaling.
 
 ---
 
@@ -161,16 +161,16 @@ The ephemeral nature is in the runtime projection, not the audit trail.
 **Code-surface gaps that don't block (but worth noting):**
 
 1. `enroll_mesh_agent` HTTP handler (`work.rs:1678`) hardcodes `supervision_mode = NULL` and `status = 'online'` on insert. To tag a subagent as ephemeral, **use the `labels` JSON field** (e.g. `{"role": "task-subagent", "ephemeral": true}`). Zero code change. `supervision_mode` enum can be extended later if we want it first-class.
-2. `enroll_mesh_agent` MCP tool (`mcp.rs:112`) accepts only `domain_id`, `agent_id`, `capabilities_json`, `runtime_kind`, `agent_name` — no `labels`. The mcd spawner runs on the same host as the controlplane with admin auth, so **it should call the HTTP API directly**. MCP tool extension is a follow-up if cross-host MCP-driven spawning becomes a use case.
+2. `enroll_mesh_agent` MCP tool (`mcp.rs:112`) accepts only `domain_id`, `agent_id`, `capabilities_json`, `runtime_kind`, `agent_name` — no `labels`. The edgeplaned spawner runs on the same host as the controlplane with admin auth, so **it should call the HTTP API directly**. MCP tool extension is a follow-up if cross-host MCP-driven spawning becomes a use case.
 3. `submit_mesh_task` MCP tool (`mcp.rs:100`) doesn't accept `required_capabilities` or `claim_policy` even though the columns exist. Same workaround: spawner uses HTTP API. MCP extension is a separate ticket.
 
-**Bottom line:** the entity model is sound and the database is ready. The only build work is the mcd spawner + the 3 small MCP tool extensions (which are independent and can ship later).
+**Bottom line:** the entity model is sound and the database is ready. The only build work is the edgeplaned spawner + the 3 small MCP tool extensions (which are independent and can ship later).
 
 ---
 
 ## Prototype findings (2026-05-21)
 
-Walked the full lifecycle end-to-end via `scripts/proto/ephemeral-subagent.sh` against the live controlplane. Two findings worth landing before `mcd::task_worker`:
+Walked the full lifecycle end-to-end via `scripts/proto/ephemeral-subagent.sh` against the live controlplane. Two findings worth landing before `edgeplaned::task_worker`:
 
 **1. API field-name inconsistency in `/runs` (small, fix anytime).**
 `models::run::StartRunRequest` accepts `agent_id` and `task_id`, but the columns it writes to are `agentrun.mesh_agent_id` and `agentrun.mesh_task_id`. Callers who follow the column naming silently get NULL FKs because serde drops unknown fields. Either rename the request fields to `mesh_agent_id`/`mesh_task_id` (better, but breaks API back-compat) or alias both via serde (zero-breakage). Recommend the alias.
@@ -178,7 +178,7 @@ Walked the full lifecycle end-to-end via `scripts/proto/ephemeral-subagent.sh` a
 **2. No admin DELETE endpoint for meshagent (blocker for the spawner).**
 The only path that issues `DELETE FROM meshagent` is `revoke_node_agent` at `DELETE /runtime/nodes/{node_id}/agents/{agent_id}`. It requires the agent to be assigned to a registered runtimenode AND the caller to be the node's owner. The ephemeral subagent model doesn't fit this constraint — subagents won't always be registered against a runtimenode, and the spawner's cleanup path needs a generic delete.
 
-**Fix:** add `DELETE /work/agents/{agent_id}` to `crates/mc-controlplane/src/routes/work.rs`, requiring admin or `meshagent.enrolled_by_subject == principal.subject`. Reuses the existing `DELETE FROM meshagent WHERE id=$1` SQL. Estimated 30 lines. **This must land before `mcd::task_worker` can clean up after itself.**
+**Fix:** add `DELETE /work/agents/{agent_id}` to `crates/edgeplane-tower/src/routes/work.rs`, requiring admin or `meshagent.enrolled_by_subject == principal.subject`. Reuses the existing `DELETE FROM meshagent WHERE id=$1` SQL. Estimated 30 lines. **This must land before `edgeplaned::task_worker` can clean up after itself.**
 
 Aside from these two, the schema-level FK behavior (`ON DELETE SET NULL` on `agentrun.mesh_agent_id`) is enforced by Postgres and does not require runtime testing — declaring the constraint in migrations/0001 is sufficient proof. Prototype confirmed lifecycle steps 1–9 (domain → mission → meshtask → enroll meshagent → claim → start AgentRun with proper FKs → spawn `claude -p` → complete) work end-to-end against the live controlplane.
 
@@ -190,7 +190,7 @@ Aside from these two, the schema-level FK behavior (`ON DELETE SET NULL` on `age
 
 1. ~~Schema audit~~ — done. Zero migrations needed.
 2. ~~Build a 50-line shell prototype that walks through the lifecycle once end-to-end~~ — done; `scripts/proto/ephemeral-subagent.sh` validated the model.
-3. ~~If prototype works: scope the `mcd::task_worker` module.~~ — phased into P1-P4 below.
+3. ~~If prototype works: scope the `edgeplaned::task_worker` module.~~ — phased into P1-P4 below.
 4. Wire `fleet-self-health` as the first production caller.
 5. ~~Follow-up: extend MCP tools~~ — walked back. CLI is the right surface for these; see decision log.
 
@@ -205,10 +205,10 @@ After walking through the open questions, the following were locked:
 | 1 | **Delete MeshAgent on completion.** Not archive. | FK `ON DELETE SET NULL` on `agentrun.mesh_agent_id` preserves audit trail automatically. Status whitelist doesn't include "archived" anyway. |
 | 2 | **No resume tokens in v1.** Fresh AISession per task. | Subagents chain via artifacts (S3-stored) + `parent_run_id` audit, not session state. YAGNI on cross-session resume. |
 | 3 | **Restrict capabilities** via dispatcher-declared `required_capabilities`, enforced via `claude -p --allowed-tools`. | Forces dispatchers to declare blast radius. Limits damage from buggy automation. |
-| 4 | **`mcd::task_worker` module**, per-node sharding by supervised profiles. | mcd is the supervisor; spawning is supervision. Per-node naturally shards without a central coordinator. |
-| 5 | **One fleet-ops domain + one `intake` mission**, spawner-as-triage. | Walked back the per-node `home-{hostname}` model — `Mission.kind` was a write-only column with zero readers (leaked Aria-specific operational pattern into MC's schema). Replaced with a single domain (`home` by default, overridable via `MC_HOME_DOMAIN_NAME`) holding one `intake` mission. **Triage** in spawner: rule (target_profile set → claim) → goose categorization at confidence >0.85 → low-confidence → mark blocked + optional deployment-configured surface command (default behavior: just block, discoverable via `mc task ls --status blocked`). Non-interruptive throughout. |
+| 4 | **`edgeplaned::task_worker` module**, per-node sharding by supervised profiles. | edgeplaned is the supervisor; spawning is supervision. Per-node naturally shards without a central coordinator. |
+| 5 | **One fleet-ops domain + one `intake` mission**, spawner-as-triage. | Walked back the per-node `home-{hostname}` model — `Mission.kind` was a write-only column with zero readers (leaked Aria-specific operational pattern into MC's schema). Replaced with a single domain (`home` by default, overridable via `EP_HOME_DOMAIN_NAME`) holding one `intake` mission. **Triage** in spawner: rule (target_profile set → claim) → goose categorization at confidence >0.85 → low-confidence → mark blocked + optional deployment-configured surface command (default behavior: just block, discoverable via `edgeplane task ls --status blocked`). Non-interruptive throughout. |
 | S2 | **Routing creates child meshtasks**, not mission_id rebinds. | Intake task stays in intake mission as routing log (status=`dispatched`); child meshtask under the routed mission carries the work. Uses existing `parent_task_id` schema, no new mutations. |
-| MCP | **Don't extend the MCP tool surface** for write operations. | Every MCP tool definition costs context tokens in every session forever. CLI (`mc daemon task submit` etc.) is the same effort with zero context tax. The spawner calls HTTP directly anyway. |
+| MCP | **Don't extend the MCP tool surface** for write operations. | Every MCP tool definition costs context tokens in every session forever. CLI (`edgeplane daemon task submit` etc.) is the same effort with zero context tax. The spawner calls HTTP directly anyway. |
 
 **Soft-deprecated:** `Mission.kind` column. New code MUST NOT write or filter on it. Existing `provision_home_for_node` in `routes/runtime.rs` still writes `kind='home'` but is dormant (no runtime nodes registered) — flagged as cleanup follow-up.
 
@@ -218,7 +218,7 @@ After walking through the open questions, the following were locked:
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **P1: Bootstrap** | mcd auto-provisions `home` domain + `intake` mission on startup. Idempotent, soft-fail. | ✓ done — `crates/mcd/crates/mcd/src/bootstrap.rs` |
-| **P2: Claimer loop** | `mcd::task_worker` polls open meshtasks, claims via lease, spawns `claude -p` in a per-task worktree, completes the task. Handles tasks with explicit `target_profile` only. | Next |
+| **P1: Bootstrap** | edgeplaned auto-provisions `home` domain + `intake` mission on startup. Idempotent, soft-fail. | ✓ done — `crates/edgeplaned/crates/edgeplaned/src/bootstrap.rs` |
+| **P2: Claimer loop** | `edgeplaned::task_worker` polls open meshtasks, claims via lease, spawns `claude -p` in a per-task worktree, completes the task. Handles tasks with explicit `target_profile` only. | Next |
 | **P3: Triage logic** | Three-tier triage (rule → goose → vault surface). Introduces parent/child task pattern for intake routing. | After P2 |
-| **P4: Capability enforcement** | `required_capabilities` → `--allowed-tools` translation. Coarse vocabulary: `shell:read/write`, `fs:read/write`, `vault:read/write`, `mc:read/write`, `web:fetch`, `gh:read/write`. | After P2 |
+| **P4: Capability enforcement** | `required_capabilities` → `--allowed-tools` translation. Coarse vocabulary: `shell:read/write`, `fs:read/write`, `vault:read/write`, `edgeplane:read/write`, `web:fetch`, `gh:read/write`. | After P2 |

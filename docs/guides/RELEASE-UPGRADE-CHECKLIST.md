@@ -7,14 +7,14 @@ Use this checklist for each release that includes schema, auth, or deployment ch
 ## Pre-Release
 
 1. Confirm migration state:
-   - `cd crates/mc-controlplane`
+   - `cd crates/edgeplane-tower`
    - `sqlx migrate info` — confirm all migrations applied
 2. Validate migration integrity locally:
    - `sqlx migrate run` — apply pending migrations
    - Start server and confirm `GET /health` returns 200
 3. Run tests:
-   - `cargo test -p mc-controlplane`
-   - `cargo test -p mc-tui`
+   - `cargo test -p edgeplane-tower`
+   - `cargo test -p edgeplane-tui`
 4. Validate docker profiles:
    - `bash scripts/smoke.sh --profile quickstart`
    - `bash scripts/smoke.sh --profile full`
@@ -27,8 +27,8 @@ Use this checklist for each release that includes schema, auth, or deployment ch
 1. Backup DB snapshot in target environment.
 2. Deploy application image.
 3. Run schema migrations:
-   - mc-controlplane runs migrations automatically on startup
-   - To run manually: `cd crates/mc-controlplane && sqlx migrate run`
+   - edgeplane-tower runs migrations automatically on startup
+   - To run manually: `cd crates/edgeplane-tower && sqlx migrate run`
 4. Verify API health:
    - `GET /`
    - `GET /schema-pack`

@@ -3,6 +3,6 @@ resources:
 - service.yaml
 
 configMapGenerator:
-- name: missioncontrol-config
+- name: edgeplane-config
   files:
     - config.env

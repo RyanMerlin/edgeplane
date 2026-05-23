@@ -1,0 +1,2450 @@
+# edgeplane Phase 2a Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Make `edgeplane` the unified CLI for both human operators and AI agents — `edgeplane run`, `edgeplane capabilities`, `edgeplane receipts`, and `edgeplane sync` — backed by two new library crates (`edgeplane-mesh-receipts`, `edgeplane-mesh-sync`) and a management socket in the `edgeplane-mesh` daemon.
+
+**Architecture:** `edgeplane` talks to `edgeplane-mesh` via a new Unix management socket (`edgeplane-mesh-mgmt.sock`) for capability dispatch, and reads `receipts.db` directly for browsing. All three routing modes (`auto`, `local`, `backend`) are config-driven. A new `McDispatch` struct handles routing transparently.
+
+**Tech Stack:** Rust 2024 edition, Tokio async, rusqlite (bundled), git CLI (shell-out), clap 4, serde_json JSON-RPC 2.0, thiserror, existing edgeplane-mesh workspace crates.
+
+---
+
+## File Map
+
+**New crates (edgeplane-mesh workspace):**
+- `crates/edgeplane-mesh-receipts/Cargo.toml`
+- `crates/edgeplane-mesh-receipts/src/lib.rs`
+- `crates/edgeplane-mesh-receipts/src/error.rs`
+- `crates/edgeplane-mesh-receipts/src/types.rs`
+- `crates/edgeplane-mesh-receipts/src/store.rs`
+- `crates/edgeplane-mesh-sync/Cargo.toml`
+- `crates/edgeplane-mesh-sync/src/lib.rs`
+- `crates/edgeplane-mesh-sync/src/error.rs`
+- `crates/edgeplane-mesh-sync/src/types.rs`
+- `crates/edgeplane-mesh-sync/src/client.rs`
+
+**Modify (edgeplane-mesh workspace):**
+- `Cargo.toml` — add new crate members + rusqlite workspace dep
+- `crates/edgeplane-mesh-core/src/capability_dispatcher.rs` — insert receipt after dispatch
+- `crates/edgeplane-mesh-core/Cargo.toml` — add edgeplane-mesh-receipts dep
+- `crates/edgeplane-mesh/src/mgmt_gateway.rs` — new JSON-RPC socket listener
+- `crates/edgeplane-mesh/src/daemon.rs` — spawn mgmt_gateway
+- `crates/edgeplane-mesh/src/main.rs` — expose MC_MESH_SOCKET on startup
+- `crates/edgeplane-mesh/Cargo.toml` — add edgeplane-mesh-packs, edgeplane-mesh-receipts deps
+
+**New files (edgeplane binary — separate workspace at `crates/edgeplane/`):**
+- `src/cap_run.rs` — `edgeplane run` command
+- `src/capabilities.rs` — `edgeplane capabilities` + `edgeplane capabilities describe`
+- `src/receipt_cmd.rs` — `edgeplane receipts` command
+- `src/sync_cmd.rs` — `edgeplane sync` command
+- `src/dispatch.rs` — `McDispatch` routing layer (socket + backend fallback)
+
+**Modify (edgeplane binary):**
+- `Cargo.toml` — add edgeplane-mesh-packs, edgeplane-mesh-receipts, edgeplane-mesh-secrets path deps
+- `src/commands.rs` — add Run, Capabilities, Receipts, Sync variants; extend Init
+- `src/main.rs` — wire new commands
+- `src/mesh.rs` — export `mgmt_socket_path()` helper used by dispatch layer
+
+---
+
+## Task 1: `edgeplane-mesh-receipts` crate — SQLite audit store
+
+**Files:**
+- Create: `crates/edgeplane-mesh-receipts/Cargo.toml`
+- Create: `crates/edgeplane-mesh-receipts/src/error.rs`
+- Create: `crates/edgeplane-mesh-receipts/src/types.rs`
+- Create: `crates/edgeplane-mesh-receipts/src/store.rs`
+- Create: `crates/edgeplane-mesh-receipts/src/lib.rs`
+- Modify: `Cargo.toml` (workspace root)
+
+- [ ] **Step 1: Add rusqlite to workspace deps and create crate skeleton**
+
+In `Cargo.toml` (workspace root), add to `[workspace.dependencies]`:
+```toml
+rusqlite = { version = "0.31", features = ["bundled"] }
+```
+And add to `[workspace]` members:
+```toml
+"crates/edgeplane-mesh-receipts",
+```
+
+Create directory and `Cargo.toml`:
+```bash
+mkdir -p crates/edgeplane-mesh-receipts/src
+```
+
+`crates/edgeplane-mesh-receipts/Cargo.toml`:
+```toml
+[package]
+name = "edgeplane-mesh-receipts"
+version = "0.1.0"
+edition = "2024"
+description = "SQLite audit store for edgeplane-mesh capability executions"
+license = "Apache-2.0"
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+rusqlite = { workspace = true }
+dirs = { workspace = true }
+tracing = { workspace = true }
+```
+
+- [ ] **Step 2: Write the error type**
+
+`crates/edgeplane-mesh-receipts/src/error.rs`:
+```rust
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ReceiptsError {
+    #[error("database error: {0}")]
+    Db(#[from] rusqlite::Error),
+    #[error("serialization error: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("receipt not found: {0}")]
+    NotFound(String),
+}
+```
+
+- [ ] **Step 3: Write the Receipt type**
+
+`crates/edgeplane-mesh-receipts/src/types.rs`:
+```rust
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Receipt {
+    pub id: String,
+    pub capability: String,
+    pub args_json: String,
+    pub result_json: String,
+    pub exit_code: i32,
+    pub execution_time_ms: u64,
+    pub mission_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Default)]
+pub struct ReceiptFilter {
+    pub mission_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub capability: Option<String>,
+    pub limit: usize,
+    pub since: Option<DateTime<Utc>>,
+}
+```
+
+- [ ] **Step 4: Write the failing tests first**
+
+`crates/edgeplane-mesh-receipts/src/store.rs` — tests only, no impl yet:
+```rust
+pub struct ReceiptStore;  // placeholder
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Receipt, ReceiptFilter};
+    use chrono::Utc;
+    use tempfile::tempdir;
+
+    fn sample_receipt(id: &str) -> Receipt {
+        Receipt {
+            id: id.to_string(),
+            capability: "kubectl-observe.kubectl-get-pods".to_string(),
+            args_json: r#"{"namespace":"default"}"#.to_string(),
+            result_json: r#"{"ok":true,"data":{}}"#.to_string(),
+            exit_code: 0,
+            execution_time_ms: 42,
+            mission_id: Some("m1".to_string()),
+            agent_id: Some("a1".to_string()),
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn open_creates_schema() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("receipts.db");
+        let store = ReceiptStore::open(&path).unwrap();
+        // Should not panic — schema was applied
+        let receipts = store.last(10).unwrap();
+        assert!(receipts.is_empty());
+    }
+
+    #[test]
+    fn insert_and_last() {
+        let dir = tempdir().unwrap();
+        let store = ReceiptStore::open(&dir.path().join("receipts.db")).unwrap();
+        store.insert(&sample_receipt("r1")).unwrap();
+        store.insert(&sample_receipt("r2")).unwrap();
+        let last = store.last(1).unwrap();
+        assert_eq!(last.len(), 1);
+        assert_eq!(last[0].id, "r2");
+    }
+
+    #[test]
+    fn get_returns_none_for_unknown_id() {
+        let dir = tempdir().unwrap();
+        let store = ReceiptStore::open(&dir.path().join("receipts.db")).unwrap();
+        let result = store.get("nonexistent").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn list_filters_by_mission_id() {
+        let dir = tempdir().unwrap();
+        let store = ReceiptStore::open(&dir.path().join("receipts.db")).unwrap();
+        let mut r1 = sample_receipt("r1");
+        r1.mission_id = Some("mission-a".to_string());
+        let mut r2 = sample_receipt("r2");
+        r2.mission_id = Some("mission-b".to_string());
+        store.insert(&r1).unwrap();
+        store.insert(&r2).unwrap();
+        let results = store.list(ReceiptFilter {
+            mission_id: Some("mission-a".to_string()),
+            limit: 10,
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "r1");
+    }
+}
+```
+
+- [ ] **Step 5: Add tempfile to dev-deps**
+
+In `crates/edgeplane-mesh-receipts/Cargo.toml` add:
+```toml
+[dev-dependencies]
+tempfile = "3.9"
+```
+
+- [ ] **Step 6: Run tests to confirm they fail**
+
+```bash
+cargo test -p edgeplane-mesh-receipts 2>&1 | tail -15
+```
+Expected: compile errors because `ReceiptStore` has no methods.
+
+- [ ] **Step 7: Implement `ReceiptStore`**
+
+Replace `crates/edgeplane-mesh-receipts/src/store.rs` with full implementation:
+```rust
+use crate::error::ReceiptsError;
+use crate::types::{Receipt, ReceiptFilter};
+use chrono::DateTime;
+use rusqlite::{Connection, params};
+use std::path::Path;
+
+pub struct ReceiptStore {
+    conn: Connection,
+}
+
+impl ReceiptStore {
+    pub fn open(path: &Path) -> Result<Self, ReceiptsError> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        let conn = Connection::open(path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS receipts (
+                id               TEXT PRIMARY KEY,
+                capability       TEXT NOT NULL,
+                args_json        TEXT NOT NULL,
+                result_json      TEXT NOT NULL,
+                exit_code        INTEGER NOT NULL,
+                execution_time_ms INTEGER NOT NULL,
+                mission_id       TEXT,
+                agent_id         TEXT,
+                created_at       TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS receipts_created_at ON receipts(created_at DESC);
+            CREATE INDEX IF NOT EXISTS receipts_mission_id ON receipts(mission_id);",
+        )?;
+        Ok(Self { conn })
+    }
+
+    pub fn insert(&self, r: &Receipt) -> Result<(), ReceiptsError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO receipts
+             (id, capability, args_json, result_json, exit_code, execution_time_ms, mission_id, agent_id, created_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![
+                r.id,
+                r.capability,
+                r.args_json,
+                r.result_json,
+                r.exit_code,
+                r.execution_time_ms as i64,
+                r.mission_id,
+                r.agent_id,
+                r.created_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn last(&self, limit: usize) -> Result<Vec<Receipt>, ReceiptsError> {
+        self.list(ReceiptFilter { limit, ..Default::default() })
+    }
+
+    pub fn get(&self, id: &str) -> Result<Option<Receipt>, ReceiptsError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id,capability,args_json,result_json,exit_code,execution_time_ms,mission_id,agent_id,created_at
+             FROM receipts WHERE id=?1",
+        )?;
+        let mut rows = stmt.query(params![id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row_to_receipt(row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn list(&self, f: ReceiptFilter) -> Result<Vec<Receipt>, ReceiptsError> {
+        let limit = if f.limit == 0 { 50 } else { f.limit };
+        let mut conditions = vec!["1=1".to_string()];
+        if f.mission_id.is_some() { conditions.push("mission_id=?".to_string()); }
+        if f.agent_id.is_some()   { conditions.push("agent_id=?".to_string()); }
+        if f.capability.is_some() { conditions.push("capability=?".to_string()); }
+        if f.since.is_some()      { conditions.push("created_at>=?".to_string()); }
+
+        let sql = format!(
+            "SELECT id,capability,args_json,result_json,exit_code,execution_time_ms,mission_id,agent_id,created_at
+             FROM receipts WHERE {} ORDER BY created_at DESC LIMIT {}",
+            conditions.join(" AND "),
+            limit
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut bind: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(1i32)];
+        if let Some(ref v) = f.mission_id { bind.push(Box::new(v.clone())); }
+        if let Some(ref v) = f.agent_id   { bind.push(Box::new(v.clone())); }
+        if let Some(ref v) = f.capability { bind.push(Box::new(v.clone())); }
+        if let Some(ref v) = f.since      { bind.push(Box::new(v.to_rfc3339())); }
+
+        let params: Vec<&dyn rusqlite::ToSql> = bind.iter().map(|b| b.as_ref()).collect();
+        let rows = stmt.query(params.as_slice())?;
+        rows_to_receipts(rows)
+    }
+}
+
+fn row_to_receipt(row: &rusqlite::Row<'_>) -> Result<Receipt, ReceiptsError> {
+    let created_at_str: String = row.get(8)?;
+    Ok(Receipt {
+        id: row.get(0)?,
+        capability: row.get(1)?,
+        args_json: row.get(2)?,
+        result_json: row.get(3)?,
+        exit_code: row.get(4)?,
+        execution_time_ms: row.get::<_, i64>(5)? as u64,
+        mission_id: row.get(6)?,
+        agent_id: row.get(7)?,
+        created_at: DateTime::parse_from_rfc3339(&created_at_str)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .unwrap_or_else(|_| chrono::Utc::now()),
+    })
+}
+
+fn rows_to_receipts(mut rows: rusqlite::Rows<'_>) -> Result<Vec<Receipt>, ReceiptsError> {
+    let mut out = vec![];
+    while let Some(row) = rows.next()? {
+        out.push(row_to_receipt(row)?);
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    // (tests from Step 4 — paste them here)
+    use super::*;
+    use crate::types::{Receipt, ReceiptFilter};
+    use chrono::Utc;
+    use tempfile::tempdir;
+
+    fn sample_receipt(id: &str) -> Receipt {
+        Receipt {
+            id: id.to_string(),
+            capability: "kubectl-observe.kubectl-get-pods".to_string(),
+            args_json: r#"{"namespace":"default"}"#.to_string(),
+            result_json: r#"{"ok":true,"data":{}}"#.to_string(),
+            exit_code: 0,
+            execution_time_ms: 42,
+            mission_id: Some("m1".to_string()),
+            agent_id: Some("a1".to_string()),
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn open_creates_schema() {
+        let dir = tempdir().unwrap();
+        let store = ReceiptStore::open(&dir.path().join("receipts.db")).unwrap();
+        assert!(store.last(10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn insert_and_last() {
+        let dir = tempdir().unwrap();
+        let store = ReceiptStore::open(&dir.path().join("receipts.db")).unwrap();
+        store.insert(&sample_receipt("r1")).unwrap();
+        store.insert(&sample_receipt("r2")).unwrap();
+        let last = store.last(1).unwrap();
+        assert_eq!(last.len(), 1);
+        assert_eq!(last[0].id, "r2");
+    }
+
+    #[test]
+    fn get_returns_none_for_unknown_id() {
+        let dir = tempdir().unwrap();
+        let store = ReceiptStore::open(&dir.path().join("receipts.db")).unwrap();
+        assert!(store.get("nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn list_filters_by_mission_id() {
+        let dir = tempdir().unwrap();
+        let store = ReceiptStore::open(&dir.path().join("receipts.db")).unwrap();
+        let mut r1 = sample_receipt("r1");
+        r1.mission_id = Some("mission-a".to_string());
+        let mut r2 = sample_receipt("r2");
+        r2.mission_id = Some("mission-b".to_string());
+        store.insert(&r1).unwrap();
+        store.insert(&r2).unwrap();
+        let results = store.list(ReceiptFilter {
+            mission_id: Some("mission-a".to_string()),
+            limit: 10,
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "r1");
+    }
+}
+```
+
+- [ ] **Step 8: Write `lib.rs`**
+
+`crates/edgeplane-mesh-receipts/src/lib.rs`:
+```rust
+pub mod error;
+pub mod store;
+pub mod types;
+
+pub use error::ReceiptsError;
+pub use store::ReceiptStore;
+pub use types::{Receipt, ReceiptFilter};
+
+/// Default path: ~/.edgeplane/receipts.db
+pub fn default_db_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".edgeplane")
+        .join("receipts.db")
+}
+```
+
+- [ ] **Step 9: Run tests and confirm they pass**
+
+```bash
+cargo test -p edgeplane-mesh-receipts 2>&1 | tail -10
+```
+Expected: `test result: ok. 4 passed`
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add Cargo.toml crates/edgeplane-mesh-receipts/
+git commit -m "feat(edgeplane-mesh-receipts): SQLite receipt store with WAL mode"
+```
+
+---
+
+## Task 2: Wire receipts into capability_dispatcher
+
+**Files:**
+- Modify: `crates/edgeplane-mesh-core/Cargo.toml`
+- Modify: `crates/edgeplane-mesh-core/src/capability_dispatcher.rs`
+
+- [ ] **Step 1: Add edgeplane-mesh-receipts dep to edgeplane-mesh-core**
+
+In `crates/edgeplane-mesh-core/Cargo.toml`, add:
+```toml
+edgeplane-mesh-receipts = { path = "../edgeplane-mesh-receipts" }
+```
+
+- [ ] **Step 2: Update `DispatchRequest` to carry mission/agent context**
+
+In `crates/edgeplane-mesh-core/src/capability_dispatcher.rs`, `DispatchRequest` likely has `profile` and `env` fields. Add optional correlation fields if not already present. Find the struct and ensure it has:
+```rust
+pub mission_id: Option<String>,
+pub agent_id: Option<String>,
+```
+(These may already exist — check the current struct definition. If they're named differently, map them.)
+
+- [ ] **Step 3: Write failing test for receipt insertion**
+
+In the `#[cfg(test)]` module of `capability_dispatcher.rs`, add:
+```rust
+#[tokio::test]
+async fn dispatch_writes_receipt() {
+    use mc_mesh_receipts::ReceiptStore;
+    use tempfile::tempdir;
+
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("receipts.db");
+    let store = Arc::new(ReceiptStore::open(&db_path).unwrap());
+
+    let registry = Arc::new(PackRegistry::load_builtin().unwrap());
+    let policy = allow_all();
+    let dispatcher = CapabilityDispatcher::new(registry, policy, None)
+        .with_receipt_store(store.clone());
+
+    // Use a known builtin cap name — check PackRegistry::load_builtin() for exact names
+    // Use dry_run=true so no subprocess is needed
+    let caps = PackRegistry::load_builtin().unwrap()
+        .capabilities(None);
+    let first_cap = caps[0].full_name.clone();
+
+    let req = DispatchRequest {
+        full_name: first_cap,
+        args: serde_json::json!({}),
+        mission_id: Some("m1".to_string()),
+        agent_id: Some("a1".to_string()),
+        dry_run: true,
+        timeout_secs: None,
+        ..Default::default()
+    };
+    let result = dispatcher.dispatch(req).await;
+    assert!(result.ok);
+
+    let receipts = store.last(5).unwrap();
+    assert_eq!(receipts.len(), 1);
+    assert_eq!(receipts[0].mission_id, Some("m1".to_string()));
+}
+```
+
+- [ ] **Step 4: Run test to confirm it fails**
+
+```bash
+cargo test -p edgeplane-mesh-core dispatch_writes_receipt 2>&1 | tail -10
+```
+Expected: compile error — `with_receipt_store` method doesn't exist yet.
+
+- [ ] **Step 5: Add optional `ReceiptStore` to `CapabilityDispatcher` and wire it**
+
+In `capability_dispatcher.rs`:
+
+1. Add `receipt_store: Option<Arc<ReceiptStore>>` field to `CapabilityDispatcher`
+2. Add builder method:
+```rust
+pub fn with_receipt_store(mut self, store: Arc<mc_mesh_receipts::ReceiptStore>) -> Self {
+    self.receipt_store = Some(store);
+    self
+}
+```
+3. At the end of `dispatch()`, after a successful result is assembled, insert the receipt:
+```rust
+if let Some(ref store) = self.receipt_store {
+    let receipt = mc_mesh_receipts::Receipt {
+        id: result.receipt_id.clone(),
+        capability: req.full_name.clone(),
+        args_json: req.args.to_string(),
+        result_json: serde_json::to_string(&result.data).unwrap_or_default(),
+        exit_code: result.exit_code,
+        execution_time_ms: result.execution_time_ms,
+        mission_id: req.mission_id.clone(),
+        agent_id: req.agent_id.clone(),
+        created_at: chrono::Utc::now(),
+    };
+    if let Err(e) = store.insert(&receipt) {
+        tracing::warn!("failed to write receipt {}: {e}", receipt.id);
+    }
+}
+```
+
+Also ensure `DispatchRequest` derives `Default` (needed for the test's `..Default::default()`).
+
+- [ ] **Step 6: Run tests and confirm all pass**
+
+```bash
+cargo test -p edgeplane-mesh-core 2>&1 | tail -10
+```
+Expected: all tests pass including `dispatch_writes_receipt`.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add crates/edgeplane-mesh-core/Cargo.toml crates/edgeplane-mesh-core/src/capability_dispatcher.rs
+git commit -m "feat(edgeplane-mesh-core): write receipt to SQLite after every dispatch"
+```
+
+---
+
+## Task 3: `edgeplane-mesh-sync` crate — bidirectional git sync
+
+**Files:**
+- Create: `crates/edgeplane-mesh-sync/Cargo.toml`
+- Create: `crates/edgeplane-mesh-sync/src/error.rs`
+- Create: `crates/edgeplane-mesh-sync/src/types.rs`
+- Create: `crates/edgeplane-mesh-sync/src/client.rs`
+- Create: `crates/edgeplane-mesh-sync/src/lib.rs`
+- Modify: `Cargo.toml` (workspace root — add member)
+
+- [ ] **Step 1: Create crate skeleton**
+
+Add to workspace `Cargo.toml` members: `"crates/edgeplane-mesh-sync"`.
+
+```bash
+mkdir -p crates/edgeplane-mesh-sync/src
+```
+
+`crates/edgeplane-mesh-sync/Cargo.toml`:
+```toml
+[package]
+name = "edgeplane-mesh-sync"
+version = "0.1.0"
+edition = "2024"
+description = "Bidirectional git-backed sync for edgeplane-mesh curated config"
+license = "Apache-2.0"
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+dirs = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.9"
+```
+
+- [ ] **Step 2: Write error type**
+
+`crates/edgeplane-mesh-sync/src/error.rs`:
+```rust
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum SyncError {
+    #[error("git command failed: {0}")]
+    Git(String),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("repo not initialised — run edgeplane init --from-repo first")]
+    NotInitialised,
+    #[error("push rejected: {0}")]
+    PushRejected(String),
+}
+```
+
+- [ ] **Step 3: Write types**
+
+`crates/edgeplane-mesh-sync/src/types.rs`:
+```rust
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncStatus {
+    pub repo_url: Option<String>,
+    pub cache_dir: std::path::PathBuf,
+    pub last_pulled_at: Option<DateTime<Utc>>,
+    pub last_pushed_at: Option<DateTime<Utc>>,
+    /// Uncommitted files under nodes/<hostname>/
+    pub node_branch_dirty: bool,
+    /// Number of remote commits we're behind on fleet/main
+    pub fleet_commits_behind: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct SyncResult {
+    pub commits_pulled: u32,
+    pub message: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PushResult {
+    pub files_committed: usize,
+    pub branch: String,
+    pub message: String,
+}
+```
+
+- [ ] **Step 4: Write failing tests**
+
+`crates/edgeplane-mesh-sync/src/client.rs` — tests only, no impl:
+```rust
+pub struct SyncClient;  // placeholder
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn new_with_nonexistent_dir_is_not_initialised() {
+        let dir = tempdir().unwrap();
+        let cache = dir.path().join("sync");
+        let client = SyncClient::new(
+            "https://example.com/config.git",
+            &cache,
+            "test-node",
+        );
+        // Not initialised — no git repo yet
+        assert!(!client.is_initialised());
+    }
+
+    #[test]
+    fn status_returns_not_initialised_when_no_repo() {
+        let dir = tempdir().unwrap();
+        let cache = dir.path().join("sync");
+        let client = SyncClient::new(
+            "https://example.com/config.git",
+            &cache,
+            "test-node",
+        );
+        let status = client.status().unwrap();
+        assert!(!status.node_branch_dirty);
+        assert_eq!(status.fleet_commits_behind, 0);
+    }
+}
+```
+
+- [ ] **Step 5: Run to confirm tests fail**
+
+```bash
+cargo test -p edgeplane-mesh-sync 2>&1 | tail -10
+```
+Expected: compile errors.
+
+- [ ] **Step 6: Implement `SyncClient`**
+
+`crates/edgeplane-mesh-sync/src/client.rs` (full implementation):
+```rust
+use crate::error::SyncError;
+use crate::types::{PushResult, SyncResult, SyncStatus};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+pub struct SyncClient {
+    repo_url: String,
+    cache_dir: PathBuf,
+    hostname: String,
+}
+
+impl SyncClient {
+    pub fn new(repo_url: &str, cache_dir: &Path, hostname: &str) -> Self {
+        Self {
+            repo_url: repo_url.to_string(),
+            cache_dir: cache_dir.to_owned(),
+            hostname: hostname.to_string(),
+        }
+    }
+
+    pub fn is_initialised(&self) -> bool {
+        self.cache_dir.join(".git").exists()
+    }
+
+    /// Clone the repo if not present, otherwise fetch + merge.
+    pub fn pull(&self) -> Result<SyncResult, SyncError> {
+        if !self.is_initialised() {
+            std::fs::create_dir_all(&self.cache_dir)?;
+            let out = Command::new("git")
+                .args(["clone", "--depth=1", &self.repo_url, "."])
+                .current_dir(&self.cache_dir)
+                .output()?;
+            if !out.status.success() {
+                return Err(SyncError::Git(
+                    String::from_utf8_lossy(&out.stderr).to_string(),
+                ));
+            }
+            // Ensure node branch exists
+            self.ensure_node_branch()?;
+            return Ok(SyncResult {
+                commits_pulled: 1,
+                message: format!("cloned {}", self.repo_url),
+            });
+        }
+
+        let out = Command::new("git")
+            .args(["fetch", "--all", "--prune"])
+            .current_dir(&self.cache_dir)
+            .output()?;
+        if !out.status.success() {
+            return Err(SyncError::Git(
+                String::from_utf8_lossy(&out.stderr).to_string(),
+            ));
+        }
+        let out = Command::new("git")
+            .args(["merge", "--ff-only", "origin/main"])
+            .current_dir(&self.cache_dir)
+            .output()?;
+        if !out.status.success() {
+            tracing::warn!("merge --ff-only failed, staying at current HEAD");
+        }
+        Ok(SyncResult {
+            commits_pulled: 0,
+            message: "pulled latest from origin/main".to_string(),
+        })
+    }
+
+    /// Commit and push dirty files under nodes/<hostname>/ to the node branch.
+    /// Does NOT touch fleet/ — fleet changes require a PR.
+    pub fn push_node_changes(&self, message: &str) -> Result<PushResult, SyncError> {
+        if !self.is_initialised() {
+            return Err(SyncError::NotInitialised);
+        }
+        let node_dir = format!("nodes/{}/", self.hostname);
+
+        // Stage only node-scoped files
+        let out = Command::new("git")
+            .args(["add", &node_dir])
+            .current_dir(&self.cache_dir)
+            .output()?;
+        if !out.status.success() {
+            return Err(SyncError::Git(String::from_utf8_lossy(&out.stderr).to_string()));
+        }
+
+        // Count staged files
+        let status = Command::new("git")
+            .args(["diff", "--cached", "--name-only"])
+            .current_dir(&self.cache_dir)
+            .output()?;
+        let staged: Vec<&str> = std::str::from_utf8(&status.stdout)
+            .unwrap_or("")
+            .lines()
+            .filter(|l| !l.is_empty())
+            .collect();
+
+        if staged.is_empty() {
+            return Ok(PushResult {
+                files_committed: 0,
+                branch: self.node_branch(),
+                message: "nothing to commit".to_string(),
+            });
+        }
+
+        // Commit
+        let out = Command::new("git")
+            .args(["commit", "-m", message])
+            .current_dir(&self.cache_dir)
+            .output()?;
+        if !out.status.success() {
+            return Err(SyncError::Git(String::from_utf8_lossy(&out.stderr).to_string()));
+        }
+
+        // Push to node branch
+        let branch = self.node_branch();
+        let out = Command::new("git")
+            .args(["push", "origin", &format!("HEAD:{branch}")])
+            .current_dir(&self.cache_dir)
+            .output()?;
+        if !out.status.success() {
+            return Err(SyncError::PushRejected(
+                String::from_utf8_lossy(&out.stderr).to_string(),
+            ));
+        }
+
+        Ok(PushResult {
+            files_committed: staged.len(),
+            branch,
+            message: format!("pushed {} file(s) to node branch", staged.len()),
+        })
+    }
+
+    pub fn status(&self) -> Result<SyncStatus, SyncError> {
+        if !self.is_initialised() {
+            return Ok(SyncStatus {
+                repo_url: Some(self.repo_url.clone()),
+                cache_dir: self.cache_dir.clone(),
+                last_pulled_at: None,
+                last_pushed_at: None,
+                node_branch_dirty: false,
+                fleet_commits_behind: 0,
+            });
+        }
+        let node_dir = format!("nodes/{}/", self.hostname);
+        let dirty_out = Command::new("git")
+            .args(["status", "--porcelain", &node_dir])
+            .current_dir(&self.cache_dir)
+            .output()?;
+        let node_branch_dirty = !dirty_out.stdout.is_empty();
+
+        Ok(SyncStatus {
+            repo_url: Some(self.repo_url.clone()),
+            cache_dir: self.cache_dir.clone(),
+            last_pulled_at: None, // TODO: persist timestamps in a state file
+            last_pushed_at: None,
+            node_branch_dirty,
+            fleet_commits_behind: 0,
+        })
+    }
+
+    fn node_branch(&self) -> String {
+        format!("nodes/{}", self.hostname)
+    }
+
+    fn ensure_node_branch(&self) -> Result<(), SyncError> {
+        let branch = self.node_branch();
+        // Create nodes/<hostname>/ directory if absent
+        let node_dir = self.cache_dir.join("nodes").join(&self.hostname);
+        if !node_dir.exists() {
+            std::fs::create_dir_all(&node_dir)?;
+            // Write a placeholder so the dir is tracked
+            std::fs::write(node_dir.join(".gitkeep"), "")?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn new_with_nonexistent_dir_is_not_initialised() {
+        let dir = tempdir().unwrap();
+        let client = SyncClient::new(
+            "https://example.com/config.git",
+            &dir.path().join("sync"),
+            "test-node",
+        );
+        assert!(!client.is_initialised());
+    }
+
+    #[test]
+    fn status_returns_not_initialised_when_no_repo() {
+        let dir = tempdir().unwrap();
+        let client = SyncClient::new(
+            "https://example.com/config.git",
+            &dir.path().join("sync"),
+            "test-node",
+        );
+        let status = client.status().unwrap();
+        assert!(!status.node_branch_dirty);
+    }
+}
+```
+
+- [ ] **Step 7: Write `lib.rs`**
+
+`crates/edgeplane-mesh-sync/src/lib.rs`:
+```rust
+pub mod client;
+pub mod error;
+pub mod types;
+
+pub use client::SyncClient;
+pub use error::SyncError;
+pub use types::{PushResult, SyncResult, SyncStatus};
+
+/// Default sync cache path: ~/.edgeplane/sync
+pub fn default_cache_dir() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".edgeplane")
+        .join("sync")
+}
+```
+
+- [ ] **Step 8: Run tests**
+
+```bash
+cargo test -p edgeplane-mesh-sync 2>&1 | tail -10
+```
+Expected: `test result: ok. 2 passed`
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add Cargo.toml crates/edgeplane-mesh-sync/
+git commit -m "feat(edgeplane-mesh-sync): bidirectional git sync with node-scoped push"
+```
+
+---
+
+## Task 4: Management gateway socket in edgeplane-mesh daemon
+
+**Files:**
+- Create: `crates/edgeplane-mesh/src/mgmt_gateway.rs`
+- Modify: `crates/edgeplane-mesh/src/daemon.rs`
+- Modify: `crates/edgeplane-mesh/src/main.rs`
+- Modify: `crates/edgeplane-mesh/Cargo.toml`
+
+- [ ] **Step 1: Add deps to `crates/edgeplane-mesh/Cargo.toml`**
+
+Add:
+```toml
+edgeplane-mesh-packs = { path = "../edgeplane-mesh-packs" }
+edgeplane-mesh-receipts = { path = "../edgeplane-mesh-receipts" }
+```
+
+- [ ] **Step 2: Write `mgmt_gateway.rs`**
+
+`crates/edgeplane-mesh/src/mgmt_gateway.rs`:
+```rust
+/// Management gateway — JSON-RPC 2.0 over Unix socket.
+///
+/// Binds ~/.edgeplane/edgeplane-mesh-mgmt.sock with 0o600 permissions.
+/// Used by `edgeplane run`, `edgeplane capabilities`, and `edgeplane receipts` to dispatch
+/// through the daemon's policy + secrets + sandbox stack.
+use anyhow::Result;
+use mc_mesh_core::capability_dispatcher::{CapabilityDispatcher, DispatchRequest};
+use mc_mesh_packs::registry::PackRegistry;
+use mc_mesh_receipts::ReceiptStore;
+use serde_json::{Value, json};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+#[cfg(unix)]
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
+use tokio::net::UnixListener;
+
+pub fn mgmt_socket_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(".edgeplane")
+        .join("edgeplane-mesh-mgmt.sock")
+}
+
+#[cfg(unix)]
+pub async fn run(
+    dispatcher: Arc<CapabilityDispatcher>,
+    registry: Arc<PackRegistry>,
+) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = mgmt_socket_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let _ = std::fs::remove_file(&path);
+
+    let listener = UnixListener::bind(&path)
+        .map_err(|e| anyhow::anyhow!("mgmt gateway bind {}: {e}", path.display()))?;
+
+    // Restrict to owner only
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+
+    // Export socket path for child processes
+    std::env::set_var("MC_MESH_SOCKET", path.to_string_lossy().as_ref());
+    tracing::info!("mgmt gateway listening on {}", path.display());
+
+    loop {
+        match listener.accept().await {
+            Ok((stream, _)) => {
+                let d = Arc::clone(&dispatcher);
+                let r = Arc::clone(&registry);
+                tokio::spawn(async move {
+                    if let Err(e) = handle_connection(stream, d, r).await {
+                        tracing::debug!("mgmt session ended: {e}");
+                    }
+                });
+            }
+            Err(e) => tracing::warn!("mgmt gateway accept error: {e}"),
+        }
+    }
+}
+
+#[cfg(not(unix))]
+pub async fn run(_dispatcher: Arc<CapabilityDispatcher>, _registry: Arc<PackRegistry>) -> Result<()> {
+    tracing::warn!("mgmt gateway only supported on Unix");
+    futures::future::pending::<()>().await;
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+#[cfg(unix)]
+async fn handle_connection(
+    stream: tokio::net::UnixStream,
+    dispatcher: Arc<CapabilityDispatcher>,
+    registry: Arc<PackRegistry>,
+) -> Result<()> {
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        let response = handle_request(&line, &dispatcher, &registry).await;
+        let mut out = serde_json::to_string(&response).unwrap_or_default();
+        out.push('\n');
+        write_half.write_all(out.as_bytes()).await?;
+    }
+    Ok(())
+}
+
+async fn handle_request(
+    line: &str,
+    dispatcher: &CapabilityDispatcher,
+    registry: &PackRegistry,
+) -> Value {
+    let req: Value = match serde_json::from_str(line) {
+        Ok(v) => v,
+        Err(e) => {
+            return json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":format!("parse error: {e}")}});
+        }
+    };
+    let id = req.get("id").cloned().unwrap_or(Value::Null);
+    let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
+    let params = req.get("params").cloned().unwrap_or(Value::Null);
+
+    match method {
+        "dispatch" => {
+            let full_name = params.get("full_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let args = params.get("args").cloned().unwrap_or(Value::Null);
+            let dry_run = params.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
+            let timeout_secs = params.get("timeout_secs").and_then(|v| v.as_u64());
+            let mission_id = params.get("mission_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let agent_id = params.get("agent_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+            let result = dispatcher.dispatch(DispatchRequest {
+                full_name,
+                args,
+                mission_id,
+                agent_id,
+                dry_run,
+                timeout_secs,
+                ..Default::default()
+            }).await;
+            json!({"jsonrpc":"2.0","id":id,"result":serde_json::to_value(&result).unwrap_or_default()})
+        }
+        "capabilities.list" => {
+            let tag = params.get("tag").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let caps = registry.capabilities(tag.as_deref());
+            json!({"jsonrpc":"2.0","id":id,"result":{"capabilities":caps}})
+        }
+        "capabilities.describe" => {
+            let full_name = params.get("full_name").and_then(|v| v.as_str()).unwrap_or("");
+            match registry.get_by_full_name(full_name) {
+                Some(manifest) => json!({"jsonrpc":"2.0","id":id,"result":manifest}),
+                None => json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,"message":format!("capability '{full_name}' not found")}}),
+            }
+        }
+        _ => json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":format!("method not found: {method}")}}),
+    }
+}
+```
+
+- [ ] **Step 3: Spawn mgmt_gateway in daemon.rs**
+
+In `crates/edgeplane-mesh/src/daemon.rs`, after the attach gateway spawn, add:
+
+First, at the top of the file add:
+```rust
+use crate::mgmt_gateway;
+use mc_mesh_core::capability_dispatcher::CapabilityDispatcher;
+use mc_mesh_packs::{policy::allow_all, registry::PackRegistry};
+use mc_mesh_receipts::ReceiptStore;
+use std::sync::Arc;
+```
+
+Then inside `pub async fn run(cli: CliOverrides) -> Result<()>`, after `std::fs::create_dir_all(&cfg.work_dir)?;`, add:
+
+```rust
+// Build capability dispatcher with receipt store.
+let registry = Arc::new(PackRegistry::load_builtin()?);
+let receipt_store = Arc::new(ReceiptStore::open(&mc_mesh_receipts::default_db_path())?);
+let dispatcher = Arc::new(
+    CapabilityDispatcher::new(registry.clone(), allow_all(), None)
+        .with_receipt_store(receipt_store),
+);
+```
+
+Then after the attach gateway spawn, add:
+```rust
+// Start the management gateway.
+let mgmt_disp = Arc::clone(&dispatcher);
+let mgmt_reg = Arc::clone(&registry);
+tokio::spawn(async move {
+    if let Err(e) = mgmt_gateway::run(mgmt_disp, mgmt_reg).await {
+        tracing::warn!("mgmt gateway exited: {e}");
+    }
+});
+```
+
+Also update the cleanup at the end to remove the mgmt socket:
+```rust
+let _ = std::fs::remove_file(mgmt_gateway::mgmt_socket_path());
+```
+
+- [ ] **Step 4: Register mgmt_gateway module in main.rs**
+
+In `crates/edgeplane-mesh/src/main.rs`, add:
+```rust
+mod mgmt_gateway;
+```
+
+- [ ] **Step 5: Build and verify**
+
+```bash
+cargo build -p edgeplane-mesh 2>&1 | grep -E "^error|Finished"
+```
+Expected: `Finished`
+
+- [ ] **Step 6: Smoke test — start daemon, send a JSON-RPC request**
+
+```bash
+# Terminal 1: start daemon (needs EP_BACKEND_URL even if unreachable)
+EP_BACKEND_URL=http://localhost:9999 EP_TOKEN=test cargo run -p edgeplane-mesh -- run &
+sleep 2
+
+# Terminal 2: send a capabilities.list request
+echo '{"jsonrpc":"2.0","id":1,"method":"capabilities.list","params":{}}' \
+  | socat - UNIX-CONNECT:$HOME/.edgeplane/edgeplane-mesh-mgmt.sock
+
+# Expect: {"jsonrpc":"2.0","id":1,"result":{"capabilities":[...]}}
+kill %1
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add crates/edgeplane-mesh/
+git commit -m "feat(edgeplane-mesh): management gateway socket for JSON-RPC capability dispatch"
+```
+
+---
+
+## Task 4b: TCP listener + auth handshake in mgmt_gateway
+
+**Files:**
+- Modify: `crates/edgeplane-mesh/src/mgmt_gateway.rs`
+- Modify: `crates/edgeplane-mesh/src/config.rs` (add mgmt_port field)
+- Modify: `crates/edgeplane-mesh/src/daemon.rs` (pass token to gateway)
+
+- [ ] **Step 1: Add `mgmt_port` to DaemonConfig**
+
+In `crates/edgeplane-mesh/src/config.rs`, add to `DaemonConfig`:
+```rust
+/// TCP port for the remote management gateway (0 = disabled).
+#[serde(default = "default_mgmt_port")]
+pub mgmt_port: u16,
+/// Bearer token used to authenticate remote TCP connections.
+/// Defaults to the same token used for backend auth.
+#[serde(default)]
+pub mgmt_token: String,
+```
+
+Add the default function:
+```rust
+fn default_mgmt_port() -> u16 { 7731 }
+```
+
+- [ ] **Step 2: Write failing test for auth handshake**
+
+In `crates/edgeplane-mesh/src/mgmt_gateway.rs`, add to `#[cfg(test)]`:
+```rust
+#[tokio::test]
+async fn auth_handshake_rejects_bad_token() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpStream;
+
+    // Start a listener on a random port
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let token = "correct-token".to_string();
+
+    tokio::spawn(accept_one_tcp(listener, token.clone()));
+
+    let mut stream = TcpStream::connect(format!("127.0.0.1:{port}")).await.unwrap();
+    stream.write_all(b"AUTH wrong-token\n").await.unwrap();
+
+    let mut reader = BufReader::new(&mut stream);
+    let mut line = String::new();
+    reader.read_line(&mut line).await.unwrap();
+    assert!(line.starts_with("ERR"), "expected ERR, got: {line}");
+}
+
+#[tokio::test]
+async fn auth_handshake_accepts_correct_token() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpStream;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let token = "correct-token".to_string();
+
+    tokio::spawn(accept_one_tcp(listener, token.clone()));
+
+    let mut stream = TcpStream::connect(format!("127.0.0.1:{port}")).await.unwrap();
+    stream.write_all(b"AUTH correct-token\n").await.unwrap();
+
+    let mut reader = BufReader::new(&mut stream);
+    let mut line = String::new();
+    reader.read_line(&mut line).await.unwrap();
+    assert!(line.starts_with("OK"), "expected OK, got: {line}");
+}
+```
+
+- [ ] **Step 3: Run to confirm tests fail**
+
+```bash
+cargo test -p edgeplane-mesh auth_handshake 2>&1 | tail -10
+```
+Expected: compile error — `accept_one_tcp` doesn't exist.
+
+- [ ] **Step 4: Implement TCP listener with auth**
+
+Add to `crates/edgeplane-mesh/src/mgmt_gateway.rs`:
+
+```rust
+/// Start the TCP management listener on the given port.
+/// Each connection must authenticate with the bearer token before RPC.
+pub async fn run_tcp(
+    port: u16,
+    token: String,
+    dispatcher: Arc<CapabilityDispatcher>,
+    registry: Arc<PackRegistry>,
+) -> Result<()> {
+    use tokio::net::TcpListener;
+    let addr = format!("0.0.0.0:{port}");
+    let listener = TcpListener::bind(&addr)
+        .await
+        .map_err(|e| anyhow::anyhow!("mgmt TCP bind {addr}: {e}"))?;
+    tracing::info!("mgmt TCP gateway listening on {addr}");
+
+    loop {
+        match listener.accept().await {
+            Ok((stream, peer)) => {
+                tracing::debug!("mgmt TCP connection from {peer}");
+                let t = token.clone();
+                let d = Arc::clone(&dispatcher);
+                let r = Arc::clone(&registry);
+                tokio::spawn(async move {
+                    if let Err(e) = handle_tcp_connection(stream, t, d, r).await {
+                        tracing::debug!("mgmt TCP session ended: {e}");
+                    }
+                });
+            }
+            Err(e) => tracing::warn!("mgmt TCP accept error: {e}"),
+        }
+    }
+}
+
+async fn handle_tcp_connection(
+    stream: tokio::net::TcpStream,
+    token: String,
+    dispatcher: Arc<CapabilityDispatcher>,
+    registry: Arc<PackRegistry>,
+) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // Auth handshake: first line must be "AUTH <token>"
+    let auth_line = lines
+        .next_line()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("connection closed before auth"))?;
+
+    let presented = auth_line
+        .strip_prefix("AUTH ")
+        .unwrap_or("")
+        .trim();
+
+    if presented != token {
+        write_half.write_all(b"ERR unauthorized\n").await?;
+        return Ok(());
+    }
+    write_half.write_all(b"OK\n").await?;
+
+    // Reuse the same RPC handler as the Unix socket
+    while let Ok(Some(line)) = lines.next_line().await {
+        let response = handle_request(&line, &dispatcher, &registry).await;
+        let mut out = serde_json::to_string(&response).unwrap_or_default();
+        out.push('\n');
+        write_half.write_all(out.as_bytes()).await?;
+    }
+    Ok(())
+}
+
+/// Helper for tests: accept a single TCP connection and run auth check.
+#[cfg(test)]
+async fn accept_one_tcp(listener: tokio::net::TcpListener, token: String) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    if let Ok((stream, _)) = listener.accept().await {
+        let (read_half, mut write_half) = stream.into_split();
+        let mut lines = BufReader::new(read_half).lines();
+        if let Ok(Some(line)) = lines.next_line().await {
+            let presented = line.strip_prefix("AUTH ").unwrap_or("").trim().to_string();
+            if presented == token {
+                let _ = write_half.write_all(b"OK\n").await;
+            } else {
+                let _ = write_half.write_all(b"ERR unauthorized\n").await;
+            }
+        }
+    }
+}
+```
+
+- [ ] **Step 5: Spawn TCP listener in daemon.rs**
+
+In `crates/edgeplane-mesh/src/daemon.rs`, after spawning the Unix mgmt gateway, add:
+
+```rust
+if cfg.mgmt_port > 0 {
+    let tcp_disp = Arc::clone(&dispatcher);
+    let tcp_reg = Arc::clone(&registry);
+    let tcp_token = cfg.token.clone();
+    let tcp_port = cfg.mgmt_port;
+    tokio::spawn(async move {
+        if let Err(e) = mgmt_gateway::run_tcp(tcp_port, tcp_token, tcp_disp, tcp_reg).await {
+            tracing::warn!("mgmt TCP gateway exited: {e}");
+        }
+    });
+}
+```
+
+- [ ] **Step 6: Run tests**
+
+```bash
+cargo test -p edgeplane-mesh auth_handshake 2>&1 | tail -10
+```
+Expected: `test result: ok. 2 passed`
+
+- [ ] **Step 7: Build**
+
+```bash
+cargo build -p edgeplane-mesh 2>&1 | grep -E "^error|Finished"
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add crates/edgeplane-mesh/src/mgmt_gateway.rs crates/edgeplane-mesh/src/config.rs crates/edgeplane-mesh/src/daemon.rs
+git commit -m "feat(edgeplane-mesh): TCP management gateway on :7731 with AUTH handshake"
+```
+
+---
+
+## Task 5: `McDispatch` routing layer in edgeplane binary
+
+**Files:**
+- Modify: `crates/edgeplane/Cargo.toml`
+- Create: `crates/edgeplane/src/dispatch.rs`
+- Modify: `crates/edgeplane/src/main.rs` (add `mod dispatch;`)
+
+All following tasks work inside `crates/edgeplane/` — a separate Cargo workspace.
+
+- [ ] **Step 1: Add edgeplane-mesh crate deps to edgeplane's Cargo.toml**
+
+In `crates/edgeplane/Cargo.toml`, add:
+```toml
+edgeplane-mesh-packs = { path = "../edgeplane-mesh/crates/edgeplane-mesh-packs" }
+edgeplane-mesh-receipts = { path = "../edgeplane-mesh/crates/edgeplane-mesh-receipts" }
+edgeplane-mesh-secrets = { path = "../edgeplane-mesh/crates/edgeplane-mesh-secrets" }
+```
+
+- [ ] **Step 2: Write failing tests for dispatch**
+
+`crates/edgeplane/src/dispatch.rs` — tests only:
+```rust
+pub struct McDispatch;  // placeholder
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_route_is_auto() {
+        std::env::remove_var("MC_ROUTE");
+        std::env::remove_var("MC_MESH_HOST");
+        let d = McDispatch::from_env();
+        assert_eq!(d.route_mode(), RouteMode::Auto);
+    }
+
+    #[test]
+    fn mc_route_env_overrides_auto() {
+        std::env::remove_var("MC_MESH_HOST");
+        std::env::set_var("MC_ROUTE", "local");
+        let d = McDispatch::from_env();
+        assert_eq!(d.route_mode(), RouteMode::Local);
+        std::env::remove_var("MC_ROUTE");
+    }
+
+    #[test]
+    fn host_override_sets_remote_mode() {
+        let d = McDispatch::from_env_with_host(Some("optiplex".to_string()));
+        assert_eq!(d.route_mode(), RouteMode::Remote);
+    }
+}
+```
+
+- [ ] **Step 3: Run to confirm tests fail**
+
+```bash
+cd crates/edgeplane && cargo test dispatch 2>&1 | tail -10
+```
+Expected: compile errors.
+
+- [ ] **Step 4: Implement `McDispatch`**
+
+`crates/edgeplane/src/dispatch.rs` (full implementation):
+```rust
+//! Routing layer: routes edgeplane run/capabilities to local socket, remote TCP, or backend.
+use anyhow::{anyhow, Result};
+use serde_json::Value;
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouteMode {
+    Auto,
+    Local,
+    Remote,
+    Backend,
+}
+
+impl RouteMode {
+    fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "local"   => RouteMode::Local,
+            "remote"  => RouteMode::Remote,
+            "backend" => RouteMode::Backend,
+            _         => RouteMode::Auto,
+        }
+    }
+}
+
+pub struct McDispatch {
+    mode: RouteMode,
+    socket_path: PathBuf,
+    /// Remote host address: "<hostname>" or "<hostname>:<port>".
+    /// Resolved from MC_MESH_HOST env or --host flag.
+    remote_host: Option<String>,
+    /// Bearer token for remote TCP auth handshake.
+    remote_token: String,
+    backend_url: String,
+}
+
+impl McDispatch {
+    pub fn from_env() -> Self {
+        Self::from_env_with_host(None)
+    }
+
+    pub fn from_env_with_host(host_override: Option<String>) -> Self {
+        let remote_host = host_override
+            .or_else(|| std::env::var("MC_MESH_HOST").ok());
+
+        let mode = if remote_host.is_some() {
+            RouteMode::Remote
+        } else {
+            std::env::var("MC_ROUTE")
+                .map(|v| RouteMode::from_str(&v))
+                .unwrap_or(RouteMode::Auto)
+        };
+
+        let socket_path = std::env::var("MC_MESH_SOCKET")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".edgeplane")
+                    .join("edgeplane-mesh-mgmt.sock")
+            });
+
+        let remote_token = std::env::var("EP_TOKEN").unwrap_or_default();
+        let backend_url = std::env::var("EP_BASE_URL")
+            .unwrap_or_else(|_| "http://localhost:8008".to_string());
+
+        Self { mode, socket_path, remote_host, remote_token, backend_url }
+    }
+
+    pub fn route_mode(&self) -> RouteMode {
+        self.mode.clone()
+    }
+
+    fn local_available(&self) -> bool {
+        self.socket_path.exists()
+    }
+
+    /// Send a JSON-RPC request, routing per mode. Returns the `result` field.
+    pub async fn jsonrpc(&self, method: &str, params: Value) -> Result<Value> {
+        match self.mode {
+            RouteMode::Local   => self.local_rpc(method, params).await,
+            RouteMode::Remote  => self.remote_rpc(method, params).await,
+            RouteMode::Backend => Err(anyhow!("backend route not yet implemented")),
+            RouteMode::Auto => {
+                if self.local_available() {
+                    self.local_rpc(method, params).await
+                } else if let Some(ref host) = self.remote_host {
+                    tracing::debug!("local socket unavailable, trying remote {host}");
+                    self.remote_rpc(method, params).await
+                } else {
+                    Err(anyhow!(
+                        "edgeplane-mesh not reachable locally and no remote host configured.\n\
+                         Start edgeplane-mesh with `edgeplane mesh up`, or set MC_MESH_HOST=<hostname>."
+                    ))
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    async fn local_rpc(&self, method: &str, params: Value) -> Result<Value> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::UnixStream;
+
+        let stream = UnixStream::connect(&self.socket_path).await.map_err(|e| {
+            anyhow!(
+                "cannot connect to edgeplane-mesh socket {}: {e}\nIs edgeplane-mesh running? Try: edgeplane mesh up",
+                self.socket_path.display()
+            )
+        })?;
+
+        let (read_half, mut write_half) = stream.into_split();
+        let request = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+        });
+        let mut line = serde_json::to_string(&request)?;
+        line.push('\n');
+        write_half.write_all(line.as_bytes()).await?;
+
+        let mut reader = BufReader::new(read_half);
+        let mut response_line = String::new();
+        reader.read_line(&mut response_line).await?;
+
+        let response: Value = serde_json::from_str(response_line.trim())?;
+        if let Some(err) = response.get("error") {
+            return Err(anyhow!("RPC error: {err}"));
+        }
+        Ok(response.get("result").cloned().unwrap_or(Value::Null))
+    }
+
+    #[cfg(not(unix))]
+    async fn local_rpc(&self, _method: &str, _params: Value) -> Result<Value> {
+        Err(anyhow!("local socket only supported on Unix"))
+    }
+
+    /// Connect to a remote edgeplane-mesh daemon over TCP with AUTH handshake.
+    async fn remote_rpc(&self, method: &str, params: Value) -> Result<Value> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::TcpStream;
+
+        let host = self.remote_host.as_deref().ok_or_else(|| anyhow!("no remote host set"))?;
+        // Normalise to host:port
+        let addr = if host.contains(':') {
+            host.to_string()
+        } else {
+            format!("{host}:7731")
+        };
+
+        let stream = TcpStream::connect(&addr).await.map_err(|e| {
+            anyhow!("cannot connect to edgeplane-mesh at {addr}: {e}")
+        })?;
+        let (read_half, mut write_half) = stream.into_split();
+        let mut reader = BufReader::new(read_half);
+
+        // AUTH handshake
+        let auth = format!("AUTH {}\n", self.remote_token);
+        write_half.write_all(auth.as_bytes()).await?;
+        let mut ack = String::new();
+        reader.read_line(&mut ack).await?;
+        if !ack.trim_start().starts_with("OK") {
+            return Err(anyhow!("remote edgeplane-mesh rejected auth: {}", ack.trim()));
+        }
+
+        // JSON-RPC exchange
+        let request = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+        });
+        let mut line = serde_json::to_string(&request)?;
+        line.push('\n');
+        write_half.write_all(line.as_bytes()).await?;
+
+        let mut response_line = String::new();
+        reader.read_line(&mut response_line).await?;
+
+        let response: Value = serde_json::from_str(response_line.trim())?;
+        if let Some(err) = response.get("error") {
+            return Err(anyhow!("RPC error: {err}"));
+        }
+        Ok(response.get("result").cloned().unwrap_or(Value::Null))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_route_is_auto() {
+        std::env::remove_var("MC_ROUTE");
+        std::env::remove_var("MC_MESH_HOST");
+        let d = McDispatch::from_env();
+        assert_eq!(d.route_mode(), RouteMode::Auto);
+    }
+
+    #[test]
+    fn mc_route_env_overrides_auto() {
+        std::env::remove_var("MC_MESH_HOST");
+        std::env::set_var("MC_ROUTE", "local");
+        let d = McDispatch::from_env();
+        assert_eq!(d.route_mode(), RouteMode::Local);
+        std::env::remove_var("MC_ROUTE");
+    }
+
+    #[test]
+    fn host_override_sets_remote_mode() {
+        let d = McDispatch::from_env_with_host(Some("optiplex".to_string()));
+        assert_eq!(d.route_mode(), RouteMode::Remote);
+    }
+
+    #[test]
+    fn mc_mesh_host_env_sets_remote_mode() {
+        std::env::remove_var("MC_ROUTE");
+        std::env::set_var("MC_MESH_HOST", "optiplex:7731");
+        let d = McDispatch::from_env();
+        assert_eq!(d.route_mode(), RouteMode::Remote);
+        std::env::remove_var("MC_MESH_HOST");
+    }
+}
+```
+
+- [ ] **Step 5: Register module in main.rs**
+
+In `crates/edgeplane/src/main.rs`, add `mod dispatch;` alongside the other module declarations.
+
+- [ ] **Step 6: Run tests**
+
+```bash
+cd crates/edgeplane && cargo test -p edgeplane dispatch 2>&1 | tail -10
+```
+Expected: `test result: ok. 2 passed`
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add crates/edgeplane/Cargo.toml crates/edgeplane/src/dispatch.rs crates/edgeplane/src/main.rs
+git commit -m "feat(edgeplane): McDispatch routing layer (auto/local/backend)"
+```
+
+---
+
+## Task 6: `edgeplane capabilities` and `edgeplane capabilities describe` subcommands
+
+**Files:**
+- Create: `crates/edgeplane/src/capabilities.rs`
+- Modify: `crates/edgeplane/src/commands.rs`
+- Modify: `crates/edgeplane/src/main.rs`
+
+- [ ] **Step 1: Write `capabilities.rs`**
+
+`crates/edgeplane/src/capabilities.rs`:
+```rust
+use crate::dispatch::McDispatch;
+use anyhow::Result;
+use clap::{Args, Subcommand};
+use mc_mesh_packs::registry::PackRegistry;
+
+#[derive(Subcommand, Debug)]
+pub enum CapabilitiesCommand {
+    /// List capabilities (policy-scoped from daemon, or builtin offline).
+    #[command(name = "capabilities", alias = "caps")]
+    List(CapListArgs),
+    /// Show full schema and examples for a capability.
+    Describe(CapDescribeArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct CapListArgs {
+    /// Filter by tag (e.g. kubernetes, git, container)
+    #[arg(long)]
+    pub tag: Option<String>,
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct CapDescribeArgs {
+    /// Full capability name, e.g. kubectl-observe.kubectl-get-pods
+    pub full_name: String,
+}
+
+pub async fn run_list(args: CapListArgs) -> Result<()> {
+    let dispatch = McDispatch::from_env();
+
+    // Try daemon first (policy-scoped)
+    match dispatch.jsonrpc("capabilities.list", serde_json::json!({"tag": args.tag})).await {
+        Ok(result) => {
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                if let Some(caps) = result.get("capabilities").and_then(|v| v.as_array()) {
+                    for cap in caps {
+                        let name = cap.get("full_name").and_then(|v| v.as_str()).unwrap_or("?");
+                        let desc = cap.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                        println!("{name:<55} {desc}");
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            // Offline fallback — embedded registry
+            eprintln!("⚠ daemon offline — showing all built-ins, policy not applied");
+            let registry = PackRegistry::load_builtin()?;
+            let caps = registry.capabilities(args.tag.as_deref());
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&caps)?);
+            } else {
+                for cap in &caps {
+                    println!("{:<55} {}", cap.full_name, cap.description);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn run_describe(args: CapDescribeArgs) -> Result<()> {
+    // Describe always uses embedded registry — schema doesn't vary with policy
+    let registry = PackRegistry::load_builtin()?;
+    match registry.get_by_full_name(&args.full_name) {
+        Some(manifest) => println!("{}", serde_json::to_string_pretty(&manifest)?),
+        None => anyhow::bail!("capability '{}' not found. Run `edgeplane capabilities` to list available capabilities.", args.full_name),
+    }
+    Ok(())
+}
+```
+
+- [ ] **Step 2: Add to commands.rs**
+
+In `crates/edgeplane/src/commands.rs`, add to the `McCommand` enum:
+```rust
+/// Discover and inspect capability packs.
+#[command(subcommand)]
+Capabilities(crate::capabilities::CapabilitiesCommand),
+```
+
+And add import at the top:
+```rust
+use crate::capabilities;
+```
+
+- [ ] **Step 3: Wire in main.rs**
+
+In `crates/edgeplane/src/main.rs`, find the match block for `McCommand` and add:
+```rust
+McCommand::Capabilities(cmd) => match cmd {
+    capabilities::CapabilitiesCommand::List(args) => capabilities::run_list(args).await?,
+    capabilities::CapabilitiesCommand::Describe(args) => capabilities::run_describe(args).await?,
+},
+```
+
+Also add `mod capabilities;` near the other module declarations.
+
+- [ ] **Step 4: Build and test**
+
+```bash
+cd crates/edgeplane && cargo build 2>&1 | grep -E "^error|Finished"
+# Then test offline fallback (no daemon running):
+cargo run -- capabilities 2>&1 | head -5
+# Expect: "⚠ daemon offline" warning + capability list
+cargo run -- capabilities describe kubectl-observe.kubectl-get-pods 2>&1 | head -10
+# Expect: JSON schema output
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/edgeplane/src/capabilities.rs crates/edgeplane/src/commands.rs crates/edgeplane/src/main.rs
+git commit -m "feat(edgeplane): edgeplane capabilities list + describe subcommands"
+```
+
+---
+
+## Task 7: `edgeplane run` subcommand
+
+**Files:**
+- Create: `crates/edgeplane/src/cap_run.rs`
+- Modify: `crates/edgeplane/src/commands.rs`
+- Modify: `crates/edgeplane/src/main.rs`
+
+- [ ] **Step 1: Write `cap_run.rs`**
+
+`crates/edgeplane/src/cap_run.rs`:
+```rust
+use crate::dispatch::McDispatch;
+use anyhow::Result;
+use clap::Args;
+
+#[derive(Args, Debug)]
+pub struct RunArgs {
+    /// Full capability name, e.g. kubectl-observe.kubectl-get-pods
+    pub full_name: String,
+    /// Arguments as key=value pairs or a JSON string
+    #[arg(trailing_var_arg = true)]
+    pub args: Vec<String>,
+    /// Output as JSON (default when stdout is not a TTY)
+    #[arg(long)]
+    pub json: bool,
+    /// Validate args and show what would execute without running
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Timeout in seconds
+    #[arg(long, default_value = "30")]
+    pub timeout: u64,
+    /// Mission ID for receipt correlation
+    #[arg(long, env = "MC_MISSION_ID")]
+    pub mission_id: Option<String>,
+    /// Agent ID for receipt correlation
+    #[arg(long, env = "EP_AGENT_ID")]
+    pub agent_id: Option<String>,
+}
+
+pub async fn run(args: RunArgs) -> Result<()> {
+    let is_tty = atty::is(atty::Stream::Stdout);
+    let use_json = args.json || !is_tty;
+
+    let parsed_args = parse_args(&args.args)?;
+    let dispatch = McDispatch::from_env();
+
+    let result = dispatch.jsonrpc("dispatch", serde_json::json!({
+        "full_name": args.full_name,
+        "args": parsed_args,
+        "dry_run": args.dry_run,
+        "timeout_secs": args.timeout,
+        "mission_id": args.mission_id,
+        "agent_id": args.agent_id,
+    })).await?;
+
+    let ok = result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    if use_json {
+        println!("{}", serde_json::to_string(&result)?);
+    } else if ok {
+        let data = result.get("data").cloned().unwrap_or(serde_json::Value::Null);
+        let receipt_id = result.get("receipt_id").and_then(|v| v.as_str()).unwrap_or("");
+        println!("{}", serde_json::to_string_pretty(&data)?);
+        if !receipt_id.is_empty() {
+            eprintln!("receipt: {receipt_id}");
+        }
+    } else {
+        let error = result.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
+        let hint = result.get("hint").and_then(|v| v.as_str()).unwrap_or("");
+        let example = result.get("example").and_then(|v| v.as_str()).unwrap_or("");
+        eprintln!("error: {error}");
+        if !hint.is_empty() { eprintln!("hint: {hint}"); }
+        if !example.is_empty() { eprintln!("example: {example}"); }
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+/// Parse ["key=value", ...] or a single JSON string into a Value.
+fn parse_args(raw: &[String]) -> Result<serde_json::Value> {
+    if raw.is_empty() {
+        return Ok(serde_json::Value::Object(Default::default()));
+    }
+    // Single arg that looks like JSON?
+    if raw.len() == 1 && raw[0].trim_start().starts_with('{') {
+        return Ok(serde_json::from_str(&raw[0])?);
+    }
+    // key=value pairs
+    let mut map = serde_json::Map::new();
+    for pair in raw {
+        let (k, v) = pair.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!("expected key=value, got: {pair}")
+        })?;
+        map.insert(k.to_string(), serde_json::Value::String(v.to_string()));
+    }
+    Ok(serde_json::Value::Object(map))
+}
+```
+
+- [ ] **Step 2: Add `atty` dep**
+
+In `crates/edgeplane/Cargo.toml` add:
+```toml
+atty = "0.2"
+```
+
+- [ ] **Step 3: Add to commands.rs**
+
+In `McCommand` enum add:
+```rust
+/// Execute a capability pack.
+Run(crate::cap_run::RunArgs),
+```
+
+- [ ] **Step 4: Wire in main.rs**
+
+```rust
+McCommand::Run(args) => crate::cap_run::run(args).await?,
+```
+
+Also add `mod cap_run;`.
+
+- [ ] **Step 5: Build and smoke test**
+
+```bash
+cd crates/edgeplane && cargo build 2>&1 | grep -E "^error|Finished"
+# With daemon running:
+# cargo run -- run kubectl-observe.kubectl-get-pods --dry-run --json
+# Expected: {"ok":true,"data":{...},"receipt_id":"..."}
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add crates/edgeplane/src/cap_run.rs crates/edgeplane/src/commands.rs crates/edgeplane/src/main.rs crates/edgeplane/Cargo.toml
+git commit -m "feat(edgeplane): edgeplane run <cap> with key=value args and JSON output contract"
+```
+
+---
+
+## Task 8: `edgeplane receipts` subcommand
+
+**Files:**
+- Create: `crates/edgeplane/src/receipt_cmd.rs`
+- Modify: `crates/edgeplane/src/commands.rs`
+- Modify: `crates/edgeplane/src/main.rs`
+
+- [ ] **Step 1: Write `receipt_cmd.rs`**
+
+`crates/edgeplane/src/receipt_cmd.rs`:
+```rust
+use anyhow::Result;
+use clap::{Args, Subcommand};
+use mc_mesh_receipts::{ReceiptFilter, ReceiptStore, default_db_path};
+
+#[derive(Subcommand, Debug)]
+pub enum ReceiptsCommand {
+    /// Show the most recent receipts.
+    Last(ReceiptsLastArgs),
+    /// Get a specific receipt by ID.
+    Get(ReceiptsGetArgs),
+    /// List receipts with optional filters.
+    Ls(ReceiptsLsArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ReceiptsLastArgs {
+    #[arg(long, default_value = "5")]
+    pub limit: usize,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ReceiptsGetArgs {
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ReceiptsLsArgs {
+    #[arg(long)]
+    pub mission: Option<String>,
+    #[arg(long)]
+    pub agent: Option<String>,
+    #[arg(long, default_value = "20")]
+    pub limit: usize,
+    #[arg(long)]
+    pub json: bool,
+}
+
+pub fn run_last(args: ReceiptsLastArgs) -> Result<()> {
+    let store = ReceiptStore::open(&default_db_path())?;
+    let receipts = store.last(args.limit)?;
+    print_receipts(&receipts, args.json)
+}
+
+pub fn run_get(args: ReceiptsGetArgs) -> Result<()> {
+    let store = ReceiptStore::open(&default_db_path())?;
+    match store.get(&args.id)? {
+        Some(r) => {
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&r)?);
+            } else {
+                println!("{}", serde_json::to_string_pretty(&r)?);
+            }
+        }
+        None => anyhow::bail!("receipt '{}' not found", args.id),
+    }
+    Ok(())
+}
+
+pub fn run_ls(args: ReceiptsLsArgs) -> Result<()> {
+    let store = ReceiptStore::open(&default_db_path())?;
+    let receipts = store.list(ReceiptFilter {
+        mission_id: args.mission,
+        agent_id: args.agent,
+        limit: args.limit,
+        ..Default::default()
+    })?;
+    print_receipts(&receipts, args.json)
+}
+
+fn print_receipts(receipts: &[mc_mesh_receipts::Receipt], json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(&receipts)?);
+        return Ok(());
+    }
+    if receipts.is_empty() {
+        println!("no receipts found");
+        return Ok(());
+    }
+    println!("{:<38} {:<50} {:>4} {:>8}ms", "ID", "CAPABILITY", "EXIT", "TIME");
+    println!("{}", "-".repeat(104));
+    for r in receipts {
+        println!(
+            "{:<38} {:<50} {:>4} {:>8}",
+            &r.id[..r.id.len().min(36)],
+            &r.capability[..r.capability.len().min(48)],
+            r.exit_code,
+            r.execution_time_ms,
+        );
+    }
+    Ok(())
+}
+```
+
+- [ ] **Step 2: Add to commands.rs**
+
+```rust
+/// Browse capability execution receipts.
+#[command(subcommand)]
+Receipts(crate::receipt_cmd::ReceiptsCommand),
+```
+
+- [ ] **Step 3: Wire in main.rs**
+
+```rust
+McCommand::Receipts(cmd) => match cmd {
+    receipt_cmd::ReceiptsCommand::Last(args) => receipt_cmd::run_last(args)?,
+    receipt_cmd::ReceiptsCommand::Get(args) => receipt_cmd::run_get(args)?,
+    receipt_cmd::ReceiptsCommand::Ls(args) => receipt_cmd::run_ls(args)?,
+},
+```
+
+Add `mod receipt_cmd;`.
+
+- [ ] **Step 4: Build and test**
+
+```bash
+cd crates/edgeplane && cargo build 2>&1 | grep -E "^error|Finished"
+cargo run -- receipts last --json
+# Expect: [] (empty db) or receipt JSON if daemon has run
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/edgeplane/src/receipt_cmd.rs crates/edgeplane/src/commands.rs crates/edgeplane/src/main.rs
+git commit -m "feat(edgeplane): edgeplane receipts last/get/ls — direct SQLite reads"
+```
+
+---
+
+## Task 9: `edgeplane sync` subcommand
+
+**Files:**
+- Create: `crates/edgeplane/src/sync_cmd.rs`
+- Modify: `crates/edgeplane/Cargo.toml`
+- Modify: `crates/edgeplane/src/commands.rs`
+- Modify: `crates/edgeplane/src/main.rs`
+
+- [ ] **Step 1: Add edgeplane-mesh-sync dep to edgeplane Cargo.toml**
+
+```toml
+edgeplane-mesh-sync = { path = "../edgeplane-mesh/crates/edgeplane-mesh-sync" }
+```
+
+- [ ] **Step 2: Write `sync_cmd.rs`**
+
+`crates/edgeplane/src/sync_cmd.rs`:
+```rust
+use anyhow::Result;
+use clap::{Args, Subcommand};
+use mc_mesh_sync::{SyncClient, default_cache_dir};
+
+fn sync_client() -> Result<SyncClient> {
+    let repo_url = std::env::var("MC_SYNC_REPO").ok()
+        .or_else(|| {
+            // Try reading from ~/.edgeplane/config.json
+            let path = dirs::home_dir()
+                .unwrap_or_default()
+                .join(".edgeplane")
+                .join("config.json");
+            let text = std::fs::read_to_string(path).ok()?;
+            let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+            v.get("sync_repo")?.as_str().map(|s| s.to_string())
+        })
+        .ok_or_else(|| anyhow::anyhow!(
+            "sync repo not configured. Set MC_SYNC_REPO env or add \"sync_repo\" to ~/.edgeplane/config.json"
+        ))?;
+
+    let hostname = hostname::get()
+        .ok()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    Ok(SyncClient::new(&repo_url, &default_cache_dir(), &hostname))
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SyncCommand {
+    /// Pull latest config from git repo.
+    Pull(SyncPullArgs),
+    /// Push node-scoped changes to remote branch.
+    Push(SyncPushArgs),
+    /// Show sync status.
+    Status,
+}
+
+#[derive(Args, Debug)]
+pub struct SyncPullArgs {
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SyncPushArgs {
+    #[arg(long, default_value = "edgeplane sync push")]
+    pub message: String,
+}
+
+pub fn run_pull(_args: SyncPullArgs) -> Result<()> {
+    let client = sync_client()?;
+    let result = client.pull()?;
+    println!("{}", result.message);
+    Ok(())
+}
+
+pub fn run_push(args: SyncPushArgs) -> Result<()> {
+    let client = sync_client()?;
+    let result = client.push_node_changes(&args.message)?;
+    println!("{} — branch: {}", result.message, result.branch);
+    Ok(())
+}
+
+pub fn run_status() -> Result<()> {
+    let client = sync_client()?;
+    let status = client.status()?;
+    println!("cache:     {}", status.cache_dir.display());
+    println!("repo:      {}", status.repo_url.as_deref().unwrap_or("not set"));
+    println!("dirty:     {}", if status.node_branch_dirty { "yes (uncommitted node changes)" } else { "no" });
+    Ok(())
+}
+```
+
+- [ ] **Step 3: Add `hostname` dep**
+
+In `crates/edgeplane/Cargo.toml`:
+```toml
+hostname = "0.3"
+```
+
+- [ ] **Step 4: Wire into commands.rs and main.rs**
+
+In `commands.rs` add:
+```rust
+/// Sync curated config from git.
+#[command(subcommand)]
+Sync(crate::sync_cmd::SyncCommand),
+```
+
+In `main.rs` add:
+```rust
+McCommand::Sync(cmd) => match cmd {
+    sync_cmd::SyncCommand::Pull(args) => sync_cmd::run_pull(args)?,
+    sync_cmd::SyncCommand::Push(args) => sync_cmd::run_push(args)?,
+    sync_cmd::SyncCommand::Status => sync_cmd::run_status()?,
+},
+```
+
+Add `mod sync_cmd;`.
+
+- [ ] **Step 5: Build**
+
+```bash
+cd crates/edgeplane && cargo build 2>&1 | grep -E "^error|Finished"
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add crates/edgeplane/src/sync_cmd.rs crates/edgeplane/src/commands.rs crates/edgeplane/src/main.rs crates/edgeplane/Cargo.toml
+git commit -m "feat(edgeplane): edgeplane sync pull/push/status for bidirectional git config sync"
+```
+
+---
+
+## Task 10: `edgeplane init --from-repo` bootstrap extension
+
+**Files:**
+- Modify: `crates/edgeplane/src/commands.rs` (extend existing `InitArgs`)
+- Create or modify: `crates/edgeplane/src/init.rs` (or wherever edgeplane init is implemented)
+
+- [ ] **Step 1: Find existing init implementation**
+
+```bash
+grep -n "InitArgs\|fn.*init\|run_init" crates/edgeplane/src/commands.rs crates/edgeplane/src/main.rs | head -20
+```
+
+Note the file and function that handles `Init(InitArgs)`.
+
+- [ ] **Step 2: Extend InitArgs**
+
+Find the `InitArgs` struct in `commands.rs` and add:
+```rust
+#[derive(Args, Debug)]
+pub struct InitArgs {
+    // ... existing fields preserved ...
+
+    /// Git URL of the curated config repo to clone at init time.
+    #[arg(long)]
+    pub from_repo: Option<String>,
+
+    /// Node profile name (used to select config subtree in the sync repo).
+    #[arg(long, default_value = "default")]
+    pub profile: String,
+}
+```
+
+- [ ] **Step 3: Write bootstrap logic**
+
+In the file handling init (check the grep output from Step 1), add a function:
+```rust
+async fn bootstrap_from_repo(repo_url: &str, profile: &str) -> anyhow::Result<()> {
+    use mc_mesh_sync::{SyncClient, default_cache_dir};
+    use mc_mesh_secrets::keyring::{store_service_token};
+
+    let hostname = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    // 1. Clone sync repo
+    println!("Cloning config repo...");
+    let client = SyncClient::new(repo_url, &default_cache_dir(), &hostname);
+    client.pull()?;
+    println!("  ✓ config repo at {}", default_cache_dir().display());
+
+    // 2. Store INFISICAL_TOKEN in keyring
+    if let Ok(token) = std::env::var("INFISICAL_TOKEN") {
+        store_service_token(&token)?;
+        println!("  ✓ Infisical service token stored in OS keyring");
+    } else {
+        println!("  ⚠ INFISICAL_TOKEN not set — skipping keyring storage");
+    }
+
+    // 3. Save sync_repo to config.json
+    let config_dir = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".edgeplane");
+    std::fs::create_dir_all(&config_dir)?;
+    let config_path = config_dir.join("config.json");
+    let mut config: serde_json::Value = if config_path.exists() {
+        serde_json::from_str(&std::fs::read_to_string(&config_path)?)?
+    } else {
+        serde_json::json!({})
+    };
+    config["sync_repo"] = serde_json::Value::String(repo_url.to_string());
+    config["profile"] = serde_json::Value::String(profile.to_string());
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+    println!("  ✓ config saved to {}", config_path.display());
+
+    // 4. Render goose harness from sync cache
+    let goose_harness = default_cache_dir()
+        .join("fleet")
+        .join("harnesses")
+        .join("goose");
+    if goose_harness.exists() {
+        println!("  ✓ goose harness available at {}", goose_harness.display());
+    } else {
+        println!("  ⚠ goose harness not found in sync cache (fleet/harnesses/goose/ missing)");
+    }
+
+    println!("\nNode bootstrap complete. Start edgeplane-mesh with: edgeplane mesh up");
+    Ok(())
+}
+```
+
+- [ ] **Step 4: Call bootstrap in init handler**
+
+In the init handler function, call `bootstrap_from_repo` when `--from-repo` is provided:
+```rust
+if let Some(ref repo_url) = args.from_repo {
+    bootstrap_from_repo(repo_url, &args.profile).await?;
+}
+```
+
+- [ ] **Step 5: Add hostname dep if not already added (it was added in Task 9)**
+
+Verify `hostname = "0.3"` is in `crates/edgeplane/Cargo.toml`.
+
+- [ ] **Step 6: Build**
+
+```bash
+cd crates/edgeplane && cargo build 2>&1 | grep -E "^error|Finished"
+```
+
+- [ ] **Step 7: Test the happy path**
+
+```bash
+# Dry-run test: confirm --help shows new flags
+cargo run -- init --help | grep -E "from-repo|profile"
+# Expected: flags appear in help output
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add crates/edgeplane/src/commands.rs crates/edgeplane/src/
+git commit -m "feat(edgeplane): edgeplane init --from-repo bootstrap — sync repo clone + keyring token storage"
+```
+
+---
+
+## Final verification
+
+- [ ] **Full workspace build**
+
+```bash
+cd crates/edgeplane-mesh && cargo build 2>&1 | grep -E "^error|Finished"
+cd crates/edgeplane && cargo build 2>&1 | grep -E "^error|Finished"
+```
+Both: `Finished`
+
+- [ ] **All tests pass**
+
+```bash
+cd crates/edgeplane-mesh && cargo test 2>&1 | tail -5
+cd crates/edgeplane && cargo test 2>&1 | tail -5
+```
+
+- [ ] **End-to-end smoke (requires edgeplane-mesh daemon running)**
+
+```bash
+# Start daemon
+EP_BACKEND_URL=http://localhost:9999 EP_TOKEN=test cargo run -p edgeplane-mesh -- run &
+sleep 2
+
+# Test progressive discovery
+edgeplane capabilities --json | jq '.capabilities | length'    # should be 71
+edgeplane capabilities describe kubectl-observe.kubectl-get-pods | jq '.backend'
+edgeplane run kubectl-observe.kubectl-get-pods --dry-run --json
+edgeplane receipts last --json | jq '.[0].capability'
+
+kill %1
+```
+
+- [ ] **Final commit**
+
+```bash
+git add -u
+git commit -m "chore: Phase 2a complete — edgeplane unified CLI surface with receipts, sync, capabilities, run, and init"
+```

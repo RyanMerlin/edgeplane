@@ -1,4 +1,4 @@
-resource "azurerm_key_vault" "missioncontrol" {
+resource "azurerm_key_vault" "edgeplane" {
   name                       = var.key_vault_name
   location                   = var.location
   resource_group_name        = var.resource_group_name

@@ -1,31 +1,31 @@
 ---
-title: MissionControl
+title: Edgeplane
 description: Control plane for AI agents and human collaborators.
 template: splash
 hero:
-  tagline: Kubernetes orchestrates containers. MissionControl orchestrates agents, missions, and knowledge.
+  tagline: Kubernetes orchestrates containers. Edgeplane orchestrates agents, missions, and knowledge.
   actions:
     - text: Get Started
-      link: /missioncontrol/getting-started/installation/
+      link: /edgeplane/getting-started/installation/
       icon: right-arrow
       variant: primary
     - text: View on GitHub
-      link: https://github.com/RyanMerlin/missioncontrol
+      link: https://github.com/RyanMerlin/edgeplane
       icon: external
 ---
 
-## What is MissionControl?
+## What is Edgeplane?
 
 AI agents can write code, run tools, and reason over architecture. What they can't do is **coordinate**.
 
 Without a shared system of record, parallel agents duplicate effort, diverge on state, and collide on artifacts with no resolution path.
 
-MissionControl is a **control plane for AI agents and human collaborators**. It provides:
+Edgeplane is a **control plane for AI agents and human collaborators**. It provides:
 
 - **Domains & Missions** — organizational units that scope knowledge, tools, permissions, and governance
 - **Overlap Detection** — fuzzy + vector similarity runs before task and artifact creation; collisions surface before damage occurs
 - **Artifact Ledger** — every mutation recorded in Postgres, vector-indexed for search, committed to Git with full provenance
 - **MCP-Native Interface** — standard MCP stdio tools; works with any MCP-compatible agent
 - **Governance & Approvals** — versioned policy lifecycle, role-based access, HMAC-signed approval tokens
-- **Persistent Agent Sessions** — `mcd` manages long-running agent processes; sessions survive crashes and reconnects
+- **Persistent Agent Sessions** — `edgeplaned` manages long-running agent processes; sessions survive crashes and reconnects
 - **Semantic Search** — tasks, docs, and missions are vector-indexed (pgvector) for similarity and hybrid search

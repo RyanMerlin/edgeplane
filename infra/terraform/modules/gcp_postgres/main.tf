@@ -1,4 +1,4 @@
-resource "google_sql_database_instance" "missioncontrol" {
+resource "google_sql_database_instance" "edgeplane" {
   name             = var.instance_name
   database_version = "POSTGRES_15"
   region           = var.region

@@ -1,5 +1,5 @@
 region            = "us-west-2"
-profile           = "missioncontrol"
+profile           = "edgeplane"
 availability_zone = "us-west-2a"
 kubernetes_node_count = 2
 kubernetes_node_max   = 3
@@ -8,5 +8,5 @@ postgres_username     = "mc_admin"
 postgres_password     = "CHANGE_ME"
 cluster_role_arn      = "arn:aws:iam::123456789012:role/eks-cluster-role"
 node_role_arn         = "arn:aws:iam::123456789012:role/eks-node-role"
-backend_bucket        = "missioncontrol-terraform-state"
-backend_dynamodb      = "missioncontrol-terraform-locks"
+backend_bucket        = "edgeplane-terraform-state"
+backend_dynamodb      = "edgeplane-terraform-locks"

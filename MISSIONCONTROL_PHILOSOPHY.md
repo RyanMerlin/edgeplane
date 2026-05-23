@@ -1,4 +1,4 @@
-# MissionControl — Philosophy
+# Edgeplane — Philosophy
 
 > **For precise entity definitions (Domain, Mission, Task, Artifact, Session, Agent), see [`docs/architecture/entities.md`](docs/architecture/entities.md).** This doc is the *why*; entities.md is the *what*. If they disagree, entities.md wins until reconciled.
 
@@ -12,7 +12,7 @@ diverge on state, and collide on artifacts. There is no overlap
 detection, no structured ownership, no audit trail, no governance
 boundary. The capability compounds; the coordination doesn't.
 
-MissionControl is the coordination layer. It is a control plane for AI
+Edgeplane is the coordination layer. It is a control plane for AI
 agents and human collaborators operating against shared, durable,
 governed state.
 
@@ -20,7 +20,7 @@ It is not a workflow runner. It is not a pipeline framework. It is not
 a chatbot UI.
 
 > Kubernetes orchestrates containers.\
-> MissionControl orchestrates agents, domains, missions, and knowledge.
+> Edgeplane orchestrates agents, domains, missions, and knowledge.
 
 ------------------------------------------------------------------------
 
@@ -43,7 +43,7 @@ They lack:
 -   A working file store decoupled from prompt context
 -   A long-term memory of record beyond the current session
 
-MissionControl provides these primitives.
+Edgeplane provides these primitives.
 
 ------------------------------------------------------------------------
 
@@ -63,21 +63,21 @@ AI-native stack:
 -   Models
 -   Agents
 -   Tooling Interfaces (Skills/MCP)
--   **Coordination Layer (MissionControl)**
+-   **Coordination Layer (Edgeplane)**
 -   Working File Store (S3)
 -   Governance + Policy
 -   Organizational Memory of Record (Git)
 
-MissionControl fills the missing coordination layer between autonomous
+Edgeplane fills the missing coordination layer between autonomous
 agents and durable system state.
 
 ------------------------------------------------------------------------
 
 # Rust-Native Trust Boundary
 
-MissionControl is intentionally Rust-forward at the agent edge.
+Edgeplane is intentionally Rust-forward at the agent edge.
 
-The `mc` runtime is a compiled Rust binary that carries MCP transport,
+The `edgeplane` runtime is a compiled Rust binary that carries MCP transport,
 policy context, session wiring, and local orchestration in one
 deterministic artifact.
 
@@ -89,13 +89,13 @@ This supports enterprise requirements:
 -   Clearer audit boundaries between agent runtime and control plane
 
 Security is not bolted on. It is part of the system boundary design:
-agents request actions, MissionControl authorizes and records them.
+agents request actions, Edgeplane authorizes and records them.
 
 ------------------------------------------------------------------------
 
 # Domain-Centric Organizational Model
 
-MissionControl organizes work around **Domains** and **Missions**.
+Edgeplane organizes work around **Domains** and **Missions**.
 
 A Domain is:
 
@@ -129,18 +129,18 @@ Every operator — human or agent — carries a personal profile.
 
 A profile is a curated bundle of environment configuration, tool
 settings, instruction files, and context that defines how that operator
-engages with MissionControl and their local AI toolchain.
+engages with Edgeplane and their local AI toolchain.
 
 Profiles are:
 
--   Stored on the MissionControl backend, scoped strictly to the owner
+-   Stored on the Edgeplane backend, scoped strictly to the owner
 -   Synced to the local machine automatically on agent startup
 -   Applied via atomic symlink swap for clean, instant transitions
 -   Versioned, pushable, and pullable from any client or machine
 -   User-creatable and user-switchable by design (for example:
     research, coding, security review) with fast local transitions
 -   Durable across machines through profile publish/pull/activate flows
-    in MissionControl (config + auth references + policy-relevant context)
+    in Edgeplane (config + auth references + policy-relevant context)
 
 This means an agent operator can move between machines, reinstall their
 toolchain, onboard to a new domain or mission, or hand off context to a teammate
@@ -167,7 +167,7 @@ meet users where they already operate.
 That surface is wherever your team communicates — Slack, Microsoft
 Teams, Google Chat, or any webhook-capable platform.
 
-MissionControl is channel-agnostic by design. Each communication
+Edgeplane is channel-agnostic by design. Each communication
 provider is a pluggable integration, not a hard dependency. The core
 coordination primitives — missions, tasks, approvals, artifacts — are
 the same regardless of which channel surfaces them.
@@ -198,7 +198,7 @@ Without leaving their existing communication workflow.
 This lowers friction dramatically and accelerates adoption across
 technical and non-technical teams alike.
 
-MissionControl is not only agent-native — it is organization-native.
+Edgeplane is not only agent-native — it is organization-native.
 
 ------------------------------------------------------------------------
 
@@ -223,7 +223,7 @@ Search is semantic. State is durable. Ownership is explicit.
 
 # Overlap Detection as a First-Class Primitive
 
-MissionControl evaluates intent before mutation.
+Edgeplane evaluates intent before mutation.
 
 Before a task or artifact is created:
 
@@ -242,7 +242,7 @@ This enables safe parallelism at scale.
 
 AI-native development without guardrails is not scalable.
 
-MissionControl implements:
+Edgeplane implements:
 
 ## Role Types
 
@@ -265,7 +265,7 @@ Governance is integrated directly into the execution path.
 
 # Persistence Architecture: Three-Tier Memory Model
 
-MissionControl uses three distinct, complementary persistence layers.
+Edgeplane uses three distinct, complementary persistence layers.
 Each serves a specific role in the information lifecycle.
 
 ## PostgreSQL — Structured State and Collaboration
@@ -299,7 +299,7 @@ polluting the structured state database. Storage scales independently.
 Any S3-compatible backend works — AWS S3, MinIO, RustFS — with no code
 changes.
 
-MissionControl ships with RustFS bundled in the Docker Compose stack.
+Edgeplane ships with RustFS bundled in the Docker Compose stack.
 No external infrastructure required to run with full file persistence
 locally.
 
@@ -336,7 +336,7 @@ approved by whom, committed where — is preserved at every layer.
 
 # Agent-Native Interface (MCP)
 
-MissionControl is AI-first infrastructure.
+Edgeplane is AI-first infrastructure.
 
 Agents interact via structured MCP tool calls:
 
@@ -356,7 +356,7 @@ interaction.
 
 # Organizational Acceleration
 
-MissionControl becomes a central nervous system for:
+Edgeplane becomes a central nervous system for:
 
 -   Rapid onboarding of new contributors and agents
 -   Encoding institutional knowledge into durable, searchable state
@@ -393,7 +393,7 @@ Without coordination:
 -   Artifacts conflict with no resolution path
 -   No clear ownership or audit trail
 
-With MissionControl:
+With Edgeplane:
 
 -   Parallel task execution is structured by domain and mission scope
 -   Overlap is detected before damage occurs
@@ -410,12 +410,12 @@ coherent, governed, auditable system.
 
 # Vision
 
-MissionControl is infrastructure for AI-native organizations.
+Edgeplane is infrastructure for AI-native organizations.
 
 As AI becomes a primary production actor, coordination becomes the
 limiting factor.
 
-MissionControl ensures that intelligence scales without fragmentation.
+Edgeplane ensures that intelligence scales without fragmentation.
 
 It connects agents, humans, governance, and communication into a single
 coordinated execution layer.

@@ -19,8 +19,8 @@ module "network" {
   source         = "../../modules/gcp_network"
   project        = var.project
   region         = var.region
-  network_name   = "missioncontrol-network"
-  subnetwork_name = "missioncontrol-subnet"
+  network_name   = "edgeplane-network"
+  subnetwork_name = "edgeplane-subnet"
   subnetwork_cidr = var.subnetwork_cidr
 }
 
@@ -28,7 +28,7 @@ module "kubernetes" {
   source          = "../../modules/gcp_kubernetes"
   project         = var.project
   region          = var.region
-  cluster_name    = "missioncontrol-gke"
+  cluster_name    = "edgeplane-gke"
   network         = module.network.network_id
   subnetwork      = module.network.subnetwork_id
   node_count      = var.kubernetes_node_count
@@ -39,7 +39,7 @@ module "postgres" {
   source             = "../../modules/gcp_postgres"
   project            = var.project
   region             = var.region
-  instance_name      = "missioncontrol-sql"
+  instance_name      = "edgeplane-sql"
   tier               = var.postgres_tier
   disk_size          = var.postgres_disk_size
   network_self_link  = module.network.network_id
@@ -48,5 +48,5 @@ module "postgres" {
 module "secrets" {
   source    = "../../modules/gcp_secrets"
   project   = var.project
-  secret_id = "missioncontrol-secrets"
+  secret_id = "edgeplane-secrets"
 }

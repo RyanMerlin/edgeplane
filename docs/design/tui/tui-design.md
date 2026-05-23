@@ -1,4 +1,4 @@
-# mc tui — Master Design Document
+# edgeplane tui — Master Design Document
 
 **Branch:** `feat/tui-v3` (1 commit ahead of `main`)
 **Version:** v0.5.0 (first stable)
@@ -10,20 +10,20 @@
 ## Architecture Overview
 
 ```
-mc tui
+edgeplane tui
  └─ App (app.rs)
      ├─ Screen enum: Agents | Missions | Feed | Approvals | Secrets | Config
      ├─ WorkPool (work.rs) — std::thread + tokio::Handle::current().block_on()
      │   └─ results drained every 50ms in App::tick()
      ├─ DataClient trait (data.rs)
-     │   ├─ RemoteDataClient — real HTTP calls to mc-controlplane
+     │   ├─ RemoteDataClient — real HTTP calls to edgeplane-tower
      │   └─ FixtureDataClient — test fixture
      └─ Screens (screens/)
-         ├─ agents.rs + mc-tui-widgets/src/agents.rs
+         ├─ agents.rs + edgeplane-tui-widgets/src/agents.rs
          ├─ mission_matrix.rs
          ├─ agent_feed.rs
          ├─ approval_queue.rs
-         ├─ secrets.rs + mc-tui-widgets/src/secrets_tree.rs
+         ├─ secrets.rs + edgeplane-tui-widgets/src/secrets_tree.rs
          └─ config.rs
 ```
 
@@ -123,7 +123,7 @@ Gaps / TODOs:
 - No reconnect backoff — on disconnect, user must manually navigate away and back to reconnect
 - Event display truncates data; no expand-on-Enter to see full event JSON
 - Max event buffer (likely unbounded Vec) — could grow without limit on active fleets
-- Feed SSE endpoint (`/sse`) — needs to confirm this matches mc-controlplane's actual SSE path; the `stream_feed` function uses it but the controlplane may expose `/events/stream`
+- Feed SSE endpoint (`/sse`) — needs to confirm this matches edgeplane-tower's actual SSE path; the `stream_feed` function uses it but the controlplane may expose `/events/stream`
 
 ### 4. Approvals (`p`)
 
@@ -148,14 +148,14 @@ Gaps / TODOs:
 **Status: Skeleton functional, no error display**
 
 What works:
-- `switch_to_secrets()` loads `~/.mc/infisical_profiles.json` and initializes tree
+- `switch_to_secrets()` loads `~/.ep/infisical_profiles.json` and initializes tree
 - Graceful "no profile" error state when profile file absent or malformed
 - Tree widget dispatches `LoadSecretFolders` / `LoadSecretNames` work requests
 - Keyboard navigation: arrows expand/collapse folders, space = expand
 
 Gaps / TODOs:
 - `secrets_tree.rs:70` error field (`error: Option<String>`) is **never displayed to user**
-- Profile load parses JSON directly — if `mc secrets infisical add` writes a different shape than `InfisicalProfileMap` expects, it silently falls through to the no-profile error
+- Profile load parses JSON directly — if `edgeplane secrets infisical add` writes a different shape than `InfisicalProfileMap` expects, it silently falls through to the no-profile error
 - No secret values shown (read-only names-only, intentional for v1 — mark as deferred)
 - No search/filter within the tree
 - **Key conflict:** `a` in the Secrets arm's `matches!` macro returns `true` for select-all → user cannot navigate Secrets → Agents
@@ -166,15 +166,15 @@ Gaps / TODOs:
 
 What works:
 - Tab navigates to Config screen
-- Ping latency displayed (ms roundtrip to mc-controlplane)
+- Ping latency displayed (ms roundtrip to edgeplane-tower)
 - `● connected` / `✗ disconnected` indicator
 - Server URL, token presence, agent ID shown
 - **Auth panel (nav index 1) — fully implemented:**
-  - Branding header: "MissionControl Secure / Team Console"
+  - Branding header: "Edgeplane Secure / Team Console"
   - OIDC primary sign-in: Enter triggers browser PKCE flow
   - Testing token section: Down to expand, type token masked, Enter to submit
   - In-flight states: Initiating → AwaitingBrowser (URL display + timer) → TimedOut / Failed
-  - Signed-in state shows identity, `mc auth logout` hint
+  - Signed-in state shows identity, `edgeplane auth logout` hint
   - Esc steps back (token input → OIDC focus → nav panel)
 - Controlplane panel (nav index 0): URL editing, latency test, apply
 - Profile panel: context switching
@@ -204,12 +204,12 @@ Gaps / TODOs:
 
 ### Known Endpoint Risks
 
-- `/sse` path needs validation against mc-controlplane — controlplane may use `/events/stream`
-- `/missions/{m}/k` — the `k` shortcut vs `/klusters` — confirm mc-controlplane routing
+- `/sse` path needs validation against edgeplane-tower — controlplane may use `/events/stream`
+- `/missions/{m}/k` — the `k` shortcut vs `/klusters` — confirm edgeplane-tower routing
 
 ### AgentSummary Wire Shape
 
-mc-controlplane returns `id` as `i32`; custom `id_to_string` deserializer handles both `i32` and `String`. Fields not present on the wire default via `#[serde(default)]`.
+edgeplane-tower returns `id` as `i32`; custom `id_to_string` deserializer handles both `i32` and `String`. Fields not present on the wire default via `#[serde(default)]`.
 
 ---
 
@@ -276,7 +276,7 @@ mc-controlplane returns `id` as `i32`; custom `id_to_string` deserializer handle
 12. **Approval request_context not displayed** — JSON payload visible in API but not shown in TUI
 13. **Approval history Vec never populated** — history panel always empty
 14. **Feed event expand-on-Enter** — cannot see full event JSON
-15. **Feed SSE endpoint path** — `/sse` vs `/events/stream` — needs verification against mc-controlplane
+15. **Feed SSE endpoint path** — `/sse` vs `/events/stream` — needs verification against edgeplane-tower
 16. **Max event buffer** — Feed Vec can grow unbounded on active fleets
 17. **Secrets tree search/filter** — not present
 18. **Agent list auto-refresh** — no polling; only loads on tab switch
@@ -295,14 +295,14 @@ mc-controlplane returns `id` as `i32`; custom `id_to_string` deserializer handle
 
 ## Build & Release State
 
-- **Binary:** `crates/mc/target/release/mc` — compiled and confirmed `mc tui --help` works
-- **Feature gate:** `default = ["tui"]` in `crates/mc/Cargo.toml`; explicit `--features tui` also works
-- **Release workflow:** `.github/workflows/release-mc.yml` updated with explicit `--features tui`
-- **Version:** `0.5.0` across `mc`, `mc-tui`, `mc-tui-widgets`
+- **Binary:** `crates/edgeplane/target/release/edgeplane` — compiled and confirmed `edgeplane tui --help` works
+- **Feature gate:** `default = ["tui"]` in `crates/edgeplane/Cargo.toml`; explicit `--features tui` also works
+- **Release workflow:** `.github/workflows/release-edgeplane.yml` updated with explicit `--features tui`
+- **Version:** `0.5.0` across `edgeplane`, `edgeplane-tui`, `edgeplane-tui-widgets`
 
 ### PR State
 
-PR `feat/tui-v3 → main` created. Branch is 1 commit ahead of main. Title: `feat(tui): first stable release — mc tui v0.5.0 with 6 wired tabs`.
+PR `feat/tui-v3 → main` created. Branch is 1 commit ahead of main. Title: `feat(tui): first stable release — edgeplane tui v0.5.0 with 6 wired tabs`.
 
 PR should **not merge** until P0 nav conflict is resolved. The binary compiles and the tabs exist but the UX is broken for cross-tab navigation.
 

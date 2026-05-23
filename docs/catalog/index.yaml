@@ -1,5 +1,5 @@
 version: 1
-project: missioncontrol
+project: edgeplane
 last_reviewed: 2026-03-21
 read_first:
   - README.md
@@ -15,9 +15,9 @@ domains:
     title: FastAPI backend and MCP surface
     file: docs/catalog/api.yaml
     status: active
-  - id: mc-rust
-    title: Rust mc CLI and daemon
-    file: docs/catalog/mc-rust.yaml
+  - id: edgeplane-rust
+    title: Rust edgeplane CLI and daemon
+    file: docs/catalog/edgeplane-rust.yaml
     status: active
   - id: swarm
     title: Codex multi-session swarm workflow

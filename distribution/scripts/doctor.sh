@@ -20,45 +20,45 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if ! command -v missioncontrol-mcp >/dev/null 2>&1; then
-  echo "[FAIL] missioncontrol-mcp not found on PATH"
+if ! command -v edgeplane-mcp >/dev/null 2>&1; then
+  echo "[FAIL] edgeplane-mcp not found on PATH"
   exit 1
 fi
 
-echo "[OK] missioncontrol-mcp found: $(command -v missioncontrol-mcp)"
+echo "[OK] edgeplane-mcp found: $(command -v edgeplane-mcp)"
 
-if ! missioncontrol-mcp --help >/dev/null 2>&1; then
-  echo "[WARN] missioncontrol-mcp exists but --help failed"
+if ! edgeplane-mcp --help >/dev/null 2>&1; then
+  echo "[WARN] edgeplane-mcp exists but --help failed"
 else
-  echo "[OK] missioncontrol-mcp --help"
+  echo "[OK] edgeplane-mcp --help"
 fi
 
 if [[ -n "$ENDPOINT" ]]; then
-  if doctor_raw="$(MC_BASE_URL="$ENDPOINT" MC_TOKEN="$TOKEN" missioncontrol-mcp doctor 2>/dev/null)"; then
-    echo "$doctor_raw" | sed -n '1,80p' >/tmp/missioncontrol_mcp_doctor.out
+  if doctor_raw="$(EP_BASE_URL="$ENDPOINT" EP_TOKEN="$TOKEN" edgeplane-mcp doctor 2>/dev/null)"; then
+    echo "$doctor_raw" | sed -n '1,80p' >/tmp/edgeplane_mcp_doctor.out
     if command -v jq >/dev/null 2>&1; then
       if echo "$doctor_raw" | jq -e --arg endpoint "$ENDPOINT" '.checks[$endpoint].health_ok == true' >/dev/null 2>&1; then
-        echo "[OK] missioncontrol-mcp doctor health check"
+        echo "[OK] edgeplane-mcp doctor health check"
       else
-        echo "[WARN] missioncontrol-mcp doctor reports health check failure"
+        echo "[WARN] edgeplane-mcp doctor reports health check failure"
       fi
       if [[ -n "$TOKEN" ]]; then
         if echo "$doctor_raw" | jq -e --arg endpoint "$ENDPOINT" '.checks[$endpoint].tools_ok == true' >/dev/null 2>&1; then
-          echo "[OK] missioncontrol-mcp doctor tools check"
+          echo "[OK] edgeplane-mcp doctor tools check"
         else
-          echo "[WARN] missioncontrol-mcp doctor reports tools check failure"
+          echo "[WARN] edgeplane-mcp doctor reports tools check failure"
         fi
       fi
     else
-      echo "[INFO] jq not found; skipping missioncontrol-mcp doctor JSON assertions"
+      echo "[INFO] jq not found; skipping edgeplane-mcp doctor JSON assertions"
     fi
   else
-    echo "[WARN] missioncontrol-mcp doctor command failed"
+    echo "[WARN] edgeplane-mcp doctor command failed"
   fi
 fi
 
 if [[ -z "$ENDPOINT" ]]; then
-  echo "[INFO] No endpoint set. Local bootstrap is complete; set MC_BASE_URL to connect."
+  echo "[INFO] No endpoint set. Local bootstrap is complete; set EP_BASE_URL to connect."
   exit 0
 fi
 
@@ -89,26 +89,26 @@ else
   echo "[INFO] curl not found; skipping network checks."
 fi
 
-if command -v missioncontrol-explorer >/dev/null 2>&1; then
+if command -v edgeplane-explorer >/dev/null 2>&1; then
   if [[ -n "$ENDPOINT" ]]; then
-    if explorer_raw="$(MC_BASE_URL="$ENDPOINT" MC_TOKEN="$TOKEN" missioncontrol-explorer tree --format json 2>/tmp/missioncontrol_explorer.err)"; then
+    if explorer_raw="$(EP_BASE_URL="$ENDPOINT" EP_TOKEN="$TOKEN" edgeplane-explorer tree --format json 2>/tmp/edgeplane_explorer.err)"; then
       if command -v jq >/dev/null 2>&1; then
         if echo "$explorer_raw" | jq -e '.mission_count >= 0' >/dev/null 2>&1; then
-          echo "[OK] missioncontrol-explorer tree --format json"
+          echo "[OK] edgeplane-explorer tree --format json"
         else
-          echo "[WARN] missioncontrol-explorer returned unexpected JSON shape"
+          echo "[WARN] edgeplane-explorer returned unexpected JSON shape"
         fi
       else
-        echo "[OK] missioncontrol-explorer tree executed"
+        echo "[OK] edgeplane-explorer tree executed"
       fi
     else
-      echo "[WARN] missioncontrol-explorer failed: $(tail -n 1 /tmp/missioncontrol_explorer.err 2>/dev/null || echo unknown_error)"
+      echo "[WARN] edgeplane-explorer failed: $(tail -n 1 /tmp/edgeplane_explorer.err 2>/dev/null || echo unknown_error)"
     fi
   else
-    echo "[INFO] missioncontrol-explorer found; skipping explorer run because endpoint is empty"
+    echo "[INFO] edgeplane-explorer found; skipping explorer run because endpoint is empty"
   fi
 else
-  echo "[WARN] missioncontrol-explorer not found on PATH"
+  echo "[WARN] edgeplane-explorer not found on PATH"
 fi
 
 echo "[DONE] doctor checks finished"

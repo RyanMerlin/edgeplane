@@ -36,9 +36,9 @@ A1_PROTECT = [
     ("MissionMatrix", "__PROTECT_MC_MATRIX_PASCAL__"),
     ("mission_matrix", "__PROTECT_MC_MATRIX_SNAKE__"),
     # Brand compound words — joined and spaced variants
-    ("Mission Control", "__BRAND_MC_SPACE_PASCAL__"),   # spaced PascalCase in strings/docs
+    ("Edgeplane", "__BRAND_MC_SPACE_PASCAL__"),   # spaced PascalCase in strings/docs
     ("MISSION CONTROL", "__BRAND_MC_SPACE_UPPER__"),    # spaced all-caps (TUI banner)
-    ("mission control", "__BRAND_MC_SPACE_LOWER__"),    # spaced lowercase (defensive)
+    ("edgeplane", "__BRAND_MC_SPACE_LOWER__"),    # spaced lowercase (defensive)
     ("MissionControl", "__BRAND_MC_FULL__"),      # joined PascalCase brand
     ("Missioncontrol", "__BRAND_MC_MIXED__"),     # first-char-cap variant in CLI structs
     ("missioncontrol", "__BRAND_MC_LOWER__"),     # all-lowercase brand (identifiers, paths)

@@ -2,7 +2,7 @@
 
 **Status:** Static mockups complete, pending review  
 **Date:** 2026-05-17  
-**Location:** `/home/merlin/code/missioncontrol/docs/design/web/`  
+**Location:** `/home/merlin/code/edgeplane/docs/design/web/`  
 **Start here:** Open `index.html` — design system reference + page navigator
 
 ---

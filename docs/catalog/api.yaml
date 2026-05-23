@@ -16,16 +16,16 @@ source_of_truth:
     - docs/reference/AI-CONSOLE.md
     - docs/guides/DEPLOYMENT.md
   code_paths:
-    - crates/mc-controlplane/src/main.rs
-    - crates/mc-controlplane/src/routes/
-    - crates/mc-controlplane/src/models/mod.rs
+    - crates/edgeplane-tower/src/main.rs
+    - crates/edgeplane-tower/src/routes/
+    - crates/edgeplane-tower/src/models/mod.rs
   openapi: http://localhost:8008/api/docs
 
 entrypoints:
   run:
     - command: bash scripts/dev-up.sh
       purpose: Start full local stack
-    - command: cargo run --manifest-path crates/mc-controlplane/Cargo.toml
+    - command: cargo run --manifest-path crates/edgeplane-tower/Cargo.toml
       purpose: Start backend only
   verify:
     - command: curl http://localhost:8008/healthz
@@ -41,7 +41,7 @@ interfaces:
   env_vars:
     - DATABASE_URL       # PostgreSQL (prod) or SQLite (dev)
     - AUTH_MODE
-    - MC_TOKEN
+    - EP_TOKEN
     - OBJECT_STORAGE_URL
   key_endpoints:
     - /healthz

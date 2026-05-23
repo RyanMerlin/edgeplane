@@ -8,7 +8,7 @@
 # Usage:
 #   ./ephemeral-subagent.sh              # full run (creates real rows, spawns claude -p)
 #   ./ephemeral-subagent.sh --dry-run    # skip the claude spawn (no API cost, still tests DB lifecycle)
-#   MC_BASE_URL=http://localhost:8008 ./ephemeral-subagent.sh
+#   EP_BASE_URL=http://localhost:8008 ./ephemeral-subagent.sh
 #
 # Exit 0 = model validated. Exit 1 = invariant broken or pipeline failure.
 
@@ -17,10 +17,10 @@ set -euo pipefail
 DRY_RUN=0
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
 
-BASE_URL="${MC_BASE_URL:-http://missioncontrol:8008}"
-TOKEN=$(jq -r .token ~/.mc/session.json)
+BASE_URL="${EP_BASE_URL:-http://edgeplane:8008}"
+TOKEN=$(jq -r .token ~/.ep/session.json)
 AUTH=(-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
-NODE_ID="${MC_NODE_ID:-excalibur}"
+NODE_ID="${EP_NODE_ID:-excalibur}"
 TS=$(date +%s)
 DOMAIN_ID="" MISSION_ID="" TASK_ID="" AGENT_ID="" RUN_ID=""
 

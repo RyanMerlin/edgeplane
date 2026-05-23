@@ -1,0 +1,150 @@
+id: edgeplane-rust
+title: Rust edgeplane CLI and daemon
+status: active
+maturity: beta
+owners:
+  - platform
+summary: >
+  Rust-native local agent gateway. The edgeplane binary connects agents to Edgeplane
+  via MCP tool calls, manages the local daemon for SSE stream fan-out, and provides
+  profile management. Canonical entry point for Codex, Claude Code, and Gemini agents.
+
+source_of_truth:
+  docs:
+    - docs/reference/COMMAND-MAP.md
+    - docs/reference/MC-RUST.md
+    - docs/reference/REAL-TIME.md
+    - README.md
+  code_paths:
+    - distribution/
+
+entrypoints:
+  run:
+    - command: edgeplane daemon
+      purpose: Start local edgeplane daemon (SSE fan-out, tool dispatch)
+    - command: edgeplane run claude
+      purpose: Launch Claude Code in a prepared profile runtime
+    - command: edgeplane run codex
+      purpose: Launch Codex in a prepared profile runtime
+    - command: edgeplane run gemini
+      purpose: Launch Gemini in a prepared profile runtime
+  agent_ops:
+    - command: edgeplane agent signal <id> --content "..."
+      purpose: Send a prompt to an agent. Auto-resolves local (edgeplaned) vs controlplane.
+    - command: edgeplane agent cancel <id>
+      purpose: Interrupt the agent (Ctrl c for ZellijHosted).
+    - command: edgeplane agent list [--source local|remote|all]
+      purpose: Enumerate visible agents tagged by source.
+    - command: edgeplane agent describe <id>
+      purpose: Show one agent's runtime, session, vault folder, supervision state.
+    - command: edgeplane agent attach <id> [--web]
+      purpose: Attach to a live agent. ZellijHosted execs zellij attach (or prints web URL with --web). ACP streams via WebSocket.
+  cron_ops:
+    - command: edgeplane agent cron list
+      purpose: List jobs from ~/.ep/edgeplaned/cron.toml with last-fire status. (Phase 4, v0.9)
+    - command: edgeplane agent cron describe <name>
+      purpose: One cron job's schedule + recent fire history.
+    - command: edgeplane agent cron reload
+      purpose: Poke edgeplaned to re-parse cron.toml after an editor edit.
+    - command: edgeplane agent cron history [--name <n>] [-n N]
+      purpose: Recent fires across all (or one) job.
+    - command: edgeplane agent cron gc-now
+      purpose: Force a retention sweep on agent_cron_fire_log.
+  supervise_ops:
+    - command: edgeplane agent supervise list
+      purpose: List supervised systemd units + live state. (Phase 5, v0.10)
+    - command: edgeplane agent supervise status <id>
+      purpose: One agent's unit state + recent restart history.
+    - command: edgeplane agent supervise restart <id>
+      purpose: Manual systemctl --user restart (logged as reason=manual).
+    - command: edgeplane agent supervise pause [<id>] [--all]
+      purpose: Disable auto-restart for this agent (or all). Orthogonal to manual restart.
+    - command: edgeplane agent supervise resume [<id>] [--all]
+      purpose: Re-enable auto-restart.
+    - command: edgeplane agent supervise history [-n N]
+      purpose: Recent restart events from unit_restart_log.
+    - command: edgeplane agent supervise events [--json]
+      purpose: Stream live SupervisorEvents as they fire (v0.13).
+    - command: edgeplane agent supervise watch
+      purpose: Live fleet dashboard — agent table + event tail (TUI, v0.14).
+  verify:
+    - command: edgeplane system doctor
+      purpose: Health check (backend connectivity, token, daemon)
+    - command: edgeplaned doctor
+      purpose: Read-only edgeplaned health check — lock state, port reachability, registry, runtime resolution.
+
+interfaces:
+  env_vars:
+    - EP_BASE_URL        # Edgeplane backend URL
+    - EP_TOKEN           # Agent bearer token
+    - EP_AGENT_ID        # Agent identity
+    - MC_SCHEMA_PACK_FILE  # Optional schema pack override
+  commands:
+    - edgeplane auth login
+    - edgeplane auth whoami
+    - edgeplane auth logout
+    - edgeplane daemon
+    - edgeplane launch <agent>   # openclaw/custom legacy launch surface
+    - edgeplane data tools list
+    - edgeplane data tools call <tool> <args>
+    - edgeplane data sync status
+    - edgeplane data explorer tree
+    - edgeplane admin policy active
+    - edgeplane admin governance
+    - edgeplane system doctor
+    - edgeplane system update self-update
+    - edgeplane system compat matrix run
+    - edgeplane system drift triage
+    - edgeplane agent remote sessions list
+    - edgeplane agent evolve status --mission <id>
+    - edgeplane agent node register
+    - edgeplane agent node run
+    - edgeplane agent node doctor
+    - edgeplane run claude [-p profile] [--mission id] [--mode interactive|headless|solo]
+    - edgeplane run codex [-p profile] [--mission id] [--mode interactive|headless|solo]
+    - edgeplane run gemini [-p profile]
+    - edgeplane run claude doctor [-p profile] --fix
+    - edgeplane run claude exec [-p profile] -- [args]
+    - edgeplane run codex doctor [-p profile] --fix
+    - edgeplane run codex status [-p profile]
+    - edgeplane run codex exec [-p profile] -- [args]
+    - edgeplane profile list
+    - edgeplane profile use <name>
+    - edgeplane profile show <name>
+    - edgeplane profile activate <name>
+    - edgeplane profile create <name>
+    - edgeplane profile publish <name>
+    - edgeplane profile pull <name>
+    - edgeplane profile download <name>
+    - edgeplane profile pin <name> <sha256>
+    - edgeplane profile status <name>
+    - edgeplane profile delete <name>
+
+implemented:
+  - MCP tool dispatch over HTTP
+  - SSE stream fan-out via daemon
+  - agent launch with proper startup layering
+  - profile management (list/use/push/pull/delete)
+  - atomic symlink swap for profile activation (~/.edgeplane/profiles/active)
+  - edgeplane system doctor health diagnostics
+  - env file loading on edgeplane launch (legacy launch surface)
+
+gaps:
+  - edgeplane binary not checked into repo (installed separately via scripts/install-edgeplane.sh)
+  - daemon restart behavior on backend disconnect not fully documented
+
+todos:
+  - document daemon resilience and reconnect behavior
+
+dependencies:
+  - api
+  - auth
+
+read_next:
+  - docs/reference/COMMAND-MAP.md
+  - docs/reference/MC-RUST.md
+  - docs/reference/REAL-TIME.md
+  - docs/guides/DEPLOYMENT.md
+
+last_reviewed: 2026-04-12
+confidence: high

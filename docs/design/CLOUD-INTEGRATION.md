@@ -1,11 +1,11 @@
 # Cloud Integration Blueprint
 
-This document captures the architecture blueprint discussed for deploying MissionControl into Azure first, then reusing the same platform contract in GCP and AWS. It focuses on the platform baseline (networking, managed Kubernetes, secrets, monitoring, CI/CD, and backing services) so the MissionControl application can remain configuration-driven via the existing `MC_*` environment variables.
+This document captures the architecture blueprint discussed for deploying Edgeplane into Azure first, then reusing the same platform contract in GCP and AWS. It focuses on the platform baseline (networking, managed Kubernetes, secrets, monitoring, CI/CD, and backing services) so the Edgeplane application can remain configuration-driven via the existing `MC_*` environment variables.
 
 ## Platform Contract (shared across clouds)
 
 - **Private networking**: hub-and-spoke/VPC model with dedicated load-balanced ingress, egress filtering, and mutual TLS for cross-zone traffic.
-- **Managed Kubernetes**: AKS/GKE/EKS clusters with node pools for API workloads, autoscaling, and admission controls that enforce namespace/certs/secrets policies.
+- **Managed Kubernetes**: AKS/GKE/EKS clusters with node pools for API workloads, autoscaling, and adedgeplanes that enforce namespace/certs/secrets policies.
 - **Managed PostgreSQL**: Regional service (Azure Database for PostgreSQL, Cloud SQL, Amazon RDS) with private endpoints and replicas for HA.
 - **Object storage**: MinIO hosted in the cluster (or cloud-native S3-compatible store) reachable via the `MC_OBJECT_STORAGE_*` variables; authentication happens through vault-backed credentials and policies restrict the `missions/<mission>/klusters/<kluster>/` prefixes.
 - **MQTT**: Stateful broker deployed in Kubernetes with persistence, with the option to replace it using cloud-managed services later.
@@ -17,24 +17,24 @@ This document captures the architecture blueprint discussed for deploying Missio
 ## Azure Baseline (Priority 1)
 
 ### Networking
-- Terraform module builds Azure hub VNet, spoke for MissionControl, private endpoint for Azure Database for PostgreSQL, and service endpoints for AKS.
+- Terraform module builds Azure hub VNet, spoke for Edgeplane, private endpoint for Azure Database for PostgreSQL, and service endpoints for AKS.
 - NVA or firewall controls enforce outbound egress policies and restrict inbound to internal load balancers/front-door.
 
 ### Compute
-- AKS cluster with two node pools (system + missioncontrol). Nodes join private network with managed identities for pull secrets, Key Vault access, and blob storage.
-- Helm/Kustomize deploys `backend` and `crates/mc` services with Kubernetes Services/Ingress, secrets mounted from External Secrets Operator, and ConfigMaps for `MC_*` values.
+- AKS cluster with two node pools (system + edgeplane). Nodes join private network with managed identities for pull secrets, Key Vault access, and blob storage.
+- Helm/Kustomize deploys `backend` and `crates/edgeplane` services with Kubernetes Services/Ingress, secrets mounted from External Secrets Operator, and ConfigMaps for `MC_*` values.
 
 ### Data plane
 - Azure Database for PostgreSQL (flexible server) provisioned with custom parameter group, SSL-only connections, and geo-redundant backup; Terraform exports connection strings consumed via Key Vault secrets.
-- MinIO deployment uses persistent volumes backed by managed disk, configured to present `mc`-compatible endpoint for `MC_OBJECT_STORAGE_ENDPOINT` (e.g., `http://minio.missioncontrol.svc.cluster.local`).
+- MinIO deployment uses persistent volumes backed by managed disk, configured to present `edgeplane`-compatible endpoint for `MC_OBJECT_STORAGE_ENDPOINT` (e.g., `http://minio.edgeplane.svc.cluster.local`).
 - Mosquitto MQTT broker runs as StatefulSet with PVCs; optionally, Azure IoT Hub rules can be introduced later.
 
 ### Security & controls
-- Key Vault holds `MC_TOKEN`, `SLACK_BOT_TOKEN`, and object storage credentials; Azure AD service principals grant AKS workload identity limited scope.
+- Key Vault holds `EP_TOKEN`, `SLACK_BOT_TOKEN`, and object storage credentials; Azure AD service principals grant AKS workload identity limited scope.
 - Azure Policy enforces resource tags, private endpoint usage, and disk encryption; RBAC roles restrict terraform operators vs. runtime admin.
 
 ### Observability & ops
-- Azure Monitor autoscraps metrics from AKS + Postgres + MinIO, with alerts for high latency, crash looping, and API health checks hitting MissionControl endpoints.
+- Azure Monitor autoscraps metrics from AKS + Postgres + MinIO, with alerts for high latency, crash looping, and API health checks hitting Edgeplane endpoints.
 - Add Runbooks for failover tests, credential rotation, MinIO bucket checks, Terraform state drift detection, and security scan remediation.
 
 ### CI/CD

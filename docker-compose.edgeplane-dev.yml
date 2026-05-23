@@ -1,0 +1,79 @@
+# edgeplane-tower local dev stack — Postgres + edgeplane-tower + web
+#
+# DEV ONLY — DO NOT use these defaults in production.
+# Hardcoded passwords (POSTGRES_PASSWORD, EP_TOKEN) are public values
+# baked into a checked-in compose file; any deployment reachable from
+# the internet that uses this file is open. Production deployments
+# must source credentials from a secret manager. See SECURITY.md.
+#
+# Usage:
+#   docker compose -f docker-compose.edgeplane-dev.yml up --build
+#
+# Ports:
+#   5173 — SvelteKit dev server (proxies API calls to edgeplane-tower)
+#   8008 — edgeplane-tower API
+#   5432 — Postgres (exposed for psql / pgAdmin)
+#
+# Quick test:
+#   curl http://localhost:8008/health
+#   open http://localhost:5173/
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg18
+    container_name: edgeplane-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: edgeplane
+      POSTGRES_USER: edgeplane
+      POSTGRES_PASSWORD: edgeplane
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U edgeplane"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  edgeplane-tower:
+    build:
+      context: .
+      dockerfile: crates/edgeplane-tower/Dockerfile
+    container_name: edgeplane-edgeplane-tower-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://edgeplane:edgeplane@postgres:5432/edgeplane
+      EP_BIND: 0.0.0.0:8008
+      EP_TOKEN: dev-token
+      RUST_LOG: edgeplane_tower=debug,info
+    ports:
+      - "8008:8008"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8008/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    image: node:24-alpine
+    container_name: edgeplane-web-dev
+    working_dir: /app
+    command: sh -c "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173"
+    environment:
+      EP_DEV_API: http://edgeplane-tower:8008
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+    depends_on:
+      edgeplane-tower:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  web-node-modules:

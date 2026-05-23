@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# demo-mesh-goose.sh — end-to-end mc mesh work loop demo using Goose as the runtime.
+# demo-mesh-goose.sh — end-to-end edgeplane mesh work loop demo using Goose as the runtime.
 #
 # Creates a 3-task A → B → C dependency chain, starts 3 Goose workers via
-# `mc run goose --mission`, then polls until all tasks reach "finished".
+# `edgeplane run goose --mission`, then polls until all tasks reach "finished".
 #
 # Requirements:
-#   - Backend running (MC_BASE_URL, default http://localhost:8008)
-#   - `mc` and `goose` binaries on PATH
+#   - Backend running (EP_BASE_URL, default http://localhost:8008)
+#   - `edgeplane` and `goose` binaries on PATH
 #   - Goose reachable LiteLLM at MC_LITELLM_HOST (default http://litellm:4000)
-#   - MC_TOKEN set or backend accepts unauthenticated requests
+#   - EP_TOKEN set or backend accepts unauthenticated requests
 #
 # Usage:
-#   MC_BASE_URL=http://localhost:8008 MC_TOKEN=<token> ./scripts/demo-mesh-goose.sh
+#   EP_BASE_URL=http://localhost:8008 EP_TOKEN=<token> ./scripts/demo-mesh-goose.sh
 
 set -euo pipefail
 
-BASE_URL="${MC_BASE_URL:-http://localhost:8008}"
+BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
 TIMEOUT="${DEMO_TIMEOUT:-120}"
-TOKEN="${MC_TOKEN:-}"
+TOKEN="${EP_TOKEN:-}"
 PROFILE="${MC_PROFILE:-default}"
 
 cleanup_pids=()
@@ -53,7 +53,7 @@ task_status() {
 }
 
 # ---- Preflight ----
-command -v mc >/dev/null || { echo "mc binary not found on PATH"; exit 1; }
+command -v edgeplane >/dev/null || { echo "edgeplane binary not found on PATH"; exit 1; }
 command -v goose >/dev/null || { echo "goose binary not found on PATH"; exit 1; }
 
 # ---- 1. Create domain ----
@@ -92,11 +92,11 @@ log "Task C: $C_ID"
 log "Initial state: A=$(task_status $A_ID)  B=$(task_status $B_ID)  C=$(task_status $C_ID)"
 
 # ---- 4. Start 3 Goose workers ----
-log "Starting 3 Goose workers (mc run goose --domain ${DOMAIN_ID})…"
+log "Starting 3 Goose workers (edgeplane run goose --domain ${DOMAIN_ID})…"
 for i in 1 2 3; do
-    MC_BASE_URL="$BASE_URL" \
-    MC_TOKEN="$TOKEN" \
-    mc run goose --domain "$DOMAIN_ID" -p "$PROFILE" \
+    EP_BASE_URL="$BASE_URL" \
+    EP_TOKEN="$TOKEN" \
+    edgeplane run goose --domain "$DOMAIN_ID" -p "$PROFILE" \
         > "/tmp/demo-goose-worker-${i}.log" 2>&1 &
     cleanup_pids+=($!)
     log "Worker $i PID ${cleanup_pids[-1]}"

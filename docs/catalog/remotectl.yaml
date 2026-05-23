@@ -7,7 +7,7 @@ owners:
 summary: >
   REST API for registering SSH/K8s targets and orchestrating remote agent launches.
   MC issues scoped session tokens per launch; Claude uses those tokens + connection
-  info to SSH to targets and bootstrap remote mc agents. Lifecycle tracked via
+  info to SSH to targets and bootstrap remote edgeplane agents. Lifecycle tracked via
   heartbeat and completion callbacks.
 
 source_of_truth:
@@ -15,12 +15,12 @@ source_of_truth:
     - README.md
     - docs/reference/MC-RUST.md
   code_paths:
-    - crates/mc-controlplane/src/routes/remotectl.rs
-    - crates/mc-controlplane/src/models/mod.rs
+    - crates/edgeplane-tower/src/routes/remotectl.rs
+    - crates/edgeplane-tower/src/models/mod.rs
 
 entrypoints:
   verify:
-    - command: 'curl http://localhost:8008/remotectl/targets -H "Authorization: Bearer $MC_TOKEN"'
+    - command: 'curl http://localhost:8008/remotectl/targets -H "Authorization: Bearer $EP_TOKEN"'
       purpose: List registered targets (returns empty list if none)
 
 interfaces:
@@ -49,11 +49,11 @@ implemented:
   - MCP tools for full target and launch lifecycle
 
 gaps:
-  - mc binary has no MC_LAUNCH_ID awareness for automatic heartbeat reporting
+  - edgeplane binary has no MC_LAUNCH_ID awareness for automatic heartbeat reporting
   - no K8s job dispatch (transport=k8s model exists, no actual Job creation)
 
 todos:
-  - add MC_LAUNCH_ID env var support to mc so remote agents auto-report heartbeats
+  - add MC_LAUNCH_ID env var support to edgeplane so remote agents auto-report heartbeats
   - implement K8s job dispatch
 
 dependencies:

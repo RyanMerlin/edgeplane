@@ -1,9 +1,9 @@
 ---
 title: Entity Reference
-description: Canonical definitions for every load-bearing MissionControl entity. This is the single source of truth.
+description: Canonical definitions for every load-bearing Edgeplane entity. This is the single source of truth.
 ---
 
-This is the single source of truth for what each MissionControl entity means. If anything in another doc, code comment, or AI response contradicts this page, this page wins (its source is `docs/architecture/entities.md` in the repo). Update the source doc first, then propagate.
+This is the single source of truth for what each Edgeplane entity means. If anything in another doc, code comment, or AI response contradicts this page, this page wins (its source is `docs/architecture/entities.md` in the repo). Update the source doc first, then propagate.
 
 ## Domain
 
@@ -15,7 +15,7 @@ This is the single source of truth for what each MissionControl entity means. If
 **Domains do not complete. They scope. Tasks complete.**
 
 :::note[Domain.kind is deprecated]
-The `kind` column (values `'work'` | `'home'`) was a write-only tag that leaked a deployment-specific operational pattern into the schema. New code must not write or filter on `kind`. The column remains for now (migrations are forward-only). Operational coordination domains are regular domains; `mcd` bootstraps a default domain named `home` (overridable via `MC_HOME_DOMAIN_NAME` env).
+The `kind` column (values `'work'` | `'home'`) was a write-only tag that leaked a deployment-specific operational pattern into the schema. New code must not write or filter on `kind`. The column remains for now (migrations are forward-only). Operational coordination domains are regular domains; `edgeplaned` bootstraps a default domain named `home` (overridable via `EP_HOME_DOMAIN_NAME` env).
 :::
 
 ---
@@ -71,7 +71,7 @@ Whether `task` and `meshtask` will converge is an open architecture question —
 
 - Base columns: `name`, `capabilities`, `status`, `metadata`
 - Added later: `archived_at`, `display_name`, `node_id`, `last_seen_at` — lifecycle and presence metadata
-- `public_id`: `{name}-{8-char-suffix}` — stable, human-readable identifier used by `/agents/{public_id}/messages` and the unified `mc agent` surface. Immutable after creation.
+- `public_id`: `{name}-{8-char-suffix}` — stable, human-readable identifier used by `/agents/{public_id}/messages` and the unified `edgeplane agent` surface. Immutable after creation.
 - `home_domain_id`: permanent anchor — set once at registration, never cleared
 - `current_domain_id`: active attachment — follows the agent's working context, resets to home on detach
 

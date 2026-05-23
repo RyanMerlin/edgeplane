@@ -23,7 +23,7 @@ module "network" {
 }
 
 resource "aws_security_group" "postgres" {
-  name        = "missioncontrol-postgres"
+  name        = "edgeplane-postgres"
   description = "Allow internal access to Postgres"
   vpc_id      = module.network.vpc_id
   ingress {
@@ -42,7 +42,7 @@ resource "aws_security_group" "postgres" {
 
 module "kubernetes" {
   source          = "../../modules/aws_kubernetes"
-  cluster_name    = "missioncontrol-eks"
+  cluster_name    = "edgeplane-eks"
   cluster_role_arn = var.cluster_role_arn
   node_role_arn   = var.node_role_arn
   subnet_ids      = [module.network.subnet_id]
@@ -53,9 +53,9 @@ module "kubernetes" {
 
 module "postgres" {
   source              = "../../modules/aws_postgres"
-  name_prefix         = "missioncontrol"
-  instance_identifier = "missioncontrol-db"
-  database_name       = "missioncontrol"
+  name_prefix         = "edgeplane"
+  instance_identifier = "edgeplane-db"
+  database_name       = "edgeplane"
   username            = var.postgres_username
   password            = var.postgres_password
   subnet_ids          = [module.network.subnet_id]
@@ -64,5 +64,5 @@ module "postgres" {
 
 module "secrets" {
   source      = "../../modules/aws_secrets"
-  secret_name = "missioncontrol-secrets"
+  secret_name = "edgeplane-secrets"
 }

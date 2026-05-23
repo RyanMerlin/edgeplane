@@ -1,4 +1,4 @@
-resource "google_container_cluster" "missioncontrol" {
+resource "google_container_cluster" "edgeplane" {
   name     = var.cluster_name
   location = var.region
   project  = var.project

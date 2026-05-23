@@ -2,15 +2,15 @@
 set -euo pipefail
 
 PREFIX="${MC_INSTALL_PREFIX:-$HOME/.local/bin}"
-TARGET="${MC_INSTALL_TARGET:-$PREFIX/mc}"
-ENV_FILE="${MC_ENV_FILE:-$HOME/.missioncontrol-agent.env}"
+TARGET="${MC_INSTALL_TARGET:-$PREFIX/edgeplane}"
+ENV_FILE="${MC_ENV_FILE:-$HOME/.edgeplane-agent.env}"
 AUTO_SHELL_HOOK="${MC_INSTALL_SHELL_HOOK:-1}"
-BASE_URL="${MC_RELEASE_BASE_URL:-https://github.com/RyanMerlin/missioncontrol/releases/latest/download}"
+BASE_URL="${MC_RELEASE_BASE_URL:-https://github.com/RyanMerlin/edgeplane/releases/latest/download}"
 
 append_shell_hook() {
   local rc_file="$1"
-  local marker_begin="# >>> missioncontrol mc env >>>"
-  local marker_end="# <<< missioncontrol mc env <<<"
+  local marker_begin="# >>> edgeplane edgeplane env >>>"
+  local marker_end="# <<< edgeplane edgeplane env <<<"
   if [[ ! -f "$rc_file" ]]; then
     touch "$rc_file"
   fi
@@ -45,8 +45,8 @@ try_download_release() {
   esac
 
   case "$os" in
-    linux) artifact="mc-linux-${arch}" ;;
-    darwin) artifact="mc-macos-${arch}" ;;
+    linux) artifact="edgeplane-linux-${arch}" ;;
+    darwin) artifact="edgeplane-macos-${arch}" ;;
   esac
 
   echo "trying binary download: ${BASE_URL}/${artifact}"
@@ -76,7 +76,7 @@ try_download_release() {
 
   mv "$TARGET.tmp" "$TARGET"
   chmod +x "$TARGET"
-  echo "installed mc from release binary"
+  echo "installed edgeplane from release binary"
   return 0
 }
 
@@ -113,15 +113,15 @@ if ! try_download_release; then
     fi
     ROOT_DIR="$(mktemp -d)"
     CLEANUP_ROOT="$ROOT_DIR"
-    echo "cloning missioncontrol to build from source..."
-    git clone --depth 1 https://github.com/RyanMerlin/missioncontrol.git "$ROOT_DIR"
+    echo "cloning edgeplane to build from source..."
+    git clone --depth 1 https://github.com/RyanMerlin/edgeplane.git "$ROOT_DIR"
   fi
 
   (
-    cd "$ROOT_DIR/crates/mc"
+    cd "$ROOT_DIR/crates/edgeplane"
     cargo build --release
   )
-  cp "$ROOT_DIR/crates/mc/target/release/mc" "$TARGET"
+  cp "$ROOT_DIR/crates/edgeplane/target/release/edgeplane" "$TARGET"
   chmod +x "$TARGET"
 
   if [[ -n "$CLEANUP_ROOT" ]]; then
@@ -132,17 +132,17 @@ fi
 mkdir -p "$(dirname "$ENV_FILE")"
 if [[ ! -f "$ENV_FILE" ]]; then
   cat >"$ENV_FILE" <<EOF
-# MissionControl shell environment
+# Edgeplane shell environment
 export MC_INSTALL_PREFIX="$PREFIX"
-export MC_BASE_URL="${MC_BASE_URL:-https://missioncontrol.example.com}"
-export MC_TOKEN="${MC_TOKEN:-}"
+export EP_BASE_URL="${EP_BASE_URL:-https://edgeplane.example.com}"
+export EP_TOKEN="${EP_TOKEN:-}"
 EOF
   chmod 0600 "$ENV_FILE"
 fi
 
-echo "installed mc to $TARGET"
-if command -v mc >/dev/null 2>&1; then
-  echo "mc on PATH: $(command -v mc)"
+echo "installed edgeplane to $TARGET"
+if command -v edgeplane >/dev/null 2>&1; then
+  echo "edgeplane on PATH: $(command -v edgeplane)"
 fi
 "$TARGET" --version
 
@@ -152,11 +152,11 @@ if [[ "$AUTO_SHELL_HOOK" == "1" ]]; then
   echo "auto env loading enabled from $ENV_FILE"
 else
   echo "Optional: enable auto env loading into new shells"
-  echo "  MC_INSTALL_SHELL_HOOK=1 MC_ENV_FILE=$ENV_FILE bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.sh)"
+  echo "  MC_INSTALL_SHELL_HOOK=1 MC_ENV_FILE=$ENV_FILE bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh)"
 fi
 
 echo ""
 echo "Launch an agent:"
 echo "  source \"$ENV_FILE\""
-echo "  mc claude run default"
-echo "  mc codex run default"
+echo "  edgeplane claude run default"
+echo "  edgeplane codex run default"

@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: missioncontrol-api
+  name: edgeplane-api
 spec:
   type: ClusterIP
   selector:
-    app: missioncontrol-api
+    app: edgeplane-api
   ports:
     - protocol: TCP
       port: 80

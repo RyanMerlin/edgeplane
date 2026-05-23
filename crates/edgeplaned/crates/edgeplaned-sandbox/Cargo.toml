@@ -1,0 +1,19 @@
+[package]
+name = "edgeplaned-sandbox"
+version.workspace = true
+edition = "2021"
+
+[dependencies]
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+dirs = { workspace = true }
+tempfile = "3"
+sha2 = "0.10"
+hex = "0.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"
+libc = "0.2"
+
+[dev-dependencies]

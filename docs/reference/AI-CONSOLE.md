@@ -1,6 +1,6 @@
 # AI Console Protocol (Web UI)
 
-MissionControl now ships an AI-first web console at `/ui/`.
+Edgeplane now ships an AI-first web console at `/ui/`.
 The dashboard tabs remain available, but the default experience is a chat-first transcript plus command composer.
 
 ## Behavior
@@ -56,7 +56,7 @@ Planner selection is controlled by environment variables:
 - OpenAI-compatible gateway: `https://my-gateway.example.com`
 - Full endpoint also works: `https://my-gateway.example.com/v1/chat/completions`
 
-If provider config is missing, MissionControl uses a local heuristic planner so the console remains usable in dev.
+If provider config is missing, Edgeplane uses a local heuristic planner so the console remains usable in dev.
 
 ## Theme
 

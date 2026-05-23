@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>mc tui — v3 Feed</title>
+<title>edgeplane tui — v3 Feed</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -162,7 +162,7 @@
 <body>
 
 <div id="topbar">
-  <div id="logo">mc</div>
+  <div id="logo">edgeplane</div>
   <div class="tab">Agents</div>
   <div class="tab">Missions</div>
   <div class="tab active">Feed</div>
@@ -226,7 +226,7 @@
           <span class="feed-agent">goose-prod-1</span>
           <span class="feed-ctx">phoenix/app-deploy</span>
           <span class="feed-type type-started">step_started</span>
-          <span class="feed-msg">Waiting for rollout — mc-controlplane deployment</span>
+          <span class="feed-msg">Waiting for rollout — edgeplane-tower deployment</span>
         </div>
 
         <div class="feed-row alert-err selected">
@@ -234,7 +234,7 @@
           <span class="feed-agent err">goose-prod-2</span>
           <span class="feed-ctx err">phoenix/app-deploy</span>
           <span class="feed-type type-error">step_error</span>
-          <span class="feed-msg err">psql: connection refused — missioncontrol-cnpg-rw (retrying)</span>
+          <span class="feed-msg err">psql: connection refused — edgeplane-cnpg-rw (retrying)</span>
         </div>
 
         <div class="feed-row alert-gov">
@@ -258,7 +258,7 @@
           <span class="feed-agent">goose-prod-1</span>
           <span class="feed-ctx">phoenix/app-deploy</span>
           <span class="feed-type type-finished">step_finished</span>
-          <span class="feed-msg">helm upgrade mc-controlplane — 3 resources configured (2.1s)</span>
+          <span class="feed-msg">helm upgrade edgeplane-tower — 3 resources configured (2.1s)</span>
         </div>
 
         <div class="feed-row">
@@ -266,7 +266,7 @@
           <span class="feed-agent">goose-prod-1</span>
           <span class="feed-ctx">phoenix/app-deploy</span>
           <span class="feed-type type-artifact">artifact</span>
-          <span class="feed-msg purple">deploy-manifest.yaml — 847 bytes → rustfs://mc/artifacts/TSK-0091/</span>
+          <span class="feed-msg purple">deploy-manifest.yaml — 847 bytes → rustfs://edgeplane/artifacts/TSK-0091/</span>
         </div>
 
         <div class="feed-row alert-warn">
@@ -282,7 +282,7 @@
           <span class="feed-agent">goose-prod-1</span>
           <span class="feed-ctx">phoenix/app-deploy</span>
           <span class="feed-type type-finished">step_finished</span>
-          <span class="feed-msg">Image pulled — ghcr.io/ryanmerlin/missioncontrol:482a05b (17s)</span>
+          <span class="feed-msg">Image pulled — ghcr.io/ryanmerlin/edgeplane:482a05b (17s)</span>
         </div>
 
         <div class="feed-row">
@@ -369,7 +369,7 @@
         <div class="payload-block">
           <span class="key">type</span> <span class="val err">step_error</span><br>
           <span class="key">step</span> <span class="val">psql-connect</span><br>
-          <span class="key">message</span> <span class="val err">connection refused — missioncontrol-cnpg-rw:5432</span><br>
+          <span class="key">message</span> <span class="val err">connection refused — edgeplane-cnpg-rw:5432</span><br>
           <span class="key">retry_in</span> <span class="val">30s (attempt 1/3)</span>
         </div>
 
@@ -378,7 +378,7 @@
 
         <div style="font-size:11px; color:#484f58; line-height:1.9">
           <div><span class="muted">goose-prod-2:</span> Claimed apply-migrations</div>
-          <div><span class="muted">goose-prod-2:</span> Running: psql -h missioncontrol-cnpg-rw...</div>
+          <div><span class="muted">goose-prod-2:</span> Running: psql -h edgeplane-cnpg-rw...</div>
           <div><span class="muted">goose-prod-2:</span> <span class="err">Error: connection refused</span></div>
         </div>
 

@@ -1,9 +1,9 @@
 ---
 title: Persistence Model
-description: How MissionControl stores state across Postgres, S3-compatible object storage, and Git.
+description: How Edgeplane stores state across Postgres, S3-compatible object storage, and Git.
 ---
 
-MissionControl uses three complementary persistence layers. Each serves a specific role in the information lifecycle. Understanding the boundaries prevents architectural confusion.
+Edgeplane uses three complementary persistence layers. Each serves a specific role in the information lifecycle. Understanding the boundaries prevents architectural confusion.
 
 ## The Three Layers
 
@@ -49,7 +49,7 @@ When a mutation is approved and published, it is committed to Git. Artifact prov
 
 ```
 1. Mutation enters ledger (status: pending) in Postgres
-2. Approval / policy checks run in MissionControl
+2. Approval / policy checks run in Edgeplane
 3. Route resolver picks binding / repo / branch / path from domain policy
 4. Provider adapter acquires server-side credential
 5. Publisher writes canonical file(s) to Git
@@ -100,8 +100,8 @@ commit → provenance written back → full chain of custody
 ### Via API / MCP
 
 ```bash
-mc missions list --json
-mc tasks list --mission-id <id> --json
+edgeplane missions list --json
+edgeplane tasks list --mission-id <id> --json
 # or via MCP tools: list_pending_ledger_events, get_entity_history
 ```
 
@@ -112,12 +112,12 @@ All entities are indexed in pgvector. Use `search_tasks`, `search_missions`, or 
 ### Publication Status
 
 ```bash
-mc data sync status --mission-id <id>
+edgeplane data sync status --mission-id <id>
 # or via MCP: get_publication_status, resolve_publish_plan
 ```
 
 ## See Also
 
-- [Architecture: System Overview](/missioncontrol/architecture/overview/) — how the components fit together
-- [Concepts: Domains, Missions & Tasks](/missioncontrol/concepts/domains-missions-tasks/) — the organizational model
-- [Guides: Deployment](/missioncontrol/guides/deployment/) — running Postgres and S3 in production
+- [Architecture: System Overview](/edgeplane/architecture/overview/) — how the components fit together
+- [Concepts: Domains, Missions & Tasks](/edgeplane/concepts/domains-missions-tasks/) — the organizational model
+- [Guides: Deployment](/edgeplane/guides/deployment/) — running Postgres and S3 in production

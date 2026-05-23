@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a public OSS documentation site for MissionControl using Starlight (Astro), deployed to GitHub Pages via GitHub Actions, with all content migrated and scrubbed of personal/fleet-specific references.
+**Goal:** Ship a public OSS documentation site for Edgeplane using Starlight (Astro), deployed to GitHub Pages via GitHub Actions, with all content migrated and scrubbed of personal/fleet-specific references.
 
 **Architecture:** A standalone `site/` directory at the repo root houses the Astro + Starlight project. Content is authored in `site/src/content/docs/` as Markdown files adapted from the existing `docs/` tree. GitHub Actions builds and deploys to GitHub Pages on every push to `main` that touches `site/` or core docs.
 
@@ -21,13 +21,13 @@
 | `site/public/favicon.svg` | Site favicon (MC logo placeholder) |
 | `site/public/CNAME` | Custom domain placeholder (empty until domain set) |
 | `site/src/content/docs/index.mdx` | Landing page |
-| `site/src/content/docs/getting-started/installation.md` | Install mc + mcd |
+| `site/src/content/docs/getting-started/installation.md` | Install edgeplane + edgeplaned |
 | `site/src/content/docs/getting-started/quick-start.md` | Docker Compose quickstart |
 | `site/src/content/docs/getting-started/agent-setup.md` | Connect an agent (from AGENT-INSTALL.md) |
 | `site/src/content/docs/concepts/overview.md` | What is MC (from README + philosophy) |
 | `site/src/content/docs/concepts/missions-klusters-tasks.md` | Core entities explained (from entities.md) |
 | `site/src/content/docs/concepts/entity-reference.md` | Full entity reference (from entities.md) |
-| `site/src/content/docs/concepts/philosophy.md` | MISSIONCONTROL_PHILOSOPHY.md |
+| `site/src/content/docs/concepts/philosophy.md` | EDGEPLANE_PHILOSOPHY.md |
 | `site/src/content/docs/architecture/overview.md` | System overview (from architecture.md) |
 | `site/src/content/docs/architecture/persistence.md` | Persistence model (from architecture.md) |
 | `site/src/content/docs/architecture/ephemeral-agents.md` | Ephemeral task agents (from design/ephemeral-task-subagents.md, scrubbed) |
@@ -35,9 +35,9 @@
 | `site/src/content/docs/guides/oidc.md` | OIDC setup (from guides/OIDC.md, scrubbed title) |
 | `site/src/content/docs/guides/agent-setup.md` | Full agent install guide (from guides/AGENT-INSTALL.md) |
 | `site/src/content/docs/guides/upgrading.md` | Release upgrade checklist |
-| `site/src/content/docs/reference/cli.md` | mc + mcd CLI reference (from reference/MC-RUST.md, scrubbed) |
+| `site/src/content/docs/reference/cli.md` | edgeplane + edgeplaned CLI reference (from reference/MC-RUST.md, scrubbed) |
 | `site/src/content/docs/reference/command-map.md` | Full command map (from reference/COMMAND-MAP.md) |
-| `site/src/content/docs/reference/mcd-daemon.md` | mcd daemon reference (from reference/MCD.md, scrubbed) |
+| `site/src/content/docs/reference/edgeplaned-daemon.md` | edgeplaned daemon reference (from reference/MCD.md, scrubbed) |
 | `site/src/content/docs/reference/real-time.md` | SSE real-time events (from reference/REAL-TIME.md) |
 | `site/src/content/docs/reference/ai-console.md` | AI Console protocol (from reference/AI-CONSOLE.md) |
 | `site/src/content/docs/adr/0001-project-catalog.md` | ADR 0001 |
@@ -82,7 +82,7 @@ Before migrating content, apply these find-and-replace rules to each file. Check
 
 ```json
 {
-  "name": "missioncontrol-docs",
+  "name": "edgeplane-docs",
   "type": "module",
   "version": "0.1.0",
   "scripts": {
@@ -109,7 +109,7 @@ Before migrating content, apply these find-and-replace rules to each file. Check
 - [ ] **Step 3: Install dependencies**
 
 ```bash
-cd /home/merlin/code/missioncontrol/site && npm install
+cd /home/merlin/code/edgeplane/site && npm install
 ```
 
 Expected: `node_modules/` created, `package-lock.json` written.
@@ -122,13 +122,13 @@ import starlight from '@astrojs/starlight';
 
 export default defineConfig({
   site: 'https://ryanmerlin.github.io',
-  base: '/missioncontrol',
+  base: '/edgeplane',
   integrations: [
     starlight({
-      title: 'MissionControl',
+      title: 'Edgeplane',
       description: 'Control plane for AI agents and human collaborators — structured missions, durable task ownership, and governed artifact publication.',
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/RyanMerlin/missioncontrol' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/RyanMerlin/edgeplane' },
       ],
       sidebar: [
         {
@@ -142,7 +142,7 @@ export default defineConfig({
         {
           label: 'Concepts',
           items: [
-            { label: 'What is MissionControl?', slug: 'concepts/overview' },
+            { label: 'What is Edgeplane?', slug: 'concepts/overview' },
             { label: 'Missions, Klusters & Tasks', slug: 'concepts/missions-klusters-tasks' },
             { label: 'Entity Reference', slug: 'concepts/entity-reference' },
             { label: 'Philosophy', slug: 'concepts/philosophy' },
@@ -168,9 +168,9 @@ export default defineConfig({
         {
           label: 'Reference',
           items: [
-            { label: 'mc & mcd CLI', slug: 'reference/cli' },
+            { label: 'edgeplane & edgeplaned CLI', slug: 'reference/cli' },
             { label: 'Command Map', slug: 'reference/command-map' },
-            { label: 'mcd Daemon', slug: 'reference/mcd-daemon' },
+            { label: 'edgeplaned Daemon', slug: 'reference/edgeplaned-daemon' },
             { label: 'Real-Time Events', slug: 'reference/real-time' },
             { label: 'AI Console', slug: 'reference/ai-console' },
           ],
@@ -214,7 +214,7 @@ dist/
 - [ ] **Step 7: Verify Astro config parses**
 
 ```bash
-cd /home/merlin/code/missioncontrol/site && npm run check 2>&1 | head -20
+cd /home/merlin/code/edgeplane/site && npm run check 2>&1 | head -20
 ```
 
 Expected: warns about missing content files (no pages yet) — that is fine at this stage.
@@ -222,7 +222,7 @@ Expected: warns about missing content files (no pages yet) — that is fine at t
 - [ ] **Step 8: Commit scaffold**
 
 ```bash
-cd /home/merlin/code/missioncontrol
+cd /home/merlin/code/edgeplane
 git add site/
 git commit -m "feat(docs): scaffold Starlight site"
 ```
@@ -238,50 +238,50 @@ git commit -m "feat(docs): scaffold Starlight site"
 
 ```mdx
 ---
-title: MissionControl
+title: Edgeplane
 description: Control plane for AI agents and human collaborators.
 template: splash
 hero:
-  tagline: Kubernetes orchestrates containers. MissionControl orchestrates agents, missions, and knowledge.
+  tagline: Kubernetes orchestrates containers. Edgeplane orchestrates agents, missions, and knowledge.
   actions:
     - text: Get Started
-      link: /missioncontrol/getting-started/installation/
+      link: /edgeplane/getting-started/installation/
       icon: right-arrow
       variant: primary
     - text: View on GitHub
-      link: https://github.com/RyanMerlin/missioncontrol
+      link: https://github.com/RyanMerlin/edgeplane
       icon: external
 ---
 
-## What is MissionControl?
+## What is Edgeplane?
 
 AI agents can write code, run tools, and reason over architecture. What they can't do is **coordinate**.
 
 Without a shared system of record, parallel agents duplicate effort, diverge on state, and collide on artifacts with no resolution path.
 
-MissionControl is a **control plane for AI agents and human collaborators**. It provides:
+Edgeplane is a **control plane for AI agents and human collaborators**. It provides:
 
 - **Missions & Klusters** — organizational units that scope knowledge, tools, permissions, and governance
 - **Overlap Detection** — fuzzy + vector similarity runs before task and artifact creation; collisions surface before damage occurs
 - **Artifact Ledger** — every mutation recorded in Postgres, vector-indexed for search, committed to Git with full provenance
 - **MCP-Native Interface** — standard MCP stdio tools; works with any MCP-compatible agent
 - **Governance & Approvals** — versioned policy lifecycle, role-based access, HMAC-signed approval tokens
-- **Persistent Agent Sessions** — `mcd` manages long-running agent processes; sessions survive crashes and reconnects
+- **Persistent Agent Sessions** — `edgeplaned` manages long-running agent processes; sessions survive crashes and reconnects
 - **Semantic Search** — tasks, docs, and klusters are vector-indexed (pgvector) for similarity and hybrid search
 ```
 
 - [ ] **Step 2: Verify build includes landing page**
 
 ```bash
-cd /home/merlin/code/missioncontrol/site && npm run build 2>&1 | tail -10
+cd /home/merlin/code/edgeplane/site && npm run build 2>&1 | tail -10
 ```
 
-Expected: build succeeds, `dist/missioncontrol/index.html` exists.
+Expected: build succeeds, `dist/edgeplane/index.html` exists.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/merlin/code/missioncontrol
+cd /home/merlin/code/edgeplane
 git add site/src/content/docs/index.mdx
 git commit -m "feat(docs): add landing page"
 ```
@@ -304,21 +304,21 @@ Adapt from `docs/reference/MC-RUST.md` install section. Content to include: inst
 ```markdown
 ---
 title: Installation
-description: Install the mc CLI and mcd daemon on your machine.
+description: Install the edgeplane CLI and edgeplaned daemon on your machine.
 ---
 
-## Install mc (recommended)
+## Install edgeplane (recommended)
 
 **Linux / macOS** — downloads a prebuilt binary, falls back to a source build:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/install-mc.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/install-edgeplane.sh)
 ```
 
 **Windows** (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.ps1 | iex
+irm https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.ps1 | iex
 ```
 
 ## Build from source
@@ -326,28 +326,28 @@ irm https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/boo
 Requires the Rust toolchain (`rustup`):
 
 ```bash
-git clone https://github.com/RyanMerlin/missioncontrol.git
-cd missioncontrol
+git clone https://github.com/RyanMerlin/edgeplane.git
+cd edgeplane
 
-# mc CLI
-cd crates/mc && cargo build --release
-cp target/release/mc ~/.local/bin/mc
+# edgeplane CLI
+cd crates/edgeplane && cargo build --release
+cp target/release/edgeplane ~/.local/bin/edgeplane
 
-# mcd daemon (optional — needed for agent supervision on a node)
-cd ../mcd && cargo build --release
-cp target/release/mcd ~/.local/bin/mcd
+# edgeplaned daemon (optional — needed for agent supervision on a node)
+cd ../edgeplaned && cargo build --release
+cp target/release/edgeplaned ~/.local/bin/edgeplaned
 
-# mc-controlplane (optional — needed to self-host the backend)
-cd ../mc-controlplane && cargo build --release
-cp target/release/mc-controlplane ~/.local/bin/mc-controlplane
+# edgeplane-tower (optional — needed to self-host the backend)
+cd ../edgeplane-tower && cargo build --release
+cp target/release/edgeplane-tower ~/.local/bin/edgeplane-tower
 ```
 
 ## Environment
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `MC_BASE_URL` | Backend HTTP base URL | `http://localhost:8008` |
-| `MC_TOKEN` | Bearer auth token | unset |
+| `EP_BASE_URL` | Backend HTTP base URL | `http://localhost:8008` |
+| `EP_TOKEN` | Bearer auth token | unset |
 
 Set these in your shell profile or pass them per-command.
 ```
@@ -359,26 +359,26 @@ Adapt from README Docker Compose section and `docker-compose.quickstart.yml`.
 ```markdown
 ---
 title: Quick Start
-description: Run MissionControl locally with Docker Compose in under five minutes.
+description: Run Edgeplane locally with Docker Compose in under five minutes.
 ---
 
-The fastest way to run MissionControl is with Docker Compose. This starts the API, Postgres, and S3-compatible storage as a single stack.
+The fastest way to run Edgeplane is with Docker Compose. This starts the API, Postgres, and S3-compatible storage as a single stack.
 
 ## Prerequisites
 
 - Docker + Docker Compose v2
-- `mc` CLI installed (see [Installation](./installation))
+- `edgeplane` CLI installed (see [Installation](./installation))
 
 ## Start the stack
 
 ```bash
-git clone https://github.com/RyanMerlin/missioncontrol.git
-cd missioncontrol
+git clone https://github.com/RyanMerlin/edgeplane.git
+cd edgeplane
 docker compose -f docker-compose.quickstart.yml up -d
 ```
 
 This starts:
-- `missioncontrol-api` — the FastAPI backend on port `8008`
+- `edgeplane-api` — the FastAPI backend on port `8008`
 - `postgres` — Postgres 16 with pgvector
 - `rustfs` — S3-compatible object storage on port `9000`
 
@@ -389,14 +389,14 @@ curl http://localhost:8008/health
 # {"status":"ok"}
 ```
 
-## Connect mc
+## Connect edgeplane
 
 ```bash
-export MC_BASE_URL=http://localhost:8008
-export MC_TOKEN=changeme          # matches MC_TOKEN in docker-compose.quickstart.yml
+export EP_BASE_URL=http://localhost:8008
+export EP_TOKEN=changeme          # matches EP_TOKEN in docker-compose.quickstart.yml
 
-mc status
-# MissionControl vX.Y.Z — connected
+edgeplane status
+# Edgeplane vX.Y.Z — connected
 ```
 
 ## Next steps
@@ -412,7 +412,7 @@ Copy `docs/guides/AGENT-INSTALL.md` content, add Starlight frontmatter. This fil
 ```markdown
 ---
 title: Agent Setup
-description: Connect an AI agent to MissionControl in three steps.
+description: Connect an AI agent to Edgeplane in three steps.
 ---
 ```
 
@@ -421,15 +421,15 @@ Then paste the full content of `docs/guides/AGENT-INSTALL.md` below the frontmat
 - [ ] **Step 4: Build and spot-check**
 
 ```bash
-cd /home/merlin/code/missioncontrol/site && npm run build 2>&1 | tail -5
+cd /home/merlin/code/edgeplane/site && npm run build 2>&1 | tail -5
 ```
 
-Expected: build succeeds, three pages under `dist/missioncontrol/getting-started/`.
+Expected: build succeeds, three pages under `dist/edgeplane/getting-started/`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/merlin/code/missioncontrol
+cd /home/merlin/code/edgeplane
 git add site/src/content/docs/getting-started/
 git commit -m "feat(docs): add Getting Started section"
 ```
@@ -454,8 +454,8 @@ Adapt from `README.md` (Core Capabilities section) and philosophy intro.
 
 ```markdown
 ---
-title: What is MissionControl?
-description: MissionControl is a control plane for AI agents and human collaborators.
+title: What is Edgeplane?
+description: Edgeplane is a control plane for AI agents and human collaborators.
 ---
 
 AI agents can write code, run tools, and reason over architecture.
@@ -463,11 +463,11 @@ What they cannot do is **coordinate**.
 
 Without a shared system of record, parallel agents duplicate effort, diverge on state, and collide on artifacts. There is no overlap detection, no structured ownership, no audit trail, no governance boundary.
 
-MissionControl is the coordination layer. It is a control plane for AI agents and human collaborators operating against shared, durable, governed state.
+Edgeplane is the coordination layer. It is a control plane for AI agents and human collaborators operating against shared, durable, governed state.
 
 > It is not a workflow runner. It is not a pipeline framework. It is not a chatbot UI.
 >
-> Kubernetes orchestrates containers. MissionControl orchestrates agents, missions, and knowledge.
+> Kubernetes orchestrates containers. Edgeplane orchestrates agents, missions, and knowledge.
 
 ## Core capabilities
 
@@ -478,7 +478,7 @@ MissionControl is the coordination layer. It is a control plane for AI agents an
 | **Artifact Ledger** | Every mutation recorded in Postgres, vector-indexed for search, and committed to Git with full provenance metadata on publish. |
 | **MCP-Native Interface** | Standard MCP stdio tools: `search_tasks`, `get_overlap_suggestions`, `load_kluster_workspace`, `publish_pending_ledger_events`. Works with any MCP-compatible agent. |
 | **Governance & Approvals** | Versioned policy lifecycle (draft → active → rollback), role-based access (Admin / Contributor / Viewer), HMAC-signed approval tokens on sensitive mutations. |
-| **Persistent Agent Sessions** | `mcd` manages long-running agent processes on each node via ACP. Sessions survive crashes and reconnects. |
+| **Persistent Agent Sessions** | `edgeplaned` manages long-running agent processes on each node via ACP. Sessions survive crashes and reconnects. |
 | **Semantic Search** | Tasks, docs, and klusters are vector-indexed (pgvector) for similarity and hybrid search. |
 | **S3-Backed File Persistence** | Artifact content stored in S3-compatible object storage. Swap in AWS S3 or MinIO with env vars — no code changes. |
 | **Chat Integration** | Slack-native notifications, task creation from threads, approval workflows, and in-channel search. |
@@ -497,7 +497,7 @@ Adapt Mission, Kluster, Task, and MeshTask sections from `docs/architecture/enti
 ```markdown
 ---
 title: Missions, Klusters & Tasks
-description: The three core organizational primitives in MissionControl.
+description: The three core organizational primitives in Edgeplane.
 ---
 ```
 
@@ -510,33 +510,33 @@ Copy the full content of `docs/architecture/entities.md` with frontmatter. Apply
 ```markdown
 ---
 title: Entity Reference
-description: Canonical definitions for all MissionControl entities — Mission, Kluster, Task, MeshTask, Artifact, Agent, and Session types.
+description: Canonical definitions for all Edgeplane entities — Mission, Kluster, Task, MeshTask, Artifact, Agent, and Session types.
 ---
 ```
 
 - [ ] **Step 4: Create `philosophy.md`**
 
-Copy `MISSIONCONTROL_PHILOSOPHY.md` with frontmatter. No scrubs needed.
+Copy `EDGEPLANE_PHILOSOPHY.md` with frontmatter. No scrubs needed.
 
 ```markdown
 ---
 title: Philosophy
-description: The design philosophy behind MissionControl — why coordination is the missing layer for AI agents.
+description: The design philosophy behind Edgeplane — why coordination is the missing layer for AI agents.
 ---
 ```
 
 - [ ] **Step 5: Build and check**
 
 ```bash
-cd /home/merlin/code/missioncontrol/site && npm run build 2>&1 | tail -5
+cd /home/merlin/code/edgeplane/site && npm run build 2>&1 | tail -5
 ```
 
-Expected: build succeeds, four pages under `dist/missioncontrol/concepts/`.
+Expected: build succeeds, four pages under `dist/edgeplane/concepts/`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/merlin/code/missioncontrol
+cd /home/merlin/code/edgeplane
 git add site/src/content/docs/concepts/
 git commit -m "feat(docs): add Concepts section"
 ```
@@ -561,7 +561,7 @@ Adapt the Core Runtime, Ephemeral Task Subagents (claim/triage/capability/audit 
 ```markdown
 ---
 title: System Overview
-description: How MissionControl's runtime components fit together.
+description: How Edgeplane's runtime components fit together.
 ---
 ```
 
@@ -574,7 +574,7 @@ Adapt the Persistence Model section from `docs/architecture/architecture.md`.
 ```markdown
 ---
 title: Persistence Model
-description: How MissionControl uses Postgres, S3, and Git as a three-tier persistence stack.
+description: How Edgeplane uses Postgres, S3, and Git as a three-tier persistence stack.
 ---
 ```
 
@@ -587,20 +587,20 @@ Adapt `docs/design/ephemeral-task-subagents.md`. Apply scrubs: remove author lin
 ```markdown
 ---
 title: Ephemeral Task Agents
-description: How mcd spawns and supervises ephemeral agent processes for mesh task execution.
+description: How edgeplaned spawns and supervises ephemeral agent processes for mesh task execution.
 ---
 ```
 
 - [ ] **Step 4: Build and check**
 
 ```bash
-cd /home/merlin/code/missioncontrol/site && npm run build 2>&1 | tail -5
+cd /home/merlin/code/edgeplane/site && npm run build 2>&1 | tail -5
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/merlin/code/missioncontrol
+cd /home/merlin/code/edgeplane
 git add site/src/content/docs/architecture/
 git commit -m "feat(docs): add Architecture section"
 ```
@@ -616,8 +616,8 @@ git commit -m "feat(docs): add Architecture section"
 - Create: `site/src/content/docs/guides/upgrading.md`
 
 **Scrubs required:**
-- `deployment.md`: `rustfs-init service` → `S3 init service`; `http://<rustfs-host>:<port>` placeholder is already generic — keep it; `authentik` env var prose → "your OIDC provider"; remove the sentence "Bucket bootstrap is handled by the one-shot `rustfs-init` service using Python/boto3 (no `minio/mc` dependency)" and replace with "Bucket bootstrap is handled by the S3 init service included in the Compose stack."
-- `oidc.md`: Change title from "MissionControl OIDC (Authentik)" to "OIDC Authentication"; `authentik-host` placeholders are already generic angle-bracket vars — keep them; add a note that `authentik` is used in examples but any OIDC provider works.
+- `deployment.md`: `rustfs-init service` → `S3 init service`; `http://<rustfs-host>:<port>` placeholder is already generic — keep it; `authentik` env var prose → "your OIDC provider"; remove the sentence "Bucket bootstrap is handled by the one-shot `rustfs-init` service using Python/boto3 (no `minio/edgeplane` dependency)" and replace with "Bucket bootstrap is handled by the S3 init service included in the Compose stack."
+- `oidc.md`: Change title from "Edgeplane OIDC (Authentik)" to "OIDC Authentication"; `authentik-host` placeholders are already generic angle-bracket vars — keep them; add a note that `authentik` is used in examples but any OIDC provider works.
 
 - [ ] **Step 1: Create `deployment.md`**
 
@@ -626,7 +626,7 @@ Copy `docs/guides/DEPLOYMENT.md`, add frontmatter, apply scrubs.
 ```markdown
 ---
 title: Deployment
-description: Deploy MissionControl on a Linux VM or with the Docker Compose stack.
+description: Deploy Edgeplane on a Linux VM or with the Docker Compose stack.
 ---
 ```
 
@@ -642,7 +642,7 @@ title: OIDC Authentication
 description: Configure OIDC JWT authentication alongside static token auth for MCP compatibility.
 ---
 
-MissionControl supports OIDC JWT validation while keeping static token auth for MCP compatibility. The examples below use Authentik as the identity provider, but any standards-compliant OIDC provider works.
+Edgeplane supports OIDC JWT validation while keeping static token auth for MCP compatibility. The examples below use Authentik as the identity provider, but any standards-compliant OIDC provider works.
 ```
 
 Then paste the rest of the OIDC.md content below.
@@ -654,7 +654,7 @@ This is the same source as `getting-started/agent-setup.md` (AGENT-INSTALL.md) b
 ```markdown
 ---
 title: Agent Setup
-description: Full guide to installing mc and connecting AI agents to a MissionControl instance.
+description: Full guide to installing edgeplane and connecting AI agents to a Edgeplane instance.
 ---
 ```
 
@@ -674,13 +674,13 @@ description: Release upgrade checklist for schema, auth, and deployment changes.
 - [ ] **Step 5: Build and check**
 
 ```bash
-cd /home/merlin/code/missioncontrol/site && npm run build 2>&1 | tail -5
+cd /home/merlin/code/edgeplane/site && npm run build 2>&1 | tail -5
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/merlin/code/missioncontrol
+cd /home/merlin/code/edgeplane
 git add site/src/content/docs/guides/
 git commit -m "feat(docs): add Guides section"
 ```
@@ -692,13 +692,13 @@ git commit -m "feat(docs): add Guides section"
 **Files:**
 - Create: `site/src/content/docs/reference/cli.md`
 - Create: `site/src/content/docs/reference/command-map.md`
-- Create: `site/src/content/docs/reference/mcd-daemon.md`
+- Create: `site/src/content/docs/reference/edgeplaned-daemon.md`
 - Create: `site/src/content/docs/reference/real-time.md`
 - Create: `site/src/content/docs/reference/ai-console.md`
 
 **Scrubs required:**
-- `mcd-daemon.md` (from `reference/MCD.md`):
-  - In `AgentRuntime` list: `zellij_hosted (long-running agents hosted in a Zellij pane — Aria fleet; signals via mc agent signal)` → `zellij_hosted (long-running agents hosted in a Zellij pane; signals via mc agent signal)`
+- `edgeplaned-daemon.md` (from `reference/MCD.md`):
+  - In `AgentRuntime` list: `zellij_hosted (long-running agents hosted in a Zellij pane — Aria fleet; signals via edgeplane agent signal)` → `zellij_hosted (long-running agents hosted in a Zellij pane; signals via edgeplane agent signal)`
   - Remove the entire "Absorbed responsibilities (daemon-absorption plan)" section — it's internal implementation history with Aria-specific version notes.
   - Prerequisites: remove `Tailscale (or direct network access…)` bullet — replace with just `Network access to the MC backend`
 
@@ -708,8 +708,8 @@ Copy `docs/reference/MC-RUST.md`, add frontmatter. No scrubs needed.
 
 ```markdown
 ---
-title: mc & mcd CLI
-description: Reference for the mc CLI, mcd daemon, and mc-controlplane binary.
+title: edgeplane & edgeplaned CLI
+description: Reference for the edgeplane CLI, edgeplaned daemon, and edgeplane-tower binary.
 ---
 ```
 
@@ -720,18 +720,18 @@ Copy `docs/reference/COMMAND-MAP.md`, add frontmatter.
 ```markdown
 ---
 title: Command Map
-description: Complete mc CLI command hierarchy.
+description: Complete edgeplane CLI command hierarchy.
 ---
 ```
 
-- [ ] **Step 3: Create `mcd-daemon.md`**
+- [ ] **Step 3: Create `edgeplaned-daemon.md`**
 
 Copy `docs/reference/MCD.md`, add frontmatter, apply scrubs listed above.
 
 ```markdown
 ---
-title: mcd Daemon
-description: Reference for the mcd agent work loop daemon — install, configure, and operate.
+title: edgeplaned Daemon
+description: Reference for the edgeplaned agent work loop daemon — install, configure, and operate.
 ---
 ```
 
@@ -765,13 +765,13 @@ description: AI Console protocol — session creation, turn submission, and pend
 - [ ] **Step 6: Build and check**
 
 ```bash
-cd /home/merlin/code/missioncontrol/site && npm run build 2>&1 | tail -5
+cd /home/merlin/code/edgeplane/site && npm run build 2>&1 | tail -5
 ```
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /home/merlin/code/missioncontrol
+cd /home/merlin/code/edgeplane
 git add site/src/content/docs/reference/
 git commit -m "feat(docs): add Reference section"
 ```
@@ -811,25 +811,25 @@ description: Define which layer owns which class of information — catalog, Mar
 
 - [ ] **Step 3: Create `0003-cli-hierarchy.md`**
 
-Copy `docs/adr/0003-mc-cli-hierarchy-hard-cutover.md`, add frontmatter.
+Copy `docs/adr/0003-edgeplane-cli-hierarchy-hard-cutover.md`, add frontmatter.
 
 ```markdown
 ---
 title: "ADR-0003: CLI Hierarchy Hard Cutover"
-description: Adopt a structured top-level command hierarchy for mc and remove organic top-level sprawl.
+description: Adopt a structured top-level command hierarchy for edgeplane and remove organic top-level sprawl.
 ---
 ```
 
 - [ ] **Step 4: Build and check**
 
 ```bash
-cd /home/merlin/code/missioncontrol/site && npm run build 2>&1 | tail -5
+cd /home/merlin/code/edgeplane/site && npm run build 2>&1 | tail -5
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/merlin/code/missioncontrol
+cd /home/merlin/code/edgeplane
 git add site/src/content/docs/adr/
 git commit -m "feat(docs): add ADRs section"
 ```
@@ -917,7 +917,7 @@ Expected: `valid`
 - [ ] **Step 4: Commit and push**
 
 ```bash
-cd /home/merlin/code/missioncontrol
+cd /home/merlin/code/edgeplane
 git add .github/workflows/deploy-docs.yml
 git commit -m "feat(docs): add GitHub Pages deploy workflow"
 git push origin main
@@ -926,7 +926,7 @@ git push origin main
 - [ ] **Step 5: Verify GitHub Actions run**
 
 ```bash
-aria gh workflow status missioncontrol 2>/dev/null || gh run list --repo RyanMerlin/missioncontrol --workflow deploy-docs.yml --limit 3
+aria gh workflow status edgeplane 2>/dev/null || gh run list --repo RyanMerlin/edgeplane --workflow deploy-docs.yml --limit 3
 ```
 
 Expected: a run appears for the `deploy-docs.yml` workflow. Wait for it to complete.
@@ -934,7 +934,7 @@ Expected: a run appears for the `deploy-docs.yml` workflow. Wait for it to compl
 - [ ] **Step 6: Confirm site is live**
 
 ```bash
-curl -sI https://ryanmerlin.github.io/missioncontrol/ | head -5
+curl -sI https://ryanmerlin.github.io/edgeplane/ | head -5
 ```
 
 Expected: `HTTP/2 200`
@@ -946,7 +946,7 @@ Expected: `HTTP/2 200`
 - [ ] **Step 1: Full clean build**
 
 ```bash
-cd /home/merlin/code/missioncontrol/site && npm run build 2>&1
+cd /home/merlin/code/edgeplane/site && npm run build 2>&1
 ```
 
 Expected: exits 0, no errors. Warnings about missing alt text or similar are acceptable.
@@ -954,14 +954,14 @@ Expected: exits 0, no errors. Warnings about missing alt text or similar are acc
 - [ ] **Step 2: Astro type check**
 
 ```bash
-cd /home/merlin/code/missioncontrol/site && npm run check 2>&1
+cd /home/merlin/code/edgeplane/site && npm run check 2>&1
 ```
 
 Expected: exits 0.
 
 - [ ] **Step 3: Spot-check nav coverage**
 
-Confirm `dist/missioncontrol/` contains the following paths:
+Confirm `dist/edgeplane/` contains the following paths:
 
 ```
 index.html
@@ -981,7 +981,7 @@ guides/agent-setup/index.html
 guides/upgrading/index.html
 reference/cli/index.html
 reference/command-map/index.html
-reference/mcd-daemon/index.html
+reference/edgeplaned-daemon/index.html
 reference/real-time/index.html
 reference/ai-console/index.html
 adr/0001-project-catalog/index.html
@@ -999,7 +999,7 @@ for p in \
   "guides/deployment/index.html" \
   "reference/cli/index.html" \
   "adr/0001-project-catalog/index.html"; do
-  [ -f "dist/missioncontrol/$p" ] && echo "OK: $p" || echo "MISSING: $p"
+  [ -f "dist/edgeplane/$p" ] && echo "OK: $p" || echo "MISSING: $p"
 done
 ```
 
@@ -1009,7 +1009,7 @@ Expected: all lines print `OK`.
 
 ```bash
 grep -r "aria\|Merlin\|excalibur\|epyc\|cloud0\|infisical\|tailscale\b\|authentik\b\|rustfs\b\|zellij\b" \
-  /home/merlin/code/missioncontrol/site/src/content/docs/ \
+  /home/merlin/code/edgeplane/site/src/content/docs/ \
   --include="*.md" --include="*.mdx" -i -l
 ```
 
@@ -1018,7 +1018,7 @@ Expected: no output. Any files listed need the relevant scrub applied.
 - [ ] **Step 5: Final commit if any fixes were needed**
 
 ```bash
-cd /home/merlin/code/missioncontrol
+cd /home/merlin/code/edgeplane
 git add site/
 git commit -m "fix(docs): scrub remaining personal/fleet references"
 ```

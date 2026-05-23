@@ -1,19 +1,19 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Install the mc CLI on Windows.
+    Install the edgeplane CLI on Windows.
 .DESCRIPTION
-    Downloads the prebuilt mc binary from GitHub Releases, verifies its SHA256
-    checksum, and installs it to $env:USERPROFILE\.local\bin\mc.exe.
+    Downloads the prebuilt edgeplane binary from GitHub Releases, verifies its SHA256
+    checksum, and installs it to $env:USERPROFILE\.local\bin\edgeplane.exe.
     Falls back to building from source if the release asset is unavailable.
 .PARAMETER InstallDir
-    Directory to install mc.exe into. Defaults to $env:USERPROFILE\.local\bin.
+    Directory to install edgeplane.exe into. Defaults to $env:USERPROFILE\.local\bin.
 .PARAMETER BaseUrl
     Override the GitHub Releases base URL (useful for testing).
 #>
 param(
     [string]$InstallDir = "$env:USERPROFILE\.local\bin",
-    [string]$BaseUrl = "https://github.com/RyanMerlin/missioncontrol/releases/latest/download"
+    [string]$BaseUrl = "https://github.com/RyanMerlin/edgeplane/releases/latest/download"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,12 +21,12 @@ $ErrorActionPreference = 'Stop'
 $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
 if ($arch -ne [System.Runtime.InteropServices.Architecture]::X64) {
     Write-Warning "Only x86_64 Windows is supported for prebuilt binaries. Got: $arch"
-    Write-Warning "Please build from source: cd integrations\mc && cargo build --release"
+    Write-Warning "Please build from source: cd integrations\edgeplane && cargo build --release"
     exit 1
 }
 
-$artifact  = "mc-windows-x86_64.exe"
-$targetExe = Join-Path $InstallDir "mc.exe"
+$artifact  = "edgeplane-windows-x86_64.exe"
+$targetExe = Join-Path $InstallDir "edgeplane.exe"
 $tmpExe    = "$targetExe.tmp"
 $tmpChecks = "$targetExe.checksums.tmp"
 
@@ -47,11 +47,11 @@ try {
     Write-Warning "Falling back to source build (requires cargo / Rust toolchain)."
     Remove-Temps
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    Push-Location (Join-Path $repoRoot "integrations\mc")
+    Push-Location (Join-Path $repoRoot "integrations\edgeplane")
     cargo build --release
     Pop-Location
-    Copy-Item (Join-Path $repoRoot "integrations\mc\target\release\mc.exe") $targetExe -Force
-    Write-Host "Installed mc from source to $targetExe"
+    Copy-Item (Join-Path $repoRoot "integrations\edgeplane\target\release\edgeplane.exe") $targetExe -Force
+    Write-Host "Installed edgeplane from source to $targetExe"
     exit 0
 }
 
@@ -78,13 +78,13 @@ try {
 Move-Item -Force $tmpExe $targetExe
 Remove-Temps
 
-Write-Host "Installed mc to $targetExe"
+Write-Host "Installed edgeplane to $targetExe"
 
 # PATH hint
 $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
 if ($userPath -notlike "*$InstallDir*") {
     Write-Host ""
-    Write-Host "Add mc to your PATH by running:"
+    Write-Host "Add edgeplane to your PATH by running:"
     Write-Host "  [System.Environment]::SetEnvironmentVariable('PATH', '$InstallDir;' + [System.Environment]::GetEnvironmentVariable('PATH','User'), 'User')"
     Write-Host "Then restart your terminal."
 }
@@ -92,4 +92,4 @@ if ($userPath -notlike "*$InstallDir*") {
 & $targetExe --version
 Write-Host ""
 Write-Host "Launch an agent:"
-Write-Host "  `$env:MC_TOKEN='<token>'; `$env:MC_BASE_URL='https://your-mc.example.com'; mc launch codex"
+Write-Host "  `$env:EP_TOKEN='<token>'; `$env:EP_BASE_URL='https://your-edgeplane.example.com'; edgeplane launch codex"

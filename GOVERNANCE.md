@@ -1,7 +1,7 @@
 # Governance
 
 ## Project Stewardship
-MissionControl is stewarded by Ryan Merlin with maintainers delegated per area
+Edgeplane is stewarded by Ryan Merlin with maintainers delegated per area
 (API, MCP integration, docs, release).
 
 ## Decision Model

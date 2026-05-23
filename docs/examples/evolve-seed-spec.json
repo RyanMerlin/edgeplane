@@ -1,7 +1,7 @@
 {
   "name": "MC self-improvement sprint 1",
   "description": "Improve pressure test latency and evolve workflow",
-  "agent_system_prompt": "You are improving MissionControl. Work from the task backlog and keep changes testable and reviewable.",
+  "agent_system_prompt": "You are improving Edgeplane. Work from the task backlog and keep changes testable and reviewable.",
   "scoring_criteria": {
     "tests_passing": true,
     "builds_clean": true,
@@ -11,7 +11,7 @@
     {
       "id": "t001",
       "title": "Add latency percentiles to pressure test",
-      "description": "Add P50/P95/P99 latency tracking to scripts/mc-pressure-test.sh",
+      "description": "Add P50/P95/P99 latency tracking to scripts/edgeplane-pressure-test.sh",
       "acceptance": "summary.json includes p95 latency fields"
     },
     {

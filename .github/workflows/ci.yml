@@ -29,14 +29,14 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('crates/mc/Cargo.lock', 'crates/mc-controlplane/Cargo.lock', 'crates/mcd/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('crates/edgeplane/Cargo.lock', 'crates/edgeplane-tower/Cargo.lock', 'crates/edgeplaned/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-test-
-      - name: Test mc-controlplane
-        run: cargo nextest run --manifest-path crates/mc-controlplane/Cargo.toml --test test_health --test test_routes --test test_proxy --test test_work
-      - name: Test mc
-        run: cargo nextest run --manifest-path crates/mc/Cargo.toml --test-threads 1
-      - name: Test mcd
-        run: cargo nextest run --manifest-path crates/mcd/Cargo.toml --workspace
+      - name: Test edgeplane-tower
+        run: cargo nextest run --manifest-path crates/edgeplane-tower/Cargo.toml --test test_health --test test_routes --test test_proxy --test test_work
+      - name: Test edgeplane
+        run: cargo nextest run --manifest-path crates/edgeplane/Cargo.toml --test-threads 1
+      - name: Test edgeplaned
+        run: cargo nextest run --manifest-path crates/edgeplaned/Cargo.toml --workspace
 
   launch-regression:
     name: Launch regression
@@ -50,9 +50,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-launch-regression-${{ hashFiles('crates/mc/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-launch-regression-${{ hashFiles('crates/edgeplane/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-launch-regression-
-      - name: Run mc launch regression harness
+      - name: Run edgeplane launch regression harness
         run: bash scripts/launch-regression.sh
 
   compat-smoke:
@@ -63,7 +63,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Run staged compatibility smoke matrix
         run: |
-          cd crates/mc
+          cd crates/edgeplane
           cargo run -- system compat matrix run --providers claude,codex --mode smoke
 
   compat-strict-main:
@@ -71,19 +71,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Check whether mc integration changed
+      - name: Check whether edgeplane integration changed
         id: changes
         uses: dorny/paths-filter@v4
         with:
           filters: |
-            mc:
-              - 'crates/mc/**'
+            edgeplane:
+              - 'crates/edgeplane/**'
       - uses: dtolnay/rust-toolchain@stable
-        if: steps.changes.outputs.mc == 'true'
+        if: steps.changes.outputs.edgeplane == 'true'
       - name: Main branch strict compatibility gate
-        if: steps.changes.outputs.mc == 'true'
+        if: steps.changes.outputs.edgeplane == 'true'
         run: |
-          cd crates/mc
+          cd crates/edgeplane
           mkdir -p .ci-bin
           cat > .ci-bin/claude <<'EOF'
           #!/usr/bin/env bash
@@ -98,8 +98,8 @@ jobs:
           cargo run -- system compat matrix run --providers claude,codex --mode smoke > /tmp/compat-latest.json
           jq -e '.summary.overall_status == "compatible"' /tmp/compat-latest.json >/dev/null
       - name: Compatibility gate skipped
-        if: steps.changes.outputs.mc != 'true'
-        run: echo "No crates/mc changes detected; skipping strict compatibility gate."
+        if: steps.changes.outputs.edgeplane != 'true'
+        run: echo "No crates/edgeplane changes detected; skipping strict compatibility gate."
 
   docs-catalog:
     runs-on: ubuntu-latest

@@ -6,8 +6,8 @@ resource "azurerm_virtual_network" "primary" {
   tags                = var.tags
 }
 
-resource "azurerm_subnet" "missioncontrol" {
-  name                 = "missioncontrol-subnet"
+resource "azurerm_subnet" "edgeplane" {
+  name                 = "edgeplane-subnet"
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.primary.name
   address_prefixes     = [var.subnet_prefix]

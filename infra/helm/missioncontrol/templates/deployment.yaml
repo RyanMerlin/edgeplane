@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "missioncontrol.fullname" . }}
+  name: {{ include "edgeplane.fullname" . }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app: {{ include "missioncontrol.fullname" . }}
+      app: {{ include "edgeplane.fullname" . }}
   template:
     metadata:
       labels:
-        app: {{ include "missioncontrol.fullname" . }}
+        app: {{ include "edgeplane.fullname" . }}
     spec:
       initContainers:
         - name: migrate
@@ -20,21 +20,21 @@ spec:
           workingDir: /app
           envFrom:
             - configMapRef:
-                name: {{ include "missioncontrol.fullname" . }}-config
+                name: {{ include "edgeplane.fullname" . }}-config
             {{- if .Values.secrets }}
             - secretRef:
-                name: {{ include "missioncontrol.fullname" . }}-secrets
+                name: {{ include "edgeplane.fullname" . }}-secrets
             {{- end }}
       containers:
-        - name: missioncontrol
+        - name: edgeplane
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           envFrom:
             - configMapRef:
-                name: {{ include "missioncontrol.fullname" . }}-config
+                name: {{ include "edgeplane.fullname" . }}-config
             {{- if .Values.secrets }}
             - secretRef:
-                name: {{ include "missioncontrol.fullname" . }}-secrets
+                name: {{ include "edgeplane.fullname" . }}-secrets
             {{- end }}
           ports:
             - containerPort: 8008

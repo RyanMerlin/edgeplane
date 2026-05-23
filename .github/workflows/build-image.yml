@@ -29,7 +29,7 @@ jobs:
           private-key: ${{ secrets.MERLINLABS_AUTOMATION_PRIVATE_KEY }}
           owner: RyanMerlin
           repositories: |
-            missioncontrol
+            edgeplane
             gitops-merlinlabs
 
       - name: Log in to GHCR
@@ -46,24 +46,24 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/ryanmerlin/missioncontrol
+          images: ghcr.io/ryanmerlin/edgeplane
           tags: |
             type=sha
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push missioncontrol
+      - name: Build and push edgeplane
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: crates/mc-controlplane/Dockerfile
+          file: crates/edgeplane-tower/Dockerfile
           target: prod
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=missioncontrol
-          cache-to: type=gha,mode=max,scope=missioncontrol
+          cache-from: type=gha,scope=edgeplane
+          cache-to: type=gha,mode=max,scope=edgeplane
 
       - name: Update gitops image tag
         if: ${{ github.ref_type == 'branch' }}
@@ -75,10 +75,10 @@ jobs:
           IMAGE_TAG="sha-${SHORT_SHA}"
           git clone https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/RyanMerlin/gitops-merlinlabs.git /tmp/gitops
           cd /tmp/gitops
-          DEPLOY=merlinlabs/applications/missioncontrol/mc-controlplane-deployment.yaml
-          sed -i "s|ghcr.io/ryanmerlin/missioncontrol:[a-zA-Z0-9._-]*|ghcr.io/ryanmerlin/missioncontrol:${IMAGE_TAG}|g" "$DEPLOY"
+          DEPLOY=merlinlabs/applications/edgeplane/edgeplane-tower-deployment.yaml
+          sed -i "s|ghcr.io/ryanmerlin/edgeplane:[a-zA-Z0-9._-]*|ghcr.io/ryanmerlin/edgeplane:${IMAGE_TAG}|g" "$DEPLOY"
           git config user.email "ci@ryanmerlin.dev"
           git config user.name "MC CI"
           git add "$DEPLOY"
-          git diff --staged --quiet || git commit -m "chore(deploy): bump mc-controlplane to ${IMAGE_TAG}"
+          git diff --staged --quiet || git commit -m "chore(deploy): bump edgeplane-tower to ${IMAGE_TAG}"
           git push

@@ -3,7 +3,7 @@
 Demo mesh worker — reads TASK.md, sleeps 2s, writes a result line, exits 0.
 
 Demonstrates state-only work loop: claim → heartbeat → complete → unblock-dependents.
-Called by `mc run python --mission` for each task (via MC_MESH_TASK_ID / MC_TASK_MD_PATH).
+Called by `edgeplane run python --mission` for each task (via MC_MESH_TASK_ID / MC_TASK_MD_PATH).
 """
 import os
 import sys

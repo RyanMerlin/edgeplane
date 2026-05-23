@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MissionControl — Console</title>
+<title>Edgeplane — Console</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
@@ -93,7 +93,7 @@ body {
 .msg-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; font-size: 11px; }
 .msg-role { font-weight: 700; font-size: 11px; }
 .msg-role.you   { color: #58a6ff; }
-.msg-role.mc    { color: #3fb950; }
+.msg-role.edgeplane    { color: #3fb950; }
 .msg-role.event { color: #484f58; }
 .msg-time { color: #484f58; }
 .msg-type { color: #484f58; }
@@ -193,7 +193,7 @@ body {
 <body>
 
 <div id="topbar">
-  <span id="logo">mc</span>
+  <span id="logo">edgeplane</span>
   <a href="02-dashboard.html" class="nav-tab">Overview</a>
   <a href="03-ai-console.html" class="nav-tab active">Console</a>
   <a href="04-agents.html" class="nav-tab">Agents</a>
@@ -285,7 +285,7 @@ body {
           <span class="msg-type">session_started</span>
           <span class="msg-time">10:35:01</span>
         </div>
-        <div class="msg-body dim">Session "web-revamp design review" created · runtime: claude-sonnet-4-6 · capabilities: fleet-management, mc-development, code-editing</div>
+        <div class="msg-body dim">Session "web-revamp design review" created · runtime: claude-sonnet-4-6 · capabilities: fleet-management, edgeplane-development, code-editing</div>
       </div>
 
       <!-- User turn -->
@@ -323,7 +323,7 @@ body {
       <!-- Assistant turn -->
       <div class="msg assistant">
         <div class="msg-head">
-          <span class="msg-role mc">mc-ai</span>
+          <span class="msg-role edgeplane">edgeplane-ai</span>
           <span class="msg-time">10:35:11</span>
         </div>
         <div class="msg-body">The <span class="accent">web-revamp</span> mission has 2 klusters:
@@ -400,7 +400,7 @@ body {
       <!-- Assistant confirmation -->
       <div class="msg assistant">
         <div class="msg-head">
-          <span class="msg-role mc">mc-ai</span>
+          <span class="msg-role edgeplane">edgeplane-ai</span>
           <span class="msg-time">10:41:37</span>
         </div>
         <div class="msg-body">Done. TSK-0142 is now running and assigned to aria-mc-engineer.
@@ -434,7 +434,7 @@ Once the mockups are complete and TSK-0144 passes design review, the impl-phase 
       <!-- Latest assistant message -->
       <div class="msg assistant">
         <div class="msg-head">
-          <span class="msg-role mc">mc-ai</span>
+          <span class="msg-role edgeplane">edgeplane-ai</span>
           <span class="msg-time">10:47:08</span>
         </div>
         <div class="msg-body">TSK-0143 is now unblocked — dependency on TSK-0144 removed. codex-impl-1 can claim it immediately. You should see it transition to <span class="accent">claimed</span> in the next minute.</div>
@@ -501,11 +501,11 @@ Once the mockups are complete and TSK-0144 passes design review, the impl-phase 
         <span class="apanel-who">gemini-analyst</span>
         <span class="apanel-age">3m</span>
       </div>
-      <div class="apanel-desc">Write research synthesis to artifact store. 2.4 MB PDF → rustfs://mc/artifacts/TSK-0131/</div>
+      <div class="apanel-desc">Write research synthesis to artifact store. 2.4 MB PDF → rustfs://edgeplane/artifacts/TSK-0131/</div>
       <div class="apanel-args">
         <span style="color:#58a6ff">file</span>    <span>research-synthesis-q3.pdf</span><br>
         <span style="color:#58a6ff">size</span>    <span>2.4 MB</span><br>
-        <span style="color:#58a6ff">dest</span>    <span>rustfs://mc/artifacts/TSK-0131/</span>
+        <span style="color:#58a6ff">dest</span>    <span>rustfs://edgeplane/artifacts/TSK-0131/</span>
       </div>
       <div class="apanel-btns">
         <button class="btn g sm">Approve</button>

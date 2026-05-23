@@ -1,14 +1,14 @@
 <p align="center">
-  <img src="assets/mc-hero-image-2.png" alt="MissionControl" width="100%">
+  <img src="assets/edgeplane-hero-image-2.png" alt="Edgeplane" width="100%">
 </p>
 
-# MissionControl
+# Edgeplane
 
-> Kubernetes orchestrates containers. MissionControl orchestrates agents, missions, and knowledge.
+> Kubernetes orchestrates containers. Edgeplane orchestrates agents, missions, and knowledge.
 
 AI agents can write code, run tools, and reason over architecture. What they can't do is coordinate. Without a shared system of record, parallel agents duplicate effort, diverge on state, and collide on artifacts with no resolution path.
 
-MissionControl is a control plane for AI agents and human collaborators. It provides structured domains, durable task ownership, overlap detection before mutations, HMAC-signed governance, and a three-tier persistence model (Postgres + S3 + Git). The `mc` CLI is a compiled Rust binary. Agents interact via standard MCP stdio — no custom SDK required.
+Edgeplane is a control plane for AI agents and human collaborators. It provides structured domains, durable task ownership, overlap detection before mutations, HMAC-signed governance, and a three-tier persistence model (Postgres + S3 + Git). The `edgeplane` CLI is a compiled Rust binary. Agents interact via standard MCP stdio — no custom SDK required.
 
 ## Core Capabilities
 
@@ -17,7 +17,7 @@ MissionControl is a control plane for AI agents and human collaborators. It prov
 - **Artifact Ledger** — every mutation recorded in Postgres, vector-indexed for search, and committed to Git with full provenance metadata on publish.
 - **MCP-Native Interface** — standard MCP stdio tools: `search_tasks`, `get_overlap_suggestions`, `load_mission_workspace`, `publish_pending_ledger_events`. Works with any MCP-compatible agent.
 - **Governance & Approvals** — versioned policy lifecycle (draft → active → rollback), role-based access (Admin / Contributor / Viewer), HMAC-signed approval tokens on sensitive mutations.
-- **Persistent Agent Sessions** — `mcd` manages long-running agent processes on each node via ACP (Agent Client Protocol). Sessions survive crashes and reconnects. Remote attach via the web UI renders structured conversation — assistant turns, tool calls, permission prompts — not raw terminal output.
+- **Persistent Agent Sessions** — `edgeplaned` manages long-running agent processes on each node via ACP (Agent Client Protocol). Sessions survive crashes and reconnects. Remote attach via the web UI renders structured conversation — assistant turns, tool calls, permission prompts — not raw terminal output.
 - **Semantic Search** — tasks, docs, and missions are vector-indexed (pgvector) for similarity and hybrid search.
 - **S3-Backed File Persistence** — artifact content stored in S3-compatible object storage. RustFS is bundled in the Docker Compose stack. Swap in AWS S3 or MinIO with env vars — no code changes.
 - **Chat Integration** — Slack-native notifications, task creation from threads, approval workflows, and in-channel search. Teams and Google Chat provider skeletons included.
@@ -30,14 +30,14 @@ MissionControl is a control plane for AI agents and human collaborators. It prov
 └──────────────────────────────┬───────────────────────────────┘
                                │
                ┌───────────────▼─────────────────┐
-               │               mc                │
+               │               edgeplane                │
                │     MCP stdio bridge · Rust     │
-               │        cargo install mc         │
+               │        cargo install edgeplane         │
                │  tools/list · tools/call · CLI  │
                └───────────────┬─────────────────┘
                                │  HTTP
 ┌──────────────────────────────▼───────────────────────────────┐
-│                     MissionControl API                       │
+│                     Edgeplane API                       │
 │                       Axum  ·  MQTT                          │
 ├─────────────────┬──────────────────────┬─────────────────────┤
 │  Domains &      │  Tasks · Overlap     │  Governance &       │
@@ -62,26 +62,26 @@ MissionControl is a control plane for AI agents and human collaborators. It prov
                  └────────────────────────────┘
 ```
 
-**mcd** is the node daemon — analogous to kubelet. It runs on every node, registers with mc-controlplane, and manages all agent processes on that node. `mc` is kubectl: the CLI surface for humans and agents.
+**edgeplaned** is the node daemon — analogous to kubelet. It runs on every node, registers with edgeplane-tower, and manages all agent processes on that node. `edgeplane` is kubectl: the CLI surface for humans and agents.
 
 ## Quick Start
 
-Install the `mc` CLI:
+Install the `edgeplane` CLI:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.sh | bash
+curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh | bash
 ```
 
 Windows:
 ```powershell
-irm https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.ps1 | iex
+irm https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.ps1 | iex
 ```
 
 Then bring up the full stack locally:
 
 ```bash
 bash scripts/dev-up.sh
-MC_TOKEN="TopSecret" mc system doctor
+EP_TOKEN="TopSecret" edgeplane system doctor
 ```
 
 Then open:
@@ -93,13 +93,13 @@ Then open:
 | | |
 |---|---|
 | Docker full stack | `bash scripts/dev-up.sh` |
-| Install mc CLI | `bash scripts/install-mc.sh` or `.\scripts\install-mc.ps1` |
-| Bootstrap mc (curl) | `curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.sh \| bash` |
-| Philosophy & vision | [MISSIONCONTROL_PHILOSOPHY.md](MISSIONCONTROL_PHILOSOPHY.md) |
+| Install edgeplane CLI | `bash scripts/install-edgeplane.sh` or `.\scripts\install-edgeplane.ps1` |
+| Bootstrap edgeplane (curl) | `curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh \| bash` |
+| Philosophy & vision | [EDGEPLANE_PHILOSOPHY.md](EDGEPLANE_PHILOSOPHY.md) |
 | API reference | `/api/docs` (Swagger UI) |
 | Agent install guide | [docs/guides/AGENT-INSTALL.md](docs/guides/AGENT-INSTALL.md) |
 | Web UI | [web/README.md](web/README.md) |
-| Persistent sessions | [docs/plans/mcd-persistent-session-architecture.md](docs/plans/mcd-persistent-session-architecture.md) |
+| Persistent sessions | [docs/plans/edgeplaned-persistent-session-architecture.md](docs/plans/edgeplaned-persistent-session-architecture.md) |
 
 ## Running with Docker (Recommended)
 
@@ -114,7 +114,7 @@ bash scripts/dev-down.sh      # stop
 Quickstart (SQLite + Chroma — no external deps):
 
 ```bash
-MC_STACK_PROFILE=quickstart bash scripts/dev-up.sh
+EP_STACK_PROFILE=quickstart bash scripts/dev-up.sh
 ```
 
 Object storage is available locally at `http://localhost:9000` (S3 API) and `http://localhost:9001` (console). To use an external backend instead, set `MC_OBJECT_STORAGE_*` env vars — see `.env.example`.
@@ -123,46 +123,46 @@ Object storage is available locally at `http://localhost:9000` (S3 API) and `htt
 
 ```bash
 cp .env.example .env
-cd crates/mc-controlplane
+cd crates/edgeplane-tower
 cargo build --release
 set -a; source .env; set +a
-./target/release/mc-controlplane
+./target/release/edgeplane-tower
 ```
 
 Frontend (SvelteKit): `cd web && npm install && npm run dev -- --host 0.0.0.0 --port 5173`
 
 ## Agent Integration
 
-### Install mc
+### Install edgeplane
 
 ```bash
 # Linux / macOS
-bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh)
 
 # Windows
-irm https://raw.githubusercontent.com/RyanMerlin/missioncontrol/main/scripts/bootstrap-mc.ps1 | iex
+irm https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.ps1 | iex
 ```
 
 ### Launch an agent
 
 ```bash
-export MC_TOKEN="<your-token>"
-export MC_BASE_URL="https://your-mc.example.com"
+export EP_TOKEN="<your-token>"
+export EP_BASE_URL="https://your-edgeplane.example.com"
 
-mc run claude       # Claude Code
-mc run codex        # OpenAI Codex CLI
-mc run gemini       # Google Gemini CLI
+edgeplane run claude       # Claude Code
+edgeplane run codex        # OpenAI Codex CLI
+edgeplane run gemini       # Google Gemini CLI
 ```
 
 ### Auth
 
-`mc auth login` exchanges a static token for a server-issued session token (`mcs_*`) — revocable, never stored in agent config files, auto-loaded on next run:
+`edgeplane auth login` exchanges a static token for a server-issued session token (`mcs_*`) — revocable, never stored in agent config files, auto-loaded on next run:
 
 ```bash
-MC_TOKEN="<static-token>" mc auth login
-mc run claude       # session auto-loaded
-mc auth whoami
-mc auth logout
+EP_TOKEN="<static-token>" edgeplane auth login
+edgeplane run claude       # session auto-loaded
+edgeplane auth whoami
+edgeplane auth logout
 ```
 
 Pass `--preflight-only` to validate connectivity without launching.
@@ -209,10 +209,10 @@ See [docs/reference/GOVERNANCE.md](docs/reference/GOVERNANCE.md) for the full en
 Migrations run automatically on startup via sqlx. To run manually:
 
 ```bash
-cd crates/mc-controlplane && sqlx migrate run
+cd crates/edgeplane-tower && sqlx migrate run
 ```
 
-Migration files: `crates/mc-controlplane/migrations/`
+Migration files: `crates/edgeplane-tower/migrations/`
 
 ## Tests
 

@@ -8,7 +8,7 @@
   let manifestUrl = $state('');
 
   function defaultOnboardingEndpoint() {
-    if (!browser) return 'https://mc.missioncontrolai.app';
+    if (!browser) return 'https://edgeplane.edgeplaneai.app';
     return window.location.origin;
   }
 
@@ -44,7 +44,7 @@
 
 <div class="glass-panel">
   <h3>Agent Onboarding</h3>
-  <label>Endpoint<input bind:value={onboardingEndpoint} placeholder="https://mc.example.com" /></label>
+  <label>Endpoint<input bind:value={onboardingEndpoint} placeholder="https://edgeplane.example.com" /></label>
   <div class="onboarding-actions">
     <button class="ghost" onclick={loadManifest}>Regenerate Manifest</button>
     <button class="ghost" onclick={() => navigator.clipboard.writeText(onboardingManifest || '')}>Copy</button>

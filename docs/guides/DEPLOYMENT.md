@@ -1,33 +1,33 @@
-# MissionControl Deployment Guide (Linux VM / Compose)
+# Edgeplane Deployment Guide (Linux VM / Compose)
 
-This guide covers deploying MissionControl API on a Linux VM or with the hardened Compose stack in this repo.
+This guide covers deploying Edgeplane API on a Linux VM or with the hardened Compose stack in this repo.
 
 ## Objectives
-- Run MissionControl API as a system service.
+- Run Edgeplane API as a system service.
 - Configure auth via OIDC and/or static MC token without implicit token-admin elevation.
 - Configure optional RustFS/S3 object storage for docs/artifacts.
 - Expose health endpoints and bounded runtime settings suitable for production.
 
-## MissionControl API (Linux VM)
+## Edgeplane API (Linux VM)
 
 ### 1) Place code
 Recommended path:
-- `/opt/missioncontrol/backend`
+- `/opt/edgeplane/backend`
 
 ### 2) Python venv + deps
 ```bash
-cd /opt/missioncontrol/backend
-python3 -m venv /opt/missioncontrol/.venv
-/opt/missioncontrol/.venv/bin/pip install -r requirements.txt
+cd /opt/edgeplane/backend
+python3 -m venv /opt/edgeplane/.venv
+/opt/edgeplane/.venv/bin/pip install -r requirements.txt
 ```
 
 ### 3) Environment file
-Create `/opt/missioncontrol/.env` (minimum example):
+Create `/opt/edgeplane/.env` (minimum example):
 
 ```env
 AUTH_MODE=dual
 OIDC_REQUIRED=false
-MC_TOKEN=<static-token-for-mcp>
+EP_TOKEN=<static-token-for-mcp>
 OIDC_ISSUER_URL=https://<authentik-host>/application/o/<provider-slug>/
 OIDC_AUDIENCE=<oidc-client-id>
 MC_ADMIN_EMAILS=<comma-separated-admin-emails>
@@ -44,7 +44,7 @@ Optional RustFS/S3-backed doc/artifact content:
 ```env
 MC_OBJECT_STORAGE_ENDPOINT=http://<rustfs-host>:<port>
 MC_OBJECT_STORAGE_REGION=us-east-1
-MC_OBJECT_STORAGE_BUCKET=missioncontrol
+MC_OBJECT_STORAGE_BUCKET=edgeplane
 MC_OBJECT_STORAGE_SECURE=false
 MC_OBJECT_STORAGE_ACCESS_KEY=<access-key>
 MC_OBJECT_STORAGE_ACCESS_SECRET=<secret>
@@ -60,20 +60,20 @@ MC_RATE_LIMIT_APPROVAL_CAPACITY=30
 ```
 
 ### 4) systemd service
-Create `/etc/systemd/system/missioncontrol.service`:
+Create `/etc/systemd/system/edgeplane.service`:
 
 ```ini
 [Unit]
-Description=MissionControl API
+Description=Edgeplane API
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/missioncontrol/backend
-ExecStart=/opt/missioncontrol/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+WorkingDirectory=/opt/edgeplane/backend
+ExecStart=/opt/edgeplane/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 Environment=PYTHONUNBUFFERED=1
-EnvironmentFile=/opt/missioncontrol/.env
+EnvironmentFile=/opt/edgeplane/.env
 
 [Install]
 WantedBy=multi-user.target
@@ -82,7 +82,7 @@ WantedBy=multi-user.target
 Enable + start:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now missioncontrol
+sudo systemctl enable --now edgeplane
 ```
 
 Verify:
@@ -95,7 +95,7 @@ curl http://localhost:8000/readyz
 ## Docker Compose
 
 - `docker-compose.yml` is now the production-oriented stack.
-- Bucket bootstrap is handled by the one-shot `rustfs-init` service using Python/boto3 (no `minio/mc` dependency).
+- Bucket bootstrap is handled by the one-shot `rustfs-init` service using Python/boto3 (no `minio/edgeplane` dependency).
 - Provide secrets through the environment before startup:
   - `POSTGRES_PASSWORD`
   - `MQTT_PASSWORD`
@@ -115,6 +115,6 @@ When deploying on Kubernetes, provide secrets via the platform’s secret object
 - `curl http://localhost:8000/` returns status ok.
 - `curl http://localhost:8000/healthz` returns status ok without auth.
 - `curl http://localhost:8000/readyz` returns status ok only when dependencies are ready.
-- `curl -H "Authorization: Bearer <MC_TOKEN>" http://localhost:8000/mcp/health` returns ok.
+- `curl -H "Authorization: Bearer <EP_TOKEN>" http://localhost:8000/mcp/health` returns ok.
 - Bearer token callers are not platform admins unless their subject/email is allowlisted in `MC_ADMIN_SUBJECTS` or `MC_ADMIN_EMAILS`.
 - Docs/artifacts create + delete paths work with expected mission authz.

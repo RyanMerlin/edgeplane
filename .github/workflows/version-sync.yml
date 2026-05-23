@@ -4,9 +4,9 @@ on:
   pull_request:
     paths:
       - VERSION
-      - "crates/mc/Cargo.toml"
-      - "crates/mcd/Cargo.toml"
-      - "crates/mc-controlplane/Cargo.toml"
+      - "crates/edgeplane/Cargo.toml"
+      - "crates/edgeplaned/Cargo.toml"
+      - "crates/edgeplane-tower/Cargo.toml"
       - ".github/workflows/version-sync.yml"
   push:
     branches: [main]
@@ -26,7 +26,7 @@ jobs:
             exit 1
           fi
           fail=0
-          for crate in mc mcd mc-controlplane; do
+          for crate in edgeplane edgeplaned edgeplane-tower; do
             toml="crates/$crate/Cargo.toml"
             # Extract the version line under [workspace.package]. awk prints
             # the value between the first pair of double quotes on the first

@@ -1,21 +1,21 @@
 ---
 title: OIDC Authentication
-description: Configure SSO and OIDC JWT authentication for MissionControl.
+description: Configure SSO and OIDC JWT authentication for Edgeplane.
 ---
 
-MissionControl supports OIDC JWT validation alongside static token auth for MCP compatibility. This guide covers server configuration, CLI login flows, and Kubernetes secret management.
+Edgeplane supports OIDC JWT validation alongside static token auth for MCP compatibility. This guide covers server configuration, CLI login flows, and Kubernetes secret management.
 
 ## Server Environment Variables
 
 ```bash
 AUTH_MODE=oidc
 OIDC_REQUIRED=false
-MC_TOKEN=<static-token-for-mcp>
+EP_TOKEN=<static-token-for-mcp>
 OIDC_ISSUER_URL=https://<your-idp>/application/o/<provider-slug>/
 OIDC_AUDIENCE=<oidc-client-id>
 OIDC_CLIENT_ID=<oidc-client-id>
 OIDC_CLIENT_SECRET=<optional-for-confidential-clients>
-OIDC_REDIRECT_URI=https://<mc-host>/auth/oidc/callback
+OIDC_REDIRECT_URI=https://<edgeplane-host>/auth/oidc/callback
 OIDC_SCOPES=openid profile email
 MC_ADMIN_SUBJECTS=<comma-separated-subjects>
 MC_ADMIN_EMAILS=<comma-separated-emails>
@@ -42,44 +42,44 @@ OIDC_PUBLIC_ISSUER_URL=https://<public-idp-host>/application/o/<slug>/
 
 ```bash
 # 1. Initiate — get a browser URL and a cli_nonce
-curl -s https://<mc-host>/auth/oidc/cli-initiate
+curl -s https://<edgeplane-host>/auth/oidc/cli-initiate
 # → {"authorize_url": "https://...", "cli_nonce": "...", "expires_at": "..."}
 
 # 2. Open authorize_url in your browser and complete login.
 #    The success page shows a grant_id (olg_…).
 
 # 3. Exchange the grant_id for a session token
-curl -s -X POST https://<mc-host>/auth/oidc/exchange \
+curl -s -X POST https://<edgeplane-host>/auth/oidc/exchange \
   -H "Content-Type: application/json" \
   -d '{"grant_id": "olg_…"}'
 # → {"token": "mcs_…", "subject": "…", "expires_at": "…"}
 
-# 4. Save the session token (mc reads this automatically)
-cat > ~/.missioncontrol/session.json <<EOF
-{"token":"mcs_…","subject":"…","email":"…","expires_at":"…","base_url":"https://<mc-host>","session_id":1}
+# 4. Save the session token (edgeplane reads this automatically)
+cat > ~/.edgeplane/session.json <<EOF
+{"token":"mcs_…","subject":"…","email":"…","expires_at":"…","base_url":"https://<edgeplane-host>","session_id":1}
 EOF
-chmod 600 ~/.missioncontrol/session.json
+chmod 600 ~/.edgeplane/session.json
 ```
 
 **Polling instead of copy-paste:**
 
 ```bash
-curl -s https://<mc-host>/auth/oidc/cli-poll/<cli_nonce>
+curl -s https://<edgeplane-host>/auth/oidc/cli-poll/<cli_nonce>
 # → {"status":"ready","grant_id":"olg_…"}  (404 until login completes)
 ```
 
-**With `mc auth login`:**
+**With `edgeplane auth login`:**
 
 ```bash
-export MC_BASE_URL="https://<mc-host>"
+export EP_BASE_URL="https://<edgeplane-host>"
 # Exchange OIDC JWT for a session token
-MC_TOKEN="$(get-oidc-token)" mc auth login --ttl-hours 8
-mc auth whoami
+EP_TOKEN="$(get-oidc-token)" edgeplane auth login --ttl-hours 8
+edgeplane auth whoami
 ```
 
 ## Browser Login Flow
 
-MissionControl uses a backend PKCE flow:
+Edgeplane uses a backend PKCE flow:
 
 1. Browser requests `GET /auth/oidc/start`
 2. Server redirects to IdP authorize endpoint with PKCE challenge
@@ -95,7 +95,7 @@ MissionControl uses a backend PKCE flow:
 | `oidc` | OIDC JWT only |
 | `dual` | Accept both — recommended for staged migration |
 
-`OIDC_REQUIRED=true` in `dual` mode enforces OIDC for non-`/mcp` paths, while still allowing the static `MC_TOKEN` for MCP agent connections.
+`OIDC_REQUIRED=true` in `dual` mode enforces OIDC for non-`/mcp` paths, while still allowing the static `EP_TOKEN` for MCP agent connections.
 
 ## Staged Rollout (Recommended)
 
@@ -116,14 +116,14 @@ Never commit OIDC client secrets, service tokens, or static tokens to Git.
 apiVersion: v1
 kind: Secret
 metadata:
-  name: missioncontrol-auth
+  name: edgeplane-auth
 type: Opaque
 stringData:
   AUTH_MODE: "oidc"
   OIDC_ISSUER_URL: "https://..."
   OIDC_CLIENT_ID: "..."
   OIDC_CLIENT_SECRET: "..."
-  MC_TOKEN: "..."
+  EP_TOKEN: "..."
   MC_ADMIN_EMAILS: "..."
 ```
 
@@ -132,14 +132,14 @@ Mount in the deployment:
 ```yaml
 envFrom:
 - secretRef:
-    name: missioncontrol-auth
+    name: edgeplane-auth
 ```
 
 ## Token Types
 
 | Token type | Description | Recommended for |
 |------------|-------------|----------------|
-| Static `MC_TOKEN` | Shared secret, never expires | MCP clients, CI, local dev |
+| Static `EP_TOKEN` | Shared secret, never expires | MCP clients, CI, local dev |
 | Session token (`mcs_*`) | DB-backed, revocable, expiring | Interactive CLI/web use |
 | OIDC JWT | Short-lived, identity-bound | SSO environments |
 
@@ -147,5 +147,5 @@ Session tokens are the recommended auth mechanism for interactive use. They are 
 
 ## See Also
 
-- [Deployment](/missioncontrol/guides/deployment/) — server configuration
-- [Getting Started: Agent Setup](/missioncontrol/getting-started/agent-setup/) — wiring auth into agent launches
+- [Deployment](/edgeplane/guides/deployment/) — server configuration
+- [Getting Started: Agent Setup](/edgeplane/getting-started/agent-setup/) — wiring auth into agent launches

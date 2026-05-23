@@ -1,18 +1,18 @@
-name: Release mc
+name: Release edgeplane
 
 # What ships by default on a tag push (5 builds + publish = 6 jobs):
-#   mc-linux-x86_64        — CLI for x86 Linux nodes (most common)
-#   mc-linux-aarch64       — CLI for ARM Linux (Pi, ARM cloud)
-#   mc-macos-aarch64       — CLI for Apple Silicon dev machines
-#   mcd-linux-x86_64   — node daemon, the per-host service that
+#   edgeplane-linux-x86_64        — CLI for x86 Linux nodes (most common)
+#   edgeplane-linux-aarch64       — CLI for ARM Linux (Pi, ARM cloud)
+#   edgeplane-macos-aarch64       — CLI for Apple Silicon dev machines
+#   edgeplaned-linux-x86_64   — node daemon, the per-host service that
 #                            supervises agents (every end-user needs this
 #                            to run agents)
-#   mcd-linux-aarch64  — node daemon for ARM Linux nodes
+#   edgeplaned-linux-aarch64  — node daemon for ARM Linux nodes
 #
-# `mc-controlplane` is NOT in this matrix — it ships as a Docker image
+# `edgeplane-tower` is NOT in this matrix — it ships as a Docker image
 # via `build-image.yml`; end users don't install it locally.
 #
-# Extras (macOS x86_64, Windows mc, etc.) are gated behind
+# Extras (macOS x86_64, Windows edgeplane, etc.) are gated behind
 # `workflow_dispatch` with `include_extras=true`. They run with
 # `continue-on-error: true` and the release does NOT wait on them, so
 # a Windows toolchain hiccup never blocks the core publish.
@@ -38,42 +38,42 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # mc CLI — covers nodes and dev machines.
-          - bin: mc
-            crate_path: crates/mc
+          # edgeplane CLI — covers nodes and dev machines.
+          - bin: edgeplane
+            crate_path: crates/edgeplane
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: mc-linux-x86_64
+            artifact: edgeplane-linux-x86_64
             use_cross: false
             features: ''
-          - bin: mc
-            crate_path: crates/mc
+          - bin: edgeplane
+            crate_path: crates/edgeplane
             target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: mc-linux-aarch64
+            artifact: edgeplane-linux-aarch64
             use_cross: true
             features: ''
-          - bin: mc
-            crate_path: crates/mc
+          - bin: edgeplane
+            crate_path: crates/edgeplane
             target: aarch64-apple-darwin
             os: macos-latest
-            artifact: mc-macos-aarch64
+            artifact: edgeplane-macos-aarch64
             use_cross: false
             features: ''
 
-          # mcd — per-node daemon, ships alongside the CLI.
-          - bin: mcd
-            crate_path: crates/mcd
+          # edgeplaned — per-node daemon, ships alongside the CLI.
+          - bin: edgeplaned
+            crate_path: crates/edgeplaned
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: mcd-linux-x86_64
+            artifact: edgeplaned-linux-x86_64
             use_cross: false
             features: ''
-          - bin: mcd
-            crate_path: crates/mcd
+          - bin: edgeplaned
+            crate_path: crates/edgeplaned
             target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: mcd-linux-aarch64
+            artifact: edgeplaned-linux-aarch64
             use_cross: true
             features: ''
 
@@ -130,17 +130,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - bin: mc
-            crate_path: crates/mc
+          - bin: edgeplane
+            crate_path: crates/edgeplane
             target: x86_64-apple-darwin
             os: macos-latest
-            artifact: mc-macos-x86_64
+            artifact: edgeplane-macos-x86_64
             features: ''
-          - bin: mc
-            crate_path: crates/mc
+          - bin: edgeplane
+            crate_path: crates/edgeplane
             target: x86_64-pc-windows-msvc
             os: windows-latest
-            artifact: mc-windows-x86_64.exe
+            artifact: edgeplane-windows-x86_64.exe
             features: ''
 
     steps:

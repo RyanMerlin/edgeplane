@@ -6,7 +6,7 @@ owners:
   - platform
 summary: >
   Multi-session Codex swarm workflow where a driver session orchestrates worker sessions
-  via MissionControl tasks and missions. A collaboration driver script coordinates
+  via Edgeplane tasks and missions. A collaboration driver script coordinates
   fan-out, task claiming, and result aggregation. Currently experimental.
 
 source_of_truth:
@@ -14,20 +14,20 @@ source_of_truth:
     - docs/runbooks/CODEX-SWARM-WORKFLOW.md
     - README.md
   code_paths:
-    - scripts/mc-collab-driver.sh
+    - scripts/edgeplane-collab-driver.sh
 
 entrypoints:
   run:
-    - command: bash scripts/mc-collab-driver.sh
+    - command: bash scripts/edgeplane-collab-driver.sh
       purpose: Start swarm collaboration driver session
   verify:
     - description: Healthy run has all worker tasks claimed and completed within timeout
 
 interfaces:
   env_vars:
-    - MC_BASE_URL
-    - MC_TOKEN
-    - MC_AGENT_ID
+    - EP_BASE_URL
+    - EP_TOKEN
+    - EP_AGENT_ID
     - CODEX_WORKERS      # Number of parallel Codex worker sessions
 
 implemented:
@@ -46,7 +46,7 @@ todos:
 
 dependencies:
   - api
-  - mc-rust
+  - edgeplane-rust
 
 read_next:
   - docs/runbooks/CODEX-SWARM-WORKFLOW.md

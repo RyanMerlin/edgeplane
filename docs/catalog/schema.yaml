@@ -1,5 +1,5 @@
 version: 1
-kind: missioncontrol-domain
+kind: edgeplane-domain
 description: >
   Schema contract for all docs/catalog/*.yaml domain files.
   The validate-doc-catalog.py script enforces these rules.

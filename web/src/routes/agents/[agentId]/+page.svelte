@@ -7,13 +7,13 @@
 	const auth = useAuthState();
 
 	// `agentId` is the public_id (e.g. `aria-operator-e8820c0d`) — what
-	// mcd polls. It can also be the numeric row id; AgentIdent handles
+	// edgeplaned polls. It can also be the numeric row id; AgentIdent handles
 	// both at the controlplane.
 	const agentId = $derived(page.params.agentId);
 
 	// Resolve which node hosts this agent. Scans `/runtime/nodes` and each
 	// node's agent list for a row whose public_id matches. The CLI does the
-	// same lookup in `mc agent attach`.
+	// same lookup in `edgeplane agent attach`.
 	type RuntimeNode = { id: string; node_name?: string };
 	type MeshAgent = {
 		id: string;

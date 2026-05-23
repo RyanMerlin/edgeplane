@@ -1,4 +1,4 @@
-# opencode HTTP service — MissionControl AI Console runtime
+# opencode HTTP service — Edgeplane AI Console runtime
 #
 # Downloads the official pre-built opencode binary from GitHub releases
 # and runs it in HTTP server mode so OpencodeAdapter can reach it at
