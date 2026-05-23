@@ -4,9 +4,7 @@ on:
   pull_request:
     paths:
       - VERSION
-      - "crates/edgeplane/Cargo.toml"
-      - "crates/edgeplaned/Cargo.toml"
-      - "crates/edgeplane-tower/Cargo.toml"
+      - "Cargo.toml"
       - ".github/workflows/version-sync.yml"
   push:
     branches: [main]
@@ -16,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Assert VERSION matches all three workspaces
+      - name: Assert VERSION matches workspace.package version
         shell: bash
         run: |
           set -euo pipefail
@@ -25,31 +23,22 @@ jobs:
             echo "::error::VERSION file is empty"
             exit 1
           fi
-          fail=0
-          for crate in edgeplane edgeplaned edgeplane-tower; do
-            toml="crates/$crate/Cargo.toml"
-            # Extract the version line under [workspace.package]. awk prints
-            # the value between the first pair of double quotes on the first
-            # "version =" line after the [workspace.package] header.
-            actual=$(awk '
-              /^\[workspace\.package\]/ { in_section = 1; next }
-              /^\[/ && in_section { in_section = 0 }
-              in_section && /^version[[:space:]]*=/ {
-                match($0, /"[^"]+"/)
-                print substr($0, RSTART+1, RLENGTH-2)
-                exit
-              }
-            ' "$toml")
-            if [ "$actual" != "$expected" ]; then
-              echo "::error::$toml workspace.package version is '$actual', expected '$expected' (from /VERSION)"
-              fail=1
-            else
-              echo "ok: $crate = $actual"
-            fi
-          done
-          if [ "$fail" -ne 0 ]; then
+          # All workspace members use version.workspace = true.
+          # The single source of truth is [workspace.package] in the root Cargo.toml.
+          actual=$(awk '
+            /^\[workspace\.package\]/ { in_section = 1; next }
+            /^\[/ && in_section { in_section = 0 }
+            in_section && /^version[[:space:]]*=/ {
+              match($0, /"[^"]+"/)
+              print substr($0, RSTART+1, RLENGTH-2)
+              exit
+            }
+          ' Cargo.toml)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Cargo.toml [workspace.package] version is '$actual', expected '$expected' (from /VERSION)"
             echo ""
             echo "Run: ./scripts/set-version.sh $expected"
-            echo "to sync all three workspaces to /VERSION."
+            echo "to sync the workspace version to /VERSION."
             exit 1
           fi
+          echo "ok: workspace version = $actual"
