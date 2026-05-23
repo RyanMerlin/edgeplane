@@ -22,6 +22,7 @@ fi
 
 install -d "${PREFIX}/bin" "${CONFIG_DIR}" "${SYSTEMD_DIR}"
 install -m 0755 "${BIN_SRC}" "${PREFIX}/bin/edgeplane"
+ln -fsn edgeplane "${PREFIX}/bin/ep"
 
 if [ ! -f "${ENV_FILE}" ]; then
   cat > "${ENV_FILE}" <<'EOF'

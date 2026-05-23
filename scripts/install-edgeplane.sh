@@ -142,6 +142,10 @@ echo "installing edgeplane to ${PREFIX}/edgeplane"
 install_binary edgeplane crates/edgeplane "${PREFIX}/edgeplane"
 "${PREFIX}/edgeplane" --version
 
+# Install the `ep` short alias (symlink). Atomic via -fn so re-runs work.
+echo "linking ${PREFIX}/ep -> edgeplane"
+ln -fsn edgeplane "${PREFIX}/ep"
+
 # ── Install edgeplaned ───────────────────────────────────────────────────────────
 
 if [[ "$INSTALL_DAEMON" = "1" ]]; then
