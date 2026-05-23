@@ -197,5 +197,8 @@ artifacts/
 
 # Mission update artifacts (personal session files)
 crates/edgeplane/mission-*.md
-crates/edgeplane/kluster-*.md
 .worktrees/
+
+# Cargo workspace root build artifacts
+/target/
+

@@ -1,12 +1,3 @@
-[workspace]
-resolver = "2"
-
-[workspace.package]
-version = "0.15.11"
-edition = "2024"
-authors = ["Edgeplane Engineers <support@edgeplane.ai>"]
-license = "Apache-2.0"
-
 [package]
 name = "edgeplane-tower"
 version.workspace = true

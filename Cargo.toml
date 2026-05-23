@@ -1,17 +1,19 @@
 [workspace]
-members = [
-    "crates/edgeplaned-bin",
-    "crates/edgeplaned-acp",
-    "crates/edgeplaned-core",
-    "crates/edgeplaned-work",
-    "crates/edgeplaned-runtimes",
-    "crates/edgeplaned-sandbox",
-    "crates/edgeplaned-secrets",
-    "crates/edgeplaned-packs",
-    "crates/edgeplaned-receipts",
-    "crates/edgeplaned-sync",
-]
 resolver = "2"
+members = [
+    "crates/edgeplane",
+    "crates/edgeplane-tower",
+    "crates/edgeplaned/crates/edgeplaned-bin",
+    "crates/edgeplaned/crates/edgeplaned-acp",
+    "crates/edgeplaned/crates/edgeplaned-core",
+    "crates/edgeplaned/crates/edgeplaned-packs",
+    "crates/edgeplaned/crates/edgeplaned-receipts",
+    "crates/edgeplaned/crates/edgeplaned-runtimes",
+    "crates/edgeplaned/crates/edgeplaned-sandbox",
+    "crates/edgeplaned/crates/edgeplaned-secrets",
+    "crates/edgeplaned/crates/edgeplaned-sync",
+    "crates/edgeplaned/crates/edgeplaned-work",
+]
 
 [workspace.package]
 version = "0.15.11"
