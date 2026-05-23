@@ -1,14 +1,14 @@
 <p align="center">
-  <img src="assets/edgeplane-git-hero-image.png" alt="Edgeplane" width="100%">
+  <img src="edgeplane/assets/edgeplane-git-hero-img.png" alt="Edgeplane" width="100%">
 </p>
 
-# Edgeplane
+# EdgePlane
 
-> Kubernetes orchestrates containers. Edgeplane orchestrates agents, missions, and knowledge.
+> Kubernetes orchestrates containers. EdgePlane orchestrates agents, missions, and knowledge.
 
 AI agents can write code, run tools, and reason over architecture. What they can't do is coordinate. Without a shared system of record, parallel agents duplicate effort, diverge on state, and collide on artifacts with no resolution path.
 
-Edgeplane is a control plane for AI agents and human collaborators. It provides structured domains, durable task ownership, overlap detection before mutations, HMAC-signed governance, and a three-tier persistence model (Postgres + S3 + Git). The `edgeplane` CLI is a compiled Rust binary. Agents interact via standard MCP stdio — no custom SDK required.
+EdgePlane is a control plane for AI agents and human collaborators. It provides structured domains, durable task ownership, overlap detection before mutations, HMAC-signed governance, and a three-tier persistence model (Postgres + S3 + Git). The `edgeplane` CLI is a compiled Rust binary. Agents interact via standard MCP stdio — no custom SDK required.
 
 ## Core Capabilities
 
@@ -37,7 +37,7 @@ Edgeplane is a control plane for AI agents and human collaborators. It provides 
                └───────────────┬─────────────────┘
                                │  HTTP
 ┌──────────────────────────────▼───────────────────────────────┐
-│                     Edgeplane API                       │
+│                     EdgePlane API                       │
 │                       Axum  ·  MQTT                          │
 ├─────────────────┬──────────────────────┬─────────────────────┤
 │  Domains &      │  Tasks · Overlap     │  Governance &       │
