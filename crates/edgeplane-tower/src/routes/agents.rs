@@ -723,7 +723,7 @@ mod reserved_name_tests {
     #[test]
     fn ordinary_names_are_not_reserved() {
         assert!(!is_reserved_agent_name("aria-operator"));
-        assert!(!is_reserved_agent_name("aria-mc-engineer"));
+        assert!(!is_reserved_agent_name("aria-engineer"));
         assert!(!is_reserved_agent_name("anonymouslab"));
         assert!(!is_reserved_agent_name("system-agent"));
     }
