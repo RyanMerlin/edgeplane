@@ -729,19 +729,19 @@ async fn list_channels() -> impl IntoResponse {
 
 async fn register_node(
     State(state): State<Arc<AppState>>,
-    principal: Principal,
+    // No Principal required — the join token IS the credential.
+    // owner_subject is extracted from the join token row itself.
     Json(body): Json<NodeRegister>,
 ) -> impl IntoResponse {
     let now = Utc::now().naive_utc();
-    let subject = &principal.subject;
 
-    // 1. Hash the bootstrap token and look it up
+    // 1. Hash the bootstrap token and look it up (no owner_subject filter —
+    //    the token is self-authenticating; its owner becomes the node's owner).
     let token_hash = hash_token_local(&body.bootstrap_token);
     let token_row = match sqlx::query(
-        "SELECT * FROM runtimejointoken WHERE token_hash=$1 AND status='active' AND owner_subject=$2",
+        "SELECT * FROM runtimejointoken WHERE token_hash=$1 AND status='active'",
     )
     .bind(&token_hash)
-    .bind(subject)
     .fetch_optional(&state.db)
     .await
     {
@@ -786,6 +786,7 @@ async fn register_node(
     }
 
     let token_id: String = token_row.get("id");
+    let subject: String = token_row.get("owner_subject");
 
     // 4. Check node_name uniqueness
     match sqlx::query("SELECT id FROM runtimenode WHERE node_name=$1")
@@ -826,7 +827,7 @@ async fn register_node(
          VALUES ($1,$2,$3,$4,'registered',$5,$6,$7,$8,$9,$10,$11,$12,$13,NULL,$14,$14) RETURNING *",
     )
     .bind(&node_id)
-    .bind(subject)
+    .bind(&subject)
     .bind(&body.node_name)
     .bind(&body.hostname)
     .bind(&body.trust_tier)
@@ -875,7 +876,7 @@ async fn register_node(
     // 8. Ensure node spec
     let _ = ensure_node_spec(
         &state.db,
-        subject,
+        &subject,
         &node_id,
         &body.node_name,
         &body.trust_tier,
@@ -886,11 +887,31 @@ async fn register_node(
     )
     .await;
 
-    // Return node fields + attach_secret (plaintext, this response only).
+    // 9. Issue RS256 node JWT (90-day TTL).
+    let (node_jwt, jti) = match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, 90) {
+        Ok(pair) => pair,
+        Err(e) => {
+            tracing::error!("register_node jwt sign: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let jwt_expires = now + chrono::Duration::days(90);
+    let _ = sqlx::query(
+        "INSERT INTO nodetoken (jti, node_id, revoked, issued_at, expires_at) VALUES ($1,$2,false,$3,$4)",
+    )
+    .bind(&jti)
+    .bind(&node_id)
+    .bind(now)
+    .bind(jwt_expires)
+    .execute(&state.db)
+    .await;
+
+    // Return node fields + attach_secret + node_jwt (plaintext, this response only).
     // Per-node home-domain auto-provisioning was removed in 0.15.9 — edgeplaned's
     // bootstrap module owns the single-global `home` domain now.
     let mut resp = row_to_node(&node_row);
     resp["attach_secret"] = serde_json::Value::String(attach_secret);
+    resp["node_jwt"] = serde_json::Value::String(node_jwt);
     (StatusCode::CREATED, Json(resp)).into_response()
 }
 
