@@ -7,7 +7,7 @@ use std::process::Command;
 use tempfile::tempdir;
 
 fn ep_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_mc")
+    env!("CARGO_BIN_EXE_edgeplane")
 }
 
 /// Seed a session.json with a test token in `ep_home`, mimicking the file

@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 use tempfile::tempdir;
 
 fn ep_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_mc")
+    env!("CARGO_BIN_EXE_edgeplane")
 }
 
 #[test]
