@@ -909,18 +909,18 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &EdgeplaneClient) -> Resu
                     println!("No agents enrolled. Use `edgeplane daemon agent enroll` to add one.");
                 } else {
                     println!(
-                        "{:<38} {:<14} {:<12} {:<14} {}",
-                        "ID", "RUNTIME", "SUPERVISION", "DOMAIN", "ENROLLED"
+                        "{:<20} {:<18} {:<14} {:<12} {}",
+                        "ID", "SOURCE", "RUNTIME", "SUPERVISION", "ENROLLED"
                     );
-                    println!("{}", "-".repeat(95));
+                    println!("{}", "-".repeat(80));
                     for ag in &agents {
                         println!(
-                            "{:<38} {:<14} {:<12} {:<14} {}",
+                            "{:<20} {:<18} {:<14} {:<12} {}",
                             ag.id,
+                            ag.source,
                             ag.runtime_kind,
                             ag.supervision_mode,
-                            ag.domain_id,
-                            &ag.enrolled_at[..10], // date only
+                            &ag.enrolled_at[..10],
                         );
                     }
                 }

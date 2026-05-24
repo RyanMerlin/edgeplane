@@ -85,6 +85,7 @@ fn ensure_schema(conn: &Connection) -> Result<()> {
 // ---------- Operations ----------
 
 pub struct LocalAgent {
+    pub source: String,
     pub id: String,
     pub domain_id: String,
     pub runtime_kind: String,
@@ -149,18 +150,18 @@ pub fn list(domain_filter: Option<&str>) -> Result<Vec<LocalAgent>> {
     let conn = open()?;
     let (sql, param): (&str, Option<&str>) = if let Some(m) = domain_filter {
         (
-            "SELECT id, domain_id, runtime_kind, supervision_mode, \
+            "SELECT source, id, domain_id, runtime_kind, supervision_mode, \
                      capabilities_json, profile_path, enrolled_at \
-              FROM agent WHERE source = 'local' AND domain_id = ?1 \
-              ORDER BY enrolled_at ASC",
+              FROM agent WHERE domain_id = ?1 \
+              ORDER BY source, enrolled_at ASC",
             Some(m),
         )
     } else {
         (
-            "SELECT id, domain_id, runtime_kind, supervision_mode, \
+            "SELECT source, id, domain_id, runtime_kind, supervision_mode, \
                      capabilities_json, profile_path, enrolled_at \
-              FROM agent WHERE source = 'local' \
-              ORDER BY enrolled_at ASC",
+              FROM agent \
+              ORDER BY source, enrolled_at ASC",
             None,
         )
     };
@@ -177,17 +178,32 @@ pub fn list(domain_filter: Option<&str>) -> Result<Vec<LocalAgent>> {
 }
 
 fn row_to_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalAgent> {
-    let caps_json: String = row.get(4)?;
+    let caps_json: String = row.get(5)?;
     let capabilities: Vec<String> = serde_json::from_str(&caps_json).unwrap_or_default();
     Ok(LocalAgent {
-        id: row.get(0)?,
-        domain_id: row.get(1)?,
-        runtime_kind: row.get(2)?,
-        supervision_mode: row.get(3)?,
+        source: row.get(0)?,
+        id: row.get(1)?,
+        domain_id: row.get(2)?,
+        runtime_kind: row.get(3)?,
+        supervision_mode: row.get(4)?,
         capabilities,
-        profile_path: row.get(5)?,
-        enrolled_at: row.get(6)?,
+        profile_path: row.get(6)?,
+        enrolled_at: row.get(7)?,
     })
+}
+
+/// Remove agents by source tag. Returns the number of rows deleted.
+pub fn unenroll_by_source(source: &str) -> Result<usize> {
+    let conn = open()?;
+    let n = conn.execute(
+        "DELETE FROM agent WHERE source = ?1",
+        params![source],
+    )?;
+    let _ = conn.execute(
+        "DELETE FROM agent_launch_context WHERE source = ?1",
+        params![source],
+    );
+    Ok(n)
 }
 
 // ---------- Manifest import ----------
@@ -256,10 +272,10 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
         )?;
 
         // Upsert launch context row.
-        // state_dir_spec serialised as {"Persistent":{"path":"..."}} to match
-        // the edgeplaned StateDirSpec enum's serde representation.
+        // state_dir_spec uses internally-tagged format to match edgeplaned-core's
+        // StateDirSpec enum: #[serde(tag = "kind", rename_all = "snake_case")]
         let state_dir_spec = serde_json::json!({
-            "Persistent": { "path": profile.state_dir }
+            "kind": "persistent", "path": profile.state_dir
         })
         .to_string();
 
