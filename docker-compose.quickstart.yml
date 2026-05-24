@@ -69,7 +69,6 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://edgeplane:edgeplane@postgres:5432/edgeplane
-      EP_TOKEN: ${EP_TOKEN:-}
       EP_OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
       EP_OBJECT_STORAGE_REGION: us-east-1
       EP_OBJECT_STORAGE_BUCKET: edgeplane
@@ -101,7 +100,6 @@ services:
       EP_BASE_URL: http://api:8008
       EP_DAEMON_HOST: 0.0.0.0
       EP_DAEMON_PORT: "8765"
-      EP_TOKEN: ${EP_TOKEN:-}
     ports:
       - "8765:8765"
     healthcheck:

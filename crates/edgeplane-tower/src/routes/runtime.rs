@@ -2425,11 +2425,6 @@ async fn execution_session_pty(
     // Verify token and session ownership before upgrading
     let allowed = async {
         if token.is_empty() { return false; }
-        // Look up session by session_id, verify ownership via attach_token or admin token
-        let admin_tok = std::env::var("EP_TOKEN").unwrap_or_default();
-        if !admin_tok.is_empty() && token == admin_tok { return true; }
-
-        // Check attach token
         let hash = hash_token_local(&token);
         let row = sqlx::query(
             "SELECT es.id FROM executionsession es \
@@ -2604,10 +2599,20 @@ async fn verify_attach_caller_token(state: &AppState, token: &str) -> bool {
     if token.is_empty() {
         return false;
     }
-    // Admin token short-circuit.
-    let admin = std::env::var("EP_TOKEN").unwrap_or_default();
-    if !admin.is_empty() && token == admin {
-        return true;
+    // Node JWT fast path — verify in-process, then confirm JTI not revoked.
+    if token.matches('.').count() == 2 {
+        if let Ok(claims) = crate::jwt::verify_node_jwt(token, &state.jwt_decoding_key) {
+            let now = chrono::Utc::now().naive_utc();
+            return matches!(
+                sqlx::query("SELECT revoked FROM nodetoken WHERE jti=$1 AND expires_at > $2 AND revoked=false")
+                    .bind(&claims.jti)
+                    .bind(now)
+                    .fetch_optional(&state.db)
+                    .await,
+                Ok(Some(_))
+            );
+        }
+        return false;
     }
     // Look up either a user session or service-account token by hash.
     let hash = hash_token_local(token);

@@ -5,9 +5,9 @@ maturity: beta
 owners:
   - platform
 summary: >
-  Supports token, OIDC, and dual auth flows for API, MCP, and browser sessions.
-  Token mode uses EP_TOKEN header. OIDC uses PKCE browser flow with one-time exchange
-  into an mcs session token. Dual mode allows both.
+  Supports OIDC, service-account tokens, and node JWTs.
+  OIDC uses PKCE browser flow with one-time exchange into an mcs session token.
+  Node JWTs (RS256) are issued at registration and proactively rotated at 60 days.
 
 source_of_truth:
   docs:
@@ -30,9 +30,9 @@ entrypoints:
 
 interfaces:
   env_vars:
-    - AUTH_MODE          # token | oidc | dual
+    - AUTH_MODE          # oidc | dual
     - OIDC_REQUIRED      # true | false
-    - EP_TOKEN           # bearer token for token auth
+    - EP_JWT_SIGNING_KEY # base64-encoded PKCS#8 RSA PEM for node JWT signing
     - OIDC_ISSUER_URL    # OIDC provider URL
     - OIDC_CLIENT_ID
     - OIDC_CLIENT_SECRET

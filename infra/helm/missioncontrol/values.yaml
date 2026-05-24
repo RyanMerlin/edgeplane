@@ -12,7 +12,6 @@ service:
 
 config:
   EP_BASE_URL: https://edgeplane.internal
-  EP_TOKEN: placeholder-token
   POSTGRES_HOST: placeholder-postgres
   POSTGRES_USER: ep_admin
   POSTGRES_PASSWORD: placeholder

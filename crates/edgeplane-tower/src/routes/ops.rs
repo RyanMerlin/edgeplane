@@ -325,7 +325,7 @@ async fn post_secrets_bootstrap(
         .unwrap_or_default();
 
     const DEFAULT_NAMES: &[&str] = &[
-        "EP_TOKEN", "MQTT_PASSWORD", "POSTGRES_PASSWORD",
+        "MQTT_PASSWORD", "POSTGRES_PASSWORD",
         "EP_OBJECT_STORAGE_ACCESS_KEY", "EP_OBJECT_STORAGE_ACCESS_SECRET",
     ];
     for &name in DEFAULT_NAMES {

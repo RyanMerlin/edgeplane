@@ -20,7 +20,7 @@ source_of_truth:
 
 entrypoints:
   verify:
-    - command: 'curl http://localhost:8008/remotectl/targets -H "Authorization: Bearer $EP_TOKEN"'
+    - command: 'curl http://localhost:8008/remotectl/targets -H "Authorization: Bearer $(edgeplane auth token)"'
       purpose: List registered targets (returns empty list if none)
 
 interfaces:

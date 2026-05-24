@@ -8,26 +8,25 @@ use base64::Engine;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
-use std::{env, sync::Arc};
+use std::sync::Arc;
 
 use crate::state::AppState;
 
 /// Caller identity extracted from request headers.
 ///
-/// Note: `auth_type` is one of `"static"`, `"session"`, or `"service_account"`.
-/// The historical `"anonymous"` synthetic principal was removed in Phase 1.5;
-/// Phase 1.6 (this change) adds the `require_auth` middleware that gates
-/// every route except the documented `is_public_path` allowlist. The
-/// extractor reads from request extensions (where the middleware caches
-/// the resolved Principal) before falling back to a full lookup, so
-/// handlers can still take `principal: Principal` without paying for a
-/// second DB round-trip per request.
+/// Note: `auth_type` is one of `"session"`, `"service_account"`, or `"node"`.
+/// The `"static"` EP_TOKEN path was removed — all callers authenticate via
+/// OIDC session tokens (mcs_*), service-account tokens (mcs_sa_*), or
+/// RS256 node JWTs. The extractor reads from request extensions (where the
+/// `require_auth` middleware caches the resolved Principal) before falling
+/// back to a full lookup, so handlers can still take `principal: Principal`
+/// without a second DB round-trip per request.
 #[derive(Clone)]
 pub struct Principal {
     pub subject: String,
     pub is_admin: bool,
     pub session_id: Option<i32>,
-    /// One of: "static", "session", "service_account"
+    /// One of: "session", "service_account", "node"
     pub auth_type: String,
 }
 
@@ -64,7 +63,6 @@ impl FromRequestParts<Arc<AppState>> for Principal {
         if let Some(p) = parts.extensions.get::<Principal>() {
             return Ok(p.clone());
         }
-        let admin_token = env::var("EP_TOKEN").ok();
         let bearer = parts
             .headers
             .get("authorization")
@@ -87,22 +85,6 @@ impl FromRequestParts<Arc<AppState>> for Principal {
 
         // Bearer takes priority; fall back to cookie session.
         let token_credential = bearer.clone().or(cookie_token);
-
-        let agent_id_header = parts
-            .headers
-            .get("x-edgeplane-agent-id")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.trim().to_string());
-
-        // Static admin token — bootstrap-only path, see the EP_TOKEN policy
-        // in docs/plans/edgeplane-tui-auth-spec.md. Steady-state callers should use
-        // session tokens (mcs_*) or service-account tokens (mcs_sa_*).
-        if let (Some(t), Some(b)) = (&admin_token, &bearer) {
-            if t == b {
-                let subject = agent_id_header.clone().unwrap_or_else(|| "admin".into());
-                return Ok(Principal { subject, is_admin: true, session_id: None, auth_type: "static".into() });
-            }
-        }
 
         if let Some(ref token) = token_credential {
             let hash = hash_token(token);
