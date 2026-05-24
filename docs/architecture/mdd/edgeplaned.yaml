@@ -1,0 +1,202 @@
+schema_version: 1
+binary: edgeplaned
+crate: edgeplaned
+status: implemented
+stability: stable
+owner: edgeplane-core
+last_reviewed: 2026-05-24
+
+description: |
+  edgeplaned is Edgeplane's local agent-coordination daemon. It runs on each
+  participating node, supervises long-lived agent sessions (claude-code, codex,
+  gemini), dispatches scheduled prompts/scripts via its cron loop, supervises
+  systemd units, and brokers secrets and capability execution. It is the
+  per-node executor counterpart to the central edgeplane-tower API server.
+
+position_in_stack: |
+  Daemon on every Edgeplane-participating node. Sits between the edgeplane CLI
+  (its primary client) and the long-lived agent runtimes it supervises;
+  reports state to edgeplane-tower over the EP mesh.
+
+runtime:
+  kind: long_running
+  systemd_unit: edgeplaned.service
+  binds:
+    - "unix:~/.edgeplane/edgeplaned/sock/edgeplaned.sock"
+  install_path: /usr/local/bin/edgeplaned  # also ~/.cargo/bin/edgeplaned
+  config_paths:
+    - ~/.edgeplane/edgeplaned/cron.toml
+    - ~/.edgeplane/edgeplaned/config.toml
+  state_paths:
+    - ~/.edgeplane/edgeplaned/state/
+    - ~/.edgeplane/edgeplaned/logs/
+    - ~/.edgeplane/edgeplaned/cron-last-fires.json
+  env_vars:
+    - name: EDGEPLANED_CONFIG
+      required: false
+      default: ~/.edgeplane/edgeplaned/config.toml
+
+commands:
+  - name: run
+    status: implemented
+    stability: stable
+    description: |
+      Start the daemon supervisor + task loops. Reads config and cron.toml,
+      registers itself with edgeplane-tower, then runs forever until SIGTERM.
+    subcommands: []
+
+  - name: doctor
+    status: implemented
+    stability: stable
+    description: |
+      Read-only health check. Verifies lock state, port reachability, registry
+      contents, and runtime availability. Safe to run anytime; does not connect
+      to a running daemon.
+    subcommands: []
+
+  - name: get-secret
+    status: implemented
+    stability: stable
+    description: |
+      Fetch a secret from the running daemon's secrets broker. Used by
+      supervised agents that don't carry their own Infisical credentials.
+    subcommands: []
+
+  - name: version
+    status: implemented
+    stability: stable
+    description: Print binary version.
+    subcommands: []
+
+# Most user-visible verbs are surfaced via `edgeplane agent ...`, `edgeplane
+# agent cron ...`, `edgeplane agent supervise ...` which talk to edgeplaned
+# over its local socket. edgeplaned's own subcommand surface is intentionally
+# minimal because the CLI is the human interface.
+
+entities_owned:
+  - name: MeshAgent
+    ref: docs/architecture/entities.md#meshagent
+    operations: [enroll, update, heartbeat, deregister]
+  - name: AgentSession
+    ref: docs/architecture/entities.md#agentsession
+    operations: [create, end]
+  - name: AgentRun
+    ref: docs/architecture/entities.md#agentrun
+    operations: [create, update, complete, fail]
+  - name: ExecutionSession
+    ref: docs/architecture/entities.md#executionsession
+    operations: [create, lease, release]
+
+external_dependencies:
+  - name: systemd
+    purpose: agent process supervision (supervise loop)
+    via: systemctl --user
+    required: true
+  - name: zellij
+    purpose: agent terminal session host
+    via: subprocess
+    required: false
+  - name: postgres
+    purpose: durable state for sessions, runs, tasks
+    via: edgeplane-tower API
+    required: true
+  - name: claude-code-acp
+    purpose: claude agent runtime (ACP protocol)
+    via: subprocess
+    required: false
+  - name: codex, gemini CLI runtimes
+    purpose: alternative agent runtimes
+    via: subprocess
+    required: false
+
+internal_dependencies:
+  - binary: edgeplane-tower
+    via: HTTP API + EP mesh
+    purpose: durable state, agent registry, mission/task coordination
+
+outputs:
+  - type: agent_session
+    target: claude-code / codex / gemini runtimes
+    format: ACP protocol or stdio JSON-RPC
+  - type: log
+    target: ~/.edgeplane/edgeplaned/logs/ + journal
+    format: structured tracing (json)
+  - type: ledger_event
+    target: ~/.edgeplane/edgeplaned/state/ledger.db (SQLite)
+    purpose: receipt log for capability executions
+
+consumed_by:
+  - binary: edgeplane
+    via: local unix socket + HTTP
+    purpose: CLI operations (agent signal, cron list, supervise list, etc.)
+
+adr_refs:
+  - id: "0003"
+    title: edgeplane CLI hierarchy hard cutover
+    path: docs/adr/0003-edgeplane-cli-hierarchy-hard-cutover.md
+
+notes: |
+  Phases 4-6 of the daemon-absorption migration consolidated three previously
+  separate aria-rs binaries (aria cron, aria watchdog, aria fleet) into
+  edgeplaned. edgeplaned now owns: agent supervision, cron dispatch, secret
+  brokering, and capability execution. See aria-rs CHANGELOG.md 0.5.0 for the
+  removal of the legacy aria-side daemons.
+
+# ─── PROPOSED CHANGES ────────────────────────────────────────────────────────
+
+proposed_changes:
+  - id: recurring-task-templates
+    status: proposed
+    target_release: 0.16.0
+    spec_ref: docs/superpowers/specs/2026-05-24-edgeplane-recurring-tasks-design.md
+    summary: |
+      Introduce a `RecurringTaskTemplate` entity that emits MeshTasks on
+      cadence (named tier, raw cron, or freshness_max_age). The template
+      declares: runtime_kind (subprocess | agent_dispatch), target node,
+      execution spec, artifact contract, mission_id, on_failure, timeouts.
+
+      A new edgeplaned loop watches templates and emits MeshTasks when due,
+      reusing all existing MeshTask/Agent/Artifact machinery for actual
+      execution. CLI sugar: `edgeplane modules {list,apply,describe,run,
+      disable,enable,logs}` queries templates + their emitted MeshTasks.
+
+      This replaces the ad-hoc "anonymous prompt at agent" cron entries
+      currently in cron.toml when those prompts produce a durable artifact.
+      cron.toml stays for purely one-shot signal-into-agent prompts that
+      don't produce a typed artifact.
+
+    fields_affected:
+      - field: entities_owned
+        change: "add RecurringTaskTemplate — operations: create, list, dispatch, disable"
+      - field: commands
+        change: "add `modules` subcommand surface (delegated from edgeplane CLI)"
+      - field: external_dependencies
+        change: "add SSH for remote-node subprocess dispatch (v1)"
+      - field: state_paths
+        change: "add postgres tables `recurring_task_template`, `recurring_task_template_run`"
+
+    open_questions:
+      - SSH-based remote dispatch for non-local nodes (v1) vs proper edgeplane-node-agent (v2)?
+      - Tier definitions live in modules.yaml or in a new edgeplaned config block?
+      - Compositor-pattern dependencies (depends_on with freshness gating): in v1 scope or deferred?
+
+  - id: node-agent-on-cluster-nodes
+    status: proposed
+    target_release: post-0.16
+    spec_ref: TBD (depends on recurring-task-templates landing first)
+    summary: |
+      Currently edgeplaned runs only on excalibur. For modules whose
+      execution should happen on cloud0/epyc/kai (e.g., local kubectl access),
+      v1 uses SSH dispatch from excalibur. v2 promotes each cluster node to
+      a full edgeplaned instance, enrolled with tower as a MeshAgent runtime,
+      with proper mesh-transported heartbeats and cancellation.
+
+    fields_affected:
+      - field: runtime.binds
+        change: "each node-local edgeplaned exposes the same unix socket"
+      - field: consumed_by
+        change: "extends to mesh-transport dispatch from other edgeplaneds"
+
+    open_questions:
+      - Multi-edgeplaned leader election (or do all instances claim independently from tower)?
+      - State store: each daemon's local SQLite ledger vs centralized in tower?

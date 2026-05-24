@@ -1,0 +1,326 @@
+schema_version: 1
+binary: edgeplane
+crate: edgeplane
+status: implemented
+stability: stable
+owner: edgeplane-core
+last_reviewed: 2026-05-24
+
+description: |
+  edgeplane is the user-facing CLI and local agent gateway. It is the primary
+  human interface to Edgeplane: it talks to edgeplane-tower for durable state,
+  speaks to the local edgeplaned daemon for agent supervision and dispatch,
+  and exposes MCP-server, channel-server, and TUI surfaces for richer flows.
+  Previously called edgeplane-mcp-rs; renamed during the unified-CLI cutover.
+
+position_in_stack: |
+  Top of the Edgeplane stack on each operator/admin machine. Users run
+  `edgeplane <command>`; commands route to tower (HTTP), edgeplaned (local
+  socket), or directly to runtime-bound MCP/channel servers depending on the
+  verb.
+
+runtime:
+  kind: one_shot  # most commands; `serve`, `channel`, `tui` are long-running
+  systemd_unit: null
+  binds:
+    # Only when running `edgeplane serve` (MCP stdio server) or `edgeplane channel ...`
+    # serve: stdio JSON-RPC (no port)
+    # channel: depends on subcommand, see config
+    - "(none for one-shot commands)"
+  install_path: /usr/local/bin/edgeplane  # also via cargo install
+  config_paths:
+    - ~/.ep/config.toml
+    - ~/.ep/contexts/{context}.toml
+    - ~/.ep/servers (discovered tower endpoints)
+  state_paths:
+    - ~/.ep/state/
+    - ~/.ep/auth/ (OIDC tokens, refresh tokens)
+  env_vars:
+    - name: EP_BASE_URL
+      required: false
+      default: "(from active context)"
+    - name: EP_TOKEN
+      required: false
+      default: "(OIDC-issued)"
+
+# ─── Commands ────────────────────────────────────────────────────────────────
+# Top-level subcommands of `edgeplane`. Nested subcommands listed under each.
+# All stable unless noted.
+
+commands:
+  - name: status
+    status: implemented
+    stability: stable
+    description: Show local/runtime/auth context for the current shell.
+
+  - name: doctor
+    status: implemented
+    stability: stable
+    description: Shortcut for `edgeplane system doctor`. Diagnostic health rollup.
+
+  - name: health
+    status: implemented
+    stability: stable
+    description: Lightweight backend readiness check.
+
+  - name: version
+    status: implemented
+    stability: stable
+    description: Show binary + backend version details.
+
+  - name: config
+    status: implemented
+    stability: stable
+    description: Show effective runtime config (redacted secrets).
+
+  - name: use
+    status: implemented
+    stability: stable
+    description: Switch active context/profile.
+
+  - name: release
+    status: implemented
+    stability: stable
+    description: Release the currently attached workspace lease.
+
+  - name: logs
+    status: implemented
+    stability: stable
+    description: Tail local Edgeplane logs.
+
+  - name: completion
+    status: implemented
+    stability: stable
+    description: Generate shell completion scripts.
+
+  - name: artifact
+    status: implemented
+    stability: stable
+    description: Artifact retrieval and mutation helpers.
+
+  - name: auth
+    status: implemented
+    stability: stable
+    description: Authentication and identity helpers (OIDC login, token refresh).
+
+  - name: admin
+    status: implemented
+    stability: stable
+    description: Governance and admin workflows (domain mgmt, role grants).
+
+  - name: data
+    status: implemented
+    stability: stable
+    description: Data/catalog/read workflows (tools, sync, explorer).
+
+  - name: system
+    status: implemented
+    stability: stable
+    description: Platform diagnostics and release-control workflows.
+
+  - name: agent
+    status: implemented
+    stability: stable
+    description: Agent control — signal, attach, cancel, list, describe, cron, supervise, node.
+    subcommands: [signal, cancel, list, describe, node, evolve, attach, cron, supervise]
+
+  - name: runtime
+    status: implemented
+    stability: stable
+    description: Runtime fabric workflows (nodes, jobs, leases).
+
+  - name: approvals
+    status: implemented
+    stability: stable
+    description: Approval workflow commands (requests, decisions).
+
+  - name: workspace
+    status: implemented
+    stability: stable
+    description: Workspace lifecycle helpers (load/heartbeat/artifact/commit/release).
+
+  - name: ops
+    status: implemented
+    stability: stable
+    description: Domain operations (lifecycle orchestration and execution workflows).
+
+  - name: launch
+    status: implemented
+    stability: stable
+    description: Launch an agent with a fully wired Edgeplane harness.
+
+  - name: update
+    status: implemented
+    stability: stable
+    description: Self-update helper.
+
+  - name: init
+    status: implemented
+    stability: stable
+    description: Initialize MC profile state for first-time usage.
+
+  - name: serve
+    status: implemented
+    stability: stable
+    description: Start an MCP server (stdio JSON-RPC 2.0) for LLM runtime connections.
+
+  - name: channel
+    status: implemented
+    stability: beta
+    description: Claude channel server integrations (real-time inbox/approvals).
+
+  - name: profile
+    status: implemented
+    stability: stable
+    description: Manage Edgeplane user profiles (publish/pull/activate).
+
+  - name: secrets
+    status: implemented
+    stability: stable
+    description: Secrets provider + reference helpers (Infisical wrapper).
+
+  - name: daemon
+    status: implemented
+    stability: stable
+    description: edgeplaned daemon control and work-model commands.
+
+  - name: run
+    status: implemented
+    stability: stable
+    description: Launch an agent runtime with a unified interface.
+
+  - name: capabilities
+    status: implemented
+    stability: stable
+    description: List and describe capability packs available through edgeplaned.
+
+  - name: exec
+    status: implemented
+    stability: stable
+    description: Execute a capability.
+
+  - name: receipts
+    status: implemented
+    stability: stable
+    description: Inspect capability execution receipts in local SQLite audit log.
+
+  - name: mesh-sync
+    status: implemented
+    stability: stable
+    description: Bidirectional git-backed config sync for this node.
+
+  - name: discover
+    status: implemented
+    stability: stable
+    description: Discover edgeplane-tower nodes and write ~/.ep/servers.
+
+  - name: tui
+    status: implemented
+    stability: beta
+    description: Launch ratatui terminal UI for fleet monitoring.
+
+  - name: context
+    status: implemented
+    stability: stable
+    description: Manage named controlplane connection contexts.
+
+entities_owned:
+  - name: (none — read-only CLI; all mutations flow through tower API or edgeplaned socket)
+
+# What this CLI READS from / WRITES to (via API/socket)
+entities_touched:
+  - name: Agent / MeshAgent / AISession / AgentSession / AgentRun
+    via: edgeplane-tower HTTP API + edgeplaned local socket
+    operations: [list, describe, signal, cancel, attach]
+  - name: Mission / Domain / Task / MeshTask / Artifact / DomainRoleMembership
+    via: edgeplane-tower HTTP API
+    operations: [list, describe, mutate (per ADR-0003 role gates)]
+
+external_dependencies:
+  - name: OIDC provider (Authentik)
+    purpose: authentication
+    via: device-flow or PKCE
+    required: true
+  - name: Infisical
+    purpose: secrets resolution
+    via: HTTPS API
+    required: false  # only for commands that touch secrets
+
+internal_dependencies:
+  - binary: edgeplane-tower
+    via: HTTP API
+    purpose: durable state, governance, RBAC
+  - binary: edgeplaned
+    via: local unix socket + HTTP
+    purpose: agent supervision and dispatch on the local node
+
+outputs:
+  - type: stdout
+    target: console (text or `--json`)
+  - type: api_call
+    target: edgeplane-tower / edgeplaned
+  - type: artifact
+    target: postgres.artifact (via tower)
+  - type: log
+    target: ~/.ep/logs/ + stderr
+
+consumed_by:
+  - binary: human operators (CLI use)
+  - binary: claude-code-acp runtime (via `edgeplane launch` / `edgeplane serve`)
+  - binary: shell completion + scripts
+
+adr_refs:
+  - id: "0003"
+    title: edgeplane CLI hierarchy hard cutover
+    path: docs/adr/0003-edgeplane-cli-hierarchy-hard-cutover.md
+
+notes: |
+  This binary previously hosted both the CLI surface AND the matrix bridge /
+  channel server / MCP server. The "matrix bridge" framing in the crate README
+  is historical — those are now subcommands (`channel`, `serve`) rather than
+  separate binaries.
+
+  CLI surface is broad (~30 top-level commands). This is intentional: the CLI
+  is the primary human interface and adopts a kubectl-like wide-and-shallow
+  shape rather than a small set of high-level verbs. Per ADR-0003, the
+  hierarchy was hard-cutover (no transitional aliases), and surface
+  stabilization is enforced via this MDD's `status: stable` markers.
+
+# ─── PROPOSED CHANGES ────────────────────────────────────────────────────────
+
+proposed_changes:
+  - id: edgeplane-modules
+    status: proposed
+    target_release: 0.16.0
+    spec_ref: docs/superpowers/specs/2026-05-24-edgeplane-recurring-tasks-design.md
+    summary: |
+      Add `edgeplane modules` top-level subcommand. CLI sugar over the
+      RecurringTaskTemplate entity owned by edgeplaned/tower. Subcommands:
+        list      — list templates + last-run state
+        describe  — manifest + recent runs + artifact pointer
+        apply     — register/update from a YAML manifest
+        run       — manual ad-hoc fire
+        disable   — pause without deleting
+        enable    — resume
+        logs      — stdout/stderr of a specific run
+        artifact  — print last artifact path / content head
+
+    fields_affected:
+      - field: commands
+        change: "add `modules` entry (status: proposed → implemented when shipped)"
+
+    open_questions:
+      - Should `apply` accept a directory of YAML files (terraform-style) or only single files?
+      - JSON output format must match other `edgeplane --json` conventions for piping.
+
+  - id: edgeplane-mdd-validate
+    status: proposed
+    target_release: 0.17.0
+    summary: |
+      Add `edgeplane system mdd-validate` to validate `docs/architecture/mdd/*.yaml`
+      against the schema and against running binary command surfaces. Initially
+      advisory; flag policy-locks via ADR when team trusts the validation.
+
+    fields_affected:
+      - field: commands.system
+        change: "add `mdd-validate` subcommand"

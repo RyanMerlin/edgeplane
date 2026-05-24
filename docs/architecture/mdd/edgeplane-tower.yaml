@@ -1,0 +1,293 @@
+schema_version: 1
+binary: edgeplane-tower
+crate: edgeplane-tower
+status: implemented
+stability: stable
+owner: edgeplane-core
+last_reviewed: 2026-05-24
+
+description: |
+  edgeplane-tower is the central API server and persistent state authority
+  for Edgeplane. It owns the Postgres-backed schema for Domains, Missions,
+  Tasks, MeshTasks, Agents, Sessions, AgentRuns, Artifacts, and
+  DomainRoleMemberships. It exposes the HTTP API consumed by edgeplane (CLI)
+  and edgeplaned (daemon). OIDC-authenticated, role-gated, real-time
+  SSE-capable for inbox/approval streams.
+
+position_in_stack: |
+  Stateful core of the Edgeplane control plane. One instance (today) running
+  on excalibur, reachable via Tailscale at edgeplane:8008. All durable state
+  funnels through this binary; everything else is a client.
+
+runtime:
+  kind: long_running
+  systemd_unit: edgeplane-tower.service
+  binds:
+    - "tcp:0.0.0.0:8008"
+  install_path: /usr/local/bin/edgeplane-tower
+  config_paths:
+    - (via environment variables — see env_vars)
+  state_paths:
+    - postgres://edgeplane-tower/edgeplane (the authoritative store)
+  env_vars:
+    - name: EP_BIND
+      required: false
+      default: "0.0.0.0:8008"
+    - name: EP_NODE_ID
+      required: false
+      default: null
+      purpose: informational, returned in /raft/status
+    - name: EP_ADVERTISE_URL
+      required: false
+      default: null
+    - name: EP_API_PROXY
+      required: false
+      default: null
+      purpose: optional legacy upstream for unknown routes
+    - name: DATABASE_URL
+      required: true
+      purpose: Postgres connection string for the tower DB
+    - name: EP_OIDC_*
+      required: true
+      purpose: OIDC provider config (issuer, client id/secret, scopes)
+
+commands:
+  - name: (default)
+    status: implemented
+    stability: stable
+    description: |
+      Start the HTTP server. No subcommand needed — `edgeplane-tower` with
+      no args runs the server using flags / env vars for config.
+    flags:
+      - --bind
+      - --node-id
+      - --advertise-url
+      - --api-proxy
+      - --no-migrate  # skip auto-migrate on startup
+
+# ─── HTTP API surface (abbreviated) ──────────────────────────────────────────
+# Full surface is in docs/catalog/api.yaml (OpenAPI). This section lists the
+# major resource families for orientation; treat OpenAPI as source of truth
+# for paths, methods, request/response shapes.
+
+api_resource_families:
+  - family: agents
+    paths:
+      - /agents
+      - /agents/{agent_id}
+      - /agents/{agent_id}/{message|inbox|messages|sessions|domain|restart|clear-context}
+      - /agents/assignments
+    purpose: Agent registration, message dispatch, session control
+    status: implemented
+    stability: stable
+
+  - family: ai-sessions
+    paths:
+      - /ai/sessions
+      - /ai/sessions/{id}
+      - /ai/sessions/{id}/{stream|turns}
+      - /ai/sessions/{id}/actions/{action_id}/{approve|reject}
+      - /ai/runtime-capabilities
+    purpose: AI session lifecycle, SSE streaming, approval actions
+    status: implemented
+    stability: stable
+
+  - family: approvals
+    paths:
+      - /approvals
+      - /approvals/requests
+      - /approvals/{approval_id}/{approve|reject|respond}
+    purpose: Approval workflow
+    status: implemented
+    stability: stable
+
+  - family: artifacts
+    paths:
+      - /artifacts
+    purpose: Artifact create/list/get/delete
+    status: implemented
+    stability: stable
+
+  - family: auth
+    paths:
+      - /auth/me
+      - /auth/logout
+      - /auth/oidc/callback
+      - /auth/oidc/cli-initiate
+    purpose: OIDC auth flow
+    status: implemented
+    stability: stable
+
+  - family: missions / domains / tasks
+    paths:
+      # (full set in OpenAPI; abbreviated here)
+      - /missions/*
+      - /domains/*
+      - /tasks/*
+      - /meshtasks/*
+    purpose: Coordination entity CRUD
+    status: implemented
+    stability: stable
+
+  - family: capabilities + receipts
+    paths:
+      - /capabilities/*
+      - /receipts/*
+    purpose: Capability pack discovery, exec history
+    status: implemented
+    stability: stable
+
+  - family: realtime
+    paths:
+      - "(SSE streams for inbox + approval queues — see docs/reference/REAL-TIME.md)"
+    purpose: Live updates to CLI/TUI consumers
+    status: implemented
+    stability: stable
+
+entities_owned:
+  - name: Domain
+    ref: docs/architecture/entities.md#domain
+    operations: [create, read, update, archive]
+  - name: Mission
+    ref: docs/architecture/entities.md#mission
+    operations: [create, read, update, archive]
+  - name: Task
+    ref: docs/architecture/entities.md#task
+    operations: [create, read, update, complete]
+  - name: MeshTask
+    ref: docs/architecture/entities.md#meshtask
+    operations: [create, claim-via-lease, update, complete, fail]
+  - name: Artifact
+    ref: docs/architecture/entities.md#artifact
+    operations: [create, read, version, archive]
+  - name: Agent
+    ref: docs/architecture/entities.md#agent
+    operations: [register, update, deregister]
+  - name: MeshAgent
+    ref: docs/architecture/entities.md#meshagent
+    operations: [enroll, heartbeat, update, deregister]
+  - name: AISession / AgentSession / ExecutionSession / AgentRun
+    ref: docs/architecture/entities.md#session-entities
+    operations: [create, update, end, query]
+  - name: DomainRoleMembership
+    ref: docs/architecture/entities.md#domainrolemembership
+    operations: [create, list, revoke]
+
+external_dependencies:
+  - name: postgres
+    purpose: durable state for all owned entities
+    via: sqlx async driver
+    required: true
+  - name: OIDC provider (Authentik)
+    purpose: token validation
+    via: JWKS + introspection
+    required: true
+  - name: object storage (RustFS or S3-compatible)
+    purpose: Artifact backing store
+    via: AWS SDK
+    required: true
+
+internal_dependencies:
+  - binary: (none — tower is the root of the dependency graph)
+
+outputs:
+  - type: api_response
+    target: HTTP clients (edgeplane, edgeplaned, TUI, channel servers)
+    format: JSON over HTTP, SSE for streams
+  - type: log
+    target: stdout + journal
+    format: structured tracing (json)
+  - type: db_writes
+    target: postgres (the tower DB)
+
+consumed_by:
+  - binary: edgeplane (CLI)
+    via: HTTP API
+  - binary: edgeplaned (daemon)
+    via: HTTP API + mesh
+  - binary: external mesh agents (claude-code-acp, codex, gemini via ACP)
+    via: HTTP API
+  - binary: TUI / channel servers
+    via: HTTP API + SSE
+
+adr_refs:
+  - id: "0001"
+    title: Project catalog
+    path: docs/adr/0001-project-catalog.md
+  - id: "0002"
+    title: Source-of-truth boundaries
+    path: docs/adr/0002-source-of-truth-boundaries.md
+
+notes: |
+  Migration policy: auto-migrate on startup unless --no-migrate. Migration
+  files at crates/edgeplane-tower/migrations/. Latest: 0012_swap_mission_domain
+  (renamed kluster→mission, mission→domain — see entities.md vocabulary notes).
+
+  Currently single-node. The /raft/status endpoint exists and returns
+  topology data, but multi-node consensus is not active. Future ADR will
+  cover HA tower (likely embedded raft or postgres-replicated).
+
+  Database password lives in K8s secret (when deployed in-cluster) or via
+  DATABASE_URL env (when run locally for development).
+
+# ─── PROPOSED CHANGES ────────────────────────────────────────────────────────
+
+proposed_changes:
+  - id: recurring-task-template-entity
+    status: proposed
+    target_release: 0.16.0
+    spec_ref: docs/superpowers/specs/2026-05-24-edgeplane-recurring-tasks-design.md
+    summary: |
+      Add a new `recurring_task_template` table and HTTP API family. Each
+      template declares: cadence, runtime_kind, target node, exec/prompt,
+      artifact contract, mission_id (FK), on_failure, timeouts.
+
+      Templates emit MeshTasks when due (via edgeplaned's dispatcher loop).
+      The CLI's `edgeplane modules ...` queries this surface.
+
+    fields_affected:
+      - field: entities_owned
+        change: "add RecurringTaskTemplate — operations: create, read, list, update, disable, enable"
+      - field: api_resource_families
+        change: "add `recurring-task-templates` family"
+      - field: schema-migration
+        change: "0013_recurring_task_templates.sql"
+
+    open_questions:
+      - Tier definitions (morning/midday/eod) as a separate table or
+        embedded as enum on the template?
+      - Compositor pattern (depends_on with freshness gating) — schema
+        in v1 or deferred?
+      - Audit retention on emitted MeshTask rows when their template is
+        deleted (cascade vs soft-delete)?
+
+  - id: tower-modules-api-policy
+    status: proposed
+    target_release: 0.16.0
+    summary: |
+      Recurring-task-template mutations gated by DomainRoleMembership on
+      the mission's owning domain. Contributor can create/update templates;
+      Admin can delete. Viewer can list/describe but not mutate.
+
+    fields_affected:
+      - field: api_resource_families
+        change: "add per-method role gates per ADR-0002"
+
+  - id: ha-tower
+    status: proposed
+    target_release: future (>1.0)
+    spec_ref: TBD
+    summary: |
+      Multi-node tower with leader election + replicated state. /raft/status
+      endpoint already returns topology shape; activate consensus mechanism
+      (likely postgres logical replication initially; embedded raft long-term).
+
+    fields_affected:
+      - field: runtime
+        change: "multi-instance with leader/follower roles"
+      - field: api_resource_families
+        change: "add /raft/* subset"
+
+    open_questions:
+      - Postgres logical replication vs application-level raft?
+      - Where do non-leader instances send writes?
