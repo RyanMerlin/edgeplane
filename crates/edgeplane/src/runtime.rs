@@ -44,6 +44,32 @@ pub enum NodeAgentCommand {
     Run(NodeAgentRunArgs),
     /// Inspect local node-agent readiness.
     Doctor(NodeAgentDoctorArgs),
+    /// Manage node join tokens (single-use bootstrap credentials).
+    #[command(subcommand)]
+    JoinToken(JoinTokenCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum JoinTokenCommand {
+    /// Create a new join token for bootstrapping a node.
+    Create(JoinTokenCreateArgs),
+    /// Get a join token by ID.
+    Get(JoinTokenGetArgs),
+    /// Rotate a join token (invalidates the old one, issues a new secret).
+    Rotate(JoinTokenGetArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct JoinTokenCreateArgs {
+    /// Token TTL in seconds (default: 600 — 10 minutes).
+    #[arg(long, default_value = "600")]
+    pub ttl_seconds: u32,
+}
+
+#[derive(Args, Debug)]
+pub struct JoinTokenGetArgs {
+    /// Join token ID (returned by `create`).
+    pub token_id: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -198,7 +224,52 @@ pub async fn run_node_agent(
         NodeAgentCommand::Register(args) => run_node_register(args, client).await,
         NodeAgentCommand::Run(args) => run_node_run(args, client).await,
         NodeAgentCommand::Doctor(args) => run_node_doctor(args).await,
+        NodeAgentCommand::JoinToken(cmd) => run_join_token(cmd, client).await,
     }
+}
+
+async fn run_join_token(command: JoinTokenCommand, client: &EdgeplaneClient) -> Result<()> {
+    match command {
+        JoinTokenCommand::Create(args) => {
+            let resp = client
+                .post_json(
+                    "/runtime/join-tokens",
+                    &json!({"ttl_seconds": args.ttl_seconds}),
+                )
+                .await
+                .context("create join token")?;
+            // Print the token plaintext prominently — it's shown only once.
+            if let Some(token) = resp.get("token").and_then(|v| v.as_str()) {
+                println!("Join token (plaintext — copy now, not stored):");
+                println!("{token}");
+                println!();
+            }
+            println!("{}", serde_json::to_string_pretty(&resp)?);
+        }
+        JoinTokenCommand::Get(args) => {
+            let resp = client
+                .get_json(&format!("/runtime/join-tokens/{}", args.token_id))
+                .await
+                .context("get join token")?;
+            println!("{}", serde_json::to_string_pretty(&resp)?);
+        }
+        JoinTokenCommand::Rotate(args) => {
+            let resp = client
+                .post_json(
+                    &format!("/runtime/join-tokens/{}/rotate", args.token_id),
+                    &json!({}),
+                )
+                .await
+                .context("rotate join token")?;
+            if let Some(token) = resp.get("token").and_then(|v| v.as_str()) {
+                println!("New join token (plaintext — copy now, not stored):");
+                println!("{token}");
+                println!();
+            }
+            println!("{}", serde_json::to_string_pretty(&resp)?);
+        }
+    }
+    Ok(())
 }
 
 async fn run_nodes(

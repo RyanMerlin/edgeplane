@@ -102,7 +102,7 @@ fn build_manifest(base: &str) -> serde_json::Value {
             }
         },
         "bootstrap": {
-            "step_1": "edgeplane node join-token create --ttl 600",
+            "step_1": "edgeplane agent node join-token create --ttl-seconds 600",
             "step_2": format!(
                 "edgeplaned register --join-token <TOKEN> --endpoint {}",
                 base
