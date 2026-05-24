@@ -12,7 +12,7 @@
 //! systemctl --user restart edgeplaned
 //! ```
 //!
-//! See `mc-engineer/projects/2026-05-20-phase4-implementation-plan.md` for
+//! See `Aria/Engineer/projects/2026-05-20-phase4-implementation-plan.md` for
 //! the design rationale and decisions (D4.1–D4.14).
 
 use std::path::{Path, PathBuf};
