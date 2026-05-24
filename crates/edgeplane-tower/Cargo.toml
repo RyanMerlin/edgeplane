@@ -35,6 +35,9 @@ hex = "0.4"
 hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.22"
+jsonwebtoken = "9"
+rsa = { version = "0.9", features = ["pem"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
 flate2 = "1.0"
 tar = "0.4"
 tokio-stream = "0.1"
