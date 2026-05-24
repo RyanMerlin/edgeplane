@@ -1,3 +1,4 @@
+use jsonwebtoken::{DecodingKey, EncodingKey};
 use sqlx::PgPool;
 
 pub struct AppState {
@@ -5,6 +6,10 @@ pub struct AppState {
     pub node: NodeInfo,
     /// Optional upstream URL — unknown routes are forwarded here (proxy mode).
     pub api_proxy: Option<String>,
+    /// RS256 private key for signing node JWTs.
+    pub jwt_encoding_key: EncodingKey,
+    /// RS256 public key for verifying node JWTs.
+    pub jwt_decoding_key: DecodingKey,
 }
 
 /// Static node identity — populated from CLI args at startup.
