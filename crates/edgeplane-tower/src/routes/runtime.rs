@@ -475,6 +475,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // Node operations — static route BEFORE dynamic {node_id} routes
         .route("/runtime/nodes/register", post(register_node))
         .route("/runtime/nodes", get(list_nodes))
+        .route("/runtime/nodes/{node_id}/rotate-token", post(rotate_node_token))
         .route("/runtime/nodes/{node_id}/heartbeat", post(heartbeat_node))
         .route("/runtime/nodes/{node_id}/config", get(get_node_config))
         .route(
@@ -913,6 +914,68 @@ async fn register_node(
     resp["attach_secret"] = serde_json::Value::String(attach_secret);
     resp["node_jwt"] = serde_json::Value::String(node_jwt);
     (StatusCode::CREATED, Json(resp)).into_response()
+}
+
+async fn rotate_node_token(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(node_id): Path<String>,
+) -> impl IntoResponse {
+    let now = Utc::now().naive_utc();
+
+    // Authorisation: the node itself (JWT subject = "node:{id}"), an admin,
+    // or the owner user/service-account.
+    let authorized = if principal.is_admin {
+        true
+    } else if principal.auth_type == "node" {
+        principal.subject == format!("node:{node_id}")
+    } else {
+        matches!(
+            sqlx::query("SELECT id FROM runtimenode WHERE id=$1 AND owner_subject=$2")
+                .bind(&node_id)
+                .bind(&principal.subject)
+                .fetch_optional(&state.db)
+                .await,
+            Ok(Some(_))
+        )
+    };
+
+    if !authorized {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "not authorized to rotate this node's token"})),
+        )
+            .into_response();
+    }
+
+    // Revoke all current active JTIs for this node then issue a fresh one.
+    let _ = sqlx::query(
+        "UPDATE nodetoken SET revoked=true, revoked_at=$1 WHERE node_id=$2 AND revoked=false",
+    )
+    .bind(now)
+    .bind(&node_id)
+    .execute(&state.db)
+    .await;
+
+    let (node_jwt, jti) = match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, 90) {
+        Ok(pair) => pair,
+        Err(e) => {
+            tracing::error!("rotate_node_token jwt sign: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let jwt_expires = now + chrono::Duration::days(90);
+    let _ = sqlx::query(
+        "INSERT INTO nodetoken (jti, node_id, revoked, issued_at, expires_at) VALUES ($1,$2,false,$3,$4)",
+    )
+    .bind(&jti)
+    .bind(&node_id)
+    .bind(now)
+    .bind(jwt_expires)
+    .execute(&state.db)
+    .await;
+
+    (StatusCode::OK, Json(serde_json::json!({"node_jwt": node_jwt}))).into_response()
 }
 
 async fn list_nodes(
