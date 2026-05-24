@@ -102,6 +102,11 @@ pub enum DaemonAgentCommand {
     /// in it. Standalone mirror of the controlplane's auto-provisioning at
     /// node-register time. Idempotent.
     EnrollHome(AgentEnrollHomeArgs),
+    /// Bulk-import agents from a TOML manifest into the local registry.
+    /// Each `[[profile]]` block is upserted as a zellij_hosted / persistent
+    /// agent with a matching launch context. Idempotent — re-running updates
+    /// in place. The daemon picks up changes on its next reconcile tick.
+    Import(AgentImportArgs),
     /// Reassign an agent to a different domain.
     Reassign(AgentReassignArgs),
     /// Remove an agent from the registry / controlplane.
@@ -146,6 +151,17 @@ pub struct AgentEnrollHomeArgs {
     /// recommended default — cheap local inference for routing/triage.
     #[arg(long, default_value = "goose")]
     pub runtime: String,
+}
+
+#[derive(Args, Debug)]
+pub struct AgentImportArgs {
+    /// Path to a TOML manifest with `[[profile]]` blocks.
+    pub path: std::path::PathBuf,
+    /// Source tag to associate with imported agents. Defaults to
+    /// `manifest_import`. Use a stable tag (e.g. `aria`) so that
+    /// re-runs update in place rather than accumulating duplicate rows.
+    #[arg(long, default_value = "manifest_import")]
+    pub source: String,
 }
 
 #[derive(Args, Debug)]
@@ -1049,6 +1065,21 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &EdgeplaneClient) -> Resu
             println!("Provisioned home domain {} [standalone]", domain_id);
             println!("  agent: {agent_id} ({runtime}, persistent)");
             println!("The edgeplaned daemon will pick this up on its next reconcile tick.");
+            Ok(())
+        }
+
+        DaemonAgentCommand::Import(a) => {
+            let summary = crate::local_db::import_manifest(&a.path, &a.source)
+                .with_context(|| format!("importing manifest {}", a.path.display()))?;
+            println!(
+                "Imported {} profile(s) from {} [source={}]: {} created, {} updated",
+                summary.total,
+                a.path.display(),
+                a.source,
+                summary.created,
+                summary.updated,
+            );
+            println!("The edgeplaned daemon will pick these up on its next reconcile tick.");
             Ok(())
         }
 

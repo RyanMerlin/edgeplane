@@ -95,7 +95,6 @@ use tokio::sync::Semaphore;
 
 use crate::capabilities::{parse_required_capabilities, resolve_capabilities};
 use crate::config::DaemonConfig;
-use crate::fleet_import::SOURCE_FLEET_IMPORT;
 use crate::local_registry::LocalRegistry;
 
 /// Entry point spawned by `daemon.rs`. Loops forever, polling for claimable
@@ -140,10 +139,12 @@ pub async fn run(client: Arc<BackendClient>, config: DaemonConfig) {
     }
 }
 
-/// Read the local registry and return the set of profile names this edgeplaned node
-/// supervises. These are the names imported from `fleet-profiles.toml` via
-/// `fleet_import`. Falls back to an empty set on any registry error so the
-/// daemon continues without crashing.
+/// Read the local registry and return the set of agent IDs this edgeplaned
+/// node supervises. Returns agents from any source that have a launch context
+/// (i.e. zellij_hosted / persistent agents registered via
+/// `edgeplane daemon agent import` or the legacy `fleet_import` path).
+/// Falls back to an empty set on any registry error so the daemon continues
+/// without crashing.
 fn discover_supervised_profiles() -> HashSet<String> {
     let db_path = match LocalRegistry::default_path() {
         Ok(p) => p,
@@ -167,10 +168,10 @@ fn discover_supervised_profiles() -> HashSet<String> {
         }
     };
 
-    match reg.list_by_source(SOURCE_FLEET_IMPORT) {
-        Ok(records) => records.into_iter().map(|r| r.id).collect(),
+    match reg.list_all_launch_contexts() {
+        Ok(contexts) => contexts.into_iter().map(|c| c.agent_id).collect(),
         Err(e) => {
-            tracing::warn!("task_worker: could not list fleet_import agents: {e:#}");
+            tracing::warn!("task_worker: could not list launch contexts: {e:#}");
             HashSet::new()
         }
     }

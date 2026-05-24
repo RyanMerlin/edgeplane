@@ -651,51 +651,89 @@ async fn handle_agent_describe_local(
 }
 
 /// Read all agents from the local registry, joined with their launch
-/// context. Returns a flat JSON array. Blocking (rusqlite); call from
-/// `spawn_blocking`.
+/// context. Returns a flat JSON array. Source-agnostic — covers agents from
+/// any source tag (`local`, `fleet_import`, `manifest_import`, etc.).
+/// Blocking (rusqlite); call from `spawn_blocking`.
 fn list_local_agents(registry_path: &std::path::Path) -> anyhow::Result<Vec<Value>> {
     let reg = LocalRegistry::open(registry_path)?;
-    // Sources we consider "local" — everything except controlplane-synced
-    // rows. Right now that's `local` + `fleet_import`.
     let mut out = Vec::new();
-    for source in &[crate::local_registry::SOURCE_LOCAL, crate::fleet_import::SOURCE_FLEET_IMPORT] {
-        for rec in reg.list_by_source(source)? {
-            let lc = reg.get_launch_context(source, &rec.id)?;
+    // List all agents via the launch-context join (covers every source), then
+    // fall back to a direct `local` source scan for agents without a context.
+    let ctx_agent_ids: std::collections::HashSet<String> = reg
+        .list_all_launch_contexts()?
+        .into_iter()
+        .map(|c| format!("{}:{}", c.source, c.agent_id))
+        .collect();
+    // Emit context-backed agents first.
+    for ctx in reg.list_all_launch_contexts()? {
+        let rows = reg.list_by_source(&ctx.source)?;
+        if let Some(rec) = rows.into_iter().find(|r| r.id == ctx.agent_id) {
             out.push(serde_json::json!({
                 "agent_id": rec.id,
                 "source": rec.source,
                 "domain_id": rec.domain_id,
                 "runtime_kind": rec.runtime_kind,
                 "supervision_mode": rec.supervision_mode,
-                "vault_folder": lc.as_ref().and_then(|c| c.vault_folder.clone()),
-                "zellij_session": lc.as_ref().and_then(|c| c.zellij_session.clone()),
+                "vault_folder": ctx.vault_folder,
+                "zellij_session": ctx.zellij_session,
+            }));
+        }
+    }
+    // Also emit `local` agents that have no launch context (e.g. task-mode agents).
+    for rec in reg.list_by_source(crate::local_registry::SOURCE_LOCAL)? {
+        let key = format!("{}:{}", rec.source, rec.id);
+        if !ctx_agent_ids.contains(&key) {
+            out.push(serde_json::json!({
+                "agent_id": rec.id,
+                "source": rec.source,
+                "domain_id": rec.domain_id,
+                "runtime_kind": rec.runtime_kind,
+                "supervision_mode": rec.supervision_mode,
+                "vault_folder": null,
+                "zellij_session": null,
             }));
         }
     }
     Ok(out)
 }
 
-/// Look up a single agent across known local sources. Returns `None` if no
-/// matching row exists in any local source. Blocking.
+/// Look up a single agent across all local sources. Returns `None` if no
+/// matching row exists. Blocking.
 fn describe_local_agent(
     registry_path: &std::path::Path,
     agent_id: &str,
 ) -> anyhow::Result<Option<Value>> {
     let reg = LocalRegistry::open(registry_path)?;
-    for source in &[crate::local_registry::SOURCE_LOCAL, crate::fleet_import::SOURCE_FLEET_IMPORT] {
-        let rows = reg.list_by_source(source)?;
+    // Search across all launch contexts first (covers any source tag).
+    for ctx in reg.list_all_launch_contexts()? {
+        if ctx.agent_id != agent_id {
+            continue;
+        }
+        let rows = reg.list_by_source(&ctx.source)?;
         if let Some(rec) = rows.into_iter().find(|r| r.id == agent_id) {
-            let lc = reg.get_launch_context(source, &rec.id)?;
             return Ok(Some(serde_json::json!({
                 "agent_id": rec.id,
                 "source": rec.source,
                 "domain_id": rec.domain_id,
                 "runtime_kind": rec.runtime_kind,
                 "supervision_mode": rec.supervision_mode,
-                "vault_folder": lc.as_ref().and_then(|c| c.vault_folder.clone()),
-                "zellij_session": lc.as_ref().and_then(|c| c.zellij_session.clone()),
+                "vault_folder": ctx.vault_folder,
+                "zellij_session": ctx.zellij_session,
             })));
         }
+    }
+    // Fall back to a direct `local` source scan for agents without a context.
+    let rows = reg.list_by_source(crate::local_registry::SOURCE_LOCAL)?;
+    if let Some(rec) = rows.into_iter().find(|r| r.id == agent_id) {
+        return Ok(Some(serde_json::json!({
+            "agent_id": rec.id,
+            "source": rec.source,
+            "domain_id": rec.domain_id,
+            "runtime_kind": rec.runtime_kind,
+            "supervision_mode": rec.supervision_mode,
+            "vault_folder": null,
+            "zellij_session": null,
+        })));
     }
     Ok(None)
 }

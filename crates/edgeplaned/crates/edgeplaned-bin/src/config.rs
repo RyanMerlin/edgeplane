@@ -53,15 +53,6 @@ pub struct DaemonConfig {
     /// Ephemeral agents (session_mode: Task) ignore this field entirely.
     #[serde(default)]
     pub home_domain_id: Option<String>,
-    /// Path to an Aria-style `fleet-profiles.toml`. When set (and the file
-    /// exists), edgeplaned imports each `[[profile]]` into the local registry as a
-    /// ZellijHosted agent at startup. Env override:
-    /// `MCD_FLEET_PROFILES_FILE`. Default fallback (if neither config nor
-    /// env is set): `~/code/aria/fleet-profiles.toml`. Missing files are
-    /// not an error — edgeplaned just skips the import.
-    #[serde(default)]
-    pub fleet_profiles_file: Option<PathBuf>,
-
     // ── Task worker (P2) ───────────────────────────────────────────────────
     //
     // Controls the `task_worker` module that polls for claimable MeshTasks,
@@ -140,7 +131,7 @@ pub struct DaemonConfig {
     /// # or inline:
     /// task_worker_surface_command = [
     ///   "aria", "vault", "note", "append",
-    ///   "--path", "mc-engineer/inbox.md",
+    ///   "--path", "Aria/Engineer/inbox.md",
     ///   "--section", "Triage Inbox"
     /// ]
     /// ```
@@ -317,7 +308,6 @@ impl DaemonConfig {
             attach_secret: None,
             attach_bind_addr: default_attach_bind(),
             home_domain_id: None,
-            fleet_profiles_file: None,
             task_worker_enabled: default_task_worker_enabled(),
             task_worker_poll_interval_secs: default_task_worker_poll_interval_secs(),
             task_worker_max_concurrent: default_task_worker_max_concurrent(),

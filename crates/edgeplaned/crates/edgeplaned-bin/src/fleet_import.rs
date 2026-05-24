@@ -1,13 +1,12 @@
-//! One-time idempotent importer for Aria-style `fleet-profiles.toml`.
+//! Idempotent importer for TOML agent manifests.
 //!
-//! Phase 1 of the daemon-absorption plan. Reads the manifest, upserts an
-//! `AgentRecord` + `AgentLaunchContext` row per profile, runs on every
-//! daemon startup. Upsert keyed on `(source="fleet_import", id=<profile_name>)`
-//! so re-runs update in place — no double-creates, no marker file needed.
+//! Reads a `[[profile]]` manifest and upserts an `AgentRecord` +
+//! `AgentLaunchContext` row per profile. Upsert keyed on
+//! `(source, id=<profile_name>)` so re-runs update in place.
 //!
-//! The Phase 2 `ZellijHosted` runtime impl will pick up these rows on its
-//! first launch attempt; until then the supervisor logs a "no runtime
-//! impl" line and skips them.
+//! This module is now used as a library called by the CLI's
+//! `edgeplane daemon agent import` command. The daemon no longer reads
+//! manifests at startup — clients push definitions via the CLI instead.
 
 use anyhow::{Context, Result};
 use edgeplaned_core::types::StateDirSpec;
@@ -46,7 +45,7 @@ pub fn load_profiles(path: &Path) -> Result<Vec<Profile>> {
     Ok(parsed.profile)
 }
 
-/// Summary returned by `import_into` for the daemon log line.
+/// Summary returned by `import_into`.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ImportSummary {
     /// Number of fresh agents created.
@@ -55,25 +54,6 @@ pub struct ImportSummary {
     pub updated: usize,
     /// Total profiles processed.
     pub total: usize,
-}
-
-/// Resolve the manifest path from config + env, with sensible default.
-///
-/// Precedence: env `MCD_FLEET_PROFILES_FILE` > config `fleet_profiles_file`
-/// > default `~/code/aria/fleet-profiles.toml`. Returns `None` if the
-/// resolved path doesn't exist on disk — missing is not an error.
-pub fn resolve_manifest_path(config_setting: Option<&Path>) -> Option<PathBuf> {
-    let candidate = std::env::var("MCD_FLEET_PROFILES_FILE")
-        .ok()
-        .map(PathBuf::from)
-        .or_else(|| config_setting.map(PathBuf::from))
-        .or_else(|| {
-            dirs::home_dir().map(|h| h.join("code/aria/fleet-profiles.toml"))
-        });
-    match candidate {
-        Some(p) if p.exists() => Some(p),
-        _ => None,
-    }
 }
 
 /// Import each profile into the registry as a `ZellijHosted` agent with
@@ -169,21 +149,6 @@ state_dir      = "/home/merlin/.claude/profiles/work"
         assert_eq!(profiles[0].name, "operator");
         assert_eq!(profiles[1].zellij_session, "work");
         assert_eq!(profiles[1].state_dir, "/home/merlin/.claude/profiles/work");
-    }
-
-    #[test]
-    fn resolve_returns_none_for_missing_file() {
-        // Override env to a path that doesn't exist.
-        let dir = TempDir::new().unwrap();
-        let missing = dir.path().join("does-not-exist.toml");
-        // SAFETY: tests run single-threaded by default in `cargo test` with
-        // the test binary; this env mutation does not race with other tests
-        // in this module because they don't read MCD_FLEET_PROFILES_FILE.
-        // Use a unique key per test if this assumption ever breaks.
-        unsafe { std::env::set_var("MCD_FLEET_PROFILES_FILE", &missing); }
-        let resolved = resolve_manifest_path(None);
-        unsafe { std::env::remove_var("MCD_FLEET_PROFILES_FILE"); }
-        assert!(resolved.is_none());
     }
 
     #[test]

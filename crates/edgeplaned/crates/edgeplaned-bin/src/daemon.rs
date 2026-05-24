@@ -27,7 +27,6 @@ use crate::attach_registry::AttachRegistry;
 use crate::attach_ws;
 use crate::bootstrap;
 use crate::config::{DaemonConfig, SessionMode};
-use crate::fleet_import::SOURCE_FLEET_IMPORT;
 use crate::local_registry::{LocalRegistry, SOURCE_LOCAL, source_cp};
 use crate::mgmt_gateway::MgmtGateway;
 use crate::reconcile::{self, RunningAgent, RunningAgents};
@@ -121,34 +120,6 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         })
         .ok();
 
-    // Phase 1 daemon-absorption: idempotent one-time import of Aria-style
-    // fleet-profiles.toml into the local registry as ZellijHosted agents.
-    // Runs on every startup so newly-added profiles get picked up. Missing
-    // manifest is not an error — most nodes don't run the Aria fleet.
-    if let Some(reg) = registry.as_ref() {
-        let manifest_path = crate::fleet_import::resolve_manifest_path(
-            cfg.fleet_profiles_file.as_deref(),
-        );
-        match manifest_path {
-            Some(path) => match crate::fleet_import::load_profiles(&path)
-                .and_then(|profiles| crate::fleet_import::import_into(reg, &profiles))
-            {
-                Ok(summary) => tracing::info!(
-                    "fleet import from {}: {} created, {} updated, {} total",
-                    path.display(),
-                    summary.created,
-                    summary.updated,
-                    summary.total,
-                ),
-                Err(e) => tracing::warn!(
-                    "fleet import from {} failed: {e:#}. Continuing without it.",
-                    path.display(),
-                ),
-            },
-            None => tracing::debug!("no fleet-profiles.toml to import (this is fine)"),
-        }
-    }
-
     let client = Arc::new(BackendClient::new(&cfg.backend_url, &cfg.token));
 
     // Bootstrap: idempotently provision `home-{hostname}` domain + `intake`
@@ -199,7 +170,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     // Phase 3 — Triage loop.
     // Examines unscoped ready tasks in the intake mission and either routes
     // them to a profile (via child meshtask) or surfaces them for human
-    // triage in `mc-engineer/inbox.md`. Runs independently of P2 at a slower
+    // triage in `Aria/Engineer/inbox.md`. Runs independently of P2 at a slower
     // cadence (default 60s vs 30s). Gated by `task_worker_triage_enabled`.
     if cfg.task_worker_triage_enabled {
         let triage_client = Arc::clone(&client);
@@ -964,12 +935,13 @@ pub struct AgentSpec {
 /// 3. Legacy yaml `domains:` — deprecated fallback for pre-Phase-4 configs.
 ///
 /// **Additive layer (always on when a registry is present):**
-/// fleet-imported agents (`source = 'fleet_import'`) are appended to whatever
-/// the base path returns. These represent the local Aria fleet (operator,
-/// work, etc.) — they coexist with controlplane assignments and yaml legacy
-/// domains, not replace them. Each fleet_import spec gets its
-/// `launch_overrides` populated from the `agent_launch_context` table so
-/// the runtime knows which Zellij session to address.
+/// Agents with a launch context (any source tag) are appended as an additive
+/// layer on top of whatever the base path returns. They coexist with
+/// controlplane assignments and yaml legacy domains; each spec gets its
+/// `launch_overrides` populated from `agent_launch_context` so the runtime
+/// knows which Zellij session to address. Source-agnostic: picks up agents
+/// registered via `edgeplane daemon agent import` (any `--source` tag) as
+/// well as legacy `fleet_import` rows.
 async fn resolve_agent_specs(
     cfg: &DaemonConfig,
     client: &BackendClient,
@@ -978,29 +950,55 @@ async fn resolve_agent_specs(
     let mut specs = base_agent_specs(cfg, client, registry).await;
 
     if let Some(reg) = registry {
-        match reg.list_specs_by_source(SOURCE_FLEET_IMPORT) {
-            Ok(mut fleet_specs) => {
-                let n = fleet_specs.len();
-                for spec in &mut fleet_specs {
-                    if let Ok(Some(ctx)) =
-                        reg.get_launch_context(SOURCE_FLEET_IMPORT, &spec.agent_id)
-                    {
-                        spec.launch_overrides = SpawnOverrides {
-                            vault_folder: ctx.vault_folder,
-                            state_dir_spec: ctx.state_dir_spec,
-                            zellij_session: ctx.zellij_session,
-                        };
+        // Build a set of agent_ids already in the base list so we can
+        // deduplicate — an agent enrolled locally AND synced from the
+        // controlplane should not be spawned twice. Use owned Strings so
+        // this set doesn't borrow `specs` (we push into `specs` below).
+        let base_ids: std::collections::HashSet<String> =
+            specs.iter().map(|s| s.agent_id.clone()).collect();
+
+        match reg.list_all_launch_contexts() {
+            Ok(contexts) => {
+                let mut added = 0usize;
+                for ctx in contexts {
+                    if base_ids.contains(&ctx.agent_id) {
+                        // Already in base list — skip (don't duplicate).
+                        continue;
+                    }
+                    // Look up the corresponding agent record to build the spec.
+                    match reg.list_specs_by_source(&ctx.source) {
+                        Ok(source_specs) => {
+                            if let Some(mut spec) = source_specs
+                                .into_iter()
+                                .find(|s| s.agent_id == ctx.agent_id)
+                            {
+                                spec.launch_overrides = SpawnOverrides {
+                                    vault_folder: ctx.vault_folder,
+                                    state_dir_spec: ctx.state_dir_spec,
+                                    zellij_session: ctx.zellij_session,
+                                };
+                                specs.push(spec);
+                                added += 1;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "resolve_agent_specs: could not list specs for source '{}': {e:#}",
+                                ctx.source
+                            );
+                        }
                     }
                 }
-                if n > 0 {
-                    tracing::info!("fleet_import: {n} agent(s) appended to spawn list");
+                if added > 0 {
+                    tracing::info!(
+                        "launch_context: {added} agent(s) with launch context appended to spawn list"
+                    );
                 }
-                specs.extend(fleet_specs);
             }
             Err(e) => {
                 tracing::warn!(
-                    "Could not list fleet_import agents from registry: {e:#}. \
-                     Continuing without them."
+                    "Could not list launch contexts from registry: {e:#}. \
+                     Continuing without context-based agents."
                 );
             }
         }
@@ -1010,7 +1008,7 @@ async fn resolve_agent_specs(
 }
 
 /// Resolve the "base" agent list per the controlplane > local > yaml priority.
-/// Separated from `resolve_agent_specs` so the fleet_import additive layer
+/// Separated from `resolve_agent_specs` so the launch-context additive layer
 /// can wrap it cleanly.
 async fn base_agent_specs(
     cfg: &DaemonConfig,

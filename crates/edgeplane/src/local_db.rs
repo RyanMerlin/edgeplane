@@ -10,6 +10,8 @@
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
+use serde::Deserialize;
+use std::path::Path;
 
 use crate::config::ep_home_dir;
 
@@ -64,6 +66,17 @@ fn ensure_schema(conn: &Connection) -> Result<()> {
              PRIMARY KEY (source, id)
          );
          CREATE INDEX IF NOT EXISTS agent_by_source ON agent (source);
+         CREATE TABLE IF NOT EXISTS agent_launch_context (
+             source          TEXT NOT NULL,
+             agent_id        TEXT NOT NULL,
+             vault_folder    TEXT,
+             state_dir_spec  TEXT,
+             zellij_session  TEXT,
+             systemd_service TEXT,
+             supervise_paused INTEGER NOT NULL DEFAULT 0,
+             PRIMARY KEY (source, agent_id),
+             FOREIGN KEY (source, agent_id) REFERENCES agent (source, id) ON DELETE CASCADE
+         );
          INSERT OR IGNORE INTO schema_version VALUES (1);",
     )?;
     Ok(())
@@ -175,4 +188,107 @@ fn row_to_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalAgent> {
         profile_path: row.get(5)?,
         enrolled_at: row.get(6)?,
     })
+}
+
+// ---------- Manifest import ----------
+
+/// One `[[profile]]` block from a TOML agent manifest.
+#[derive(Debug, Clone, Deserialize)]
+struct ManifestProfile {
+    pub name: String,
+    pub zellij_session: String,
+    /// systemd `--user` unit name (e.g. `aria.service`).
+    pub service: String,
+    pub state_dir: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ManifestFile {
+    profile: Vec<ManifestProfile>,
+}
+
+/// Summary returned by `import_manifest`.
+#[derive(Debug, Default)]
+pub struct ImportSummary {
+    pub created: usize,
+    pub updated: usize,
+    pub total: usize,
+}
+
+/// Parse a TOML manifest at `path` and upsert each `[[profile]]` into the
+/// local registry as a `zellij_hosted` / persistent agent with a matching
+/// launch context. Idempotent: keyed on `(source, name)`.
+pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("reading manifest: {}", path.display()))?;
+    let parsed: ManifestFile = toml::from_str(&raw)
+        .with_context(|| format!("parsing manifest: {}", path.display()))?;
+
+    let conn = open()?;
+    let enrolled_at = chrono::Utc::now().to_rfc3339();
+
+    // Snapshot existing agents under this source tag to distinguish create vs update.
+    let existing: std::collections::HashSet<String> = {
+        let mut stmt = conn.prepare(
+            "SELECT id FROM agent WHERE source = ?1",
+        )?;
+        let rows: rusqlite::Result<Vec<String>> =
+            stmt.query_map(params![source], |row| row.get(0))?.collect();
+        rows.context("reading existing agents")?.into_iter().collect()
+    };
+
+    let mut summary = ImportSummary {
+        total: parsed.profile.len(),
+        ..Default::default()
+    };
+
+    for profile in &parsed.profile {
+        // Upsert agent row.
+        conn.execute(
+            "INSERT INTO agent
+                (id, source, domain_id, runtime_kind, supervision_mode,
+                 capabilities_json, enrolled_at)
+             VALUES (?1, ?2, '', 'zellij_hosted', 'persistent', '[]', ?3)
+             ON CONFLICT(source, id) DO UPDATE SET
+                runtime_kind     = excluded.runtime_kind,
+                supervision_mode = excluded.supervision_mode",
+            params![profile.name, source, enrolled_at],
+        )?;
+
+        // Upsert launch context row.
+        // state_dir_spec serialised as {"Persistent":{"path":"..."}} to match
+        // the edgeplaned StateDirSpec enum's serde representation.
+        let state_dir_spec = serde_json::json!({
+            "Persistent": { "path": profile.state_dir }
+        })
+        .to_string();
+
+        conn.execute(
+            "INSERT INTO agent_launch_context
+                (source, agent_id, vault_folder, state_dir_spec,
+                 zellij_session, systemd_service, supervise_paused)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)
+             ON CONFLICT(source, agent_id) DO UPDATE SET
+                vault_folder    = excluded.vault_folder,
+                state_dir_spec  = excluded.state_dir_spec,
+                zellij_session  = excluded.zellij_session,
+                systemd_service = excluded.systemd_service",
+            params![
+                source,
+                profile.name,
+                profile.name,
+                state_dir_spec,
+                profile.zellij_session,
+                profile.service,
+            ],
+        )?;
+
+        if existing.contains(&profile.name) {
+            summary.updated += 1;
+        } else {
+            summary.created += 1;
+        }
+    }
+
+    Ok(summary)
 }
