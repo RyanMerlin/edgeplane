@@ -202,3 +202,4 @@ crates/edgeplane/mission-*.md
 # Cargo workspace root build artifacts
 /target/
 
+.worktrees/
