@@ -46,7 +46,8 @@ enum Commands {
     Run {
         #[arg(long, env = "EP_BACKEND_URL", default_value = "")]
         backend_url: String,
-        #[arg(long, env = "EP_TOKEN", default_value = "")]
+        /// Override token (dev only). Registered nodes use /etc/edgeplane/node.json automatically.
+        #[arg(long, default_value = "")]
         token: String,
         #[arg(long, env = "MCD_WORK_DIR", default_value = "")]
         work_dir: String,
