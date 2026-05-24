@@ -108,6 +108,37 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             let hash = hash_token(token);
             let now = chrono::Utc::now().naive_utc();
 
+            // Node JWT — exactly two dots means RS256 JWT (never present in
+            // opaque mcs_* tokens). Validate signature in-process; only then
+            // hit the DB to confirm the JTI is not revoked.
+            if token.matches('.').count() == 2 {
+                if let Ok(claims) = crate::jwt::verify_node_jwt(token, &state.jwt_decoding_key) {
+                    let row = sqlx::query(
+                        "SELECT revoked FROM nodetoken WHERE jti=$1 AND expires_at > $2",
+                    )
+                    .bind(&claims.jti)
+                    .bind(now)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten();
+
+                    if let Some(row) = row {
+                        let revoked: bool = row.get("revoked");
+                        if !revoked {
+                            return Ok(Principal {
+                                subject: claims.sub,
+                                is_admin: false,
+                                session_id: None,
+                                auth_type: "node".into(),
+                            });
+                        }
+                    }
+                }
+                // JWT present but invalid/revoked/unknown — fall through to reject.
+                return Err(AuthRejection::Unauthenticated);
+            }
+
             if token.starts_with("mcs_sa_") {
                 // Service account token — validate against serviceaccounttoken + serviceaccount
                 let row = sqlx::query(
@@ -234,6 +265,7 @@ pub fn is_public_path(path: &str) -> bool {
             | "/integrations/google-chat/events"
     ) || path.starts_with("/auth/oidc/")
         || path == "/auth/logout"
+        || path == "/runtime/nodes/register" // bootstrap — join token is the sole credential
 }
 
 /// Tower middleware that gates the entire app on authentication.
