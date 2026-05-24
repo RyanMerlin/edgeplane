@@ -308,3 +308,137 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
 
     Ok(summary)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    fn setup_ep_home(tmp: &TempDir) {
+        let db_dir = tmp.path().join("edgeplaned");
+        std::fs::create_dir_all(&db_dir).unwrap();
+        // SAFETY: tests run single-threaded (--test-threads 1).
+        unsafe { std::env::set_var("EP_HOME", tmp.path()) };
+    }
+
+    fn teardown() {
+        unsafe { std::env::remove_var("EP_HOME") };
+    }
+
+    fn sample_manifest(dir: &Path) -> PathBuf {
+        let path = dir.join("profiles.toml");
+        std::fs::write(
+            &path,
+            r#"
+[[profile]]
+name           = "operator"
+zellij_session = "operator"
+service        = "test-operator.service"
+state_dir      = "/tmp/test-profiles/operator"
+
+[[profile]]
+name           = "work"
+zellij_session = "work"
+service        = "test-work.service"
+state_dir      = "/tmp/test-profiles/work"
+"#,
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn import_manifest_creates_agents_and_contexts() {
+        let tmp = TempDir::new().unwrap();
+        setup_ep_home(&tmp);
+        let manifest = sample_manifest(tmp.path());
+
+        let summary = import_manifest(&manifest, "test_src").unwrap();
+        assert_eq!(summary.created, 2);
+        assert_eq!(summary.updated, 0);
+        assert_eq!(summary.total, 2);
+
+        let conn = open().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM agent WHERE source = 'test_src'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
+
+        let ctx_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM agent_launch_context WHERE source = 'test_src'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(ctx_count, 2);
+
+        let spec: String = conn
+            .query_row(
+                "SELECT state_dir_spec FROM agent_launch_context WHERE agent_id = 'operator'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            spec.contains("\"kind\":\"persistent\""),
+            "state_dir_spec should use internally-tagged format, got: {spec}"
+        );
+
+        teardown();
+    }
+
+    #[test]
+    fn import_manifest_is_idempotent() {
+        let tmp = TempDir::new().unwrap();
+        setup_ep_home(&tmp);
+        let manifest = sample_manifest(tmp.path());
+
+        let first = import_manifest(&manifest, "test_src").unwrap();
+        assert_eq!(first.created, 2);
+
+        let second = import_manifest(&manifest, "test_src").unwrap();
+        assert_eq!(second.created, 0);
+        assert_eq!(second.updated, 2);
+
+        let conn = open().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM agent WHERE source = 'test_src'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2, "idempotent re-import should not create duplicates");
+
+        teardown();
+    }
+
+    #[test]
+    fn unenroll_by_source_removes_all_matching() {
+        let tmp = TempDir::new().unwrap();
+        setup_ep_home(&tmp);
+        let manifest = sample_manifest(tmp.path());
+
+        import_manifest(&manifest, "removable").unwrap();
+        let removed = unenroll_by_source("removable").unwrap();
+        assert_eq!(removed, 2);
+
+        let conn = open().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM agent WHERE source = 'removable'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+
+        teardown();
+    }
+}
