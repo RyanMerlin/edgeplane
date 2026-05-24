@@ -29,14 +29,14 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('crates/edgeplane/Cargo.lock', 'crates/edgeplane-tower/Cargo.lock', 'crates/edgeplaned/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-test-
       - name: Test edgeplane-tower
         run: cargo nextest run --manifest-path crates/edgeplane-tower/Cargo.toml --test test_health --test test_routes --test test_proxy --test test_work
       - name: Test edgeplane
         run: cargo nextest run --manifest-path crates/edgeplane/Cargo.toml --test-threads 1
       - name: Test edgeplaned
-        run: cargo nextest run --manifest-path crates/edgeplaned/Cargo.toml --workspace
+        run: cargo nextest run --workspace --exclude edgeplane --exclude edgeplane-tower
 
   launch-regression:
     name: Launch regression

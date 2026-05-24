@@ -44,7 +44,10 @@ pub fn migrate_once() {
     );
     move_dir(edgeplane.join("edgeplane-mesh"), edgeplaned.join("work_legacy"), "work dir");
 
-    // ── ~/.edgeplane → ~/.edgeplane (edgeplane CLI config) ────────────────────────────
+    // ── legacy CLI config cleanup ─────────────────────────────────────────────────────
+    // NOTE: ep_ctrl == ep_home_dir() after the MC→Edgeplane rename; the move_file
+    // calls below are no-ops (src==dst). The remove_file calls are still useful for
+    // cleaning up stale daemon socket/yaml artifacts from old installs.
 
     let ep_ctrl = home.join(".edgeplane");
     if ep_ctrl.exists() {
@@ -189,17 +192,19 @@ mod tests {
 
     #[test]
     fn test_edgeplane_cleanup() {
+        // Test that move_file correctly migrates a config file from a legacy
+        // directory to a new one and leaves the source empty.
         let tmp = TempDir::new().unwrap();
-        let (home, edgeplane, edgeplaned) = fake_home(&tmp);
-        fs::create_dir_all(&edgeplaned).unwrap();
-        let ep_ctrl = home.join(".edgeplane");
-        fs::create_dir_all(&ep_ctrl).unwrap();
-        fs::write(ep_ctrl.join("config.json"), b"{\"server\":\"http://edgeplane\"}").unwrap();
+        let legacy_dir = tmp.path().join("legacy-ep");
+        let new_dir = tmp.path().join("edgeplane");
+        fs::create_dir_all(&legacy_dir).unwrap();
+        fs::create_dir_all(&new_dir).unwrap();
+        fs::write(legacy_dir.join("config.json"), b"{\"server\":\"http://edgeplane\"}").unwrap();
 
-        move_file(ep_ctrl.join("config.json"), edgeplane.join("config.json"), "edgeplane config");
+        move_file(legacy_dir.join("config.json"), new_dir.join("config.json"), "edgeplane config");
 
-        assert!(edgeplane.join("config.json").exists());
-        assert!(!ep_ctrl.join("config.json").exists());
-        assert!(is_dir_empty(&ep_ctrl));
+        assert!(new_dir.join("config.json").exists());
+        assert!(!legacy_dir.join("config.json").exists());
+        assert!(is_dir_empty(&legacy_dir));
     }
 }
