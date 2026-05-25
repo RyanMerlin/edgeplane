@@ -125,6 +125,9 @@ pub enum McCommand {
     /// Domain attachment and home-domain management for this agent.
     #[command(subcommand)]
     Domain(DomainCommand),
+    /// Emit the full CLI surface as a versioned JSON schema contract.
+    #[command(name = "cli-schema")]
+    CliSchema(crate::cli_schema::CliSchemaArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -912,6 +915,7 @@ pub async fn run(
         McCommand::Tui(args) => handle_tui(args, &config),
         McCommand::Context(cmd) => handle_context(cmd),
         McCommand::Domain(cmd) => handle_domain(cmd, client, &config).await,
+        McCommand::CliSchema(args) => crate::cli_schema::run(args).await,
     }
 }
 

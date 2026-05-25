@@ -1,3 +1,4 @@
+pub mod cli_schema;
 pub mod cmd;
 pub mod agent_context;
 pub mod agent_cron;
