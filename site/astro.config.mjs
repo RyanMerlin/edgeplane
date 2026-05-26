@@ -6,6 +6,7 @@ export default defineConfig({
   base: '/',
   redirects: {
     '/concepts/missions-klusters-tasks/': '/concepts/domains-missions-tasks/',
+    '/install.sh': 'https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/install-edgeplane.sh',
   },
   integrations: [
     starlight({
