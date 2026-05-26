@@ -12,13 +12,18 @@ description: Reference for the edgeplaned headless executor daemon — agent lif
 | Version | Responsibility |
 |---------|---------------|
 | v0.8–v0.9 | Fleet agent lifecycle (launch, restart, Zellij integration via `ZellijHosted` runtime) |
-| v0.9 | Cron dispatch — `~/.ep/edgeplaned/cron.toml`, 1-minute tick loop |
+| v0.9 | Cron dispatch — `~/.edgeplane/edgeplaned/cron.toml`, 1-minute tick loop |
 | v0.10 | Watchdog — polls systemd units, restarts dead agents with throttling |
 | v0.15+ | Task worker — ephemeral subagent spawning for mesh execution |
 
 ## Starting edgeplaned
 
+For normal operation, use `edgeplane daemon up`. For advanced scripting or debugging, invoke `edgeplaned` directly:
+
 ```bash
+edgeplane daemon up
+
+# Advanced / debug
 edgeplaned run --backend-url http://localhost:8008 --token $EP_TOKEN
 ```
 
@@ -54,7 +59,7 @@ edgeplaned supports these agent runtime kinds (see `crates/edgeplaned/crates/edg
 
 ## Unix Sockets
 
-All sockets live in `~/.ep/`:
+All sockets live in `~/.edgeplane/edgeplaned/`:
 
 | Socket | Purpose |
 |--------|---------|
@@ -86,7 +91,7 @@ Raw secret values are never written to disk or embedded in config files.
 
 ## Cron Scheduling
 
-Jobs are defined in `~/.ep/edgeplaned/cron.toml`. edgeplaned reads it at startup and on `edgeplane agent cron reload`.
+Jobs are defined in `~/.edgeplane/edgeplaned/cron.toml`. edgeplaned reads it at startup and on `edgeplane agent cron reload`.
 
 ### Cron job (exact timing)
 
@@ -164,6 +169,8 @@ edgeplane run goose --domain <id>
 
 **Creating a MeshTask for dispatch:**
 
+The `/work/missions/$MISSION_ID/tasks` REST path is an internal API path. The agent-facing interface is via MCP tools — prefer `submit_mesh_task` from within an agent session and `claim_mesh_task` for claiming. The curl example below is for direct API access (e.g. from automation scripts or debugging):
+
 ```bash
 curl -X POST http://<edgeplane-host>/work/missions/$MISSION_ID/tasks \
   -H "Authorization: Bearer $EP_TOKEN" \
@@ -184,7 +191,7 @@ Claim policy options:
 | `assigned` | Specific agent only |
 | `broadcast` | All agents |
 
-**Retry a failed task:**
+**Retry a failed task** (internal REST path — prefer the `retry_mesh_task` MCP tool from agent sessions):
 
 ```bash
 curl -X POST http://<edgeplane-host>/work/tasks/<task-id>/retry \

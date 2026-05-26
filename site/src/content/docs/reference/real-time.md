@@ -51,11 +51,7 @@ Recommended client behavior:
 
 ## Local Fan-Out
 
-`edgeplane daemon` can run a local SSE/WebSocket fan-out server (default: `localhost`) that replays every structured event to local consumers:
-
-```bash
-edgeplane daemon --matrix-endpoint /events/stream --fanout-port 11234
-```
+`edgeplaned` can run a local SSE/WebSocket fan-out server that replays every structured event to local consumers. Local event fan-out is configured via `edgeplaned` configuration. See the [edgeplaned daemon reference](/reference/edgeplaned-daemon/) for details.
 
 Local clients (CLI panels, dashboards, local controllers) connect to the fan-out at `/events` and receive the same stream without expensive polling.
 

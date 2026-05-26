@@ -43,7 +43,7 @@ For each match:
 1. Enrolls an ephemeral `MeshAgent` under the parent `Agent` identity (`labels: {"role": "task-subagent", "ephemeral": true}`)
 2. Claims the task (lease-based)
 3. Opens an `AgentRun` record
-4. Allocates a per-task git worktree at `~/.ep/worktrees/<task_id>/` to prevent concurrent git collisions
+4. Allocates a per-task git worktree at `~/.edgeplane/worktrees/<task_id>/` to prevent concurrent git collisions
 5. Spawns the agent subprocess with `--allowed-tools` derived from `required_capabilities`
 6. On exit: marks task complete, deletes the `MeshAgent` row, closes the `AgentRun`
 
@@ -89,7 +89,7 @@ If a task requires capabilities the parent agent doesn't have, the claim loop sk
 Despite agent ephemerality, Edgeplane retains full visibility:
 
 - **`edgeplane agent list`** — shows parent identity plus active subagent projections
-- **`edgeplane task list --status running`** — shows work in progress with `claimed_by_agent_id`
+- **`edgeplane daemon task ls`** — shows work in progress with `claimed_by_agent_id`
 - **`get_entity_history`** on parent `Agent` — joins through `AgentRun` to show every subagent execution, including ephemerals long after their `MeshAgent` is gone
 - **Cost rollup** — `agentrun.total_cost_cents` queryable per parent agent, per mission, per domain
 
@@ -99,7 +99,7 @@ The ephemeral nature is in the runtime projection, not the audit trail.
 
 | Hazard | Mitigation |
 |--------|-----------|
-| Concurrent git operations | Per-task worktrees at `~/.ep/worktrees/<task_id>/` — each subagent has its own checkout |
+| Concurrent git operations | Per-task worktrees at `~/.edgeplane/worktrees/<task_id>/` — each subagent has its own checkout |
 | API rate limits | `max_concurrent_subagents` config (default: 3); excess tasks queue in the mesh |
 | Append-only writes | Safe under POSIX for ≤PIPE_BUF; vault writes are atomic at the git layer |
 
@@ -114,7 +114,7 @@ submit_mesh_task(
   claim_policy = {"target_profile": "my-profile"}
 )
 
-# Via CLI (coming in a future release)
+# Via CLI
 edgeplane daemon task submit --mission-id <id> --prompt "..." --capabilities shell:read,edgeplane:read
 ```
 

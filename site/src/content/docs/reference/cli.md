@@ -12,16 +12,14 @@ description: Complete reference for the edgeplane CLI, edgeplaned daemon, and ed
 | Flag | Meaning |
 |------|---------|
 | `--base-url <URL>` | Control plane base URL (overrides `EP_BASE_URL`) |
-| `--token <TOKEN>` | Bearer token (overrides `EP_TOKEN`) |
 | `--json` | Output as JSON |
-| `--output human\|json\|jsonl` | Output format |
 
 ### Environment Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `EP_BASE_URL` | `http://localhost:8008` | Backend HTTP base URL |
-| `EP_TOKEN` | unset | Bearer token for API auth |
+| `EP_TOKEN` | unset | Bearer token for API auth. Session tokens from `edgeplane auth login` take precedence. Use `EP_TOKEN` for CI and MCP clients. |
 | `EP_OUTPUT` | `human` | Default output format |
 
 ---
@@ -44,7 +42,7 @@ edgeplane config                     # effective local runtime config (secrets r
 edgeplane tui [--mission <id>]
 ```
 
-Full-screen terminal UI. Server and token come from env or `~/.ep/config.json`.
+Full-screen terminal UI. Server and token come from env or `~/.edgeplane/session.json`.
 
 | Key | Tab | Description |
 |-----|-----|-------------|
@@ -132,7 +130,7 @@ edgeplane agent cron history [--name <n>] [-n N] [--json]
 edgeplane agent cron gc-now [--history-days N]
 ```
 
-Jobs are defined in `~/.ep/edgeplaned/cron.toml`. See [edgeplaned Daemon](/edgeplane/reference/edgeplaned-daemon/) for the format.
+Jobs are defined in `~/.edgeplane/edgeplaned/cron.toml`. See [edgeplaned Daemon](/edgeplane/reference/edgeplaned-daemon/) for the format.
 
 ### Supervision (`edgeplane agent supervise`)
 
@@ -256,7 +254,7 @@ curl http://localhost:8008/raft/status
 All commands support `--json` for structured output. Always use `--json` when parsing programmatically — human-readable output format is not stable across releases.
 
 ```bash
-edgeplane missions list --json | jq '.[] | .id'
+edgeplane status --json
 edgeplane health --json
 edgeplane agent list --json
 ```
