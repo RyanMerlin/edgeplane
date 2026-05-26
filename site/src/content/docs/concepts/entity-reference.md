@@ -1,9 +1,9 @@
 ---
 title: Entity Reference
-description: Canonical definitions for every load-bearing Edgeplane entity. This is the single source of truth.
+description: Canonical definitions for every load-bearing EdgePlane entity. This is the single source of truth.
 ---
 
-This is the single source of truth for what each Edgeplane entity means. If anything in another doc, code comment, or AI response contradicts this page, this page wins (its source is `docs/architecture/entities.md` in the repo). Update the source doc first, then propagate.
+This is the single source of truth for what each EdgePlane entity means. If anything in another doc, code comment, or AI response contradicts this page, this page wins (its source is `docs/architecture/entities.md` in the repo). Update the source doc first, then propagate.
 
 ## Domain
 

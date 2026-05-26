@@ -1,9 +1,9 @@
 ---
 title: Real-Time Events
-description: SSE event stream, fan-out, schema, and rate-limit semantics for Edgeplane telemetry.
+description: SSE event stream, fan-out, schema, and rate-limit semantics for EdgePlane telemetry.
 ---
 
-Edgeplane emits a chunked Server-Sent Events (SSE) feed on `/events/stream` describing inbox events, approvals, governance signals, and mission state changes.
+EdgePlane emits a chunked Server-Sent Events (SSE) feed on `/events/stream` describing inbox events, approvals, governance signals, and mission state changes.
 
 ## SSE Endpoint
 
@@ -99,5 +99,5 @@ The module implements `validate(ptr, len)` and runs before every MCP tool call. 
 
 ## See Also
 
-- [Reference: AI Console](/edgeplane/reference/ai-console/) — session-based AI interaction via the web UI
-- [Reference: CLI](/edgeplane/reference/cli/) — `edgeplane daemon` and `edgeplane system doctor` commands
+- [Reference: AI Console](/reference/ai-console/) — session-based AI interaction via the web UI
+- [Reference: CLI](/reference/cli/) — `edgeplane daemon` and `edgeplane system doctor` commands

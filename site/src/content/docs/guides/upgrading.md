@@ -115,5 +115,5 @@ If this produces changes, commit them. Uncommitted schema drift causes CI failur
 
 ## See Also
 
-- [Deployment](/edgeplane/guides/deployment/) — server setup and systemd/Compose configuration
-- [OIDC Authentication](/edgeplane/guides/oidc/) — auth configuration
+- [Deployment](/guides/deployment/) — server setup and systemd/Compose configuration
+- [OIDC Authentication](/guides/oidc/) — auth configuration

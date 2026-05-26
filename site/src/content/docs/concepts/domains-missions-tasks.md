@@ -3,7 +3,7 @@ title: Domains, Missions & Tasks
 description: The organizational model — how work, knowledge, and governance scope together.
 ---
 
-Edgeplane organizes work around three nested layers: **Domains**, **Missions**, and **Tasks**. Understanding their boundaries is essential for working with the system effectively.
+EdgePlane organizes work around three nested layers: **Domains**, **Missions**, and **Tasks**. Understanding their boundaries is essential for working with the system effectively.
 
 ## Domains
 
@@ -81,7 +81,7 @@ For human-driven workflows, use Tasks. For agent swarms executing work autonomou
 
 ## Overlap Detection
 
-Before a task or artifact is created, Edgeplane runs:
+Before a task or artifact is created, EdgePlane runs:
 
 - Fuzzy similarity analysis
 - Vector similarity search
@@ -109,5 +109,5 @@ Domains scope. Missions stream. Tasks complete.
 
 ## See Also
 
-- [Entity Reference](/edgeplane/concepts/entity-reference/) — full schema-backed definitions for every entity
-- [Architecture: Persistence](/edgeplane/architecture/persistence/) — how domains, missions, and tasks are stored across Postgres, S3, and Git
+- [Entity Reference](/concepts/entity-reference/) — full schema-backed definitions for every entity
+- [Architecture: Persistence](/architecture/persistence/) — how domains, missions, and tasks are stored across Postgres, S3, and Git

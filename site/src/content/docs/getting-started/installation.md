@@ -1,9 +1,9 @@
 ---
 title: Installation
-description: Install the Edgeplane CLI, daemon, and control plane.
+description: Install the EdgePlane CLI, daemon, and control plane.
 ---
 
-Edgeplane has three components:
+EdgePlane has three components:
 
 | Component | Purpose |
 |-----------|---------|
@@ -95,5 +95,5 @@ edgeplane health --json
 
 ## Next Steps
 
-- [Quick Start](/edgeplane/getting-started/quick-start/) — run your first agent in 5 minutes
-- [Agent Setup](/edgeplane/getting-started/agent-setup/) — connect Claude Code, Codex, or Gemini CLI
+- [Quick Start](/getting-started/quick-start/) — run your first agent in 5 minutes
+- [Agent Setup](/getting-started/agent-setup/) — connect Claude Code, Codex, or Gemini CLI

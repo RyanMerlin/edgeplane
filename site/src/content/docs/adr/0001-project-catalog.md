@@ -8,7 +8,7 @@ description: Introduce machine-readable catalog YAML files as a navigational lay
 
 ## Context
 
-Edgeplane has useful narrative documentation but it is fragmented for agent consumption. Agents need to grep through the codebase or read many docs sequentially to understand subsystem status, commands, gaps, and navigation. Doc drift between files creates confusion and slows onboarding.
+EdgePlane has useful narrative documentation but it is fragmented for agent consumption. Agents need to grep through the codebase or read many docs sequentially to understand subsystem status, commands, gaps, and navigation. Doc drift between files creates confusion and slows onboarding.
 
 ## Decision
 
@@ -32,4 +32,4 @@ Introduce `docs/catalog/*.yaml` as a machine-readable status and topology layer.
 **Neutral:**
 - Does not replace Markdown docs — catalog is navigational only, not a second source of truth for implementation detail
 
-See [ADR 0002](/edgeplane/adr/0002-source-of-truth/) for the explicit source-of-truth boundaries that govern what the catalog should and should not contain.
+See [ADR 0002](/adr/0002-source-of-truth/) for the explicit source-of-truth boundaries that govern what the catalog should and should not contain.

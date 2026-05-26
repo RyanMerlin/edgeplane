@@ -3,7 +3,7 @@ title: Ephemeral Task Agents
 description: How edgeplaned spawns, manages, and audits short-lived agent subprocesses for distributed mesh task execution.
 ---
 
-The **task worker** (`edgeplaned::task_worker`) enables distributed, parallel AI execution within Edgeplane's mesh. When a dispatcher submits a `MeshTask`, `edgeplaned` spawns an ephemeral agent subprocess to claim and execute it — without touching any persistent agent session or interrupting operator context.
+The **task worker** (`edgeplaned::task_worker`) enables distributed, parallel AI execution within EdgePlane's mesh. When a dispatcher submits a `MeshTask`, `edgeplaned` spawns an ephemeral agent subprocess to claim and execute it — without touching any persistent agent session or interrupting operator context.
 
 ## The Problem This Solves
 
@@ -12,7 +12,7 @@ Without ephemeral agents, when something actionable surfaces (a scheduled check,
 1. **Signal-inject** into a live profile session — the signal lands as a user message in whatever conversation is active, interrupting focused work and polluting context.
 2. **Write a note somewhere** and hope the operator notices — loses urgency, breaks the loop, no feedback.
 
-The task worker provides a third path: submit a `MeshTask` to the mesh, let an ephemeral subagent claim it, run it to completion in an isolated context, and report back. The persistent session is never touched. Edgeplane retains full visibility and a durable audit trail.
+The task worker provides a third path: submit a `MeshTask` to the mesh, let an ephemeral subagent claim it, run it to completion in an isolated context, and report back. The persistent session is never touched. EdgePlane retains full visibility and a durable audit trail.
 
 ## Identity Model
 
@@ -54,7 +54,7 @@ Polls the `intake` mission for unscoped, unrouted tasks.
 For each task:
 - **Rule-based routing** (target profile explicitly set) → claim loop picks it up
 - **Categorizer routing** (confidence ≥ threshold) → creates a child `MeshTask` in the appropriate mission with `parent_task_id` chain; claim loop picks it up
-- **Low confidence** → marks the task `blocked`; optionally invokes `task_worker_surface_command` with `<task_id> <title> <reason>` so deployments can chain external notifications without MC encoding a specific interface
+- **Low confidence** → marks the task `blocked`; optionally invokes `task_worker_surface_command` with `<task_id> <title> <reason>` so deployments can chain external notifications without EdgePlane encoding a specific interface
 
 ## Bootstrap
 
@@ -76,8 +76,8 @@ Coarse capability vocabulary:
 | `fs:write` | Filesystem writes |
 | `vault:read` | Knowledge store reads |
 | `vault:write` | Knowledge store writes |
-| `edgeplane:read` | Edgeplane read operations |
-| `edgeplane:write` | Edgeplane write operations |
+| `edgeplane:read` | EdgePlane read operations |
+| `edgeplane:write` | EdgePlane write operations |
 | `web:fetch` | HTTP fetch |
 | `gh:read` | GitHub reads |
 | `gh:write` | GitHub writes |
@@ -86,7 +86,7 @@ If a task requires capabilities the parent agent doesn't have, the claim loop sk
 
 ## Visibility
 
-Despite agent ephemerality, Edgeplane retains full visibility:
+Despite agent ephemerality, EdgePlane retains full visibility:
 
 - **`edgeplane agent list`** — shows parent identity plus active subagent projections
 - **`edgeplane daemon task ls`** — shows work in progress with `claimed_by_agent_id`
@@ -120,6 +120,6 @@ edgeplane daemon task submit --mission-id <id> --prompt "..." --capabilities she
 
 ## See Also
 
-- [Concepts: Entity Reference](/edgeplane/concepts/entity-reference/) — canonical definitions for `MeshTask`, `MeshAgent`, `AgentRun`
-- [Reference: edgeplaned Daemon](/edgeplane/reference/edgeplaned-daemon/) — daemon configuration and socket interface
-- [Architecture: System Overview](/edgeplane/architecture/overview/) — where `edgeplaned` fits in the overall component map
+- [Concepts: Entity Reference](/concepts/entity-reference/) — canonical definitions for `MeshTask`, `MeshAgent`, `AgentRun`
+- [Reference: edgeplaned Daemon](/reference/edgeplaned-daemon/) — daemon configuration and socket interface
+- [Architecture: System Overview](/architecture/overview/) — where `edgeplaned` fits in the overall component map

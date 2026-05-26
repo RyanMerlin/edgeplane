@@ -1,11 +1,11 @@
 ---
 title: System Overview
-description: How the Edgeplane components fit together — control plane, daemon, CLI, and persistence layers.
+description: How the EdgePlane components fit together — control plane, daemon, CLI, and persistence layers.
 ---
 
 ## Component Map
 
-Edgeplane has four core components that cooperate to provide coordination, governance, and durable state for AI agent fleets.
+EdgePlane has four core components that cooperate to provide coordination, governance, and durable state for AI agent fleets.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -43,7 +43,7 @@ Key capabilities:
 - `edgeplane run <runtime>` — unified agent launcher
 - `edgeplane auth` — session token management
 - `edgeplane capabilities` — capability pack dispatch
-- `edgeplane domains / missions / tasks / agents` — entity management
+- `edgeplane domain, edgeplane daemon mission ls, edgeplane daemon task ls, edgeplane agent list` — entity management
 - `edgeplane health` — connectivity and server status
 
 ## edgeplane-tower — API Server
@@ -73,14 +73,14 @@ The executor daemon. Agents communicate with it via Unix socket; operators never
 - Cron dispatch — durable recurring job scheduling
 - Profile management — operator profile sync and activation
 
-Socket paths (`~/.ep/`):
+Socket paths (`~/.edgeplane/edgeplaned/`):
 - `edgeplaned-mgmt.sock` — JSON-RPC 2.0 management gateway
 - `edgeplaned-secrets.sock` — secrets broker (agent subprocesses only)
 - `edgeplaned.sock` — PTY attach gateway
 
 ## Persistence Layers
 
-See [Persistence Model](/edgeplane/architecture/persistence/) for the full breakdown. Summary:
+See [Persistence Model](/architecture/persistence/) for the full breakdown. Summary:
 
 | Layer | What lives here | Authority |
 |-------|----------------|-----------|
@@ -90,9 +90,9 @@ See [Persistence Model](/edgeplane/architecture/persistence/) for the full break
 
 ## MCP Interface
 
-Agents connect to Edgeplane via standard MCP stdio, served by `edgeplane serve`. This works with any MCP-compatible runtime — Claude Code, Codex, Gemini CLI, custom ACP agents.
+Agents connect to EdgePlane via standard MCP stdio, served by `edgeplane serve`. This works with any MCP-compatible runtime — Claude Code, Codex, Gemini CLI, custom ACP agents.
 
-Available MCP tools include: `create_domain`, `create_mission`, `create_task`, `claim_mesh_task`, `publish_pending_ledger_events`, `search_tasks`, `search_missions`, `get_entity_history`, and more. See [Reference: CLI](/edgeplane/reference/cli/) for the full surface.
+Available MCP tools include: `create_domain`, `create_mission`, `create_task`, `claim_mesh_task`, `publish_pending_ledger_events`, `search_tasks`, `search_missions`, `get_entity_history`, and more. See [Reference: CLI](/reference/cli/) for the full surface.
 
 ## Request Lifecycle
 
@@ -107,6 +107,6 @@ A typical agent mutation (creating a task) flows:
 
 ## See Also
 
-- [Persistence Model](/edgeplane/architecture/persistence/) — three-tier storage model in detail
-- [Ephemeral Task Agents](/edgeplane/architecture/ephemeral-agents/) — distributed agent execution via mesh tasks
-- [Reference: edgeplaned Daemon](/edgeplane/reference/edgeplaned-daemon/) — daemon internals and secrets brokering
+- [Persistence Model](/architecture/persistence/) — three-tier storage model in detail
+- [Ephemeral Task Agents](/architecture/ephemeral-agents/) — distributed agent execution via mesh tasks
+- [Reference: edgeplaned Daemon](/reference/edgeplaned-daemon/) — daemon internals and secrets brokering

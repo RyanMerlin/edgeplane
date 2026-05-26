@@ -1,9 +1,9 @@
 ---
 title: Quick Start
-description: Get an agent running under Edgeplane in under 5 minutes.
+description: Get an agent running under EdgePlane in under 5 minutes.
 ---
 
-This guide walks you from zero to a running agent session. Assumes you've completed [Installation](/edgeplane/getting-started/installation/).
+This guide walks you from zero to a running agent session. Assumes you've completed [Installation](/getting-started/installation/).
 
 ## 1. Start the Control Plane
 
@@ -46,7 +46,7 @@ edgeplane run codex           # OpenAI Codex CLI
 edgeplane run gemini          # Google Gemini CLI
 ```
 
-`edgeplane run` validates your environment, fetches the onboarding manifest, and launches the agent with Edgeplane wired in as an MCP server.
+`edgeplane run` validates your environment, fetches the onboarding manifest, and launches the agent with EdgePlane wired in as an MCP server.
 
 ## 5. Create Your First Domain
 
@@ -66,6 +66,6 @@ The TUI gives you real-time agent status, domain/mission/task drill-down, a live
 
 ## What's Next
 
-- [Agent Setup](/edgeplane/getting-started/agent-setup/) — per-agent config, MCP server setup, auth modes
-- [Concepts: Domains, Missions & Tasks](/edgeplane/concepts/domains-missions-tasks/) — the organizational model
-- [Guides: Deployment](/edgeplane/guides/deployment/) — running MC in production
+- [Agent Setup](/getting-started/agent-setup/) — per-agent config, MCP server setup, auth modes
+- [Concepts: Domains, Missions & Tasks](/concepts/domains-missions-tasks/) — the organizational model
+- [Guides: Deployment](/guides/deployment/) — running EdgePlane in production

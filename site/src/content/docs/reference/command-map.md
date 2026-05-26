@@ -3,7 +3,7 @@ title: Command Map
 description: Authoritative edgeplane CLI command hierarchy at a glance.
 ---
 
-This is the authoritative `edgeplane` CLI command hierarchy. For full descriptions of each command, see [edgeplane & edgeplaned CLI](/edgeplane/reference/cli/).
+This is the authoritative `edgeplane` CLI command hierarchy. For full descriptions of each command, see [edgeplane & edgeplaned CLI](/reference/cli/).
 
 ## Top Level
 

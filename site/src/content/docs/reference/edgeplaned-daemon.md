@@ -31,7 +31,7 @@ For persistent operation, run as a systemd user service:
 
 ```ini
 [Unit]
-Description=Edgeplane Daemon
+Description=EdgePlane Daemon
 After=network-online.target
 
 [Service]
@@ -63,15 +63,15 @@ All sockets live in `~/.edgeplane/edgeplaned/`:
 
 | Socket | Purpose |
 |--------|---------|
-| `edgeplaned-mgmt.sock` | JSON-RPC 2.0 management gateway |
-| `edgeplaned-secrets.sock` | Secrets broker (agent subprocesses only) |
+| `mgmt.sock` | JSON-RPC 2.0 management gateway |
+| `secrets.sock` | Secrets broker (agent subprocesses only) |
 | `edgeplaned.sock` | PTY attach gateway |
 
 ## Secrets Broker
 
 `edgeplaned` injects two environment variables into agent subprocesses:
 
-- `EP_SECRETS_SOCKET` — path to `edgeplaned-secrets.sock`
+- `EP_SECRETS_SOCKET` — path to `secrets.sock`
 - `EP_SECRETS_SESSION` — session ID for this agent
 
 Agents retrieve secrets without ever receiving raw credentials:
@@ -148,7 +148,7 @@ edgeplane agent supervise resume <id>   # re-enable auto-restart
 
 ## Task Worker
 
-edgeplaned's task worker runs two loops that enable distributed mesh execution. See [Architecture: Ephemeral Task Agents](/edgeplane/architecture/ephemeral-agents/) for the full model.
+edgeplaned's task worker runs two loops that enable distributed mesh execution. See [Architecture: Ephemeral Task Agents](/architecture/ephemeral-agents/) for the full model.
 
 **Running an agent work loop:**
 
@@ -207,5 +207,5 @@ curl -X POST http://<edgeplane-host>/work/tasks/<task-id>/retry \
 
 ## See Also
 
-- [Architecture: Ephemeral Task Agents](/edgeplane/architecture/ephemeral-agents/) — distributed subagent model
-- [Reference: CLI](/edgeplane/reference/cli/) — full `edgeplane` command surface including `edgeplane agent cron` and `edgeplane agent supervise`
+- [Architecture: Ephemeral Task Agents](/architecture/ephemeral-agents/) — distributed subagent model
+- [Reference: CLI](/reference/cli/) — full `edgeplane` command surface including `edgeplane agent cron` and `edgeplane agent supervise`

@@ -130,7 +130,7 @@ edgeplane agent cron history [--name <n>] [-n N] [--json]
 edgeplane agent cron gc-now [--history-days N]
 ```
 
-Jobs are defined in `~/.edgeplane/edgeplaned/cron.toml`. See [edgeplaned Daemon](/edgeplane/reference/edgeplaned-daemon/) for the format.
+Jobs are defined in `~/.edgeplane/edgeplaned/cron.toml`. See [edgeplaned Daemon](/reference/edgeplaned-daemon/) for the format.
 
 ### Supervision (`edgeplane agent supervise`)
 
@@ -222,7 +222,7 @@ edgeplane completion <shell>           # shell completion generator
 
 ## edgeplaned Daemon
 
-See [edgeplaned Daemon](/edgeplane/reference/edgeplaned-daemon/) for the full reference.
+See [edgeplaned Daemon](/reference/edgeplaned-daemon/) for the full reference.
 
 Quick commands:
 

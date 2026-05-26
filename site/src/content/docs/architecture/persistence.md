@@ -1,9 +1,9 @@
 ---
 title: Persistence Model
-description: How Edgeplane stores state across Postgres, S3-compatible object storage, and Git.
+description: How EdgePlane stores state across Postgres, S3-compatible object storage, and Git.
 ---
 
-Edgeplane uses three complementary persistence layers. Each serves a specific role in the information lifecycle. Understanding the boundaries prevents architectural confusion.
+EdgePlane uses three complementary persistence layers. Each serves a specific role in the information lifecycle. Understanding the boundaries prevents architectural confusion.
 
 ## The Three Layers
 
@@ -49,7 +49,7 @@ When a mutation is approved and published, it is committed to Git. Artifact prov
 
 ```
 1. Mutation enters ledger (status: pending) in Postgres
-2. Approval / policy checks run in Edgeplane
+2. Approval / policy checks run in EdgePlane
 3. Route resolver picks binding / repo / branch / path from domain policy
 4. Provider adapter acquires server-side credential
 5. Publisher writes canonical file(s) to Git
@@ -100,8 +100,8 @@ commit → provenance written back → full chain of custody
 ### Via API / MCP
 
 ```bash
-edgeplane missions list --json
-edgeplane tasks list --mission-id <id> --json
+edgeplane daemon mission ls --json
+edgeplane daemon task ls --json
 # or via MCP tools: list_pending_ledger_events, get_entity_history
 ```
 
@@ -118,6 +118,6 @@ edgeplane data sync status --mission-id <id>
 
 ## See Also
 
-- [Architecture: System Overview](/edgeplane/architecture/overview/) — how the components fit together
-- [Concepts: Domains, Missions & Tasks](/edgeplane/concepts/domains-missions-tasks/) — the organizational model
-- [Guides: Deployment](/edgeplane/guides/deployment/) — running Postgres and S3 in production
+- [Architecture: System Overview](/architecture/overview/) — how the components fit together
+- [Concepts: Domains, Missions & Tasks](/concepts/domains-missions-tasks/) — the organizational model
+- [Guides: Deployment](/guides/deployment/) — running Postgres and S3 in production

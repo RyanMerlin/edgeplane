@@ -10,7 +10,7 @@ description: Adopt a grouped top-level command hierarchy for edgeplane with no l
 
 The `edgeplane` command surface grew organically and mixed concerns at the top level: `tools`, `sync`, `explorer`, `maintenance`, `update`, `compat`, `drift`, `remote`, `evolve`, `login`, `logout`, `whoami` all lived at the root. This made command discovery and onboarding harder and increased ambiguity around where functionality belongs.
 
-Because Edgeplane is in a pilot stage, a hard cutover without backward-compatibility aliases is acceptable.
+Because EdgePlane is in a pilot stage, a hard cutover without backward-compatibility aliases is acceptable.
 
 ## Decision
 
@@ -47,4 +47,4 @@ No legacy aliases are retained.
 - Ensure in-product hints and repair messages reference new command paths
 - Maintain [`docs/reference/COMMAND-MAP.md`](https://github.com/RyanMerlin/edgeplane/blob/main/docs/reference/COMMAND-MAP.md) as the canonical command index
 
-See [Reference: Command Map](/edgeplane/reference/command-map/) for the current full hierarchy.
+See [Reference: Command Map](/reference/command-map/) for the current full hierarchy.

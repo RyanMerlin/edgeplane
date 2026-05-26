@@ -1,9 +1,9 @@
 ---
 title: OIDC Authentication
-description: Configure SSO and OIDC JWT authentication for Edgeplane.
+description: Configure SSO and OIDC JWT authentication for EdgePlane.
 ---
 
-Edgeplane supports OIDC JWT validation alongside static token auth for MCP compatibility. This guide covers server configuration, CLI login flows, and Kubernetes secret management.
+EdgePlane supports OIDC JWT validation alongside static token auth for MCP compatibility. This guide covers server configuration, CLI login flows, and Kubernetes secret management.
 
 ## Server Environment Variables
 
@@ -79,7 +79,7 @@ edgeplane auth whoami
 
 ## Browser Login Flow
 
-Edgeplane uses a backend PKCE flow:
+EdgePlane uses a backend PKCE flow:
 
 1. Browser requests `GET /auth/oidc/start`
 2. Server redirects to IdP authorize endpoint with PKCE challenge
@@ -147,5 +147,5 @@ Session tokens are the recommended auth mechanism for interactive use. They are 
 
 ## See Also
 
-- [Deployment](/edgeplane/guides/deployment/) — server configuration
-- [Getting Started: Agent Setup](/edgeplane/getting-started/agent-setup/) — wiring auth into agent launches
+- [Deployment](/guides/deployment/) — server configuration
+- [Getting Started: Agent Setup](/getting-started/agent-setup/) — wiring auth into agent launches

@@ -1,5 +1,5 @@
 ---
-title: What is Edgeplane?
+title: What is EdgePlane?
 description: A coordination layer for AI agents and human collaborators — structured domains, durable task ownership, and governed artifact publication.
 ---
 
@@ -7,12 +7,12 @@ AI agents can write code, run tools, and reason over architecture. What they can
 
 Without a shared system of record, parallel agents duplicate effort, diverge on state, and collide on artifacts with no resolution path. There is no overlap detection, no structured ownership, no audit trail, no governance boundary.
 
-Edgeplane is the **coordination layer**. It is a control plane for AI agents and human collaborators operating against shared, durable, governed state.
+EdgePlane is the **coordination layer**. It is a control plane for AI agents and human collaborators operating against shared, durable, governed state.
 
 > Kubernetes orchestrates containers.  
-> Edgeplane orchestrates agents, domains, and knowledge.
+> EdgePlane orchestrates agents, domains, and knowledge.
 
-## What Edgeplane is not
+## What EdgePlane is not
 
 - Not a workflow runner
 - Not a pipeline framework
@@ -32,7 +32,7 @@ It is infrastructure that enables parallel, governed, auditable AI execution ins
 
 **Agents** are identities (human or AI) that perform work. They carry capabilities, status, and a domain anchor.
 
-## What Edgeplane Provides
+## What EdgePlane Provides
 
 | Capability | What it does |
 |------------|-------------|
@@ -52,22 +52,22 @@ Traditional software stacks have hardware → OS → containers → orchestratio
 Models
 Agents
 Tooling Interfaces (Skills / MCP)
-Coordination Layer  ← Edgeplane
+Coordination Layer  ← EdgePlane
 Working File Store (S3)
 Governance + Policy
 Organizational Memory of Record (Git)
 ```
 
-Edgeplane fills the coordination layer between autonomous agents and durable system state.
+EdgePlane fills the coordination layer between autonomous agents and durable system state.
 
 ## Rust-Native Trust Boundary
 
 `edgeplane` is a compiled Rust binary that carries MCP transport, policy context, session wiring, and local orchestration in one deterministic artifact. This reduces runtime dependency drift, narrows the local attack surface, and creates clear audit boundaries between the agent runtime and the control plane.
 
-Agents request actions. Edgeplane authorizes and records them.
+Agents request actions. EdgePlane authorizes and records them.
 
 ## Next Steps
 
-- [Philosophy](/edgeplane/concepts/philosophy/) — the design principles behind these decisions
-- [Domains, Missions & Tasks](/edgeplane/concepts/domains-missions-tasks/) — the organizational model in detail
-- [Entity Reference](/edgeplane/concepts/entity-reference/) — canonical definitions for every entity
+- [Philosophy](/concepts/philosophy/) — the design principles behind these decisions
+- [Domains, Missions & Tasks](/concepts/domains-missions-tasks/) — the organizational model in detail
+- [Entity Reference](/concepts/entity-reference/) — canonical definitions for every entity

@@ -1,6 +1,6 @@
 ---
 title: Deployment
-description: Deploy Edgeplane on a Linux VM, with Docker Compose, or on Kubernetes.
+description: Deploy EdgePlane on a Linux VM, with Docker Compose, or on Kubernetes.
 ---
 
 This guide covers three deployment paths: Linux VM with systemd, Docker Compose, and Kubernetes.
@@ -9,7 +9,7 @@ This guide covers three deployment paths: Linux VM with systemd, Docker Compose,
 
 - PostgreSQL 14+
 - S3-compatible object storage (RustFS (bundled), MinIO, AWS S3, or other S3-compatible storage)
-- `edgeplane-tower` binary (see [Installation](/edgeplane/getting-started/installation/))
+- `edgeplane-tower` binary (see [Installation](/getting-started/installation/))
 
 ## Linux VM / systemd
 
@@ -62,7 +62,7 @@ Create `/etc/systemd/system/edgeplane.service`:
 
 ```ini
 [Unit]
-Description=Edgeplane Control Plane
+Description=EdgePlane Control Plane
 After=network.target postgresql.service
 
 [Service]
@@ -171,5 +171,5 @@ After deployment:
 
 ## See Also
 
-- [OIDC Authentication](/edgeplane/guides/oidc/) — configure SSO
-- [Upgrading](/edgeplane/guides/upgrading/) — release upgrade checklist
+- [OIDC Authentication](/guides/oidc/) — configure SSO
+- [Upgrading](/guides/upgrading/) — release upgrade checklist

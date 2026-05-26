@@ -3,7 +3,7 @@ title: Advanced Agent Configuration
 description: Multi-instance setup, CI integration, custom ACP agents, and skill sync.
 ---
 
-This guide covers advanced agent configuration scenarios. For the basic setup walkthrough, see [Getting Started: Agent Setup](/edgeplane/getting-started/agent-setup/).
+This guide covers advanced agent configuration scenarios. For the basic setup walkthrough, see [Getting Started: Agent Setup](/getting-started/agent-setup/).
 
 ## Multi-Profile Workflows
 
@@ -56,7 +56,7 @@ Or use `EP_TOKEN=<token> edgeplane auth login --non-interactive` to create a pro
 
 ## Custom ACP Agents
 
-Any agent that implements the ACP protocol can connect to Edgeplane.
+Any agent that implements the ACP protocol can connect to EdgePlane.
 
 **Generate the config:**
 
@@ -112,8 +112,8 @@ edgeplaned get-secret MY_API_KEY
 ```
 
 Socket paths (`~/.edgeplane/edgeplaned/`):
-- `edgeplaned-mgmt.sock` — JSON-RPC management
-- `edgeplaned-secrets.sock` — secrets broker (agents only)
+- `mgmt.sock` — JSON-RPC management
+- `secrets.sock` — secrets broker (agents only)
 - `edgeplaned.sock` — PTY attach
 
 ## Agent Config Locations
@@ -164,6 +164,6 @@ edgeplane agent update --agent-id <id> --home-domain-id <domain-id>
 
 ## See Also
 
-- [Getting Started: Agent Setup](/edgeplane/getting-started/agent-setup/) — basic setup
-- [Reference: CLI](/edgeplane/reference/cli/) — full command surface
-- [Reference: edgeplaned Daemon](/edgeplane/reference/edgeplaned-daemon/) — daemon internals and secrets brokering
+- [Getting Started: Agent Setup](/getting-started/agent-setup/) — basic setup
+- [Reference: CLI](/reference/cli/) — full command surface
+- [Reference: edgeplaned Daemon](/reference/edgeplaned-daemon/) — daemon internals and secrets brokering

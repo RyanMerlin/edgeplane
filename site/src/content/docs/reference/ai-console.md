@@ -1,9 +1,9 @@
 ---
 title: AI Console
-description: Edgeplane's chat-first web UI — sessions, approval flows, and planner configuration.
+description: EdgePlane's chat-first web UI — sessions, approval flows, and planner configuration.
 ---
 
-Edgeplane ships an AI-first web console at `/ui/`. The default experience is a chat-style transcript with a command composer. Dashboard tabs (missions, agents, approvals) remain available.
+EdgePlane ships an AI-first web console at `/ui/`. The default experience is a chat-style transcript with a command composer. Dashboard tabs (missions, agents, approvals) remain available.
 
 ## Behavior
 
@@ -89,7 +89,7 @@ The planner is the component that maps natural-language prompts to MCP tool call
 - OpenAI-compatible gateway: `https://my-gateway.example.com`
 - Full endpoint: `https://my-gateway.example.com/v1/chat/completions`
 
-If no provider config is set, Edgeplane uses a local heuristic planner — the console remains usable in dev without an API key.
+If no provider config is set, EdgePlane uses a local heuristic planner — the console remains usable in dev without an API key.
 
 ## Theme
 
@@ -97,5 +97,5 @@ The web UI is dark-mode first. A light/dark toggle is available in the top-right
 
 ## See Also
 
-- [Reference: Real-Time Events](/edgeplane/reference/real-time/) — SSE event stream
-- [Concepts: Philosophy](/edgeplane/concepts/philosophy/) — why writes require approval
+- [Reference: Real-Time Events](/reference/real-time/) — SSE event stream
+- [Concepts: Philosophy](/concepts/philosophy/) — why writes require approval

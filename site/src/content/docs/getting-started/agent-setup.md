@@ -1,13 +1,13 @@
 ---
 title: Agent Setup
-description: Connect Claude Code, Codex, Gemini, or a custom agent to Edgeplane.
+description: Connect Claude Code, Codex, Gemini, or a custom agent to EdgePlane.
 ---
 
-`edgeplane run` is the unified agent launcher. It validates your environment, fetches the agent's onboarding manifest, and injects Edgeplane as an MCP server before handing off to the agent binary.
+`edgeplane run` is the unified agent launcher. It validates your environment, fetches the agent's onboarding manifest, and injects EdgePlane as an MCP server before handing off to the agent binary.
 
 ## Prerequisites
 
-- `edgeplane` installed and on `PATH` — see [Installation](/edgeplane/getting-started/installation/)
+- `edgeplane` installed and on `PATH` — see [Installation](/getting-started/installation/)
 - Authenticated via `edgeplane auth login` (or `EP_TOKEN` set for CI use)
 
 ## Launching an Agent
@@ -61,7 +61,7 @@ edgeplane run claude
 
 ## Manual MCP Server Setup
 
-If you prefer to wire Edgeplane into an existing agent config manually:
+If you prefer to wire EdgePlane into an existing agent config manually:
 
 **Claude Code (`.claude.json` or `mcpServers` block):**
 
@@ -141,6 +141,6 @@ edgeplane data sync status --domain-id <id> --mission-id <optional-id>
 
 ## Next Steps
 
-- [Concepts: Domains, Missions & Tasks](/edgeplane/concepts/domains-missions-tasks/) — the organizational model
-- [Reference: CLI](/edgeplane/reference/cli/) — full command surface
-- [Reference: edgeplaned Daemon](/edgeplane/reference/edgeplaned-daemon/) — secrets brokering and daemon internals
+- [Concepts: Domains, Missions & Tasks](/concepts/domains-missions-tasks/) — the organizational model
+- [Reference: CLI](/reference/cli/) — full command surface
+- [Reference: edgeplaned Daemon](/reference/edgeplaned-daemon/) — secrets brokering and daemon internals
