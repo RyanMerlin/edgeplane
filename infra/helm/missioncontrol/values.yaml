@@ -12,16 +12,21 @@ service:
 
 config:
   EP_BASE_URL: https://edgeplane.internal
-  EP_TOKEN: placeholder-token
   POSTGRES_HOST: placeholder-postgres
   POSTGRES_USER: ep_admin
-  POSTGRES_PASSWORD: placeholder
   EP_OBJECT_STORAGE_ENDPOINT: http://minio.edgeplane.svc.cluster.local
   EP_OBJECT_STORAGE_BUCKET: edgeplane
-  EP_OBJECT_STORAGE_ACCESS_KEY: minio
-  EP_OBJECT_STORAGE_ACCESS_SECRET: minio123
 
-secrets: {}
+# SECURITY: These values MUST be overridden in production via a K8s Secret.
+# The secret.yaml template renders these into an Opaque Secret — never put
+# real credentials in values.yaml or pass them as plain --set flags.
+# Use `helm install ... --set secrets.EP_TOKEN=$(openssl rand -hex 32)` or,
+# better, reference an external secret (Infisical, ESO, Vault).
+secrets:
+  EP_TOKEN: ""  # REQUIRED — strong random token (e.g. openssl rand -hex 32)
+  POSTGRES_PASSWORD: ""  # REQUIRED — set per deployment
+  EP_OBJECT_STORAGE_ACCESS_KEY: ""  # REQUIRED — set per deployment
+  EP_OBJECT_STORAGE_ACCESS_SECRET: ""  # REQUIRED — set per deployment
 
 resources: {}
 nodeSelector: {}

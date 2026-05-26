@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-EP_BASE_URL="${EP_BASE_URL:-https://edgeplane.hartley-neon.ts.net}"
-EP_TOKEN="${EP_TOKEN:-TopSecret}"
+EP_BASE_URL="${EP_BASE_URL:?EP_BASE_URL must be set — e.g. https://your-edgeplane.example.com}"
+EP_TOKEN="${EP_TOKEN:?EP_TOKEN must be set — get your token from the EdgePlane admin}"
 echo "Installing edgeplane CLI..."
 bash "$(dirname "$0")/install-edgeplane.sh"
 export PATH="$HOME/.local/bin:$PATH"

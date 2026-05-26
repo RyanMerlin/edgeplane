@@ -75,14 +75,24 @@ async fn proxy_fallback(
     let reqwest_method = reqwest::Method::from_bytes(method_str.as_bytes())
         .unwrap_or(reqwest::Method::GET);
 
+    // Capture the Authorization header before consuming the body.
+    let auth_header = req.headers().get(axum::http::header::AUTHORIZATION).cloned();
+
     let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
         Ok(b) => b,
         Err(_) => return StatusCode::BAD_GATEWAY.into_response(),
     };
 
-    match reqwest::Client::new()
+    let mut proxy_request = reqwest::Client::new()
         .request(reqwest_method, &target)
-        .body(body_bytes)
+        .body(body_bytes);
+
+    // Forward the Authorization header so the backend can make its own auth decision.
+    if let Some(auth_value) = auth_header {
+        proxy_request = proxy_request.header(reqwest::header::AUTHORIZATION, auth_value.as_bytes());
+    }
+
+    match proxy_request
         .send()
         .await
     {
