@@ -153,27 +153,31 @@ fn device_user_code(device_code: &str) -> String {
     format!("{}-{}", &raw[..4], &raw[4..])
 }
 
-// ── JWT payload extraction (no signature verification) ───────────────────────
+// ── Userinfo endpoint — verified claims via access token ─────────────────────
+//
+// Instead of parsing the id_token JWT locally (which would require JWKS
+// fetching and signature verification), we call the OIDC provider's userinfo
+// endpoint using the access_token.  The provider validates the token server-side
+// and returns claims that are authoritative.  This is the standard alternative
+// to local JWT verification and is simpler and equally secure for our purposes.
 
-fn extract_jwt_claims(token: &str) -> serde_json::Value {
-    let parts: Vec<&str> = token.splitn(3, '.').collect();
-    if parts.len() < 2 {
-        return serde_json::json!({});
+async fn fetch_userinfo(
+    access_token: &str,
+    userinfo_endpoint: &str,
+) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(userinfo_endpoint)
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .map_err(|e| format!("userinfo request failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("userinfo returned HTTP {}", resp.status()));
     }
-    let payload = parts[1];
-    // Re-pad to a multiple of 4
-    let padded = {
-        let pad = (4 - payload.len() % 4) % 4;
-        let mut s = payload.to_string();
-        s.extend(std::iter::repeat('=').take(pad));
-        s
-    };
-    use base64::engine::general_purpose::URL_SAFE;
-    URL_SAFE
-        .decode(&padded)
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or(serde_json::json!({}))
+    resp.json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("userinfo parse error: {e}"))
 }
 
 // ── OIDC discovery ────────────────────────────────────────────────────────────
@@ -656,7 +660,9 @@ async fn cli_initiate(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().naive_utc();
     let expires_at = now + Duration::hours(cfg.session_ttl_hours);
-    let redirect_path = q.redirect_path.unwrap_or_else(|| "/auth/oidc/cli-success".to_string());
+    let redirect_path = sanitize_redirect_path(
+        &q.redirect_path.unwrap_or_else(|| "/auth/oidc/cli-success".to_string()),
+    );
 
     let result = sqlx::query(
         "INSERT INTO oidcauthrequest \
@@ -809,7 +815,9 @@ async fn oidc_start(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().naive_utc();
     let expires_at = now + Duration::hours(cfg.session_ttl_hours);
-    let redirect_path = q.redirect.or(q.redirect_path).unwrap_or_else(|| "/ui/".to_string());
+    let redirect_path = sanitize_redirect_path(
+        &q.redirect.or(q.redirect_path).unwrap_or_else(|| "/ui/".to_string()),
+    );
 
     let result = sqlx::query(
         "INSERT INTO oidcauthrequest \
@@ -943,6 +951,7 @@ async fn oidc_callback(
         Some(u) => u.to_string(),
         None => return Html(error_page("No token_endpoint in OIDC discovery.")).into_response(),
     };
+    let userinfo_endpoint = discovery["userinfo_endpoint"].as_str().map(|s| s.to_string());
 
     let redirect_uri = cfg
         .redirect_uri_override
@@ -990,16 +999,37 @@ async fn oidc_callback(
         }
     };
 
-    let id_token = match token_data["id_token"].as_str() {
+    // Prefer the access_token to call the userinfo endpoint — the OIDC provider
+    // validates the token server-side and returns authoritative claims, avoiding
+    // the need for local JWT signature verification.
+    let access_token = match token_data["access_token"].as_str() {
         Some(t) => t.to_string(),
         None => {
-            tracing::error!("oidc_callback: no id_token in response");
-            return Html(error_page("No id_token in provider response.")).into_response();
+            tracing::error!("oidc_callback: no access_token in token response");
+            return Html(error_page("No access_token in provider response.")).into_response();
         }
     };
 
-    // Extract claims (basic, no signature verification).
-    let claims = extract_jwt_claims(&id_token);
+    let claims = match userinfo_endpoint {
+        Some(ref endpoint) => {
+            match fetch_userinfo(&access_token, endpoint).await {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!("oidc_callback: userinfo fetch failed: {e}");
+                    return Html(error_page("Failed to fetch user info from OIDC provider."))
+                        .into_response();
+                }
+            }
+        }
+        None => {
+            tracing::error!("oidc_callback: no userinfo_endpoint in OIDC discovery — cannot verify identity");
+            return Html(error_page(
+                "OIDC provider does not expose a userinfo endpoint. Cannot verify identity.",
+            ))
+            .into_response();
+        }
+    };
+
     let subject = claims["sub"]
         .as_str()
         .unwrap_or("")
@@ -1010,8 +1040,8 @@ async fn oidc_callback(
         .to_string();
 
     if subject.is_empty() {
-        tracing::error!("oidc_callback: empty subject in id_token claims");
-        return Html(error_page("Could not extract subject from id_token.")).into_response();
+        tracing::error!("oidc_callback: empty subject in userinfo claims");
+        return Html(error_page("Could not extract subject from userinfo response.")).into_response();
     }
 
     // Mark auth request used.
@@ -1088,6 +1118,10 @@ async fn oidc_callback(
 
     let cookie = session_cookie(&token, token_expires_at, cfg.session_cookie_secure);
     let target = if redirect_path.is_empty() { "/".to_string() } else { redirect_path };
+    // Sanitize the stored redirect_path before using it: it was already
+    // sanitized on write, but re-validate here as defence-in-depth.
+    let target = sanitize_redirect_path(&target);
+    let target_escaped = html_escape(&target);
 
     // Show a brief confirmation page that sets the cookie, then redirects.
     // Without this, the redirect to "/" is silent — Authentik SSO re-auths
@@ -1098,7 +1132,7 @@ async fn oidc_callback(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Signed in — Edgeplane</title>
-  <meta http-equiv="refresh" content="2;url={target}">
+  <meta http-equiv="refresh" content="2;url={target_escaped}">
   <style>
     *, *::before, *::after {{ box-sizing: border-box; }}
     body {{
@@ -1121,7 +1155,7 @@ async fn oidc_callback(
   <div class="card">
     <div class="check">&#10003;</div>
     <h1>Signed in</h1>
-    <p>Redirecting to <a href="{target}">{target}</a>&hellip;</p>
+    <p>Redirecting to <a href="{target_escaped}">{target_escaped}</a>&hellip;</p>
   </div>
 </body>
 </html>"#);
@@ -1148,7 +1182,7 @@ struct CliSuccessQuery {
 }
 
 async fn cli_success_page(Query(q): Query<CliSuccessQuery>) -> impl IntoResponse {
-    let grant_id = q.grant_id.unwrap_or_else(|| "(unknown)".to_string());
+    let grant_id = html_escape(&q.grant_id.unwrap_or_else(|| "(unknown)".to_string()));
     let html = format!(r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1398,6 +1432,33 @@ fn error_page(message: &str) -> String {
   </div>
 </body>
 </html>"#)
+}
+
+// ── Redirect path sanitizer ───────────────────────────────────────────────────
+//
+// Prevents open redirect attacks by rejecting any path that doesn't look like
+// a local path.  A valid redirect_path must start with '/' and must not contain
+// '//' (which can begin a protocol-relative URL like //evil.com/...).
+
+fn sanitize_redirect_path(path: &str) -> String {
+    if path.starts_with('/') && !path.contains("//") {
+        path.to_string()
+    } else {
+        "/".to_string()
+    }
+}
+
+// ── HTML escaping ─────────────────────────────────────────────────────────────
+//
+// Escape user-controlled values that are interpolated into HTML pages so that
+// an attacker cannot inject script or markup.
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
 }
 
 // ─── GET /auth/logout ────────────────────────────────────────────────────────
