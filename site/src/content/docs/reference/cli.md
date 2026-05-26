@@ -19,8 +19,9 @@ description: Complete reference for the edgeplane CLI, edgeplaned daemon, and ed
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `EP_BASE_URL` | `http://localhost:8008` | Backend HTTP base URL |
-| `EP_TOKEN` | unset | Bearer token for API auth. Session tokens from `edgeplane auth login` take precedence. Use `EP_TOKEN` for CI and MCP clients. |
 | `EP_OUTPUT` | `human` | Default output format |
+
+Auth is handled automatically via `~/.edgeplane/session.json` (OIDC session from `edgeplane auth login`), the node JWT at `/etc/edgeplane/node.json` (for `edgeplaned`), or a service account token passed as a `Bearer` header for CI. No static token env var is used.
 
 ---
 
@@ -227,7 +228,7 @@ See [edgeplaned Daemon](/reference/edgeplaned-daemon/) for the full reference.
 Quick commands:
 
 ```bash
-edgeplaned run --backend-url http://localhost:8008 --token $EP_TOKEN
+edgeplaned run --backend-url http://localhost:8008
 edgeplaned version
 edgeplaned get-secret MY_API_KEY    # inside agent subprocess only
 ```

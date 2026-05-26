@@ -10,7 +10,6 @@ EdgePlane supports OIDC JWT validation alongside static token auth for MCP compa
 ```bash
 AUTH_MODE=oidc
 OIDC_REQUIRED=false
-EP_TOKEN=<static-token-for-mcp>
 OIDC_ISSUER_URL=https://<your-idp>/application/o/<provider-slug>/
 OIDC_AUDIENCE=<oidc-client-id>
 OIDC_CLIENT_ID=<oidc-client-id>
@@ -72,8 +71,7 @@ curl -s https://<edgeplane-host>/auth/oidc/cli-poll/<cli_nonce>
 
 ```bash
 export EP_BASE_URL="https://<edgeplane-host>"
-# Exchange OIDC JWT for a session token
-EP_TOKEN="$(get-oidc-token)" edgeplane auth login --ttl-hours 8
+edgeplane auth login --ttl-hours 8
 edgeplane auth whoami
 ```
 
@@ -95,7 +93,7 @@ EdgePlane uses a backend PKCE flow:
 | `oidc` | OIDC JWT only |
 | `dual` | Accept both — recommended for staged migration |
 
-`OIDC_REQUIRED=true` in `dual` mode enforces OIDC for non-`/mcp` paths, while still allowing the static `EP_TOKEN` for MCP agent connections.
+`OIDC_REQUIRED=true` in `dual` mode enforces OIDC for non-`/mcp` paths. MCP agent connections use service account tokens or node JWTs.
 
 ## Staged Rollout (Recommended)
 
@@ -123,7 +121,6 @@ stringData:
   OIDC_ISSUER_URL: "https://..."
   OIDC_CLIENT_ID: "..."
   OIDC_CLIENT_SECRET: "..."
-  EP_TOKEN: "..."
   EP_ADMIN_EMAILS: "..."
 ```
 
@@ -139,9 +136,10 @@ envFrom:
 
 | Token type | Description | Recommended for |
 |------------|-------------|----------------|
-| Static `EP_TOKEN` | Shared secret, never expires | MCP clients, CI, local dev |
 | Session token (`mcs_*`) | DB-backed, revocable, expiring | Interactive CLI/web use |
-| OIDC JWT | Short-lived, identity-bound | SSO environments |
+| Service account (`mcs_sa_*`) | Long-lived, programmatic | MCP clients, CI pipelines |
+| Node JWT | Per-node RS256 JWT | `edgeplaned` daemon, machine-to-machine |
+| OIDC JWT | Short-lived, identity-bound | SSO environments (exchanged for session token) |
 
 Session tokens are the recommended auth mechanism for interactive use. They are revocable, expiring, and never written to agent config files on disk.
 

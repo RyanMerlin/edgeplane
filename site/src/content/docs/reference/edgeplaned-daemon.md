@@ -24,7 +24,14 @@ For normal operation, use `edgeplane daemon up`. For advanced scripting or debug
 edgeplane daemon up
 
 # Advanced / debug
-edgeplaned run --backend-url http://localhost:8008 --token $EP_TOKEN
+edgeplaned run --backend-url http://localhost:8008
+```
+
+`edgeplaned` reads its node identity from `/etc/edgeplane/node.json` at startup. Register the node first:
+
+```bash
+edgeplane agent node register --node-name <name>
+# → writes JWT to /etc/edgeplane/node.json
 ```
 
 For persistent operation, run as a systemd user service:
@@ -173,7 +180,7 @@ The `/work/missions/$MISSION_ID/tasks` REST path is an internal API path. The ag
 
 ```bash
 curl -X POST http://<edgeplane-host>/work/missions/$MISSION_ID/tasks \
-  -H "Authorization: Bearer $EP_TOKEN" \
+  -H "Authorization: Bearer <session-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "task title",
@@ -195,7 +202,7 @@ Claim policy options:
 
 ```bash
 curl -X POST http://<edgeplane-host>/work/tasks/<task-id>/retry \
-  -H "Authorization: Bearer $EP_TOKEN"
+  -H "Authorization: Bearer <session-token>"
 ```
 
 ## Known Limitations

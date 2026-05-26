@@ -36,7 +36,7 @@ edgeplane auth login          # creates ~/.edgeplane/session.json
 edgeplane auth whoami         # confirm identity
 ```
 
-After this, `EP_TOKEN` is no longer needed in the environment — `edgeplane` picks up the session automatically.
+After this, `edgeplane` picks up the session automatically from `~/.edgeplane/session.json`.
 
 ## 4. Launch an Agent
 

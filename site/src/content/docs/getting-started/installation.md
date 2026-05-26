@@ -75,16 +75,22 @@ curl http://localhost:8008/health
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `EP_BASE_URL` | Control plane HTTP base URL | `http://localhost:8008` |
-| `EP_TOKEN` | Bearer token for API auth | unset |
 
-You can set these in your shell profile or pass them inline:
+You can set this in your shell profile or pass it inline:
 
 ```bash
 export EP_BASE_URL="https://edgeplane.example.com"
-export EP_TOKEN="your-token"
 ```
 
-> **Note:** For interactive use, prefer `edgeplane auth login` (OIDC) over a static `EP_TOKEN`. Static tokens are intended for CI pipelines and MCP clients.
+## Authentication
+
+EdgePlane uses three auth mechanisms — no static `EP_TOKEN` is required:
+
+| Auth mode | When to use | How |
+|-----------|-------------|-----|
+| OIDC (interactive) | Operators, interactive use | `edgeplane auth login` — browser flow, issues a session token |
+| Node JWT (machine) | Daemons, `edgeplaned` | `edgeplane agent node register --node-name <name>` — JWT stored at `/etc/edgeplane/node.json` |
+| Service account | CI, programmatic | `mcs_sa_*` tokens — created via API, passed as `Bearer` |
 
 ## Verify
 

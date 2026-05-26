@@ -44,15 +44,15 @@ edgeplane auth whoami
 edgeplane health --json
 ```
 
-For CI, use a long-lived static `EP_TOKEN` rather than a session token (session tokens have an 8h default TTL):
+For CI, use a service account token (`mcs_sa_*`) rather than an interactive session token:
 
 ```bash
 export EP_BASE_URL="https://edgeplane.example.com"
-export EP_TOKEN="<ci-service-token>"
+edgeplane auth login --service-account <sa-token>
 edgeplane run codex doctor --json
 ```
 
-Or use `EP_TOKEN=<token> edgeplane auth login --non-interactive` to create a proper session from a static token in CI.
+Service account tokens are created via the API and do not expire on the 8h session TTL.
 
 ## Custom ACP Agents
 
@@ -160,7 +160,7 @@ edgeplane agent update --agent-id <id> --home-domain-id <domain-id>
 | `MCP startup incomplete (failed: edgeplane)` | `edgeplane auth whoami` — auth must succeed before launch |
 | Token written to config file | Session tokens (`mcs_*`) are never written to disk — if you see a token in a config file, it's a static token |
 | Agent can't reach the server | `edgeplane health --json` — verify `EP_BASE_URL` is set correctly |
-| `connection refused` on MCP tools | Ensure `edgeplane serve` can start — check `EP_TOKEN` / `EP_BASE_URL` in the agent's environment |
+| `connection refused` on MCP tools | Ensure `edgeplane serve` can start — check `EP_BASE_URL` and that `~/.edgeplane/session.json` exists and is not expired (`edgeplane auth whoami`) |
 
 ## See Also
 

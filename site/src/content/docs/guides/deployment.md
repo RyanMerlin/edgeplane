@@ -27,7 +27,6 @@ Create `/etc/edgeplane/env`:
 # Auth
 AUTH_MODE=dual
 OIDC_REQUIRED=false
-EP_TOKEN=<static-token-for-mcp>
 OIDC_ISSUER_URL=https://<your-idp-host>/application/o/<provider-slug>/
 OIDC_AUDIENCE=<oidc-client-id>
 EP_ADMIN_EMAILS=<comma-separated-admin-emails>
@@ -143,7 +142,7 @@ See [Helm chart](https://github.com/RyanMerlin/edgeplane/tree/main/infra/helm/ed
 | `oidc` | OIDC JWT only |
 | `dual` | Accept both token and OIDC |
 
-`OIDC_REQUIRED=true` in `dual` mode enforces OIDC for non-`/mcp` paths. If `AUTH_MODE` is unset, the server defaults to OIDC when OIDC vars are present, and falls back to token mode when only `EP_TOKEN` is configured.
+`OIDC_REQUIRED=true` in `dual` mode enforces OIDC for non-`/mcp` paths. If `AUTH_MODE` is unset, the server defaults to OIDC when OIDC vars are present.
 
 ## Database Migrations
 

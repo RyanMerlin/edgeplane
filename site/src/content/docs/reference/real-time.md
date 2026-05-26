@@ -93,7 +93,7 @@ The module implements `validate(ptr, len)` and runs before every MCP tool call. 
 
 ## Operational Notes
 
-- Keep `EP_TOKEN` or OIDC session tokens rotation-ready — the SSE stream authenticates per-connection
+- Keep OIDC session tokens and service account tokens rotation-ready — the SSE stream authenticates per-connection
 - `edgeplane system doctor` probes health, tools, and matrix endpoints and emits a structured JSON report with repair hints
 - `edgeplane system doctor --fix` ensures `EP_HOME`/`EP_SKILLS_HOME` exist and seeds a stable `agent_id` for local swarms
 

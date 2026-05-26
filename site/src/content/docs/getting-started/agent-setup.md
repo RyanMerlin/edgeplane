@@ -8,7 +8,7 @@ description: Connect Claude Code, Codex, Gemini, or a custom agent to EdgePlane.
 ## Prerequisites
 
 - `edgeplane` installed and on `PATH` — see [Installation](/getting-started/installation/)
-- Authenticated via `edgeplane auth login` (or `EP_TOKEN` set for CI use)
+- Authenticated via `edgeplane auth login` (OIDC) or a service account token (`mcs_sa_*`) for CI
 
 ## Launching an Agent
 
@@ -26,7 +26,7 @@ edgeplane launch custom        # Custom ACP agent
 2. Validates profile/session context against the server
 3. Fetches agent config from the onboarding manifest
 4. Writes runtime config to `~/.edgeplane/instances/<session-id>/`
-5. Injects auth context into the agent's process environment (`EP_SECRETS_SOCKET` / `EP_SECRETS_SESSION` for session tokens, `EP_TOKEN` for static token mode)
+5. Injects auth context into the agent's process environment (`EP_SECRETS_SOCKET` / `EP_SECRETS_SESSION` for session tokens)
 6. `exec`s the agent
 
 ## Session Tokens
@@ -46,18 +46,19 @@ edgeplane auth logout --local-only         # clear local file only
 
 ### OIDC / Short-lived JWTs
 
-When your `EP_TOKEN` is an OIDC JWT (from SSO), exchange it for a session token at the start of each session:
+For SSO environments, run the browser-based OIDC flow to get a session token:
 
 ```bash
-EP_TOKEN="$(get-oidc-token)" edgeplane auth login --ttl-hours 8
+edgeplane auth login --ttl-hours 8
 edgeplane run claude
 ```
 
 | Auth type | Recommended for |
 |-----------|----------------|
-| Static `EP_TOKEN` | Local dev, CI |
-| Session token (`mcs_*`) | Interactive use, OIDC users |
-| OIDC JWT | SSO environments (exchange for session token) |
+| OIDC (interactive) | Interactive use, SSO environments |
+| Session token (`mcs_*`) | Any interactive session after `edgeplane auth login` |
+| Service account (`mcs_sa_*`) | CI, headless pipelines |
+| Node JWT | Daemons and machines (`edgeplaned`) |
 
 ## Manual MCP Server Setup
 
@@ -71,8 +72,7 @@ If you prefer to wire EdgePlane into an existing agent config manually:
     "command": "edgeplane",
     "args": ["serve"],
     "env": {
-      "EP_BASE_URL": "https://edgeplane.example.com",
-      "EP_TOKEN": "<your-token>"
+      "EP_BASE_URL": "https://edgeplane.example.com"
     }
   }
 }
@@ -86,7 +86,7 @@ command = "edgeplane"
 args = ["serve"]
 startup_timeout_sec = 45
 tool_timeout_sec = 60
-env = { EP_BASE_URL = "https://edgeplane.example.com", EP_TOKEN = "<your-token>" }
+env = { EP_BASE_URL = "https://edgeplane.example.com" }
 ```
 
 **Gemini CLI (`~/.gemini/settings.json`):**
@@ -98,13 +98,14 @@ env = { EP_BASE_URL = "https://edgeplane.example.com", EP_TOKEN = "<your-token>"
       "command": "edgeplane",
       "args": ["serve"],
       "env": {
-        "EP_BASE_URL": "https://edgeplane.example.com",
-        "EP_TOKEN": "<your-token>"
+        "EP_BASE_URL": "https://edgeplane.example.com"
       }
     }
   }
 }
 ```
+
+`edgeplane serve` reads auth automatically from `~/.edgeplane/session.json` (OIDC session) or the node JWT at `/etc/edgeplane/node.json`. No token in the config is needed.
 
 ## Diagnosing Issues
 
