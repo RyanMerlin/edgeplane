@@ -23,7 +23,7 @@ jobs:
 
       - name: Mint App token for gitops push
         id: app-token
-        uses: actions/create-github-app-token@df432ceeaf9f3e7f82d4be3f99a1b0ba31d79ed  # v2
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349  # v2
         with:
           app-id: ${{ vars.MERLINLABS_AUTOMATION_APP_ID }}
           private-key: ${{ secrets.MERLINLABS_AUTOMATION_PRIVATE_KEY }}

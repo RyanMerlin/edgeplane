@@ -1,0 +1,7 @@
+[advisories]
+ignore = [
+    # lru 0.12.5 IterMut stacked borrows — transitive via ratatui 0.29; no direct IterMut usage
+    "RUSTSEC-2026-0002",
+    # wasmtime-jit-debug JitDumpFile unsound — transitive via wasmtime 16; no JIT dump path exercised
+    "RUSTSEC-2024-0442",
+]

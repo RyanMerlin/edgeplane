@@ -195,7 +195,7 @@ jobs:
           sha256sum $(ls) > checksums.txt
           cat checksums.txt
 
-      - uses: softprops/action-gh-release@7b4da11513bf3f43f9999e90eabced41ab8f3c11  # v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
         with:
           files: artifacts/*
           generate_release_notes: true
