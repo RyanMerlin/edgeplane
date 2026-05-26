@@ -4,6 +4,37 @@ All notable changes to edgeplane, edgeplaned, and edgeplane-tower are recorded h
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.11.1] — 2026-05-26
+
+### CI fixes
+
+- **Action SHA pins fixed:** `actions/create-github-app-token` and
+  `softprops/action-gh-release` had truncated commit hashes causing
+  "unable to resolve action" failures on every push and tag
+- **Security audit:** added `audit.toml` ignoring two transitive-dep
+  advisories — `RUSTSEC-2026-0002` (lru via ratatui) and
+  `RUSTSEC-2024-0442` (wasmtime-jit-debug) — both unsound warnings
+  with no exercised code path
+- **GitHub Pages:** enabled Pages on the repo (was never configured,
+  causing deploy-docs 404s)
+
+### Action version bumps
+
+All GitHub Actions bumped to latest major — resolves Node.js 20
+deprecation warnings (actions forced to Node.js 24 starting June 2nd):
+
+- `actions/checkout` v4 → v5
+- `actions/create-github-app-token` v2 → v3
+- `actions/deploy-pages` v4 → v5
+- `actions/download-artifact` v4 → v5
+- `actions/setup-node` v4 → v5
+- `actions/upload-artifact` v4 → v5
+- `actions/upload-pages-artifact` v3 → v4
+- `docker/login-action` v3 → v4
+- `softprops/action-gh-release` v2 → v3
+
+---
+
 ## [0.11.0] — 2026-05-25
 
 ### Breaking changes
