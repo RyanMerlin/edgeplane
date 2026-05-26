@@ -10,7 +10,7 @@ Each SSE chunk is a JSON object sent via `data:` lines with optional `event` and
 ```json
 {
   "type": "approval" | "inbox" | "matrix", // indicates the kind of change
-  "mission_id": "...",
+  "domain_id": "...",
   "mission_id": "...",
   "agent_id": "...",
   "status": "pending" | "approved" | "rejected",

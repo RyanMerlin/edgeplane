@@ -94,14 +94,14 @@ What works:
 - Three-pane layout: Domains | Missions | Tasks (33/33/34%)
 - `/` search filter in Domains and Missions panes
 - Tab key cycles focus across panes
-- Enter on a Mission → dispatches `ListMissions`
+- Enter on a Domain → dispatches `ListMissions`
 - Enter on a Mission → dispatches `ListTasks` (via `missions_enter()`)
 - Tasks pane uses canonical auth URL: `/missions/{m}/k/{k}/t`
 - Status dots + coloring per status string
 
 Gaps / TODOs:
 - `MissionMatrixState.error` is set in `app.rs:114` but **never rendered** — errors silently disappear
-- No empty-state message when a mission has zero missions (shows blank pane)
+- No empty-state message when a domain has zero missions (shows blank pane)
 - Task detail panel is absent — selecting a task in the Tasks pane shows nothing additional
 - No keyboard shortcut to trigger a task action (start/complete/fail)
 - `tree_nodes()` method still exists for legacy compat but is unused in v3 rendering
