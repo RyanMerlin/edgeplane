@@ -22,20 +22,12 @@ cd "$repo_root"
 
 echo "$new" > VERSION
 
-for crate in edgeplane edgeplaned edgeplane-tower; do
-  toml="crates/$crate/Cargo.toml"
-  if [[ ! -f "$toml" ]]; then
-    echo "error: $toml not found" >&2
-    exit 1
-  fi
-  # Update the single [workspace.package] version line. Each of the three
-  # Cargo.toml files starts with [workspace] then [workspace.package];
-  # the first `version = "X"` after that block is the one we want.
-  python3 - "$toml" "$new" <<'PY'
+# The workspace version lives in the root Cargo.toml under [workspace.package].
+# All crates inherit it via `version.workspace = true`.
+python3 - "Cargo.toml" "$new" <<'PY'
 import re, sys
 path, new = sys.argv[1], sys.argv[2]
 text = open(path).read()
-# Match the workspace.package section's version line.
 pat = re.compile(
     r'(\[workspace\.package\][^\[]*?\nversion\s*=\s*")[^"]+(")',
     re.DOTALL,
@@ -46,7 +38,6 @@ if n != 1:
     sys.exit(1)
 open(path, "w").write(new_text)
 PY
-done
 
-echo "Bumped VERSION + 3 workspaces to $new"
-echo "Run cargo check in each workspace to confirm."
+echo "Bumped VERSION + workspace to $new"
+echo "Run cargo check --workspace to confirm."
