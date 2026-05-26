@@ -88,7 +88,11 @@ impl FromRequestParts<Arc<AppState>> for Principal {
         // Bearer takes priority; fall back to cookie session.
         let token_credential = bearer.clone().or(cookie_token);
 
-        let agent_id_header = parts
+        // x-edgeplane-agent-id is accepted on the wire for future logging use,
+        // but is intentionally NOT used to set the Principal subject. On the
+        // static-token path the subject is always "admin"; on session/SA paths
+        // the subject comes from the DB record, not the header.
+        let _agent_id_header = parts
             .headers
             .get("x-edgeplane-agent-id")
             .and_then(|v| v.to_str().ok())
@@ -98,9 +102,13 @@ impl FromRequestParts<Arc<AppState>> for Principal {
         // in docs/plans/edgeplane-tui-auth-spec.md. Steady-state callers should use
         // session tokens (mcs_*) or service-account tokens (mcs_sa_*).
         if let (Some(t), Some(b)) = (&admin_token, &bearer) {
-            if t == b {
-                let subject = agent_id_header.clone().unwrap_or_else(|| "admin".into());
-                return Ok(Principal { subject, is_admin: true, session_id: None, auth_type: "static".into() });
+            if constant_time_eq(t, b) {
+                // Subject is always "admin" for the static token path. The
+                // x-edgeplane-agent-id header is NOT used here — accepting a
+                // caller-supplied identity when the shared static secret is the
+                // only credential would allow any holder of EP_TOKEN to spoof
+                // any agent identity.
+                return Ok(Principal { subject: "admin".into(), is_admin: true, session_id: None, auth_type: "static".into() });
             }
         }
 
@@ -191,6 +199,17 @@ impl FromRequestParts<Arc<AppState>> for Principal {
 /// SHA-256 hex digest of a token string.
 pub fn hash_token(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
+}
+
+/// Constant-time string comparison to prevent timing side-channels when
+/// comparing secrets (e.g. the static EP_TOKEN). Returns false immediately if
+/// lengths differ (length is not considered secret for token comparison), then
+/// XORs every byte pair and ORs the results so no short-circuit is possible.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Generate a new token with the given prefix (e.g. `"mcs_"`, `"mcs_sa_"`).
