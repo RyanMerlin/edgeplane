@@ -9,11 +9,14 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   check-version-sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4
       - name: Assert VERSION matches workspace.package version
         shell: bash
         run: |

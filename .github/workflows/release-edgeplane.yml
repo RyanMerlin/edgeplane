@@ -78,7 +78,7 @@ jobs:
             features: ''
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -86,11 +86,11 @@ jobs:
 
       - name: Install cross
         if: matrix.use_cross
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@920ab1831fbf4fb3ef75c8ead83556c918bb7290  # v2
         with:
           tool: cross
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
         with:
           workspaces: ${{ matrix.crate_path }}
           key: ${{ matrix.target }}-${{ matrix.bin }}
@@ -113,7 +113,7 @@ jobs:
           cp ${{ matrix.crate_path }}/target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.artifact }}
           chmod +x ${{ matrix.artifact }}
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -144,12 +144,12 @@ jobs:
             features: ''
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
         with:
           workspaces: ${{ matrix.crate_path }}
           key: ${{ matrix.target }}-${{ matrix.bin }}
@@ -169,7 +169,7 @@ jobs:
         run: copy ${{ matrix.crate_path }}\target\${{ matrix.target }}\release\${{ matrix.bin }}.exe ${{ matrix.artifact }}
         shell: cmd
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -192,7 +192,7 @@ jobs:
        needs.build-extras.result == 'failure')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
         with:
           path: artifacts
           merge-multiple: true
@@ -203,7 +203,7 @@ jobs:
           sha256sum $(ls) > checksums.txt
           cat checksums.txt
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@7b4da11513bf3f43f9999e90eabced41ab8f3c11  # v2
         with:
           files: artifacts/*
           generate_release_notes: true

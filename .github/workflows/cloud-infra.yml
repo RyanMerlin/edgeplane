@@ -11,20 +11,23 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 jobs:
   terraform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: hashicorp/setup-terraform@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4
         with:
           terraform_version: 1.5.7
       - name: Configure Azure Credentials
-        uses: azure/login@v3
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5  # v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
       - name: Install Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2  # v5
         with:
           version: v3.12.0
       - name: Terraform Init
@@ -47,21 +50,24 @@ jobs:
           popd
           mkdir -p ~/.kube
           mv /tmp/kubeconfig ~/.kube/azure_kubeconfig
-      - name: Deploy Edgeplane
+      - name: Deploy EdgePlane
         if: ${{ inputs.apply }}
-        env:
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          EP_TOKEN: ${{ secrets.EP_TOKEN }}
         run: |
           RESOURCE_GROUP=$(cat /tmp/ep_rg)
           az aks get-credentials --name edgeplane-aks --resource-group "$RESOURCE_GROUP" --file ~/.kube/azure_kubeconfig --overwrite-existing
           export KUBECONFIG=~/.kube/azure_kubeconfig
           POSTGRES_HOST=$(cat /tmp/postgres_host)
+          cat > /tmp/ep-secrets.yaml <<EOF
+          config:
+            POSTGRES_PASSWORD: "${{ secrets.POSTGRES_PASSWORD }}"
+            EP_TOKEN: "${{ secrets.EP_TOKEN }}"
+          EOF
           helm upgrade --install edgeplane infra/helm/edgeplane \
             --values infra/helm/edgeplane/values.yaml \
+            --values /tmp/ep-secrets.yaml \
             --set config.POSTGRES_HOST="$POSTGRES_HOST" \
-            --set-string config.POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            --set-string config.EP_TOKEN="$EP_TOKEN"
+            --namespace edgeplane --create-namespace
+          rm -f /tmp/ep-secrets.yaml
       - name: Smoke Tests
         if: ${{ inputs.apply }}
         run: |
