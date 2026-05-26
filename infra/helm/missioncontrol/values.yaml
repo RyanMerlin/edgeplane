@@ -20,10 +20,9 @@ config:
 # SECURITY: These values MUST be overridden in production via a K8s Secret.
 # The secret.yaml template renders these into an Opaque Secret — never put
 # real credentials in values.yaml or pass them as plain --set flags.
-# Use `helm install ... --set secrets.EP_TOKEN=$(openssl rand -hex 32)` or,
-# better, reference an external secret (Infisical, ESO, Vault).
+# Better: reference an external secret (Infisical, ESO, Vault).
+# Note: EP_TOKEN has been removed — auth uses OIDC + node JWT.
 secrets:
-  EP_TOKEN: ""  # REQUIRED — strong random token (e.g. openssl rand -hex 32)
   POSTGRES_PASSWORD: ""  # REQUIRED — set per deployment
   EP_OBJECT_STORAGE_ACCESS_KEY: ""  # REQUIRED — set per deployment
   EP_OBJECT_STORAGE_ACCESS_SECRET: ""  # REQUIRED — set per deployment

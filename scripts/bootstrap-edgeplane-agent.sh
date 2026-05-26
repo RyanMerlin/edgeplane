@@ -2,7 +2,8 @@
 set -euo pipefail
 
 EP_BASE_URL="${EP_BASE_URL:?EP_BASE_URL must be set — e.g. https://your-edgeplane.example.com}"
-EP_TOKEN="${EP_TOKEN:?EP_TOKEN must be set — get your token from the EdgePlane admin}"
+NODE_NAME="${NODE_NAME:?NODE_NAME must be set — a unique name for this node}"
+
 echo "Installing edgeplane CLI..."
 bash "$(dirname "$0")/install-edgeplane.sh"
 export PATH="$HOME/.local/bin:$PATH"
@@ -17,28 +18,18 @@ if command -v tailscale >/dev/null 2>&1; then
   fi
 fi
 
-ENV_FILE="$HOME/.edgeplane-agent.env"
-cat > "$ENV_FILE" <<EOV
-export EP_BASE_URL="$EP_BASE_URL"
-export EP_TOKEN="$EP_TOKEN"
-EOV
+echo "Registering node '${NODE_NAME}' with ${EP_BASE_URL}..."
+edgeplane --base-url "$EP_BASE_URL" agent node register --node-name "$NODE_NAME"
 
-chmod 600 "$ENV_FILE"
-
-echo "Done."
 echo ""
-echo "1) Load env vars:"
-echo "   source $ENV_FILE"
-echo ""
-echo "2) MCP config snippet:"
+echo "Done. MCP config snippet:"
 cat <<EOC
 {
   "edgeplane": {
     "command": "edgeplane",
     "args": ["serve"],
     "env": {
-      "EP_BASE_URL": "$EP_BASE_URL",
-      "EP_TOKEN": "$EP_TOKEN"
+      "EP_BASE_URL": "$EP_BASE_URL"
     }
   }
 }

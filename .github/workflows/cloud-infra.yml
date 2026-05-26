@@ -58,9 +58,8 @@ jobs:
           export KUBECONFIG=~/.kube/azure_kubeconfig
           POSTGRES_HOST=$(cat /tmp/postgres_host)
           cat > /tmp/ep-secrets.yaml <<EOF
-          config:
+          secrets:
             POSTGRES_PASSWORD: "${{ secrets.POSTGRES_PASSWORD }}"
-            EP_TOKEN: "${{ secrets.EP_TOKEN }}"
           EOF
           helm upgrade --install edgeplane infra/helm/edgeplane \
             --values infra/helm/edgeplane/values.yaml \
