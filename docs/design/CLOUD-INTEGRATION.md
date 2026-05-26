@@ -1,13 +1,13 @@
 # Cloud Integration Blueprint
 
-This document captures the architecture blueprint discussed for deploying Edgeplane into Azure first, then reusing the same platform contract in GCP and AWS. It focuses on the platform baseline (networking, managed Kubernetes, secrets, monitoring, CI/CD, and backing services) so the Edgeplane application can remain configuration-driven via the existing `MC_*` environment variables.
+This document captures the architecture blueprint discussed for deploying Edgeplane into Azure first, then reusing the same platform contract in GCP and AWS. It focuses on the platform baseline (networking, managed Kubernetes, secrets, monitoring, CI/CD, and backing services) so the Edgeplane application can remain configuration-driven via the existing `EP_*` environment variables.
 
 ## Platform Contract (shared across clouds)
 
 - **Private networking**: hub-and-spoke/VPC model with dedicated load-balanced ingress, egress filtering, and mutual TLS for cross-zone traffic.
 - **Managed Kubernetes**: AKS/GKE/EKS clusters with node pools for API workloads, autoscaling, and adedgeplanes that enforce namespace/certs/secrets policies.
 - **Managed PostgreSQL**: Regional service (Azure Database for PostgreSQL, Cloud SQL, Amazon RDS) with private endpoints and replicas for HA.
-- **Object storage**: MinIO hosted in the cluster (or cloud-native S3-compatible store) reachable via the `EP_OBJECT_STORAGE_*` variables; authentication happens through vault-backed credentials and policies restrict the `missions/<mission>/klusters/<kluster>/` prefixes.
+- **Object storage**: MinIO hosted in the cluster (or cloud-native S3-compatible store) reachable via the `EP_OBJECT_STORAGE_*` variables; authentication happens through vault-backed credentials and policies restrict the `domains/<domain>/missions/<mission>/` prefixes.
 - **MQTT**: Stateful broker deployed in Kubernetes with persistence, with the option to replace it using cloud-managed services later.
 - **Secrets and identities**: External Secrets, Azure Key Vault/Google Secret Manager/Secrets Manager, and workload identities avoiding embedded credentials in `.env` files.
 - **Observability**: OpenTelemetry collectors feeding Azure Monitor/Cloud Monitoring/CloudWatch plus cargo Prometheus endpoints for ingest, along with alerting/ runbooks per failure domain.
@@ -22,7 +22,7 @@ This document captures the architecture blueprint discussed for deploying Edgepl
 
 ### Compute
 - AKS cluster with two node pools (system + edgeplane). Nodes join private network with managed identities for pull secrets, Key Vault access, and blob storage.
-- Helm/Kustomize deploys `backend` and `crates/edgeplane` services with Kubernetes Services/Ingress, secrets mounted from External Secrets Operator, and ConfigMaps for `MC_*` values.
+- Helm/Kustomize deploys `backend` and `crates/edgeplane` services with Kubernetes Services/Ingress, secrets mounted from External Secrets Operator, and ConfigMaps for `EP_*` values.
 
 ### Data plane
 - Azure Database for PostgreSQL (flexible server) provisioned with custom parameter group, SSL-only connections, and geo-redundant backup; Terraform exports connection strings consumed via Key Vault secrets.
@@ -60,6 +60,6 @@ This document captures the architecture blueprint discussed for deploying Edgepl
 ## Acceptance Criteria
 
 - Terraform modules validate across Azure, GCP, and AWS providers with provider-specific workspaces and state backends.
-- Managed Kubernetes deployments satisfy `/healthz`, `/readyz`, and `/mcp/health` with secrets injected from each cloud's secret store and the `MC_*` variables unchanged.
+- Managed Kubernetes deployments satisfy `/healthz`, `/readyz`, and `/mcp/health` with secrets injected from each cloud's secret store and the `EP_*` variables unchanged.
 - Observability runbooks show alerts for database failure, storage issues, and MQTT connectivity; each runbook has a response strategy and verification steps.
 - CI/CD runs ensure smoke tests pass before marking stages healthy, and recoverable backups exist for Postgres and MinIO with documented restore commands.

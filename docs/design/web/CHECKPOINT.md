@@ -18,7 +18,7 @@
 | `02-dashboard.html` | Overview | **New page** — doesn't exist yet; metrics strip + fleet summary |
 | `03-ai-console.html` | Console | Session sidebar + flat transcript + approvals panel |
 | `04-agents.html` | Agents | Node sidebar + dense table + bottom detail drawer |
-| `05-explorer.html` | Explorer | 3-pane missions / klusters / tasks |
+| `05-explorer.html` | Explorer | 3-pane domains / missions / tasks |
 | `06-feed.html` | Feed | Renamed from "Matrix"; filter bar + 5-col grid + detail panel |
 | `07-governance.html` | Governance | Left nav + policy + flags + action rules + audit log |
 
@@ -67,7 +67,7 @@ Proposed nav: **Overview → Console → Agents → Explorer → Feed → Govern
 Changes:
 - "Overview" added as the first tab (new dashboard page)
 - "AI Console" → "Console" (shorter)
-- "Missions" → "Explorer" (more accurate — it's mission + kluster + task browsing)
+- "Missions" → "Explorer" (more accurate — it's domain + mission + task browsing)
 - "Matrix" → "Feed" (clearer)
 - "Governance" added as last tab
 
@@ -101,7 +101,7 @@ Changes:
 
 ### 05-explorer
 - Task detail panel (right side, like Feed's detail panel)
-- Dependency graph visualization (for a kluster's tasks)
+- Dependency graph visualization (for a mission's tasks)
 - "New task" inline form
 - Drag-to-reorder task priority
 

@@ -91,17 +91,17 @@ Gaps / TODOs:
 **Status: Functional, error display missing**
 
 What works:
-- Three-pane layout: Missions | Klusters | Tasks (33/33/34%)
-- `/` search filter in Missions and Klusters panes
+- Three-pane layout: Domains | Missions | Tasks (33/33/34%)
+- `/` search filter in Domains and Missions panes
 - Tab key cycles focus across panes
-- Enter on a Mission → dispatches `ListKlusters`
-- Enter on a Kluster → dispatches `ListTasks` (via `klusters_enter()`)
+- Enter on a Mission → dispatches `ListMissions`
+- Enter on a Mission → dispatches `ListTasks` (via `missions_enter()`)
 - Tasks pane uses canonical auth URL: `/missions/{m}/k/{k}/t`
 - Status dots + coloring per status string
 
 Gaps / TODOs:
 - `MissionMatrixState.error` is set in `app.rs:114` but **never rendered** — errors silently disappear
-- No empty-state message when a mission has zero klusters (shows blank pane)
+- No empty-state message when a mission has zero missions (shows blank pane)
 - Task detail panel is absent — selecting a task in the Tasks pane shows nothing additional
 - No keyboard shortcut to trigger a task action (start/complete/fail)
 - `tree_nodes()` method still exists for legacy compat but is unused in v3 rendering
@@ -196,8 +196,8 @@ Gaps / TODOs:
 | GET | `/health` | ping / Config status |
 | GET | `/agents` | Agents tab |
 | GET | `/missions` | Missions tab |
-| GET | `/missions/{m}/k` | Missions → Klusters |
-| GET | `/missions/{m}/k/{k}/t` | Klusters → Tasks (canonical auth path) |
+| GET | `/domains/{d}/missions` | Domains → Missions |
+| GET | `/domains/{d}/missions/{m}/tasks` | Missions → Tasks (canonical auth path) |
 | GET | `/approvals?status=pending` | Approvals tab |
 | POST | `/approvals/{id}/respond` | approve/reject |
 | GET | `/sse` | Feed SSE stream |
@@ -205,7 +205,7 @@ Gaps / TODOs:
 ### Known Endpoint Risks
 
 - `/sse` path needs validation against edgeplane-tower — controlplane may use `/events/stream`
-- `/missions/{m}/k` — the `k` shortcut vs `/klusters` — confirm edgeplane-tower routing
+- `/domains/{d}/missions` — confirm edgeplane-tower routing
 
 ### AgentSummary Wire Shape
 
@@ -220,7 +220,7 @@ edgeplane-tower returns `id` as `i32`; custom `id_to_string` deserializer handle
 **`tests/test_remote_data_client.rs`** (8 tests — URL shape regression):
 - `ping_calls_health`
 - `list_missions_calls_missions`
-- `list_klusters_uses_mission_prefix`
+- `list_missions_uses_domain_prefix`
 - `list_tasks_uses_canonical_path`
 - `list_approvals_includes_status_pending`
 - `respond_approval_posts_to_correct_path`
@@ -244,7 +244,7 @@ edgeplane-tower returns `id` as `i32`; custom `id_to_string` deserializer handle
 
 - Nav conflict regression: verify `p` from Feed, `s` from Approvals, etc. (currently no test catches these)
 - Error rendering: no test verifies `last_error` / matrix `error` display
-- Missions Enter routing by focus (Missions pane Enter vs Klusters pane Enter)
+- Missions Enter routing by focus (Domains pane Enter vs Missions pane Enter)
 - Config nav_selection actually switching panel content
 
 ---
@@ -286,7 +286,7 @@ edgeplane-tower returns `id` as `i32`; custom `id_to_string` deserializer handle
 ## Deferred (Out of Scope Until Explicitly Scoped)
 
 - Secret *values* display (browse-only shows names; viewing values deferred)
-- Any write operations from TUI: creating missions/klusters/tasks, editing agents
+- Any write operations from TUI: creating domains/missions/tasks, editing agents
 - Secrets editing via TUI
 - RTK integration
 - Tailscale integration

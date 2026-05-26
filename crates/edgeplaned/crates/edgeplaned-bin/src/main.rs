@@ -16,6 +16,7 @@ mod fleet_import;
 mod local_registry;
 mod mgmt_gateway;
 mod reconcile;
+mod register;
 mod replay_broadcast;
 mod secrets_gateway;
 mod session_supervisor;
@@ -45,7 +46,8 @@ enum Commands {
     Run {
         #[arg(long, env = "EP_BACKEND_URL", default_value = "")]
         backend_url: String,
-        #[arg(long, env = "EP_TOKEN", default_value = "")]
+        /// Override token (dev only). Registered nodes use /etc/edgeplane/node.json automatically.
+        #[arg(long, default_value = "")]
         token: String,
         #[arg(long, env = "MCD_WORK_DIR", default_value = "")]
         work_dir: String,
@@ -77,6 +79,29 @@ enum Commands {
     GetSecret {
         /// Name of the credential to fetch (the inject_as key).
         name: String,
+    },
+    /// Register this machine as an Edgeplane node using a join token.
+    ///
+    /// Creates a join token on the controlplane first:
+    ///   edgeplane node join-token create --ttl 600
+    ///
+    /// Then on the target machine:
+    ///   edgeplaned register --join-token <TOKEN> --endpoint https://edgeplane.example.com
+    ///
+    /// Credentials are written to /etc/edgeplane/node.json (root-readable only).
+    Register {
+        /// Short-lived join token (from `edgeplane node join-token create`).
+        #[arg(long)]
+        join_token: String,
+        /// Edgeplane Tower base URL (e.g. https://edgeplane.example.com or http://edgeplane:8008).
+        #[arg(long, env = "EP_BASE_URL")]
+        endpoint: String,
+        /// Name for this node. Defaults to the system hostname.
+        #[arg(long)]
+        node_name: Option<String>,
+        /// Trust tier for this node: "untrusted" (default) or "trusted".
+        #[arg(long)]
+        trust_tier: Option<String>,
     },
     /// Print version.
     Version,
@@ -120,6 +145,9 @@ async fn main() -> anyhow::Result<()> {
             .await
         }
         Commands::Doctor => doctor::run().await,
+        Commands::Register { join_token, endpoint, node_name, trust_tier } => {
+            register::run(join_token, endpoint, node_name, trust_tier).await
+        }
         Commands::GetSecret { name } => get_secret(&name),
         Commands::Version => {
             println!("edgeplaned {}", env!("CARGO_PKG_VERSION"));

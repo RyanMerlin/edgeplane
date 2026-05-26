@@ -475,6 +475,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // Node operations — static route BEFORE dynamic {node_id} routes
         .route("/runtime/nodes/register", post(register_node))
         .route("/runtime/nodes", get(list_nodes))
+        .route("/runtime/nodes/{node_id}/rotate-token", post(rotate_node_token))
         .route("/runtime/nodes/{node_id}/heartbeat", post(heartbeat_node))
         .route("/runtime/nodes/{node_id}/config", get(get_node_config))
         .route(
@@ -729,19 +730,19 @@ async fn list_channels() -> impl IntoResponse {
 
 async fn register_node(
     State(state): State<Arc<AppState>>,
-    principal: Principal,
+    // No Principal required — the join token IS the credential.
+    // owner_subject is extracted from the join token row itself.
     Json(body): Json<NodeRegister>,
 ) -> impl IntoResponse {
     let now = Utc::now().naive_utc();
-    let subject = &principal.subject;
 
-    // 1. Hash the bootstrap token and look it up
+    // 1. Hash the bootstrap token and look it up (no owner_subject filter —
+    //    the token is self-authenticating; its owner becomes the node's owner).
     let token_hash = hash_token_local(&body.bootstrap_token);
     let token_row = match sqlx::query(
-        "SELECT * FROM runtimejointoken WHERE token_hash=$1 AND status='active' AND owner_subject=$2",
+        "SELECT * FROM runtimejointoken WHERE token_hash=$1 AND status='active'",
     )
     .bind(&token_hash)
-    .bind(subject)
     .fetch_optional(&state.db)
     .await
     {
@@ -786,6 +787,7 @@ async fn register_node(
     }
 
     let token_id: String = token_row.get("id");
+    let subject: String = token_row.get("owner_subject");
 
     // 4. Check node_name uniqueness
     match sqlx::query("SELECT id FROM runtimenode WHERE node_name=$1")
@@ -826,7 +828,7 @@ async fn register_node(
          VALUES ($1,$2,$3,$4,'registered',$5,$6,$7,$8,$9,$10,$11,$12,$13,NULL,$14,$14) RETURNING *",
     )
     .bind(&node_id)
-    .bind(subject)
+    .bind(&subject)
     .bind(&body.node_name)
     .bind(&body.hostname)
     .bind(&body.trust_tier)
@@ -875,7 +877,7 @@ async fn register_node(
     // 8. Ensure node spec
     let _ = ensure_node_spec(
         &state.db,
-        subject,
+        &subject,
         &node_id,
         &body.node_name,
         &body.trust_tier,
@@ -886,12 +888,94 @@ async fn register_node(
     )
     .await;
 
-    // Return node fields + attach_secret (plaintext, this response only).
+    // 9. Issue RS256 node JWT (90-day TTL).
+    let (node_jwt, jti) = match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, 90) {
+        Ok(pair) => pair,
+        Err(e) => {
+            tracing::error!("register_node jwt sign: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let jwt_expires = now + chrono::Duration::days(90);
+    let _ = sqlx::query(
+        "INSERT INTO nodetoken (jti, node_id, revoked, issued_at, expires_at) VALUES ($1,$2,false,$3,$4)",
+    )
+    .bind(&jti)
+    .bind(&node_id)
+    .bind(now)
+    .bind(jwt_expires)
+    .execute(&state.db)
+    .await;
+
+    // Return node fields + attach_secret + node_jwt (plaintext, this response only).
     // Per-node home-domain auto-provisioning was removed in 0.15.9 — edgeplaned's
     // bootstrap module owns the single-global `home` domain now.
     let mut resp = row_to_node(&node_row);
     resp["attach_secret"] = serde_json::Value::String(attach_secret);
+    resp["node_jwt"] = serde_json::Value::String(node_jwt);
     (StatusCode::CREATED, Json(resp)).into_response()
+}
+
+async fn rotate_node_token(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(node_id): Path<String>,
+) -> impl IntoResponse {
+    let now = Utc::now().naive_utc();
+
+    // Authorisation: the node itself (JWT subject = "node:{id}"), an admin,
+    // or the owner user/service-account.
+    let authorized = if principal.is_admin {
+        true
+    } else if principal.auth_type == "node" {
+        principal.subject == format!("node:{node_id}")
+    } else {
+        matches!(
+            sqlx::query("SELECT id FROM runtimenode WHERE id=$1 AND owner_subject=$2")
+                .bind(&node_id)
+                .bind(&principal.subject)
+                .fetch_optional(&state.db)
+                .await,
+            Ok(Some(_))
+        )
+    };
+
+    if !authorized {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "not authorized to rotate this node's token"})),
+        )
+            .into_response();
+    }
+
+    // Revoke all current active JTIs for this node then issue a fresh one.
+    let _ = sqlx::query(
+        "UPDATE nodetoken SET revoked=true, revoked_at=$1 WHERE node_id=$2 AND revoked=false",
+    )
+    .bind(now)
+    .bind(&node_id)
+    .execute(&state.db)
+    .await;
+
+    let (node_jwt, jti) = match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, 90) {
+        Ok(pair) => pair,
+        Err(e) => {
+            tracing::error!("rotate_node_token jwt sign: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let jwt_expires = now + chrono::Duration::days(90);
+    let _ = sqlx::query(
+        "INSERT INTO nodetoken (jti, node_id, revoked, issued_at, expires_at) VALUES ($1,$2,false,$3,$4)",
+    )
+    .bind(&jti)
+    .bind(&node_id)
+    .bind(now)
+    .bind(jwt_expires)
+    .execute(&state.db)
+    .await;
+
+    (StatusCode::OK, Json(serde_json::json!({"node_jwt": node_jwt}))).into_response()
 }
 
 async fn list_nodes(
@@ -2341,11 +2425,6 @@ async fn execution_session_pty(
     // Verify token and session ownership before upgrading
     let allowed = async {
         if token.is_empty() { return false; }
-        // Look up session by session_id, verify ownership via attach_token or admin token
-        let admin_tok = std::env::var("EP_TOKEN").unwrap_or_default();
-        if !admin_tok.is_empty() && token == admin_tok { return true; }
-
-        // Check attach token
         let hash = hash_token_local(&token);
         let row = sqlx::query(
             "SELECT es.id FROM executionsession es \
@@ -2520,10 +2599,20 @@ async fn verify_attach_caller_token(state: &AppState, token: &str) -> bool {
     if token.is_empty() {
         return false;
     }
-    // Admin token short-circuit.
-    let admin = std::env::var("EP_TOKEN").unwrap_or_default();
-    if !admin.is_empty() && token == admin {
-        return true;
+    // Node JWT fast path — verify in-process, then confirm JTI not revoked.
+    if token.matches('.').count() == 2 {
+        if let Ok(claims) = crate::jwt::verify_node_jwt(token, &state.jwt_decoding_key) {
+            let now = chrono::Utc::now().naive_utc();
+            return matches!(
+                sqlx::query("SELECT revoked FROM nodetoken WHERE jti=$1 AND expires_at > $2 AND revoked=false")
+                    .bind(&claims.jti)
+                    .bind(now)
+                    .fetch_optional(&state.db)
+                    .await,
+                Ok(Some(_))
+            );
+        }
+        return false;
     }
     // Look up either a user session or service-account token by hash.
     let hash = hash_token_local(token);

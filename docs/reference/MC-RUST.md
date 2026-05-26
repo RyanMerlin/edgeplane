@@ -1,4 +1,4 @@
-# MC — Rust CLI & Daemon Reference
+# EP — Rust CLI & Daemon Reference
 
 `edgeplane` is the primary operator and agent interface for Edgeplane. It owns all interactivity:
 fleet views, agent launch, capability dispatch, secrets management, and the TUI.
@@ -46,7 +46,7 @@ Screens (press key to switch):
 | Key | Tab | Description |
 |-----|-----|-------------|
 | `a` | Agents | Fleet nodes — status, current task, ops |
-| `m` | Missions | Missions → Klusters → Tasks (Enter to drill down) |
+| `m` | Missions | Domains → Missions → Tasks (Enter to drill down) |
 | `f` | Feed | Live SSE event stream (`p` to pause) |
 | `p` | Approvals | Pending approval queue (`y` approve / `n` deny / `s` skip) |
 | `s` | Secrets | Infisical folder/secret browser (read-only) |
@@ -135,7 +135,7 @@ echo '{"op":"get","session":"'$EP_SECRETS_SESSION'","name":"MY_API_KEY"}' \
 
 ## edgeplane-tower
 
-Axum HTTP server. Full Rust implementation of the Edgeplane API — missions, klusters, tasks, agents, approvals, governance, SSE telemetry, and OIDC auth. Migrations run automatically on startup via sqlx.
+Axum HTTP server. Full Rust implementation of the Edgeplane API — domains, missions, tasks, agents, approvals, governance, SSE telemetry, and OIDC auth. Migrations run automatically on startup via sqlx.
 
 ```bash
 edgeplane-tower --serve --bind 0.0.0.0:8008
@@ -143,7 +143,7 @@ curl http://localhost:8008/health
 curl http://localhost:8008/raft/status
 ```
 
-Native routes: `/health`, `/raft/status`, `/missions`, `/klusters`, `/tasks`, `/agents`.
+Native routes: `/health`, `/raft/status`, `/domains`, `/missions`, `/tasks`, `/agents`.
 Everything else proxies to `--api-proxy` with full header forwarding and streaming (SSE-safe).
 
 ## Build & Test

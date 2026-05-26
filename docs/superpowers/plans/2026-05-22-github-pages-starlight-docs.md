@@ -25,7 +25,7 @@
 | `site/src/content/docs/getting-started/quick-start.md` | Docker Compose quickstart |
 | `site/src/content/docs/getting-started/agent-setup.md` | Connect an agent (from AGENT-INSTALL.md) |
 | `site/src/content/docs/concepts/overview.md` | What is MC (from README + philosophy) |
-| `site/src/content/docs/concepts/missions-klusters-tasks.md` | Core entities explained (from entities.md) |
+| `site/src/content/docs/concepts/domains-missions-tasks.md` | Core entities explained (from entities.md) |
 | `site/src/content/docs/concepts/entity-reference.md` | Full entity reference (from entities.md) |
 | `site/src/content/docs/concepts/philosophy.md` | EDGEPLANE_PHILOSOPHY.md |
 | `site/src/content/docs/architecture/overview.md` | System overview (from architecture.md) |
@@ -143,7 +143,7 @@ export default defineConfig({
           label: 'Concepts',
           items: [
             { label: 'What is Edgeplane?', slug: 'concepts/overview' },
-            { label: 'Missions, Klusters & Tasks', slug: 'concepts/missions-klusters-tasks' },
+            { label: 'Domains, Missions & Tasks', slug: 'concepts/domains-missions-tasks' },
             { label: 'Entity Reference', slug: 'concepts/entity-reference' },
             { label: 'Philosophy', slug: 'concepts/philosophy' },
           ],
@@ -261,13 +261,13 @@ Without a shared system of record, parallel agents duplicate effort, diverge on 
 
 Edgeplane is a **control plane for AI agents and human collaborators**. It provides:
 
-- **Missions & Klusters** — organizational units that scope knowledge, tools, permissions, and governance
+- **Domains & Missions** — organizational units that scope knowledge, tools, permissions, and governance
 - **Overlap Detection** — fuzzy + vector similarity runs before task and artifact creation; collisions surface before damage occurs
 - **Artifact Ledger** — every mutation recorded in Postgres, vector-indexed for search, committed to Git with full provenance
 - **MCP-Native Interface** — standard MCP stdio tools; works with any MCP-compatible agent
 - **Governance & Approvals** — versioned policy lifecycle, role-based access, HMAC-signed approval tokens
 - **Persistent Agent Sessions** — `edgeplaned` manages long-running agent processes; sessions survive crashes and reconnects
-- **Semantic Search** — tasks, docs, and klusters are vector-indexed (pgvector) for similarity and hybrid search
+- **Semantic Search** — tasks, docs, and missions are vector-indexed (pgvector) for similarity and hybrid search
 ```
 
 - [ ] **Step 2: Verify build includes landing page**
@@ -440,7 +440,7 @@ git commit -m "feat(docs): add Getting Started section"
 
 **Files:**
 - Create: `site/src/content/docs/concepts/overview.md`
-- Create: `site/src/content/docs/concepts/missions-klusters-tasks.md`
+- Create: `site/src/content/docs/concepts/domains-missions-tasks.md`
 - Create: `site/src/content/docs/concepts/entity-reference.md`
 - Create: `site/src/content/docs/concepts/philosophy.md`
 
@@ -473,35 +473,35 @@ Edgeplane is the coordination layer. It is a control plane for AI agents and hum
 
 | Capability | What it does |
 |-----------|-------------|
-| **Missions & Klusters** | Organizational units that scope knowledge, tools, permissions, and governance. Agents and humans switch profiles without losing context or integrity. |
+| **Domains & Missions** | Organizational units that scope knowledge, tools, permissions, and governance. Agents and humans switch profiles without losing context or integrity. |
 | **Overlap Detection** | Fuzzy + vector similarity runs before task and artifact creation. Collisions surface as `overlap_suggestions` in the API response before damage occurs. |
 | **Artifact Ledger** | Every mutation recorded in Postgres, vector-indexed for search, and committed to Git with full provenance metadata on publish. |
-| **MCP-Native Interface** | Standard MCP stdio tools: `search_tasks`, `get_overlap_suggestions`, `load_kluster_workspace`, `publish_pending_ledger_events`. Works with any MCP-compatible agent. |
+| **MCP-Native Interface** | Standard MCP stdio tools: `search_tasks`, `get_overlap_suggestions`, `load_mission_workspace`, `publish_pending_ledger_events`. Works with any MCP-compatible agent. |
 | **Governance & Approvals** | Versioned policy lifecycle (draft → active → rollback), role-based access (Admin / Contributor / Viewer), HMAC-signed approval tokens on sensitive mutations. |
 | **Persistent Agent Sessions** | `edgeplaned` manages long-running agent processes on each node via ACP. Sessions survive crashes and reconnects. |
-| **Semantic Search** | Tasks, docs, and klusters are vector-indexed (pgvector) for similarity and hybrid search. |
+| **Semantic Search** | Tasks, docs, and missions are vector-indexed (pgvector) for similarity and hybrid search. |
 | **S3-Backed File Persistence** | Artifact content stored in S3-compatible object storage. Swap in AWS S3 or MinIO with env vars — no code changes. |
 | **Chat Integration** | Slack-native notifications, task creation from threads, approval workflows, and in-channel search. |
 
 ## Next steps
 
-- [Missions, Klusters & Tasks](./missions-klusters-tasks) — the three core primitives
+- [Domains, Missions & Tasks](./domains-missions-tasks) — the three core primitives
 - [Entity Reference](./entity-reference) — full schema-level definitions
 - [Philosophy](./philosophy) — the why behind the design
 ```
 
-- [ ] **Step 2: Create `missions-klusters-tasks.md`**
+- [ ] **Step 2: Create `domains-missions-tasks.md`**
 
-Adapt Mission, Kluster, Task, and MeshTask sections from `docs/architecture/entities.md`. Keep the content, add frontmatter, apply the Aria scrub.
+Adapt Domain, Mission, Task, and MeshTask sections from `docs/architecture/entities.md`. Keep the content, add frontmatter, apply the Aria scrub.
 
 ```markdown
 ---
-title: Missions, Klusters & Tasks
+title: Domains, Missions & Tasks
 description: The three core organizational primitives in Edgeplane.
 ---
 ```
 
-Then include the Mission, Kluster, Task, and MeshTask sections from `docs/architecture/entities.md` — these four are the most important for new users to understand. Apply the scrub: `leaked an Aria-specific operational pattern` → `leaked a deployment-specific operational pattern`.
+Then include the Domain, Mission, Task, and MeshTask sections from `docs/architecture/entities.md` — these four are the most important for new users to understand. Apply the scrub: `leaked an Aria-specific operational pattern` → `leaked a deployment-specific operational pattern`.
 
 - [ ] **Step 3: Create `entity-reference.md`**
 
@@ -510,7 +510,7 @@ Copy the full content of `docs/architecture/entities.md` with frontmatter. Apply
 ```markdown
 ---
 title: Entity Reference
-description: Canonical definitions for all Edgeplane entities — Mission, Kluster, Task, MeshTask, Artifact, Agent, and Session types.
+description: Canonical definitions for all Edgeplane entities — Domain, Mission, Task, MeshTask, Artifact, Agent, and Session types.
 ---
 ```
 
@@ -969,7 +969,7 @@ getting-started/installation/index.html
 getting-started/quick-start/index.html
 getting-started/agent-setup/index.html
 concepts/overview/index.html
-concepts/missions-klusters-tasks/index.html
+concepts/domains-missions-tasks/index.html
 concepts/entity-reference/index.html
 concepts/philosophy/index.html
 architecture/overview/index.html

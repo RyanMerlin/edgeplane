@@ -256,12 +256,12 @@ For first-class Codex multi-session collaboration (without nested `codex exec`),
 
 - `docs/CODEX-SWARM-WORKFLOW.md`
 
-## Skill Sync (Mission/Kluster Scope)
+## Skill Sync (Domain/Mission Scope)
 
-Resolve and materialize effective skills for an active mission/kluster:
+Resolve and materialize effective skills for an active domain/mission:
 
 ```bash
-edgeplane data sync status --mission-id <mission-id> --kluster-id <optional-kluster-id>
+edgeplane data sync status --domain-id <domain-id> --mission-id <optional-mission-id>
 ```
 
 ---
@@ -282,5 +282,5 @@ If Codex shows `MCP startup incomplete (failed: edgeplane)`:
 
 - Ensure `edgeplane daemon` is running on `127.0.0.1:8765`.
 - Use shim defaults (`EP_MCP_MODE=shim`, `EP_STARTUP_PREFLIGHT=none`).
-- Ensure your MCP env vars are `MC_*` (not `EDGEPLANE_*`).
+- Ensure your MCP env vars use the `EP_*` prefix.
 - Run `edgeplane auth whoami` to verify auth is working before launching an agent.

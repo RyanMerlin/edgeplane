@@ -79,7 +79,7 @@ fn build_manifest(base: &str) -> serde_json::Value {
             "name": "edgeplane",
             "command": "edgeplane",
             "args": ["serve"],
-            "env": {"EP_BASE_URL": base, "EP_TOKEN": "${EP_TOKEN}"}
+            "env": {"EP_BASE_URL": base}
         },
         "ep_serve_mcp_server": {
             "name": "edgeplane",
@@ -102,18 +102,23 @@ fn build_manifest(base: &str) -> serde_json::Value {
             }
         },
         "bootstrap": {
+            "step_1": "edgeplane agent node join-token create --ttl-seconds 600",
+            "step_2": format!(
+                "edgeplaned register --join-token <TOKEN> --endpoint {}",
+                base
+            ),
             "remote_script": format!(
-                "bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane-integration/main/install.sh) --endpoint {} --token ${{EP_TOKEN}} --agent both",
+                "bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane-integration/main/install.sh) --endpoint {} --join-token <TOKEN>",
                 base
             ),
             "local_script": format!(
-                "bash install.sh --endpoint {} --token ${{EP_TOKEN}} --agent both",
+                "bash install.sh --endpoint {} --join-token <TOKEN>",
                 base
             )
         },
         "automation": {
             "config_generator_script": format!(
-                "git clone https://github.com/RyanMerlin/edgeplane-integration.git && cd edgeplane-integration && bash install.sh --endpoint {} --token ${{EP_TOKEN}} --agent both",
+                "git clone https://github.com/RyanMerlin/edgeplane-integration.git && cd edgeplane-integration && bash install.sh --endpoint {} --join-token <TOKEN>",
                 base
             )
         },

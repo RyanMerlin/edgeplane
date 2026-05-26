@@ -11,7 +11,7 @@ Each SSE chunk is a JSON object sent via `data:` lines with optional `event` and
 {
   "type": "approval" | "inbox" | "matrix", // indicates the kind of change
   "mission_id": "...",
-  "kluster_id": "...",
+  "mission_id": "...",
   "agent_id": "...",
   "status": "pending" | "approved" | "rejected",
   "payload": { ... },        // arbitrary tool-specific context
@@ -48,7 +48,7 @@ If an operator needs faster-than-LLM loops, supply `--booster-wasm` with a Wasm 
 
 ## Schema pack + booster
 
-`edgeplane` draws the same schema pack that the backend enforces so the booster and matrix instrumentation share a single source of truth. Set `EP_SCHEMA_PACK_FILE` to `docs/schema-packs/main.json` (or your own custom drop-in) and the daemon will validate `mission`, `kluster`, `task`, `doc`, and `artifact` payloads before invoking `/mcp/call`. Invalid schema packs are logged at startup and fall back to the embedded defaults described in [`docs/MC-RUST.md`](MC-RUST.md); the matrix FE can then trust the `type`/`payload` shape without hitting the server randomly.
+`edgeplane` draws the same schema pack that the backend enforces so the booster and matrix instrumentation share a single source of truth. Set `EP_SCHEMA_PACK_FILE` to `docs/schema-packs/main.json` (or your own custom drop-in) and the daemon will validate `domain`, `mission`, `task`, `doc`, and `artifact` payloads before invoking `/mcp/call`. Invalid schema packs are logged at startup and fall back to the embedded defaults described in [`docs/reference/MC-RUST.md`](MC-RUST.md); the matrix FE can then trust the `type`/`payload` shape without hitting the server randomly.
 
 ## Operational guidance
 

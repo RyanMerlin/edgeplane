@@ -67,7 +67,7 @@ node: excalibur
 ```
 
 Each agent:
-- Is mission-scoped (sees only that mission's klusters, roster, policy)
+- Is mission-scoped (sees only that mission's tasks, roster, policy)
 - Has its own task_loop + message relay
 - Can collaborate with peers **within its mission** via the message bus (now actually working post-`dc76952`)
 - Can post messages to **other missions' agents** via the cross-mission send endpoint (`POST /work/missions/{mid}/messages` with `to_agent_id`)

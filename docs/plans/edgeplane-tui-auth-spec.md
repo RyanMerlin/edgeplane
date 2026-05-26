@@ -47,7 +47,7 @@ Behavior:
 │                                                        │
 │   You're not signed in.                                │
 │                                                        │
-│   Some panels (private missions, klusters, agents)     │
+│   Some panels (private domains, missions, agents)     │
 │   require authentication.                              │
 │                                                        │
 │        [  Sign in  ]   or press  L                     │

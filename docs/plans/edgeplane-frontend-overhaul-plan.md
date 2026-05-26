@@ -69,7 +69,7 @@ Use the latest stable versions unless there is a concrete compatibility issue wi
 | `cn()` utility | Use `clsx` + `tailwind-merge` for class composition |
 | Testing | Add Vitest unit tests and Playwright E2E tests |
 
-### Mission-Control / OpenClaw — Panel-Based Model
+### EdgePlane / OpenClaw — Panel-Based Model
 
 | Pattern | What to Adopt |
 |---|---|

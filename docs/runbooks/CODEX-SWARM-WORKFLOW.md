@@ -2,7 +2,7 @@
 
 This is the canonical Codex-native swarm workflow for Edgeplane.
 
-Goal: run multiple Codex sessions collaborating on the same mission/kluster without using nested `codex exec` pressure workers.
+Goal: run multiple Codex sessions collaborating on the same domain/mission without using nested `codex exec` pressure workers.
 
 ## Why this path
 
@@ -31,19 +31,19 @@ bash scripts/edgeplane-collab-driver.sh
 
 Driver behavior:
 
-- creates mission + kluster + 3 scenario tasks (unless you provide existing IDs)
-- prints `mission_id` and `kluster_id`
+- creates domain + mission + 3 scenario tasks (unless you provide existing IDs)
+- prints `domain_id` and `mission_id`
 - samples task state during the run window
 - emits `summary.json` at completion
 
-Attach to an existing mission/kluster instead:
+Attach to an existing domain/mission instead:
 
 ```bash
 EP_BASE_URL=http://localhost:8008 \
 EP_TOKEN="<token>" \
 EP_STACK_PROFILE=full \
+EP_COLLAB_DOMAIN_ID="<domain_id>" \
 EP_COLLAB_MISSION_ID="<mission_id>" \
-EP_COLLAB_KLUSTER_ID="<kluster_id>" \
 bash scripts/edgeplane-collab-driver.sh
 ```
 
@@ -54,7 +54,7 @@ Open 2-5 additional Codex sessions.
 Each session should:
 
 - use Edgeplane MCP shim (`EP_MCP_MODE=shim`, daemon `127.0.0.1:8765`)
-- target the same `mission_id`/`kluster_id`
+- target the same `domain_id`/`mission_id`
 - pick one task and move it through: `proposed -> in_progress -> blocked|done`
 - include concise updates in task descriptions
 
@@ -87,7 +87,7 @@ For scripted/parallel launches, assign task IDs explicitly per session using `EP
 
 ## Known coordination gap
 
-**Problem:** `update_task` is protected by mission-level write authz but has no per-task ownership lock or optimistic concurrency check. Multiple agents targeting the same kluster can silently overwrite each other's status transitions.
+**Problem:** `update_task` is protected by domain-level write authz but has no per-task ownership lock or optimistic concurrency check. Multiple agents targeting the same mission can silently overwrite each other's status transitions.
 
 **Observed in swarm run `20260320050257`:** sessions B and C both claimed task `58a0b952a9b9` — B moved it to `done`, then C overwrote the description (still `done`, so outcome was harmless but work was duplicated).
 
@@ -100,7 +100,7 @@ For scripted/parallel launches, assign task IDs explicitly per session using `EP
 | Agent writes stale `owner` field after another agent claimed | Ownership tracking corrupted | Medium |
 | High-frequency concurrent writes to same task | Last-write-wins; intermediate states lost from ledger | High |
 
-**What's needed (tracked under MC-MCP-007 idempotency work):**
+**What's needed (tracked under EP-MCP-007 idempotency work):**
 
 - `claim_task` MCP tool: atomic `proposed → in_progress` transition that fails if the task is already owned — backend enforces with a DB-level check on `(status == proposed OR owner == requester)`.
 - Optimistic locking on `update_task`: accept an optional `expected_status` or `version` field; return `error_code: conflict` if current state doesn't match.
@@ -112,7 +112,7 @@ Until these are in place, coordinate task assignment out-of-band (pre-assigned I
 
 A run is considered healthy when:
 
-- at least 3 tasks exist in the target kluster
+- at least 3 tasks exist in the target mission
 - each task has at least one meaningful state transition
 - at least one task reaches `done`
 - driver report shows non-zero `observed_changes`
@@ -132,7 +132,7 @@ Key fields:
 ## 5) Troubleshooting
 
 - If `mcpd` fails to start on `:8765`, stop any local `edgeplane daemon` already bound there.
-- If Codex reports MCP startup incomplete, verify `MC_*` env names (not `EDGEPLANE_*`).
+- If Codex reports MCP startup incomplete, verify `EP_*` env names.
 - If stack services are stale, run `bash scripts/dev-up.sh` (defaults to full profile and clears preexisting/orphan containers first).
 
 ## 6) Recommended pressure sequence

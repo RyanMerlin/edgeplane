@@ -1,22 +1,22 @@
-# WORKSTREAM: <kluster-name>
+# WORKSTREAM: <mission-name>
 
 ## Purpose
-- Kluster ID: `<kluster-id>`
 - Mission ID: `<mission-id>`
+- Domain ID: `<domain-id>`
 - Description: <human-readable workstream objective>
 
 ## Governance
 - Owners: <comma-separated owners>
 - Contributors: <comma-separated contributors>
-- Rules: <kluster-specific rules>
-- Allowed Actions: <kluster-specific allow/deny policy>
+- Rules: <mission-specific rules>
+- Allowed Actions: <mission-specific allow/deny policy>
 
 ## Policy Overlay
-- Inherits Mission Policy: yes|no
+- Inherits Domain Policy: yes|no
 - Override Scope: <explicit overrides from NORTHSTAR>
 
 ## External Storage
-- Object Prefix: `missions/<mission-id>/klusters/<kluster-id>/`
+- Object Prefix: `domains/<domain-id>/missions/<mission-id>/`
 - Credential Refs: `secretref://infisical/<project>/<path>#<key>` (no plaintext)
 
 ## Integrations

@@ -1,8 +1,8 @@
 # edgeplaned — Agent Work Loop
 
 edgeplaned is the work-first agent coordination daemon. Think Temporal, not RKE2:
-- **Mission** = namespace / long-lived workspace
-- **Kluster** = objective owning a task DAG
+- **Domain** = namespace / long-lived workspace
+- **Mission** = objective owning a task DAG
 - **MeshTask** = unit of work (claimed, executed, finished)
 - **AgentRuntime** = worker. Five impls today: `claude_code` (one-shot `claude -p`), `claude_agent_acp` (persistent JSON-RPC; ACP), `codex`, `gemini`, `goose`, and `zellij_hosted` (long-running agents hosted in a Zellij pane — Aria fleet; signals via `edgeplane agent signal`). See `crates/edgeplaned/crates/edgeplaned-runtimes/src/`.
 
@@ -125,9 +125,9 @@ systemctl --user enable --now edgeplane-goose
 
 ```bash
 TOKEN=mcs_…
-KLUSTER_ID=<id>
+MISSION_ID=<id>
 
-curl -X POST http://<edgeplane-host>/work/klusters/$KLUSTER_ID/tasks \
+curl -X POST http://<edgeplane-host>/work/missions/$MISSION_ID/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -165,7 +165,7 @@ curl -X POST http://<edgeplane-host>/work/tasks/<task-id>/retry \
 
 ## Known limitations
 
-- **Event bus threading**: `task_ready` WebSocket events from sync API handlers may not wake the work loop reliably in single-worker deployments. The startup poll (`/work/klusters/{id}/tasks?status=ready`) is the reliable dispatch path — restart the loop after creating tasks if events don't fire.
+- **Event bus threading**: `task_ready` WebSocket events from sync API handlers may not wake the work loop reliably in single-worker deployments. The startup poll (`/work/missions/{id}/tasks?status=ready`) is the reliable dispatch path — restart the loop after creating tasks if events don't fire.
 - **sudo in tasks**: Goose runs without a TTY; `sudo` will fail unless the node has passwordless sudo configured for the user (`NOPASSWD: ALL` or specific commands in `/etc/sudoers.d/`).
 - **GLIBC mismatch**: Build `edgeplane` natively on the target node if it runs an older glibc than the build machine.
-- **Tasks vs MeshTasks**: The regular `/missions/{id}/k/{id}/t` task API is the Kanban-style tracker. The work loop only operates on `MeshTask` objects at `/work/klusters/{id}/tasks`. Always use the `/work/` API when creating tasks for agent dispatch.
+- **Tasks vs MeshTasks**: The regular `/domains/{id}/missions/{id}/tasks` task API is the Kanban-style tracker. The work loop only operates on `MeshTask` objects at `/work/missions/{id}/tasks`. Always use the `/work/` API when creating tasks for agent dispatch.

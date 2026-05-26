@@ -1,7 +1,7 @@
 # Security Hardening Update — 2026-03-24
 
-Mission: `3e8e22e78ab0`
-Kluster: `326cf69b71fb` (`web ui 1.0`)
+Domain: `3e8e22e78ab0`
+Mission: `326cf69b71fb` (`web ui 1.0`)
 
 ## Delivered commits
 - `44955e0` — harden token fallback and secret handling

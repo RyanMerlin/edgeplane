@@ -41,7 +41,6 @@ interfaces:
   env_vars:
     - DATABASE_URL       # PostgreSQL (prod) or SQLite (dev)
     - AUTH_MODE
-    - EP_TOKEN
     - OBJECT_STORAGE_URL
   key_endpoints:
     - /healthz

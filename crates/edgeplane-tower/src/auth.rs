@@ -8,26 +8,25 @@ use base64::Engine;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
-use std::{env, sync::Arc};
+use std::sync::Arc;
 
 use crate::state::AppState;
 
 /// Caller identity extracted from request headers.
 ///
-/// Note: `auth_type` is one of `"static"`, `"session"`, or `"service_account"`.
-/// The historical `"anonymous"` synthetic principal was removed in Phase 1.5;
-/// Phase 1.6 (this change) adds the `require_auth` middleware that gates
-/// every route except the documented `is_public_path` allowlist. The
-/// extractor reads from request extensions (where the middleware caches
-/// the resolved Principal) before falling back to a full lookup, so
-/// handlers can still take `principal: Principal` without paying for a
-/// second DB round-trip per request.
+/// Note: `auth_type` is one of `"session"`, `"service_account"`, or `"node"`.
+/// The `"static"` EP_TOKEN path was removed — all callers authenticate via
+/// OIDC session tokens (mcs_*), service-account tokens (mcs_sa_*), or
+/// RS256 node JWTs. The extractor reads from request extensions (where the
+/// `require_auth` middleware caches the resolved Principal) before falling
+/// back to a full lookup, so handlers can still take `principal: Principal`
+/// without a second DB round-trip per request.
 #[derive(Clone)]
 pub struct Principal {
     pub subject: String,
     pub is_admin: bool,
     pub session_id: Option<i32>,
-    /// One of: "static", "session", "service_account"
+    /// One of: "session", "service_account", "node"
     pub auth_type: String,
 }
 
@@ -64,7 +63,6 @@ impl FromRequestParts<Arc<AppState>> for Principal {
         if let Some(p) = parts.extensions.get::<Principal>() {
             return Ok(p.clone());
         }
-        let admin_token = env::var("EP_TOKEN").ok();
         let bearer = parts
             .headers
             .get("authorization")
@@ -88,33 +86,40 @@ impl FromRequestParts<Arc<AppState>> for Principal {
         // Bearer takes priority; fall back to cookie session.
         let token_credential = bearer.clone().or(cookie_token);
 
-        // x-edgeplane-agent-id is accepted on the wire for future logging use,
-        // but is intentionally NOT used to set the Principal subject. On the
-        // static-token path the subject is always "admin"; on session/SA paths
-        // the subject comes from the DB record, not the header.
-        let _agent_id_header = parts
-            .headers
-            .get("x-edgeplane-agent-id")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.trim().to_string());
-
-        // Static admin token — bootstrap-only path, see the EP_TOKEN policy
-        // in docs/plans/edgeplane-tui-auth-spec.md. Steady-state callers should use
-        // session tokens (mcs_*) or service-account tokens (mcs_sa_*).
-        if let (Some(t), Some(b)) = (&admin_token, &bearer) {
-            if constant_time_eq(t, b) {
-                // Subject is always "admin" for the static token path. The
-                // x-edgeplane-agent-id header is NOT used here — accepting a
-                // caller-supplied identity when the shared static secret is the
-                // only credential would allow any holder of EP_TOKEN to spoof
-                // any agent identity.
-                return Ok(Principal { subject: "admin".into(), is_admin: true, session_id: None, auth_type: "static".into() });
-            }
-        }
-
         if let Some(ref token) = token_credential {
             let hash = hash_token(token);
             let now = chrono::Utc::now().naive_utc();
+
+            // Node JWT — exactly two dots means RS256 JWT (never present in
+            // opaque mcs_* tokens). Validate signature in-process; only then
+            // hit the DB to confirm the JTI is not revoked.
+            if token.matches('.').count() == 2 {
+                if let Ok(claims) = crate::jwt::verify_node_jwt(token, &state.jwt_decoding_key) {
+                    let row = sqlx::query(
+                        "SELECT revoked FROM nodetoken WHERE jti=$1 AND expires_at > $2",
+                    )
+                    .bind(&claims.jti)
+                    .bind(now)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten();
+
+                    if let Some(row) = row {
+                        let revoked: bool = row.get("revoked");
+                        if !revoked {
+                            return Ok(Principal {
+                                subject: claims.sub,
+                                is_admin: false,
+                                session_id: None,
+                                auth_type: "node".into(),
+                            });
+                        }
+                    }
+                }
+                // JWT present but invalid/revoked/unknown — fall through to reject.
+                return Err(AuthRejection::Unauthenticated);
+            }
 
             if token.starts_with("mcs_sa_") {
                 // Service account token — validate against serviceaccounttoken + serviceaccount
@@ -201,16 +206,6 @@ pub fn hash_token(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
 
-/// Constant-time string comparison to prevent timing side-channels when
-/// comparing secrets (e.g. the static EP_TOKEN). Returns false immediately if
-/// lengths differ (length is not considered secret for token comparison), then
-/// XORs every byte pair and ORs the results so no short-circuit is possible.
-fn constant_time_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
 
 /// Generate a new token with the given prefix (e.g. `"mcs_"`, `"mcs_sa_"`).
 /// Suffix is 32 random bytes base64url-encoded (no padding), same entropy as
@@ -253,6 +248,7 @@ pub fn is_public_path(path: &str) -> bool {
             | "/integrations/google-chat/events"
     ) || path.starts_with("/auth/oidc/")
         || path == "/auth/logout"
+        || path == "/runtime/nodes/register" // bootstrap — join token is the sole credential
 }
 
 /// Tower middleware that gates the entire app on authentication.

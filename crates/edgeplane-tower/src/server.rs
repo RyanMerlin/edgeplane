@@ -1,9 +1,10 @@
 use axum::{Router, extract::State, http::StatusCode, middleware, response::IntoResponse};
+use base64::Engine;
 use sqlx::PgPool;
 use std::{path::PathBuf, sync::Arc};
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::{auth, routes, state::{AppState, NodeInfo}};
+use crate::{auth, jwt, routes, state::{AppState, NodeInfo}};
 
 #[derive(Default, Clone)]
 pub struct AppConfig {
@@ -14,6 +15,10 @@ pub struct AppConfig {
 }
 
 pub fn build_app(db: PgPool, config: AppConfig) -> Router {
+    // Load JWT signing key from EP_JWT_SIGNING_KEY (base64-encoded PKCS#8 PEM).
+    // If unset, auto-generate an ephemeral keypair and warn — dev mode only.
+    let (jwt_encoding_key, jwt_decoding_key) = load_jwt_keys();
+
     let state = Arc::new(AppState {
         db,
         node: NodeInfo {
@@ -24,6 +29,8 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
             leader_id: None,
         },
         api_proxy: config.api_proxy.clone(),
+        jwt_encoding_key,
+        jwt_decoding_key,
     });
 
     // Phase 1.6: a single auth layer at the app boundary, applied only to
@@ -56,6 +63,37 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
             .with_state(state)
     };
     router
+}
+
+fn load_jwt_keys() -> (jsonwebtoken::EncodingKey, jsonwebtoken::DecodingKey) {
+    use rsa::{RsaPrivateKey, pkcs8::{DecodePrivateKey, EncodePublicKey, LineEnding}};
+
+    if let Ok(b64) = std::env::var("EP_JWT_SIGNING_KEY") {
+        let pem_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&b64)
+            .expect("EP_JWT_SIGNING_KEY must be base64-encoded");
+        let pem = String::from_utf8(pem_bytes)
+            .expect("EP_JWT_SIGNING_KEY decoded value is not valid UTF-8");
+        let enc = jwt::encoding_key_from_pem(&pem)
+            .expect("EP_JWT_SIGNING_KEY: invalid RSA PKCS#8 PEM");
+        let pub_pem = RsaPrivateKey::from_pkcs8_pem(&pem)
+            .expect("EP_JWT_SIGNING_KEY: cannot parse PKCS#8")
+            .to_public_key()
+            .to_public_key_pem(LineEnding::LF)
+            .expect("public key PEM export failed");
+        let dec = jwt::decoding_key_from_pem(&pub_pem)
+            .expect("EP_JWT_SIGNING_KEY: public key error");
+        (enc, dec)
+    } else {
+        tracing::warn!(
+            "EP_JWT_SIGNING_KEY not set — generating ephemeral RSA keypair. \
+             Node JWTs will be invalid after restart. Set EP_JWT_SIGNING_KEY for production."
+        );
+        let (priv_pem, pub_pem) = jwt::generate_rsa_keypair().expect("RSA keygen failed");
+        let enc = jwt::encoding_key_from_pem(&priv_pem).unwrap();
+        let dec = jwt::decoding_key_from_pem(&pub_pem).unwrap();
+        (enc, dec)
+    }
 }
 
 async fn proxy_fallback(

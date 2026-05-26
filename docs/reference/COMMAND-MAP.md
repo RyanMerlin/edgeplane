@@ -36,7 +36,7 @@ This is the authoritative `edgeplane` CLI command hierarchy.
 - `edgeplane version` — local CLI version + backend reachability.
 - `edgeplane config` — effective local runtime config (redacted).
 - `edgeplane use --profile <name>` — activate/apply profile (API-backed profile flow).
-- `edgeplane use --kluster-id <id> [--lease-seconds N] [--workspace-label <label>]` — acquire workspace lease lock (API-backed).
+- `edgeplane use --mission-id <id> [--lease-seconds N] [--workspace-label <label>]` — acquire workspace lease lock (API-backed).
 - `edgeplane use --release` — release current active lease.
 - `edgeplane release [--reason <text>] [--ignore-missing]` — top-level lease release shortcut.
 - `edgeplane logs` — local log tail helper (local-only utility).

@@ -26,7 +26,6 @@ entrypoints:
 interfaces:
   env_vars:
     - EP_BASE_URL
-    - EP_TOKEN
     - EP_AGENT_ID
     - CODEX_WORKERS      # Number of parallel Codex worker sessions
 

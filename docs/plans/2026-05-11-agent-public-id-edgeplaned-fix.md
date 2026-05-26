@@ -10,7 +10,7 @@
 
 Two bugs prevent edgeplaned from delivering messages to running Claude Code agents:
 
-1. **`/work/` prefix hardcoded in edgeplaned** — all API calls hit `/work/agents/...`, `/work/klusters/...` etc., but edgeplane-tower serves these routes without any prefix → connection closed
+1. **`/work/` prefix hardcoded in edgeplaned** — all API calls hit `/work/agents/...`, `/work/missions/...` etc., but edgeplane-tower serves these routes without any prefix → connection closed
 2. **Agent ID type mismatch** — edgeplaned uses internal UUIDs for agent identity; edgeplane-tower uses `i32` integer IDs → `"Cannot parse UUID to i32"`
 3. **Integer IDs are unreadable at scale** — `aria-operator id:2`, `aria-work id:7`... by agent 50 the dashboard is noise
 
@@ -63,7 +63,7 @@ Add `api_prefix: String` field (default `""`) to the HTTP client. All hardcoded 
 
 Affected files (do NOT fix individually — fix at the client layer):
 - `edgeplaned/src/task_loop.rs:405` — `/work/agents/{id}/messages`
-- `edgeplaned-work/src/task.rs:43,66` — `/work/klusters/...`, `/work/tasks/...`
+- `edgeplaned-work/src/task.rs:43,66` — `/work/missions/...`, `/work/tasks/...`
 - `edgeplaned-core/src/client.rs:101` — `/work/missions/{id}/roster`
 
 **2.2 Use public_id from enrollment**

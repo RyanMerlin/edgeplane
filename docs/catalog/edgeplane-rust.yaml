@@ -76,7 +76,7 @@ entrypoints:
 interfaces:
   env_vars:
     - EP_BASE_URL        # Edgeplane backend URL
-    - EP_TOKEN           # Agent bearer token
+    - EP_JWT_SIGNING_KEY # base64-encoded RSA PKCS#8 PEM for node JWT signing
     - EP_AGENT_ID        # Agent identity
     - EP_SCHEMA_PACK_FILE  # Optional schema pack override
   commands:

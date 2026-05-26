@@ -39,7 +39,6 @@ runtime:
     - name: EP_BASE_URL
       required: false
       default: "(from active context)"
-    - name: EP_TOKEN
       required: false
       default: "(OIDC-issued)"
 
