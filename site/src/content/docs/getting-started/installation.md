@@ -15,7 +15,13 @@ Edgeplane has three components:
 
 The install script downloads a prebuilt binary and falls back to a source build if no binary is available for your platform.
 
-**Linux / macOS:**
+**Linux / macOS (quickest path):**
+
+```bash
+curl -fsSL https://edgeplane.ai/install.sh | bash
+```
+
+Or directly from the repo:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/install-edgeplane.sh)
@@ -77,6 +83,8 @@ You can set these in your shell profile or pass them inline:
 export EP_BASE_URL="https://edgeplane.example.com"
 export EP_TOKEN="your-token"
 ```
+
+> **Note:** For interactive use, prefer `edgeplane auth login` (OIDC) over a static `EP_TOKEN`. Static tokens are intended for CI pipelines and MCP clients.
 
 ## Verify
 

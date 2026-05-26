@@ -11,10 +11,10 @@ Operators can create multiple profiles — one per work context — and switch b
 
 ```bash
 # List profiles
-edgeplane profiles list
+edgeplane profile list
 
 # Switch active profile
-edgeplane profiles activate research
+edgeplane profile activate research
 
 # Each profile carries its own:
 # - Tool and integration settings
@@ -51,6 +51,8 @@ export EP_BASE_URL="https://edgeplane.example.com"
 export EP_TOKEN="<ci-service-token>"
 edgeplane run codex doctor --json
 ```
+
+Or use `EP_TOKEN=<token> edgeplane auth login --non-interactive` to create a proper session from a static token in CI.
 
 ## Custom ACP Agents
 
@@ -109,7 +111,7 @@ edgeplaned version
 edgeplaned get-secret MY_API_KEY
 ```
 
-Socket paths (`~/.ep/`):
+Socket paths (`~/.edgeplane/edgeplaned/`):
 - `edgeplaned-mgmt.sock` — JSON-RPC management
 - `edgeplaned-secrets.sock` — secrets broker (agents only)
 - `edgeplaned.sock` — PTY attach

@@ -8,7 +8,7 @@ This guide covers three deployment paths: Linux VM with systemd, Docker Compose,
 ## Prerequisites
 
 - PostgreSQL 14+
-- S3-compatible object storage (AWS S3, MinIO, or compatible self-hosted)
+- S3-compatible object storage (RustFS (bundled), MinIO, AWS S3, or other S3-compatible storage)
 - `edgeplane-tower` binary (see [Installation](/edgeplane/getting-started/installation/))
 
 ## Linux VM / systemd
@@ -93,7 +93,7 @@ curl http://localhost:8008/raft/status
 
 The repo ships a production-oriented Compose stack and a quickstart variant.
 
-**Quickstart (local dev — SQLite, no object storage):**
+**Quickstart (local dev — Postgres + RustFS, no external infrastructure required):**
 
 ```bash
 docker compose -f docker-compose.quickstart.yml up

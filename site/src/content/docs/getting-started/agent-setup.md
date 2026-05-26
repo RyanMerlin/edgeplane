@@ -8,7 +8,7 @@ description: Connect Claude Code, Codex, Gemini, or a custom agent to Edgeplane.
 ## Prerequisites
 
 - `edgeplane` installed and on `PATH` — see [Installation](/edgeplane/getting-started/installation/)
-- `EP_BASE_URL` and `EP_TOKEN` set (or a session token from `edgeplane auth login`)
+- Authenticated via `edgeplane auth login` (or `EP_TOKEN` set for CI use)
 
 ## Launching an Agent
 
@@ -26,7 +26,7 @@ edgeplane launch custom        # Custom ACP agent
 2. Validates profile/session context against the server
 3. Fetches agent config from the onboarding manifest
 4. Writes runtime config to `~/.edgeplane/instances/<session-id>/`
-5. Injects `EP_TOKEN` into the agent's process environment (session tokens are never written to config files)
+5. Injects auth context into the agent's process environment (`EP_SECRETS_SOCKET` / `EP_SECRETS_SESSION` for session tokens, `EP_TOKEN` for static token mode)
 6. `exec`s the agent
 
 ## Session Tokens
@@ -118,7 +118,6 @@ If an agent shows `MCP startup incomplete (failed: edgeplane)`:
 
 - Confirm `edgeplane auth whoami` succeeds before launching
 - Use shim defaults (`EP_MCP_MODE=shim`, `EP_STARTUP_PREFLIGHT=none`)
-- Ensure env vars use the `MC_*` prefix, not `EDGEPLANE_*`
 
 ## `edgeplane launch` Flags (non-Claude/Codex agents)
 

@@ -19,7 +19,6 @@ If you have a deployed instance, set `EP_BASE_URL` to point to it.
 
 ```bash
 export EP_BASE_URL="http://localhost:8008"   # or your deployed URL
-export EP_TOKEN="your-token"                 # static token or OIDC JWT
 ```
 
 Verify connectivity:
@@ -54,7 +53,7 @@ edgeplane run gemini          # Google Gemini CLI
 Inside the running agent, or via the CLI:
 
 ```bash
-edgeplane domains list --json
+edgeplane status
 ```
 
 Or open the TUI for a full fleet view:

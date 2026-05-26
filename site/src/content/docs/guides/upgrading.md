@@ -68,11 +68,9 @@ bash scripts/smoke.sh --profile full
 ### Data checks
 
 ```bash
-# Create and update entities
-edgeplane missions list --json
+# Verify post-upgrade connectivity and entity state
+edgeplane status
 # create + update a test mission via edgeplane or MCP tools
-# run search
-edgeplane missions list --search "test" --json
 ```
 
 ### Publish checks (if publication is enabled)
