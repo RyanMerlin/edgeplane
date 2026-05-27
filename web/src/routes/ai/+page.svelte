@@ -27,6 +27,7 @@
   let sessionAutoCreated = $state(false);
   let aiInput = $state('');
   let aiError = $state('');
+  let aiBackendUnavailable = $state(false);
   let pinToBottom = $state(true);
   let showEventDebug = $state(false);
   let terminalEl = $state<HTMLDivElement | null>(null);
@@ -115,8 +116,14 @@
   // ── Effects ───────────────────────────────────────────────────────────────────
 
   $effect(() => {
+    // If the sessions query failed, mark backend as unavailable
+    if (sessionsQuery.isError) {
+      aiBackendUnavailable = true;
+      return;
+    }
     const sessions = sessionsQuery.data;
     if (sessions === undefined) return;
+    aiBackendUnavailable = false;
     if (sessions.length > 0) {
       if (!activeSessionId) activeSessionId = sessions[0].id;
     } else if (!sessionAutoCreated && !createSessionMutation.isPending) {
@@ -221,6 +228,15 @@
 
 <div class="console-page">
 
+  {#if aiBackendUnavailable}
+    <div class="console-unavailable">
+      <div class="console-unavailable-icon">⊘</div>
+      <div class="console-unavailable-title">AI Console not available</div>
+      <div class="console-unavailable-body">No AI backend is configured for this EdgePlane instance.</div>
+      <div class="console-unavailable-hint">Configure an AI provider in the server settings to enable the console.</div>
+    </div>
+  {:else}
+
   <!-- console topbar -->
   <div class="console-bar">
     <span class="console-title">Console</span>
@@ -311,6 +327,8 @@
 
   </div>
 
+  {/if}
+
 </div>
 
 <style>
@@ -381,5 +399,39 @@
   .approval-row {
     padding: 8px 10px;
     border-bottom: 1px solid var(--border);
+  }
+
+  .console-unavailable {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 24px;
+    text-align: center;
+    color: var(--muted);
+  }
+
+  .console-unavailable-icon {
+    font-size: 32px;
+    color: var(--dim);
+    margin-bottom: 4px;
+  }
+
+  .console-unavailable-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .console-unavailable-body {
+    font-size: 12px;
+  }
+
+  .console-unavailable-hint {
+    font-size: 11px;
+    color: var(--dim);
+    max-width: 320px;
   }
 </style>

@@ -279,8 +279,12 @@
       </div>
 
     </div>
-  {:else}
-    <div style="padding:12px;"><p class="muted">No active policy found.</p></div>
+  {:else if !policyQuery.isLoading && !policyQuery.isError}
+    <div class="empty-state">
+      <div class="empty-icon">⊙</div>
+      <div class="empty-title">No policies configured</div>
+      <div class="empty-body">Governance policies control what agents can do. No active policy has been published yet.</div>
+    </div>
   {/if}
 
 </div>
@@ -360,4 +364,32 @@
     border-bottom: 1px solid var(--border);
   }
   .event-row:hover { background: var(--surface-2); }
+
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 32px;
+    text-align: center;
+    color: var(--muted);
+  }
+
+  .empty-icon {
+    font-size: 28px;
+    color: var(--dim);
+  }
+
+  .empty-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .empty-body {
+    font-size: 12px;
+    max-width: 340px;
+  }
 </style>

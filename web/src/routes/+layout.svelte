@@ -19,6 +19,7 @@
   // ── Auth state ────────────────────────────────────────────────────────────────
 
   let isLoggedIn = $state(get(authStore).loggedIn);
+  let userSubject = $state<string | null>(null);
 
   $effect(() => {
     return authStore.subscribe($auth => {
@@ -26,16 +27,54 @@
     });
   });
 
-  // ── SSE lifecycle ──────────────────────────────────────────────────────────────
+  // ── User info ─────────────────────────────────────────────────────────────────
+
+  async function fetchUserInfo() {
+    try {
+      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        userSubject = data.subject ?? null;
+      }
+    } catch {
+      // ignore — avatar will fall back to 'U'
+    }
+  }
+
+  function initials(subject: string | null): string {
+    if (!subject) return 'U';
+    // If it looks like an email, use first letter of local part
+    const atIdx = subject.indexOf('@');
+    const local = atIdx > 0 ? subject.slice(0, atIdx) : subject;
+    // Split on dots, dashes, underscores — take first letter of up to 2 parts
+    const parts = local.split(/[._\-\s]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return local.slice(0, 2).toUpperCase();
+  }
+
+  let avatarInitials = $derived(initials(userSubject));
+
+  // ── SSE lifecycle — start once per login, stop on logout ─────────────────────
+
+  let streamRunning = false;
 
   $effect(() => {
     if (!isLoggedIn) {
-      stopMatrixStream();
+      if (streamRunning) {
+        stopMatrixStream();
+        streamRunning = false;
+      }
       queryClient.clear();
+      userSubject = null;
       return;
     }
-    startMatrixStream();
-    return () => { stopMatrixStream(); };
+    if (!streamRunning) {
+      streamRunning = true;
+      startMatrixStream();
+      fetchUserInfo();
+    }
   });
 
   // ── Theme ─────────────────────────────────────────────────────────────────────
@@ -52,9 +91,33 @@
 
   function toggleTheme() { applyTheme(theme === 'dark' ? 'light' : 'dark'); }
 
+  // ── Avatar menu ───────────────────────────────────────────────────────────────
+
+  let showAvatarMenu = $state(false);
+
+  function toggleAvatarMenu() { showAvatarMenu = !showAvatarMenu; }
+
+  function handleAvatarKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAvatarMenu(); }
+    if (e.key === 'Escape') showAvatarMenu = false;
+  }
+
+  function handleDocClick(e: MouseEvent) {
+    const target = e.target as Element | null;
+    if (showAvatarMenu && target && !target.closest('.avatar-menu')) {
+      showAvatarMenu = false;
+    }
+  }
+
   // ── Auth actions ──────────────────────────────────────────────────────────────
 
   function handleOidc() { startOidcLogin(window.location.pathname); }
+
+  async function handleLogout() {
+    showAvatarMenu = false;
+    streamRunning = false;
+    await logout();
+  }
 
   // ── Mount ─────────────────────────────────────────────────────────────────────
 
@@ -82,9 +145,15 @@
     }
 
     bootstrapAuth();
+    document.addEventListener('click', handleDocClick);
   });
 
-  onDestroy(() => { stopMatrixStream(); });
+  onDestroy(() => {
+    stopMatrixStream();
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('click', handleDocClick);
+    }
+  });
 
   // ── Nav helpers ───────────────────────────────────────────────────────────────
 
@@ -110,14 +179,36 @@
         <a href="{base}/explorer/" class={navClass('/explorer/')}>Explorer</a>
         <a href="{base}/feed/" class={navClass('/feed/')}>Feed</a>
         <a href="{base}/governance/" class={navClass('/governance/')}>Governance</a>
-        <a href="{base}/onboarding/" class={navClass('/onboarding/')}>Onboarding</a>
 
         <!-- right actions -->
         <div class="topbar-right">
           <button class="icon-btn ghost" onclick={toggleTheme} title={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
             {theme === 'dark' ? '☀' : '☾'}
           </button>
-          <button class="ghost" onclick={logout}>Logout</button>
+
+          <!-- User avatar with dropdown -->
+          <div class="avatar-menu">
+            <button
+              class="avatar"
+              onclick={toggleAvatarMenu}
+              onkeydown={handleAvatarKeydown}
+              title={userSubject ?? 'User menu'}
+              aria-haspopup="true"
+              aria-expanded={showAvatarMenu}
+            >
+              {avatarInitials}
+            </button>
+            {#if showAvatarMenu}
+              <div class="avatar-dropdown" role="menu">
+                {#if userSubject}
+                  <div class="avatar-subject">{userSubject}</div>
+                {/if}
+                <button role="menuitem" onclick={() => { showAvatarMenu = false; }}>Profile</button>
+                <button role="menuitem" onclick={() => { showAvatarMenu = false; }}>Settings</button>
+                <button role="menuitem" class="logout-item" onclick={handleLogout}>Logout</button>
+              </div>
+            {/if}
+          </div>
         </div>
       </div>
 
@@ -183,3 +274,77 @@
     <div class="toast" role="alert">{$toastStore.message}</div>
   {/if}
 </QueryClientProvider>
+
+<style>
+  /* Avatar menu styles — scoped to layout */
+  .avatar-menu {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent, #ddc05a);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: 0.03em;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+  }
+
+  .avatar:hover {
+    opacity: 0.85;
+  }
+
+  .avatar-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 160px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    z-index: 1000;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .avatar-subject {
+    padding: 6px 12px;
+    font-size: 10px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    word-break: break-all;
+  }
+
+  .avatar-dropdown button {
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 12px;
+    padding: 7px 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  .avatar-dropdown button:hover {
+    background: var(--surface-2);
+  }
+
+  .logout-item {
+    color: var(--err, #f87171) !important;
+    border-top: 1px solid var(--border);
+  }
+</style>
