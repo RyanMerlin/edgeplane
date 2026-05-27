@@ -12,6 +12,16 @@ export default defineConfig({
     starlight({
       title: 'EdgePlane',
       description: 'Control plane for AI agents and human collaborators — structured missions, durable task ownership, and governed artifact publication.',
+      head: [
+        {
+          tag: 'script',
+          attrs: { async: true, src: 'https://www.googletagmanager.com/gtag/js?id=G-NCWY6TL7EW' },
+        },
+        {
+          tag: 'script',
+          content: "window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','G-NCWY6TL7EW');",
+        },
+      ],
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/RyanMerlin/edgeplane' },
       ],
