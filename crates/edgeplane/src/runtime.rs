@@ -100,8 +100,6 @@ pub enum RuntimeSessionsCommand {
 #[derive(Args, Debug)]
 pub struct RuntimeNodeRegisterArgs {
     #[arg(long)]
-    pub node_name: String,
-    #[arg(long, default_value = "")]
     pub hostname: String,
     #[arg(long, default_value = "untrusted")]
     pub trust_tier: String,
@@ -110,8 +108,6 @@ pub struct RuntimeNodeRegisterArgs {
 #[derive(Args, Debug)]
 pub struct NodeAgentRegisterArgs {
     #[arg(long)]
-    pub node_name: String,
-    #[arg(long, default_value = "")]
     pub hostname: String,
     #[arg(long, default_value = "untrusted")]
     pub trust_tier: String,
@@ -282,7 +278,7 @@ async fn run_nodes(
             let response = client
                 .post_json(
                     "/runtime/nodes/register",
-                    &json!({"node_name": args.node_name,"hostname": args.hostname,"trust_tier": args.trust_tier}),
+                    &json!({"node_name": args.hostname, "hostname": args.hostname, "trust_tier": args.trust_tier}),
                 )
                 .await?;
             output::print_value(output_mode, &response);
@@ -534,7 +530,7 @@ async fn run_node_register(
     client: &EdgeplaneClient,
 ) -> Result<()> {
     let config = load_node_config()?.unwrap_or_else(|| NodeRuntimeConfig {
-        node_name: args.node_name.clone(),
+        node_name: args.hostname.clone(),
         hostname: args.hostname.clone(),
         trust_tier: args.trust_tier.clone(),
         ..NodeRuntimeConfig::default()
