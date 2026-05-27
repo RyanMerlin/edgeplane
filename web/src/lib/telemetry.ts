@@ -32,13 +32,7 @@ let eventSource: EventSource | null = null;
 let reconnectTimeout = 1000;
 let pausedUntil = 0;
 
-function buildUrl(token?: string) {
-  const base = '/api/events/stream';
-  if (!token) return base;
-  return `${base}?ep_token=${encodeURIComponent(token)}`;
-}
-
-export function startMatrixStream(token?: string) {
+export function startMatrixStream() {
   if (!browser) return;
   if (Date.now() < pausedUntil) return;
   if (eventSource) {
@@ -46,7 +40,7 @@ export function startMatrixStream(token?: string) {
   }
 
   try {
-    eventSource = new EventSource(buildUrl(token));
+    eventSource = new EventSource('/api/events/stream');
     matrixStatus.update((state) => ({ ...state, connected: true, lastError: null }));
     reconnectTimeout = 1000;
 
@@ -85,7 +79,7 @@ export function startMatrixStream(token?: string) {
       eventSource?.close();
       eventSource = null;
       reconnectTimeout = Math.min(reconnectTimeout * 1.5, 30000);
-      setTimeout(() => startMatrixStream(token), reconnectTimeout);
+      setTimeout(() => startMatrixStream(), reconnectTimeout);
     };
   } catch (err) {
     matrixStatus.update((state) => ({

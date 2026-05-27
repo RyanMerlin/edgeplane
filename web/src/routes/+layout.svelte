@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import '../app.css';
-  import { authStore, bootstrapAuth, loginWithCookieSession, loginWithToken, token, startOidcLogin, logout } from '$lib/auth';
+  import { authStore, bootstrapAuth, loginWithCookieSession, startOidcLogin, logout } from '$lib/auth';
   import { base } from '$app/paths';
   import { exchangeOidcGrant } from '$lib/api';
   import { startMatrixStream, stopMatrixStream } from '$lib/telemetry';
@@ -19,13 +19,10 @@
   // ── Auth state ────────────────────────────────────────────────────────────────
 
   let isLoggedIn = $state(get(authStore).loggedIn);
-  let currentToken = $state<string | null>(get(authStore).token ?? null);
-  let initialToken = $state('');
 
   $effect(() => {
     return authStore.subscribe($auth => {
       isLoggedIn = $auth.loggedIn;
-      currentToken = $auth.token ?? null;
     });
   });
 
@@ -37,7 +34,7 @@
       queryClient.clear();
       return;
     }
-    startMatrixStream(currentToken ?? undefined);
+    startMatrixStream();
     return () => { stopMatrixStream(); };
   });
 
@@ -56,11 +53,6 @@
   function toggleTheme() { applyTheme(theme === 'dark' ? 'light' : 'dark'); }
 
   // ── Auth actions ──────────────────────────────────────────────────────────────
-
-  function handleToken() {
-    if (!initialToken.trim()) { showToast('Enter an EdgePlane token or use OIDC login.'); return; }
-    loginWithToken(initialToken.trim());
-  }
 
   function handleOidc() { startOidcLogin(window.location.pathname); }
 
@@ -165,22 +157,10 @@
         <div class="login-card-body">
 
           <div class="login-section">
-            <span class="login-section-lbl">Production Login</span>
             <p class="login-desc">Authenticate via your organization's identity provider. All sessions are CSRF-protected and expire after inactivity.</p>
             <button class="primary" style="width:100%; display:flex; align-items:center; justify-content:center; gap:6px; padding:7px 12px;" onclick={handleOidc}>
               <span>⬡</span>
               Sign in with OIDC
-            </button>
-          </div>
-
-          <div class="login-section">
-            <span class="login-section-lbl">Development Token</span>
-            <label>
-              <span class="login-input-lbl">EP_TOKEN</span>
-              <input bind:value={initialToken} type="password" placeholder="Enter bearer token…" style="width:100%;" />
-            </label>
-            <button class="ghost" style="width:100%; margin-top:8px; padding:7px 12px;" onclick={handleToken}>
-              Continue with token
             </button>
           </div>
 

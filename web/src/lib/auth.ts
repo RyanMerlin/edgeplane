@@ -1,20 +1,13 @@
 import { derived, writable } from 'svelte/store';
 
-const tokenStore = writable<string | null>(null);
 const cookieSessionStore = writable<boolean>(false);
 
-const authStore = derived([tokenStore, cookieSessionStore], ([$token, $cookieSession]) => ({
-  token: $token,
-  loggedIn: Boolean($token) || $cookieSession
+const authStore = derived(cookieSessionStore, ($cookieSession) => ({
+  token: null as null,
+  loggedIn: $cookieSession
 }));
 
-export function loginWithToken(value: string) {
-  tokenStore.set(value);
-  cookieSessionStore.set(false);
-}
-
 export function loginWithCookieSession() {
-  tokenStore.set(null);
   cookieSessionStore.set(true);
 }
 
@@ -40,7 +33,6 @@ export async function logout() {
   } catch {
     // Local logout still proceeds.
   }
-  tokenStore.set(null);
   cookieSessionStore.set(false);
 }
 
@@ -57,5 +49,4 @@ export function startOidcLogin(redirect = window?.location?.href) {
   window.location.assign(url);
 }
 
-export const token = derived(tokenStore, ($token) => $token);
 export { authStore };
