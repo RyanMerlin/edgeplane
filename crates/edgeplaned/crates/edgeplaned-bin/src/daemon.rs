@@ -827,18 +827,33 @@ impl Spawner {
             }
             SessionMode::Persistent => {
                 // ZellijHosted agents are externally managed: their Zellij
-                // session is owned by systemd + aria-watchdog, edgeplaned doesn't
-                // need a session supervisor or message-relay loop. Signals
-                // route via the mgmt_gateway `agent.local.signal` method
-                // (Phase 3), which looks the agent up in the supervisor's
-                // map (populated above by `supervisor.spawn`). No loops
-                // needed; the agent record is the entire surface.
+                // session is owned by systemd, edgeplaned doesn't need a
+                // session supervisor. Signals route via mgmt_gateway
+                // `agent.local.signal` → ZellijHostedRuntime::signal().
+                //
+                // PTY bridge: spawn a `zellij attach` child and register
+                // PtyAttachEndpoints so remote viewers can connect through
+                // the existing attach_ws → pump_pty pipeline.
                 if spec.runtime_kind == "zellij_hosted" {
-                    tracing::info!(
-                        "ZellijHosted agent {} registered; no session supervisor needed \
-                         (signals route via mgmt_gateway agent.local.signal)",
-                        spec.agent_id
-                    );
+                    if let Some(zellij_session) = spec.launch_overrides.zellij_session.clone() {
+                        let bridge_jh = tokio::spawn(crate::zellij_bridge::run_for_agent(
+                            spec.agent_id.clone(),
+                            zellij_session.clone(),
+                            self.attach_registry.clone(),
+                        ));
+                        handles.push(bridge_jh);
+                        tracing::info!(
+                            "ZellijHosted agent {} registered with PTY bridge \
+                             (session '{zellij_session}')",
+                            spec.agent_id
+                        );
+                    } else {
+                        tracing::info!(
+                            "ZellijHosted agent {} registered without PTY bridge \
+                             (no zellij_session in launch_overrides)",
+                            spec.agent_id
+                        );
+                    }
                     return Some(RunningAgent::new(spec.clone(), handles));
                 }
 

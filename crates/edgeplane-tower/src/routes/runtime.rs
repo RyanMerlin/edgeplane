@@ -2694,18 +2694,31 @@ async fn run_attach_proxy(
         }
     });
 
-    // Mesh → browser
+    // Mesh → browser (with keepalive pings to prevent CF tunnel idle timeout)
     let m2b = tokio::spawn(async move {
-        while let Some(msg) = mesh_stream.next().await {
-            let Ok(msg) = msg else { break };
-            let out = match msg {
-                TgMessage::Binary(b) => Message::Binary(b.to_vec().into()),
-                TgMessage::Text(t) => Message::Text(t.to_string().into()),
-                TgMessage::Close(_) => break,
-                _ => continue,
-            };
-            if browser_sink.send(out).await.is_err() {
-                break;
+        let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        ping_interval.tick().await; // consume the immediate first tick
+        loop {
+            tokio::select! {
+                biased;
+                msg = mesh_stream.next() => {
+                    let Some(msg) = msg else { break };
+                    let Ok(msg) = msg else { break };
+                    let out = match msg {
+                        TgMessage::Binary(b) => Message::Binary(b.to_vec().into()),
+                        TgMessage::Text(t) => Message::Text(t.to_string().into()),
+                        TgMessage::Close(_) => break,
+                        _ => continue,
+                    };
+                    if browser_sink.send(out).await.is_err() {
+                        break;
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    if browser_sink.send(Message::Ping(vec![].into())).await.is_err() {
+                        break;
+                    }
+                }
             }
         }
     });

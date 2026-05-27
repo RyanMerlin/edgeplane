@@ -26,6 +26,7 @@ mod supervisor;
 mod task_loop;
 mod task_worker;
 mod unit_health;
+mod zellij_bridge;
 
 use clap::{Parser, Subcommand};
 

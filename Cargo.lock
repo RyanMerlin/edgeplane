@@ -1563,6 +1563,7 @@ dependencies = [
  "hostname",
  "http 1.4.0",
  "nix 0.29.0",
+ "portable-pty",
  "reqwest",
  "rusqlite",
  "serde",
