@@ -122,6 +122,7 @@
 
     {#if isLoggedIn}
       <nav class="tabs">
+        <a href="{base}/fleet/" class={navClass('/fleet')}>Fleet</a>
         <a href="{base}/agents/" class={navClass('/agents')}>Agents</a>
         <a href="{base}/ai/" class={navClass('/ai')}>AI Console</a>
         <a href="{base}/matrix/" class={navClass('/matrix')}>Matrix</a>
