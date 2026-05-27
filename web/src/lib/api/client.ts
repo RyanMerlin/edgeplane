@@ -44,7 +44,8 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
 		headers.set('Content-Type', 'application/json');
 	}
 
-	const res = await fetch(path, { ...init, headers, credentials: 'include' });
+	const url = path.startsWith('/') ? `/api${path}` : path;
+	const res = await fetch(url, { ...init, headers, credentials: 'include' });
 
 	if (!res.ok) {
 		const body = await parseBody(res);

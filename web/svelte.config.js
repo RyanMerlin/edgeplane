@@ -9,7 +9,7 @@ const config = {
       strict: false
     }),
     paths: {
-      base: '/ui'
+      base: ''
     }
   }
 };

@@ -332,8 +332,8 @@
 
 </div>
 
-<!-- Statusbar -->
-<div id="statusbar">
+<!-- Feed statusbar -->
+<div class="feed-statusbar">
   <span class="muted">{$matrixEvents.length} events</span>
   <span class="dim">·</span>
   {#if $errorCount > 0}
@@ -347,7 +347,7 @@
   {#if $warnCount > 0}
     <span class="warn">{$warnCount} overlap</span>
   {/if}
-  <div id="statusbar-right">
+  <div class="feed-statusbar-right">
     <span>/ filter</span>
     <span class="dim">·</span>
     <span>click row to inspect</span>
@@ -378,7 +378,7 @@
     align-items: center;
     gap: 5px;
     background: var(--base);
-    border: 1px solid var(--border-mid);
+    border: 1px solid var(--border-2);
     border-radius: 3px;
     padding: 2px 8px;
     font-size: 11px;
@@ -408,7 +408,7 @@
 
   .alerts-toggle {
     background: var(--base);
-    border: 1px solid var(--border-mid);
+    border: 1px solid var(--border-2);
     border-radius: 3px;
     padding: 2px 8px;
     font-size: 11px;
@@ -462,7 +462,7 @@
     gap: 0 6px;
     padding: 3px 12px;
     background: var(--surface);
-    border-bottom: 1px solid var(--border-mid);
+    border-bottom: 1px solid var(--border-2);
     color: var(--dim);
     font-size: 10px;
     text-transform: uppercase;
@@ -515,7 +515,7 @@
   .ty-err    { color: var(--err); font-weight: 700; }
   .ty-gov    { color: var(--purple); font-weight: 700; }
   .ty-art    { color: var(--purple); }
-  .ty-hb     { color: var(--border-mid); }
+  .ty-hb     { color: var(--border-2); }
   .ty-claim  { color: var(--accent); }
   .ty-done   { color: var(--ok); font-weight: 700; }
   .ty-warn   { color: var(--warn); font-weight: 700; }
@@ -572,7 +572,7 @@
 
   .payload-block {
     background: var(--surface);
-    border: 1px solid var(--border-mid);
+    border: 1px solid var(--border-2);
     padding: 7px 10px;
     font-size: 11px;
     line-height: 1.7;
@@ -587,4 +587,39 @@
   .pv-err { color: var(--err); }
 
   .ctx-log { font-size: 11px; color: var(--dim); line-height: 1.9; }
+
+  /* ── Feed statusbar ─────────────────────────────────────────────────────── */
+
+  .feed-statusbar {
+    height: 22px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  .feed-statusbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  .live { font-size: 10px; }
+
+  /* ── Content flex ────────────────────────────────────────────────────────── */
+
+  #content {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    min-height: 0;
+  }
 </style>

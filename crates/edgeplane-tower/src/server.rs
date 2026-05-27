@@ -33,18 +33,17 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
         jwt_decoding_key,
     });
 
-    // Phase 1.6: a single auth layer at the app boundary, applied only to
-    // the controlplane's own routes. The layer consults
-    // `auth::is_public_path` for the documented allowlist (health, OIDC
-    // bootstrap, webhook receivers) and 401s everything else without a
-    // valid credential. The proxy fallback sits OUTSIDE the layer so
-    // requests for unknown paths (which the legacy backend handles with
-    // its own auth) flow through unmolested.
+    // Phase 2: API routes are nested under /api. The auth middleware is
+    // layered on the routes before nesting, so handlers still see paths
+    // without the /api prefix (e.g. `/agents`, `/health`). The
+    // `auth::is_public_path` allowlist therefore does not need updating.
     let authed = routes::build_router()
         .layer(middleware::from_fn_with_state(state.clone(), auth::require_auth));
 
-    // Serve the SvelteKit web UI at /ui/ if EP_WEB_DIR points to the build.
-    // Falls back to a 404 if the directory doesn't exist (e.g. in test builds).
+    // Serve the SvelteKit web UI at root (/) if EP_WEB_DIR points to the
+    // build. SPA fallback via fallback_service handles client-side routing.
+    // Falls back to proxy_fallback when the web build is absent (test builds,
+    // dev without a web build).
     let web_dir = std::env::var("EP_WEB_DIR")
         .unwrap_or_else(|_| "/usr/local/share/edgeplane-web".to_string());
     let web_path = PathBuf::from(&web_dir);
@@ -52,13 +51,12 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
         let serve = ServeDir::new(&web_path)
             .not_found_service(ServeFile::new(web_path.join("index.html")));
         Router::new()
-            .merge(authed)
-            .nest_service("/ui", serve)
-            .fallback(proxy_fallback)
+            .nest("/api", authed)
+            .fallback_service(serve)
             .with_state(state)
     } else {
         Router::new()
-            .merge(authed)
+            .nest("/api", authed)
             .fallback(proxy_fallback)
             .with_state(state)
     };

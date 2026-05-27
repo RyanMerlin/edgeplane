@@ -80,11 +80,25 @@
     return '';
   }
 
+  function stateTagClass(state?: string) {
+    if (state === 'active') return 'ok';
+    if (state === 'draft') return 'warn';
+    if (state === 'archived') return 'dim';
+    return 'dim';
+  }
+
   function eventTypeClass(t: string) {
     if (t === 'published') return 'status-done';
     if (t === 'created' || t === 'updated') return 'status-progress';
     if (t === 'rolled_back' || t === 'deleted') return 'status-blocked';
     return 'status-proposed';
+  }
+
+  function evtTagClass(t: string) {
+    if (t === 'published') return 'ok';
+    if (t === 'created' || t === 'updated') return 'accent';
+    if (t === 'rolled_back' || t === 'deleted') return 'err';
+    return 'dim';
   }
 
   function fmtDate(s: string | null | undefined) {
@@ -103,251 +117,247 @@
   }
 </script>
 
-<div class="glass-panel">
-  <div class="grid" style="align-items:center;">
-    <div>
-      <h3 style="margin:0 0 0.2rem">Governance</h3>
-      <p class="muted" style="margin:0; font-size:0.85rem;">Policy configuration and audit log</p>
-    </div>
-    <div style="display:flex; gap:0.5rem; justify-content:flex-end; flex-wrap:wrap;">
-      <button class="ghost" onclick={() => queryClient.invalidateQueries({ queryKey: queryKeys.governance.all })}>
-        Refresh
-      </button>
-      <button
-        class="ghost"
-        onclick={() => reloadMutation.mutate()}
-        disabled={reloadMutation.isPending}
-      >
-        {reloadMutation.isPending ? 'Reloading…' : 'Reload Policy'}
+<div class="gov-page">
+
+  <!-- topbar for governance -->
+  <div class="gov-bar">
+    <span class="gov-title">Governance</span>
+    <span class="muted" style="font-size:11px;">Policy configuration and audit log</span>
+    <div style="margin-left:auto; display:flex; gap:6px;">
+      <button class="ghost" onclick={() => queryClient.invalidateQueries({ queryKey: queryKeys.governance.all })}>Refresh</button>
+      <button class="ghost" onclick={() => reloadMutation.mutate()} disabled={reloadMutation.isPending}>
+        {reloadMutation.isPending ? '⟳ Reloading…' : 'Reload Policy'}
       </button>
     </div>
   </div>
 
   {#if policyQuery.isLoading}
-    <p class="muted" style="margin-top:1rem;">Loading policy…</p>
+    <div style="padding:12px;"><p class="muted">⟳ Loading policy…</p></div>
   {:else if policyQuery.isError}
-    <p class="error" style="margin-top:1rem;">Failed to load policy — {(policyQuery.error as Error)?.message ?? 'unknown error'}</p>
+    <div style="padding:12px;"><p class="error">✗ Failed to load policy — {(policyQuery.error as Error)?.message ?? 'unknown error'}</p></div>
   {:else if policy}
-    <div class="grid" style="margin-top:1rem; gap:1rem; align-items:start;">
+    <div class="pane-row" style="flex:1; min-height:0;">
 
-      <!-- Left: policy details -->
-      <section class="glass-panel">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.75rem;">
-          <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
-            <h4 style="margin:0;">Active Policy</h4>
-            <span class={`status-badge ${stateClass(policy.state)}`}>{policy.state}</span>
-            <span class="status-chip">v{policy.version}</span>
+      <!-- left: policy details -->
+      <div class="pane" style="flex:1; min-width:0;">
+        <div class="pane-header">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="pane-title">Active Policy</span>
+            <span class="tag {stateTagClass(policy.state)}">{policy.state}</span>
+            <span class="dim" style="font-size:11px;">v{policy.version}</span>
           </div>
-          <button class="ghost" style="font-size:0.8rem;" onclick={() => (showRawPolicy = !showRawPolicy)}>
+          <button class="ghost" style="font-size:11px; padding:2px 6px;" onclick={() => (showRawPolicy = !showRawPolicy)}>
             {showRawPolicy ? 'Hide raw' : 'Show raw'}
           </button>
         </div>
+        <div class="pane-body" style="padding:10px;">
 
-        <dl class="policy-meta">
-          <dt>Published by</dt><dd>{policy.published_by || '—'}</dd>
-          <dt>Published at</dt><dd>{fmtDate(policy.published_at)}</dd>
-          <dt>Change note</dt><dd>{policy.change_note || '—'}</dd>
-          <dt>Created by</dt><dd>{policy.created_by || '—'}</dd>
-          <dt>Updated at</dt><dd>{fmtDate(policy.updated_at)}</dd>
-        </dl>
+          <dl class="policy-meta">
+            <dt>Published by</dt><dd>{policy.published_by || '—'}</dd>
+            <dt>Published at</dt><dd>{fmtDate(policy.published_at)}</dd>
+            <dt>Change note</dt><dd>{policy.change_note || '—'}</dd>
+            <dt>Created by</dt><dd>{policy.created_by || '—'}</dd>
+            <dt>Updated at</dt><dd>{fmtDate(policy.updated_at)}</dd>
+          </dl>
 
-        {#if showRawPolicy}
-          <pre style="margin-top:0.75rem; max-height:320px; overflow-y:auto;">{JSON.stringify(policy.policy, null, 2)}</pre>
-        {:else}
-          <!-- Global flags -->
-          {#if globalFlags.length > 0}
-            <div style="margin-top:0.9rem;">
-              <p class="section-label">Global Flags</p>
-              <ul class="flag-list">
-                {#each globalFlags as flag}
-                  <li class="flag-row">
-                    <span class={`flag-dot ${flag.value ? 'flag-on' : 'flag-off'}`}></span>
-                    <span class="flag-key">{flag.key}</span>
-                    <span class={`status-badge ${flag.value ? 'status-done' : 'status-blocked'}`}>{flag.value ? 'yes' : 'no'}</span>
-                  </li>
-                {/each}
-              </ul>
-            </div>
-          {/if}
+          {#if showRawPolicy}
+            <pre style="margin-top:10px; max-height:320px; overflow-y:auto; font-size:11px;">{JSON.stringify(policy.policy, null, 2)}</pre>
+          {:else}
 
-          <!-- Terminal + MCP subsystems -->
-          {#if policy.policy?.terminal || policy.policy?.mcp}
-            <div style="margin-top:0.9rem;">
-              <p class="section-label">Subsystems</p>
-              <div style="display:flex; flex-wrap:wrap; gap:0.4rem;">
-                {#each Object.entries(policy.policy?.terminal ?? {}) as [k, v]}
-                  <div class="subsys-chip">
-                    <span class="muted">terminal.{k.replaceAll('_', ' ')}</span>
-                    <span class={`status-badge ${v ? 'status-done' : 'status-blocked'}`}>{v ? 'yes' : 'no'}</span>
-                  </div>
-                {/each}
-                {#each Object.entries(policy.policy?.mcp ?? {}) as [k, v]}
-                  <div class="subsys-chip">
-                    <span class="muted">mcp.{k.replaceAll('_', ' ')}</span>
-                    <span class={`status-badge ${v ? 'status-done' : 'status-blocked'}`}>{v ? 'yes' : 'no'}</span>
-                  </div>
-                {/each}
+            {#if globalFlags.length > 0}
+              <div style="margin-top:12px;">
+                <p class="section-label">Global Flags</p>
+                <ul class="flag-list">
+                  {#each globalFlags as flag}
+                    <li class="flag-row">
+                      <span>{flag.value ? '✓' : '✗'}</span>
+                      <span class={flag.value ? 'ok' : 'err'}>{flag.value ? '●' : '●'}</span>
+                      <span class="flag-key">{flag.key}</span>
+                      <span class="tag {flag.value ? 'ok' : 'err'}">{flag.value ? 'yes' : 'no'}</span>
+                    </li>
+                  {/each}
+                </ul>
               </div>
-            </div>
-          {/if}
+            {/if}
 
-          <!-- Action rules -->
-          {#if Object.keys(actionGroups).length > 0}
-            <div style="margin-top:0.9rem;">
-              <p class="section-label">Action Rules</p>
-              <div class="action-groups">
-                {#each Object.entries(actionGroups) as [resource, rules]}
-                  <div class="action-group">
-                    <div class="action-group-header">{resource}</div>
-                    <table class="action-table">
-                      <tbody>
-                        {#each rules as { action, rule }}
-                          <tr>
-                            <td class="action-name">{action}</td>
-                            <td>
-                              <span class={`status-badge ${rule.enabled ? 'status-done' : 'status-blocked'}`}>
-                                {rule.enabled ? 'on' : 'off'}
-                              </span>
-                            </td>
-                            <td>
-                              {#if rule.requires_approval}
-                                <span class="status-badge status-proposed">approval</span>
-                              {:else}
-                                <span class="muted" style="font-size:0.73rem;">auto</span>
-                              {/if}
-                            </td>
-                          </tr>
-                        {/each}
-                      </tbody>
-                    </table>
-                  </div>
-                {/each}
+            {#if policy.policy?.terminal || policy.policy?.mcp}
+              <div style="margin-top:12px;">
+                <p class="section-label">Subsystems</p>
+                <table class="action-table">
+                  <tbody>
+                    {#each Object.entries(policy.policy?.terminal ?? {}) as [k, v]}
+                      <tr>
+                        <td class="dim" style="font-size:11px;">terminal.{k.replaceAll('_', ' ')}</td>
+                        <td><span class="tag {v ? 'ok' : 'err'}">{v ? 'yes' : 'no'}</span></td>
+                      </tr>
+                    {/each}
+                    {#each Object.entries(policy.policy?.mcp ?? {}) as [k, v]}
+                      <tr>
+                        <td class="dim" style="font-size:11px;">mcp.{k.replaceAll('_', ' ')}</td>
+                        <td><span class="tag {v ? 'ok' : 'err'}">{v ? 'yes' : 'no'}</span></td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
               </div>
-            </div>
-          {/if}
-        {/if}
-      </section>
+            {/if}
 
-      <!-- Right: events feed -->
-      <section class="glass-panel">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.75rem;">
-          <h4 style="margin:0;">Policy Events <span class="status-chip">{filteredEvents.length}</span></h4>
-          <select bind:value={eventFilter} class="filter-select">
-            <option value="">All types</option>
-            {#each eventTypes as et}
-              <option value={et}>{et}</option>
-            {/each}
-          </select>
-        </div>
-
-        {#if eventsQuery.isLoading}
-          <p class="muted">Loading events…</p>
-        {:else if filteredEvents.length === 0}
-          <p class="muted">No events recorded yet.</p>
-        {:else}
-          <ul class="event-feed">
-            {#each filteredEvents as evt (evt.id)}
-              <li class="event-item">
-                <div class="event-item-header">
-                  <span class={`status-badge ${eventTypeClass(evt.event_type)}`}>{evt.event_type}</span>
-                  <span class="muted" style="font-size:0.78rem;">{evt.actor_subject}</span>
-                  <span class="muted" style="font-size:0.75rem; margin-left:auto;">{fmtRelative(evt.created_at)}</span>
+            {#if Object.keys(actionGroups).length > 0}
+              <div style="margin-top:12px;">
+                <p class="section-label">Action Rules</p>
+                <div class="action-groups">
+                  {#each Object.entries(actionGroups) as [resource, rules]}
+                    <div class="action-group">
+                      <div class="action-group-header">{resource}</div>
+                      <table class="action-table">
+                        <tbody>
+                          {#each rules as { action, rule }}
+                            <tr>
+                              <td class="action-name">{action}</td>
+                              <td><span class="tag {rule.enabled ? 'ok' : 'dim'}">{rule.enabled ? 'on' : 'off'}</span></td>
+                              <td>
+                                {#if rule.requires_approval}
+                                  <span class="tag purple">approval</span>
+                                {:else}
+                                  <span class="dim" style="font-size:10px;">auto</span>
+                                {/if}
+                              </td>
+                            </tr>
+                          {/each}
+                        </tbody>
+                      </table>
+                    </div>
+                  {/each}
                 </div>
-                <div style="display:flex; gap:0.4rem; margin-top:0.3rem; align-items:center; flex-wrap:wrap;">
-                  <span class="status-chip">v{evt.version}</span>
+              </div>
+            {/if}
+          {/if}
+
+        </div>
+      </div>
+
+      <!-- right: events feed -->
+      <div class="pane" style="width:340px; flex-shrink:0;">
+        <div class="pane-header">
+          <span class="pane-title">Policy Events</span>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="dim" style="font-size:11px;">{filteredEvents.length}</span>
+            <select bind:value={eventFilter} style="font-size:11px; padding:2px 5px;">
+              <option value="">All types</option>
+              {#each eventTypes as et}
+                <option value={et}>{et}</option>
+              {/each}
+            </select>
+          </div>
+        </div>
+        <div class="pane-body">
+          {#if eventsQuery.isLoading}
+            <div style="padding:10px;"><p class="muted">⟳ Loading…</p></div>
+          {:else if filteredEvents.length === 0}
+            <div style="padding:10px;"><p class="muted">No events recorded yet.</p></div>
+          {:else}
+            {#each filteredEvents as evt (evt.id)}
+              <div class="event-row">
+                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                  <span class="tag {evtTagClass(evt.event_type)}">{evt.event_type}</span>
+                  <span class="muted" style="font-size:11px;">{evt.actor_subject}</span>
+                  <span class="dim" style="font-size:10px; margin-left:auto;">{fmtRelative(evt.created_at)}</span>
+                </div>
+                <div style="margin-top:3px; display:flex; gap:6px; align-items:center; font-size:11px;">
+                  <span class="dim">v{evt.version}</span>
                   {#if Object.keys(evt.detail ?? {}).length > 0}
                     <details>
                       <summary>detail</summary>
-                      <pre style="font-size:0.75rem; margin-top:0.25rem;">{JSON.stringify(evt.detail, null, 2)}</pre>
+                      <pre style="font-size:11px; margin-top:3px;">{JSON.stringify(evt.detail, null, 2)}</pre>
                     </details>
                   {/if}
                 </div>
-              </li>
+              </div>
             {/each}
-          </ul>
-        {/if}
-      </section>
+          {/if}
+        </div>
+      </div>
 
     </div>
   {:else}
-    <p class="muted" style="margin-top:1rem;">No active policy found.</p>
+    <div style="padding:12px;"><p class="muted">No active policy found.</p></div>
   {/if}
+
 </div>
 
 <style>
-  .section-label {
-    margin: 0 0 0.4rem;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
+  .gov-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .gov-bar {
+    height: 36px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .gov-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
   }
 
   .policy-meta {
     display: grid;
     grid-template-columns: max-content 1fr;
-    gap: 0.25rem 0.75rem;
-    font-size: 0.84rem;
+    gap: 3px 10px;
+    font-size: 12px;
     margin: 0;
   }
-  .policy-meta dt { color: var(--muted); font-size: 0.78rem; padding-top: 0.05rem; }
+  .policy-meta dt { color: var(--muted); font-size: 11px; }
   .policy-meta dd { margin: 0; }
 
-  .flag-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
-  .flag-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.84rem; }
-  .flag-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-  .flag-on { background: #34d399; }
-  .flag-off { background: #fb7185; }
-  .flag-key { flex: 1; }
-
-  .subsys-chip {
-    display: flex; align-items: center; gap: 0.4rem;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid var(--panel-border);
-    border-radius: 0.5rem;
-    padding: 0.28rem 0.5rem;
-    font-size: 0.79rem;
+  .flag-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .flag-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    padding: 3px 0;
+    border-bottom: 1px solid var(--border);
   }
+  .flag-key { flex: 1; }
 
   .action-groups {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-    gap: 0.5rem;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 6px;
   }
-  .action-group { border: 1px solid var(--panel-border); border-radius: 0.55rem; overflow: hidden; }
+  .action-group {
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
   .action-group-header {
-    background: rgba(255,255,255,0.05);
-    padding: 0.25rem 0.55rem;
-    font-size: 0.75rem;
+    background: var(--surface);
+    padding: 3px 7px;
+    font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--muted);
+    border-bottom: 1px solid var(--border);
   }
-  .action-table { width: 100%; border-collapse: collapse; font-size: 0.79rem; }
-  .action-table tr + tr { border-top: 1px solid var(--panel-border); }
-  .action-table td { padding: 0.22rem 0.45rem; vertical-align: middle; }
+  .action-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .action-table tr + tr { border-top: 1px solid var(--border); }
+  .action-table td { padding: 3px 7px; vertical-align: middle; }
   .action-name { color: var(--text); }
 
-  .filter-select {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid var(--panel-border);
-    border-radius: 0.4rem;
-    padding: 0.28rem 0.55rem;
-    color: var(--text);
-    font-size: 0.8rem;
+  .event-row {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
   }
-
-  .event-feed {
-    list-style: none; margin: 0; padding: 0;
-    display: flex; flex-direction: column; gap: 0.45rem;
-    max-height: 540px; overflow-y: auto;
-  }
-  .event-item {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--panel-border);
-    border-radius: 0.55rem;
-    padding: 0.55rem 0.7rem;
-  }
-  .event-item-header { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+  .event-row:hover { background: var(--surface-2); }
 </style>

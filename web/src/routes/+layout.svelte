@@ -58,7 +58,7 @@
   // ── Auth actions ──────────────────────────────────────────────────────────────
 
   function handleToken() {
-    if (!initialToken.trim()) { showToast('Enter a Edgeplane token or use OIDC login.'); return; }
+    if (!initialToken.trim()) { showToast('Enter an EdgePlane token or use OIDC login.'); return; }
     loginWithToken(initialToken.trim());
   }
 
@@ -97,61 +97,109 @@
   // ── Nav helpers ───────────────────────────────────────────────────────────────
 
   function navClass(path: string) {
-    return `tab ${page.url.pathname.startsWith(`${base}${path}`) ? 'active' : ''}`;
+    const active = page.url.pathname === `${base}${path}` ||
+      (path !== '/' && page.url.pathname.startsWith(`${base}${path}`));
+    return `nav-tab${active ? ' active' : ''}`;
   }
 </script>
 
 <QueryClientProvider client={queryClient}>
-  <div class="shell">
-    <header class="shell-header glass-panel">
-      <div>
-        <div class="status-chip">Edgeplane</div>
-        <p style="margin:0.25rem 0 0;font-size:0.9rem; color: var(--muted);">
-          {#if isLoggedIn}Connected{:else}Authenticate to continue{/if}
-        </p>
-      </div>
-      <div class="header-actions">
-        <button class="ghost icon-btn" onclick={toggleTheme} title={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}>
-          {theme === 'dark' ? '☀' : '☾'}
-        </button>
-        {#if isLoggedIn}
-          <button class="ghost" onclick={logout}>Logout</button>
-        {/if}
-      </div>
-    </header>
+  {#if isLoggedIn}
+    <div class="app-shell">
 
-    {#if isLoggedIn}
-      <nav class="tabs">
-        <a href="{base}/fleet/" class={navClass('/fleet')}>Fleet</a>
-        <a href="{base}/agents/" class={navClass('/agents')}>Agents</a>
-        <a href="{base}/ai/" class={navClass('/ai')}>AI Console</a>
-        <a href="{base}/matrix/" class={navClass('/matrix')}>Matrix</a>
-        <a href="{base}/explorer/" class={navClass('/explorer')}>Explorer</a>
-        <a href="{base}/onboarding/" class={navClass('/onboarding')}>Onboarding</a>
-        <a href="{base}/governance/" class={navClass('/governance')}>Governance</a>
-      </nav>
-      <div class="main-shell">
+      <!-- 34px topbar -->
+      <div class="topbar">
+        <span class="topbar-logo">EdgePlane</span>
+
+        <!-- flat underline nav -->
+        <a href="{base}/" class={navClass('/')}>Overview</a>
+        <a href="{base}/ai/" class={navClass('/ai/')}>Console</a>
+        <a href="{base}/agents/" class={navClass('/agents/')}>Agents</a>
+        <a href="{base}/explorer/" class={navClass('/explorer/')}>Explorer</a>
+        <a href="{base}/feed/" class={navClass('/feed/')}>Feed</a>
+        <a href="{base}/governance/" class={navClass('/governance/')}>Governance</a>
+        <a href="{base}/onboarding/" class={navClass('/onboarding/')}>Onboarding</a>
+
+        <!-- right actions -->
+        <div class="topbar-right">
+          <button class="icon-btn ghost" onclick={toggleTheme} title={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
+            {theme === 'dark' ? '☀' : '☾'}
+          </button>
+          <button class="ghost" onclick={logout}>Logout</button>
+        </div>
+      </div>
+
+      <!-- flex:1 content -->
+      <div class="app-content">
         {@render children()}
       </div>
-    {:else}
-      <section class="login">
-        <div class="login-card">
-          <div class="status-chip">Edgeplane Secure</div>
-          <h1>Team Console</h1>
-          <p class="muted" style="margin:0;">OIDC is the production login path. Token login is for testing.</p>
-          <div class="login-actions">
-            <button class="primary" onclick={handleOidc}>Sign in via OIDC</button>
+
+      <!-- 24px statusbar -->
+      <div class="statusbar">
+        <div class="statusbar-left">
+          <span class="ok">●</span>
+          <span>Connected</span>
+        </div>
+        <div class="statusbar-right">
+          <span>EdgePlane</span>
+        </div>
+      </div>
+
+    </div>
+  {:else}
+    <!-- Login view — no topbar, no statusbar -->
+    <div class="login-view">
+      <div class="login-card">
+
+        <div class="login-card-head">
+          <div>
+            <div class="login-card-logo">edgeplane</div>
+            <div class="login-card-sub">Fleet operations console</div>
           </div>
-          <label>Testing Token<input bind:value={initialToken} type="password" placeholder="EP_TOKEN" /></label>
-          <div class="login-actions">
-            <button class="ghost" onclick={handleToken}>Continue with token</button>
+          <div class="login-card-status">
+            <span class="ok">●</span>
+            <span>online</span>
           </div>
         </div>
-      </section>
-    {/if}
 
-    {#if $toastStore.visible}
-      <div class="toast" role="alert">{$toastStore.message}</div>
-    {/if}
-  </div>
+        <div class="login-card-body">
+
+          <div class="login-section">
+            <span class="login-section-lbl">Production Login</span>
+            <p class="login-desc">Authenticate via your organization's identity provider. All sessions are CSRF-protected and expire after inactivity.</p>
+            <button class="primary" style="width:100%; display:flex; align-items:center; justify-content:center; gap:6px; padding:7px 12px;" onclick={handleOidc}>
+              <span>⬡</span>
+              Sign in with OIDC
+            </button>
+          </div>
+
+          <div class="login-section">
+            <span class="login-section-lbl">Development Token</span>
+            <label>
+              <span class="login-input-lbl">EP_TOKEN</span>
+              <input bind:value={initialToken} type="password" placeholder="Enter bearer token…" style="width:100%;" />
+            </label>
+            <button class="ghost" style="width:100%; margin-top:8px; padding:7px 12px;" onclick={handleToken}>
+              Continue with token
+            </button>
+          </div>
+
+        </div>
+
+        <div class="login-card-foot">
+          <div class="login-foot-badges">
+            <span class="login-foot-badge"><span class="ok">✓</span> TLS</span>
+            <span class="login-foot-badge"><span class="ok">✓</span> CSRF</span>
+            <span class="login-foot-badge"><span class="ok">✓</span> Cookie</span>
+          </div>
+          <span>Secure session · httpOnly</span>
+        </div>
+
+      </div>
+    </div>
+  {/if}
+
+  {#if $toastStore.visible}
+    <div class="toast" role="alert">{$toastStore.message}</div>
+  {/if}
 </QueryClientProvider>

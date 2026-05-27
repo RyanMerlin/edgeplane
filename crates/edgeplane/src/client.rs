@@ -77,9 +77,15 @@ impl EdgeplaneClient {
     }
 
     pub fn request_builder(&self, method: Method, path: &str) -> Result<RequestBuilder> {
+        let api_prefix = std::env::var("EP_API_PREFIX").unwrap_or_else(|_| "/api".to_string());
+        let prefixed = if path.starts_with('/') {
+            format!("{}{}", api_prefix.trim_end_matches('/'), path)
+        } else {
+            path.to_string()
+        };
         let url = self
             .base_url
-            .join(path)
+            .join(&prefixed)
             .with_context(|| format!("invalid endpoint path: {path}"))?;
         Ok(self.apply_auth(self.http.request(method, url)))
     }
@@ -164,8 +170,14 @@ impl EdgeplaneClient {
             }
             _ => {}
         }
+        let api_prefix = std::env::var("EP_API_PREFIX").unwrap_or_else(|_| "/api".to_string());
+        let prefixed = if path.starts_with('/') {
+            format!("{}{}", api_prefix.trim_end_matches('/'), path)
+        } else {
+            path.to_string()
+        };
         url = url
-            .join(path)
+            .join(&prefixed)
             .with_context(|| format!("invalid websocket path: {path}"))?;
         Ok(url)
     }
@@ -297,10 +309,16 @@ impl MultiServerClient {
     }
 
     async fn try_servers(&self, method: Method, path: &str, body: Option<&Value>) -> Result<Value> {
+        let api_prefix = std::env::var("EP_API_PREFIX").unwrap_or_else(|_| "/api".to_string());
+        let prefixed = if path.starts_with('/') {
+            format!("{}{}", api_prefix.trim_end_matches('/'), path)
+        } else {
+            path.to_string()
+        };
         let mut last_err = anyhow::anyhow!("no edgeplane-tower nodes configured");
         for base in &self.servers {
             let url = base
-                .join(path)
+                .join(&prefixed)
                 .with_context(|| format!("invalid path: {path}"))?;
             let mut builder = self.apply_auth(self.inner.request(method.clone(), url));
             if let Some(b) = body {

@@ -89,30 +89,31 @@
 		flex-direction: column;
 		height: 100%;
 		min-height: 0;
-		gap: 0.75rem;
-		padding: 1rem;
+		gap: 6px;
+		padding: 10px 12px;
 	}
 	.page-header h1 {
 		margin: 0;
-		font-size: 1.25rem;
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		color: var(--accent, #ffae57);
+		font-size: 13px;
+		font-family: inherit;
+		color: var(--accent);
 	}
 	.muted {
 		margin: 0;
-		color: var(--muted, #6e7785);
-		font-size: 0.9rem;
+		color: var(--muted);
+		font-size: 12px;
 	}
 	.conv-wrap {
 		flex: 1;
 		min-height: 0;
 	}
 	.err {
-		padding: 0.75rem 1rem;
-		background: rgba(248, 113, 113, 0.1);
-		border: 1px solid rgba(248, 113, 113, 0.3);
-		border-radius: 4px;
-		color: #f87171;
+		padding: 8px 10px;
+		background: var(--err-bg);
+		border: 1px solid var(--err-border);
+		border-radius: 2px;
+		color: var(--err);
+		font-size: 12px;
 	}
-	.err p { margin: 0.25rem 0; }
+	.err p { margin: 3px 0; }
 </style>

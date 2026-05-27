@@ -120,7 +120,12 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         })
         .ok();
 
-    let client = Arc::new(BackendClient::new(&cfg.backend_url, &cfg.token));
+    let client = Arc::new(
+        BackendClient::new(&cfg.backend_url, &cfg.token)
+            .with_api_prefix(
+                std::env::var("EP_API_PREFIX").unwrap_or_else(|_| "/api".to_string()),
+            ),
+    );
 
     // Bootstrap: idempotently provision `home-{hostname}` domain + `intake`
     // mission for per-node coordination. Runs after fleet_import (which

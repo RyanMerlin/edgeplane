@@ -36,6 +36,14 @@
     return 'status-proposed';
   }
 
+  function statusTagClass(s?: string) {
+    const v = String(s ?? '').toLowerCase();
+    if (v === 'done' || v === 'completed' || v === 'ok') return 'ok';
+    if (v === 'in_progress' || v === 'running') return 'accent';
+    if (v === 'blocked' || v === 'failed' || v === 'error') return 'err';
+    return 'dim';
+  }
+
   function typeColor(t: string) {
     const v = t.toLowerCase();
     if (v.includes('domain')) return 'type-domain';
@@ -44,6 +52,16 @@
     if (v.includes('agent')) return 'type-agent';
     if (v.includes('error') || v.includes('fail')) return 'type-error';
     return '';
+  }
+
+  function typeTagClass(t: string) {
+    const v = t.toLowerCase();
+    if (v.includes('domain')) return 'err';
+    if (v.includes('mission')) return 'purple';
+    if (v.includes('task')) return 'accent';
+    if (v.includes('agent')) return 'ok';
+    if (v.includes('error') || v.includes('fail')) return 'err';
+    return 'dim';
   }
 
   function summaryOf(payload: unknown): string {
@@ -57,24 +75,19 @@
   }
 </script>
 
-<div class="glass-panel">
-  <!-- Header / stats bar -->
-  <div class="matrix-header">
-    <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-      <h3 style="margin:0;">Matrix</h3>
-      <span class={`conn-badge ${$matrixStatus.connected ? 'conn-live' : 'conn-off'}`}>
-        {$matrixStatus.connected ? '● live' : '○ offline'}
-      </span>
-    </div>
-    <div class="stats-row">
-      <span class="status-chip">{$matrixEvents.length} events</span>
-      <span class="status-chip">{$recentRate}/min</span>
-      {#if $matrixStatus.rateLimit}
-        <span class="status-chip">rl {$matrixStatus.rateLimit.remaining}/{$matrixStatus.rateLimit.limit}</span>
-      {/if}
-    </div>
-    <div style="display:flex; gap:0.45rem; align-items:center; flex-wrap:wrap;">
-      <select bind:value={filterType} class="filter-select">
+<div class="matrix-page">
+
+  <!-- filter bar -->
+  <div class="matrix-bar">
+    <span class="matrix-title">Feed</span>
+    <span class={$matrixStatus.connected ? 'ok' : 'dim'}>{$matrixStatus.connected ? '●' : '○'}</span>
+    <span class="muted" style="font-size:11px;">{$matrixStatus.connected ? 'live' : 'offline'}</span>
+    <span class="dim" style="font-size:11px; margin-left:4px;">{$matrixEvents.length} events · {$recentRate}/min</span>
+    {#if $matrixStatus.rateLimit}
+      <span class="dim" style="font-size:11px;">· rl {$matrixStatus.rateLimit.remaining}/{$matrixStatus.rateLimit.limit}</span>
+    {/if}
+    <div style="margin-left:auto; display:flex; gap:6px; align-items:center;">
+      <select bind:value={filterType} style="font-size:11px; padding:2px 5px;">
         <option value="">All types</option>
         {#each $knownTypes as t}
           <option value={t}>{t}</option>
@@ -85,137 +98,126 @@
   </div>
 
   {#if $matrixStatus.lastError && !$matrixStatus.connected}
-    <p class="error" style="margin:0.5rem 0 0;">{$matrixStatus.lastError}</p>
+    <div style="padding:6px 12px; border-bottom:1px solid var(--border);">
+      <p class="error" style="margin:0; font-size:11px;">✗ {$matrixStatus.lastError}</p>
+    </div>
   {/if}
 
-  <!-- Event timeline -->
-  {#if $visibleEvents.length === 0}
-    <div class="empty-state">
-      <p class="muted">{filterType ? `No "${filterType}" events yet.` : 'Waiting for events…'}</p>
-    </div>
-  {:else}
-    <div class="matrix-timeline">
+  <!-- event list -->
+  <div class="matrix-list">
+    {#if $visibleEvents.length === 0}
+      <div class="matrix-empty">
+        <p class="muted">{filterType ? `No "${filterType}" events yet.` : 'Waiting for events…'}</p>
+      </div>
+    {:else}
       {#each $visibleEvents as evt, i (evt.receivedAt + '-' + i)}
         {@const label = evt.type ?? evt.event ?? 'matrix'}
         {@const summary = summaryOf(evt.payload)}
-        <div class="matrix-event">
+        <div class="event-row">
           <div class="event-time">{fmtTime(evt.receivedAt)}</div>
-          <div class="event-body">
-            <div class="event-top">
-              <span class={`type-badge ${typeColor(label)}`}>{label}</span>
-              {#if evt.status}
-                <span class={`status-badge ${statusClass(evt.status)}`}>{evt.status}</span>
-              {/if}
-              {#if evt.mission_id}
-                <span class="status-chip" style="font-size:0.73rem;">mission:{evt.mission_id.slice(0,8)}</span>
-              {/if}
-              {#if evt.agent_id}
-                <span class="status-chip" style="font-size:0.73rem;">agent:{evt.agent_id.slice(0,8)}</span>
-              {/if}
-            </div>
-            {#if summary}
-              <p class="event-summary muted">{summary}</p>
+          <div class="event-label">
+            <span class="tag {typeTagClass(label)}">{label}</span>
+          </div>
+          <div class="event-meta">
+            {#if evt.status}
+              <span class="tag {statusTagClass(evt.status)}">{evt.status}</span>
             {/if}
+            {#if evt.mission_id}
+              <span class="dim" style="font-size:10px;">m:{evt.mission_id.slice(0,8)}</span>
+            {/if}
+            {#if evt.agent_id}
+              <span class="dim" style="font-size:10px;">a:{evt.agent_id.slice(0,8)}</span>
+            {/if}
+          </div>
+          <div class="event-summary-col">
+            {#if summary}
+              <span class="muted" style="font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{summary}</span>
+            {/if}
+          </div>
+          <div class="event-detail-col">
             {#if Object.keys(evt.payload ?? {}).length > 0}
               <details>
                 <summary>payload</summary>
-                <pre style="font-size:0.75rem; margin-top:0.25rem;">{JSON.stringify(evt.payload, null, 2)}</pre>
+                <pre style="font-size:11px; margin-top:3px;">{JSON.stringify(evt.payload, null, 2)}</pre>
               </details>
             {/if}
           </div>
         </div>
       {/each}
-    </div>
 
-    {#if $matrixEvents.length > maxVisible}
-      <div style="text-align:center; margin-top:0.75rem;">
-        <button class="ghost" onclick={() => (maxVisible += 50)}>
-          Show more ({$matrixEvents.length - maxVisible} remaining)
-        </button>
-      </div>
+      {#if $matrixEvents.length > maxVisible}
+        <div style="padding:8px; text-align:center; border-top:1px solid var(--border);">
+          <button class="ghost" onclick={() => (maxVisible += 50)}>
+            Show more ({$matrixEvents.length - maxVisible} remaining)
+          </button>
+        </div>
+      {/if}
     {/if}
-  {/if}
+  </div>
+
 </div>
 
 <style>
-  .matrix-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.6rem;
-    margin-bottom: 0.85rem;
-  }
-  .stats-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-
-  .conn-badge {
-    font-size: 0.8rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    border: 1px solid transparent;
-  }
-  .conn-live { color: #34d399; border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.12); }
-  .conn-off  { color: #9aa7c4; border-color: rgba(154,167,196,0.3); background: rgba(154,167,196,0.08); }
-
-  .filter-select {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid var(--panel-border);
-    border-radius: 0.4rem;
-    padding: 0.28rem 0.55rem;
-    color: var(--text);
-    font-size: 0.8rem;
-  }
-
-  .empty-state {
-    min-height: 120px;
-    display: grid;
-    place-items: center;
-  }
-
-  .matrix-timeline {
+  .matrix-page {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
-    max-height: 620px;
-    overflow-y: auto;
+    height: 100%;
+    overflow: hidden;
   }
 
-  .matrix-event {
+  .matrix-bar {
+    height: 36px;
+    flex-shrink: 0;
     display: flex;
-    gap: 0.75rem;
-    padding: 0.55rem 0.7rem;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--panel-border);
-    border-radius: 0.6rem;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .matrix-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    margin-right: 2px;
+  }
+
+  .matrix-list {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .matrix-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 80px;
+  }
+
+  .event-row {
+    display: grid;
+    grid-template-columns: 72px 140px 1fr 2fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
     animation: fade-in 180ms ease-out;
   }
+  .event-row:hover { background: var(--surface-2); }
 
   .event-time {
-    font-size: 0.73rem;
-    color: var(--muted);
+    font-size: 10px;
+    color: var(--dim);
     white-space: nowrap;
-    padding-top: 0.15rem;
-    min-width: 5rem;
-    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
   }
 
-  .event-body { flex: 1; min-width: 0; }
-  .event-top { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-  .event-summary { margin: 0.25rem 0 0; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  .type-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.15rem 0.5rem;
-    border-radius: 999px;
-    font-size: 0.75rem;
-    border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(255,255,255,0.06);
-    color: var(--text);
-  }
-  .type-domain  { border-color: rgba(217,74,43,0.4); background: rgba(217,74,43,0.12); color: #f87c60; }
-  .type-mission { border-color: rgba(167,139,250,0.4); background: rgba(167,139,250,0.12); color: #c4b5fd; }
-  .type-task    { border-color: rgba(56,189,248,0.4); background: rgba(56,189,248,0.12); color: #7dd3fc; }
-  .type-agent   { border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.12); color: #6ee7b7; }
-  .type-error   { border-color: rgba(251,113,133,0.4); background: rgba(251,113,133,0.12); color: #fda4af; }
+  .event-label { display: flex; align-items: center; gap: 4px; }
+  .event-meta  { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .event-summary-col { overflow: hidden; display: flex; align-items: center; }
+  .event-detail-col  { display: flex; align-items: center; }
 </style>

@@ -169,7 +169,7 @@
 		display: flex;
 		gap: 0;
 		padding: 0 0.25rem;
-		border-bottom: 1px solid var(--panel-border, rgba(255, 255, 255, 0.08));
+		border-bottom: 1px solid var(--border);
 	}
 
 	.session-tab {
@@ -180,7 +180,7 @@
 		background: none;
 		border: none;
 		border-bottom: 2px solid transparent;
-		color: var(--muted, #9aa7c4);
+		color: var(--muted);
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 		font-size: 13px;
 		cursor: pointer;
@@ -188,12 +188,12 @@
 	}
 
 	.session-tab:hover:not(.unavailable) {
-		color: var(--text, #e9edf5);
+		color: var(--text);
 	}
 
 	.session-tab.active {
-		color: var(--text, #e9edf5);
-		border-bottom-color: var(--accent, #d94a2b);
+		color: var(--text);
+		border-bottom-color: var(--accent);
 	}
 
 	.session-tab.unavailable {
@@ -212,7 +212,7 @@
 		margin-left: auto;
 		background: none;
 		border: none;
-		color: var(--muted, #9aa7c4);
+		color: var(--muted);
 		font-size: 16px;
 		cursor: pointer;
 		padding: 0.5rem;
@@ -220,7 +220,7 @@
 	}
 
 	.refresh-btn:hover {
-		color: var(--text, #e9edf5);
+		color: var(--text);
 	}
 
 	.view-tabs {
@@ -233,26 +233,26 @@
 	.view-tab {
 		padding: 0.35rem 0.65rem;
 		background: none;
-		border: 1px solid var(--panel-border, rgba(255, 255, 255, 0.08));
-		color: var(--muted, #9aa7c4);
+		border: 1px solid var(--border);
+		color: var(--muted);
 		font-size: 12px;
 		cursor: pointer;
 		transition: color 0.15s, background 0.15s;
 	}
 
 	.view-tab:first-child {
-		border-radius: 4px 0 0 4px;
+		border-radius: 3px 0 0 3px;
 	}
 
 	.view-tab:last-child {
-		border-radius: 0 4px 4px 0;
+		border-radius: 0 3px 3px 0;
 		border-left: none;
 	}
 
 	.view-tab.active {
-		background: var(--accent-dim, rgba(217, 74, 43, 0.18));
-		color: var(--text, #e9edf5);
-		border-color: var(--accent, #d94a2b);
+		background: var(--surface-2);
+		color: var(--text);
+		border-color: var(--accent);
 	}
 
 	.view-tab:disabled {
@@ -264,7 +264,6 @@
 		flex: 1;
 		min-height: 0;
 		margin-top: 0.5rem;
-		border-radius: 6px;
 		overflow: hidden;
 	}
 
@@ -274,7 +273,7 @@
 		align-items: center;
 		justify-content: center;
 		height: 100%;
-		color: var(--muted, #9aa7c4);
+		color: var(--muted);
 		font-size: 14px;
 		text-align: center;
 		gap: 0.25rem;
@@ -285,7 +284,7 @@
 	}
 
 	.muted {
-		color: var(--muted, #9aa7c4);
+		color: var(--muted);
 	}
 
 	.err {

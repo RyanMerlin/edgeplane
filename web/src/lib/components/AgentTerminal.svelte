@@ -42,7 +42,7 @@
 			cursorBlink: true,
 			fontSize: 13,
 			fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-			theme: { background: '#0b0e14' },
+			theme: { background: '#0d1117', foreground: '#e6edf3', cursor: '#58a6ff' },
 			allowProposedApi: true
 		});
 		fit = new FitAddon();
@@ -159,27 +159,29 @@
 		flex-direction: column;
 		height: 100%;
 		min-height: 0;
-		background: #0b0e14;
-		border-radius: 6px;
+		background: var(--base);
 		overflow: hidden;
+		border: 1px solid var(--border);
 	}
 	.terminal-status {
 		display: flex;
-		gap: 0.75rem;
+		gap: 8px;
 		align-items: center;
-		padding: 0.4rem 0.6rem;
+		padding: 0 10px;
+		height: 28px;
+		flex-shrink: 0;
 		font-size: 12px;
-		color: #c8ccd4;
-		background: #11151c;
-		border-bottom: 1px solid #1c2230;
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		color: var(--text);
+		background: var(--surface);
+		border-bottom: 1px solid var(--border);
+		font-family: inherit;
 	}
 	.agent {
-		color: #ffae57;
+		color: var(--accent);
 		font-weight: 600;
 	}
 	.node {
-		color: #6e7785;
+		color: var(--muted);
 	}
 	.state {
 		margin-left: auto;
@@ -188,21 +190,21 @@
 		font-size: 11px;
 	}
 	.state-connecting {
-		color: #ddc05a;
+		color: var(--warn);
 	}
 	.state-open {
-		color: #4ade80;
+		color: var(--ok);
 	}
 	.state-closed,
 	.state-error {
-		color: #f87171;
+		color: var(--err);
 	}
 	.err {
-		color: #f87171;
+		color: var(--err);
 	}
 	.terminal-host {
 		flex: 1;
 		min-height: 0;
-		padding: 0.4rem;
+		padding: 4px;
 	}
 </style>

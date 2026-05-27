@@ -20,7 +20,7 @@ export function loginWithCookieSession() {
 
 export async function bootstrapAuth() {
   try {
-    const res = await fetch('/auth/me', { credentials: 'include' });
+    const res = await fetch('/api/auth/me', { credentials: 'include' });
     if (res.ok) {
       cookieSessionStore.set(true);
       return;
@@ -33,7 +33,7 @@ export async function bootstrapAuth() {
 
 export async function logout() {
   try {
-    await fetch('/auth/sessions/current', {
+    await fetch('/api/auth/sessions/current', {
       method: 'DELETE',
       credentials: 'include'
     });
@@ -50,10 +50,10 @@ export function startOidcLogin(redirect = window?.location?.href) {
       const parsed = new URL(redirect, window.location.origin);
       return `${parsed.pathname}${parsed.search}${parsed.hash}`;
     } catch {
-      return '/ui/';
+      return '/';
     }
   })();
-  const url = `/auth/oidc/start?redirect=${encodeURIComponent(path || '/ui/')}`;
+  const url = `/api/auth/oidc/start?redirect=${encodeURIComponent(path || '/')}`;
   window.location.assign(url);
 }
 

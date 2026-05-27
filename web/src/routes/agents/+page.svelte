@@ -75,18 +75,18 @@
 </div>
 
 <style>
-	.page { padding: 1rem; display: flex; flex-direction: column; gap: 1rem; }
-	h1 { margin: 0; }
-	.muted { color: var(--muted, #6e7785); margin: 0; }
-	table { width: 100%; border-collapse: collapse; font-size: 14px; }
-	th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border, #1c2230); }
-	th { color: var(--muted, #6e7785); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
-	tr:hover td { background: rgba(255, 174, 87, 0.04); }
-	a { color: var(--accent, #ffae57); text-decoration: none; }
+	.page { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; height: 100%; overflow: hidden; }
+	h1 { margin: 0; font-size: 14px; }
+	.muted { color: var(--muted); margin: 0; }
+	table { width: 100%; border-collapse: collapse; font-size: 12px; }
+	th, td { text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--border); }
+	th { color: var(--dim); font-weight: 400; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; background: var(--surface); }
+	tr:hover td { background: var(--surface-2); }
+	a { color: var(--accent); text-decoration: none; }
 	a:hover { text-decoration: underline; }
-	.caps { color: var(--muted, #6e7785); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-	.status-online { color: #4ade80; }
-	.status-offline { color: #6e7785; }
-	.status-error { color: #f87171; }
-	.err { padding: 0.75rem; background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.3); border-radius: 4px; color: #f87171; }
+	.caps { color: var(--muted); font-size: 11px; }
+	.status-online { color: var(--ok); }
+	.status-offline { color: var(--dim); }
+	.status-error { color: var(--err); }
+	.err { padding: 8px 10px; background: var(--err-bg); border: 1px solid var(--err-border); border-radius: 2px; color: var(--err); font-size: 12px; }
 </style>

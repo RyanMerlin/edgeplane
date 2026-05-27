@@ -17,6 +17,6 @@ export function attachAgentWsUrl(
 	}
 	const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 	const base = `${proto}//${window.location.host}`;
-	const path = `/runtime/nodes/${encodeURIComponent(nodeId)}/agents/${encodeURIComponent(agentId)}/attach`;
+	const path = `/api/runtime/nodes/${encodeURIComponent(nodeId)}/agents/${encodeURIComponent(agentId)}/attach`;
 	return `${base}${path}?ep_token=${encodeURIComponent(token)}`;
 }

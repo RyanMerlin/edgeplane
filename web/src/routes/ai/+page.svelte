@@ -219,79 +219,167 @@
   }
 </script>
 
-<div class="glass-panel ai-shell">
-  <div class="ai-header">
-    <div>
-      <h3>Edgeplane AI Console</h3>
-      <p class="muted">AI-first workspace. Reads auto-run, writes require approval.</p>
-    </div>
-    <div class="onboarding-actions">
+<div class="console-page">
+
+  <!-- console topbar -->
+  <div class="console-bar">
+    <span class="console-title">Console</span>
+    <span class="muted" style="font-size:11px;">Reads auto-run · writes require approval</span>
+    <div style="margin-left:auto; display:flex; gap:6px;">
       <button class="ghost" onclick={() => (showEventDebug = !showEventDebug)}>
-        {showEventDebug ? 'Hide Debug Events' : 'Show Debug Events'}
+        {showEventDebug ? 'Hide debug' : 'Show debug'}
       </button>
       <button class="ghost" onclick={newAiSession}>New Session</button>
     </div>
   </div>
 
-  <div class="terminal-window" bind:this={terminalEl} onscroll={onTranscriptScroll}>
-    {#if transcript.length}
-      {#each transcript as entry (entry.key)}
-        <div class={`event-pill ${entry.kind === 'assistant' ? 'assistant-msg' : entry.kind === 'user' ? 'user-msg' : 'event-msg'}`}>
-          <small>{entry.title} • {new Date(entry.createdAt).toLocaleTimeString()}</small>
-          <p>{entry.body}</p>
-          {#if entry.kind === 'event' && entry.payload && (showEventDebug || entry.eventType === 'tool_result')}
-            <details>
-              <summary>Details</summary>
-              <pre>{JSON.stringify(entry.payload, null, 2)}</pre>
-            </details>
-          {/if}
+  <div class="pane-row" style="flex:1; min-height:0;">
+
+    <!-- transcript pane -->
+    <div class="pane" style="flex:1; min-width:0; display:flex; flex-direction:column;">
+      <div class="pane-body" bind:this={terminalEl} onscroll={onTranscriptScroll} style="flex:1; min-height:0; overflow-y:auto;">
+        {#if transcript.length}
+          {#each transcript as entry (entry.key)}
+            <div class="transcript-row transcript-{entry.kind}">
+              <div class="transcript-meta">
+                <span class="dim" style="font-size:10px;">{new Date(entry.createdAt).toLocaleTimeString()}</span>
+                <span class="transcript-label">{entry.title}</span>
+              </div>
+              <div class="transcript-body">{entry.body}</div>
+              {#if entry.kind === 'event' && entry.payload && (showEventDebug || entry.eventType === 'tool_result')}
+                <details>
+                  <summary>details</summary>
+                  <pre style="font-size:11px;">{JSON.stringify(entry.payload, null, 2)}</pre>
+                </details>
+              {/if}
+            </div>
+          {/each}
+        {:else}
+          <div style="padding:12px;"><p class="muted">No events yet. Ask AI to list missions, inspect tasks, or explain capabilities.</p></div>
+        {/if}
+      </div>
+
+      {#if !pinToBottom}
+        <div style="padding:4px; text-align:center; border-top:1px solid var(--border);">
+          <button class="ghost" onclick={() => { pinToBottom = true; maybeScrollToBottom(true); }}>Jump to latest</button>
         </div>
-      {/each}
-    {:else}
-      <p class="muted">No events yet. Ask AI to list missions, inspect tasks, or explain capabilities.</p>
-    {/if}
-  </div>
+      {/if}
 
-  {#if !pinToBottom}
-    <div class="jump-row">
-      <button class="ghost" onclick={() => { pinToBottom = true; maybeScrollToBottom(true); }}>Jump to latest</button>
+      <!-- composer -->
+      <div class="console-composer">
+        <textarea
+          bind:value={aiInput}
+          rows="2"
+          placeholder="Ask EdgePlane AI… (Enter to send)"
+          onkeydown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(); }
+          }}
+          style="flex:1;"
+        ></textarea>
+        <button class="primary" onclick={sendAiMessage} disabled={aiBusy || !aiInput.trim()}>
+          {aiBusy ? '⟳' : 'Send'}
+        </button>
+      </div>
+      {#if aiError}
+        <div style="padding:4px 8px; border-top:1px solid var(--border);"><p class="error" style="margin:0;">{aiError}</p></div>
+      {/if}
     </div>
-  {/if}
 
-  {#if pendingActions.length}
-    <section class="grid" style="margin-top: 0.25rem;">
-      {#each pendingActions as action}
-        <article class="glass-panel">
-          <strong>Approval Required</strong>
-          <p class="muted">Tool: {action.tool}</p>
-          <p class="muted">Reason: {action.reason || 'No reason provided'}</p>
-          <details>
-            <summary>Arguments</summary>
-            <pre>{JSON.stringify(action.args, null, 2)}</pre>
-          </details>
-          <div class="onboarding-actions">
-            <button class="primary" onclick={() => approve(action.id)} disabled={aiBusy}>Approve</button>
-            <button class="ghost" onclick={() => reject(action.id)} disabled={aiBusy}>Reject</button>
-          </div>
-        </article>
-      {/each}
-    </section>
-  {/if}
+    <!-- approvals pane -->
+    {#if pendingActions.length}
+      <div class="pane" style="width:280px; flex-shrink:0;">
+        <div class="pane-header"><span class="pane-title">▲ Approvals</span><span class="warn">{pendingActions.length}</span></div>
+        <div class="pane-body">
+          {#each pendingActions as action}
+            <div class="approval-row">
+              <div style="font-size:11px; font-weight:600; color:var(--warn); margin-bottom:4px;">Approval Required</div>
+              <div class="dim" style="font-size:11px;">Tool: {action.tool}</div>
+              <div class="dim" style="font-size:11px;">{action.reason || 'No reason provided'}</div>
+              <details style="margin-top:4px;">
+                <summary>arguments</summary>
+                <pre style="font-size:11px; margin-top:3px;">{JSON.stringify(action.args, null, 2)}</pre>
+              </details>
+              <div style="display:flex; gap:5px; margin-top:6px;">
+                <button class="primary" style="flex:1;" onclick={() => approve(action.id)} disabled={aiBusy}>Approve</button>
+                <button class="ghost" style="flex:1;" onclick={() => reject(action.id)} disabled={aiBusy}>Reject</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
 
-  <div class="composer">
-    <textarea
-      bind:value={aiInput}
-      rows="3"
-      placeholder="Ask Edgeplane AI..."
-      onkeydown={(e) => {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(); }
-      }}
-    ></textarea>
-    <button class="primary" onclick={sendAiMessage} disabled={aiBusy || !aiInput.trim()}>
-      {aiBusy ? 'Running...' : 'Send'}
-    </button>
   </div>
-  {#if aiError}
-    <p class="error">{aiError}</p>
-  {/if}
+
 </div>
+
+<style>
+  .console-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .console-bar {
+    height: 36px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .console-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .transcript-row {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    animation: fade-in 180ms ease-out;
+  }
+  .transcript-row:hover { background: var(--surface-2); }
+
+  .transcript-assistant { border-left: 3px solid var(--accent); }
+  .transcript-user      { border-left: 3px solid var(--ok); }
+  .transcript-event     { border-left: 3px solid var(--border-2); }
+
+  .transcript-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 3px;
+  }
+
+  .transcript-label {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .transcript-body {
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .console-composer {
+    display: flex;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    align-items: flex-end;
+  }
+
+  .approval-row {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+</style>

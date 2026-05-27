@@ -264,27 +264,28 @@
 		flex-direction: column;
 		height: 100%;
 		min-height: 0;
-		background: var(--panel, #0b0e14);
-		border-radius: 6px;
+		background: var(--base);
 		overflow: hidden;
-		border: 1px solid var(--border, #1c2230);
+		border: 1px solid var(--border);
 	}
 	.conv-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 0.5rem 0.75rem;
-		background: var(--panel-darker, #11151c);
-		border-bottom: 1px solid var(--border, #1c2230);
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		padding: 0 10px;
+		height: 28px;
+		flex-shrink: 0;
+		background: var(--surface);
+		border-bottom: 1px solid var(--border);
+		font-family: inherit;
 		font-size: 12px;
 	}
 	.conv-id strong {
-		color: var(--accent, #ffae57);
+		color: var(--accent);
 	}
 	.node {
-		color: var(--muted, #6e7785);
-		margin-left: 0.5rem;
+		color: var(--muted);
+		margin-left: 6px;
 	}
 	.state {
 		text-transform: uppercase;
@@ -292,63 +293,61 @@
 		font-size: 11px;
 		font-weight: 600;
 	}
-	.state-connecting { color: #ddc05a; }
-	.state-open { color: #4ade80; }
-	.state-closed, .state-error { color: #f87171; }
+	.state-connecting { color: var(--warn); }
+	.state-open { color: var(--ok); }
+	.state-closed, .state-error { color: var(--err); }
 	.proto {
-		margin-left: 0.5rem;
-		color: var(--muted, #6e7785);
+		margin-left: 6px;
+		color: var(--muted);
 	}
 	.conv-log {
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
-		padding: 0.75rem;
+		padding: 8px;
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
-		font-family: ui-sans-serif, system-ui, sans-serif;
-		font-size: 14px;
-		line-height: 1.5;
+		gap: 4px;
+		font-family: inherit;
+		font-size: 13px;
+		line-height: 1.45;
 	}
 	.empty {
-		color: var(--muted, #6e7785);
-		font-style: italic;
+		color: var(--muted);
 	}
-	.entry { padding: 0.4rem 0.6rem; border-radius: 4px; }
+	.entry { padding: 5px 8px; border-bottom: 1px solid var(--border); }
 	.assistant {
-		background: var(--panel-lift, #11151c);
+		background: var(--surface);
 		white-space: pre-wrap;
 	}
-	.entry-text { color: var(--text, #c8ccd4); }
+	.entry-text { color: var(--text); }
 	.thinking, .plan, .unknown {
-		background: rgba(110, 119, 133, 0.08);
 		font-size: 12px;
-		color: var(--muted, #6e7785);
+		color: var(--muted);
 	}
 	.thinking summary, .plan summary, .unknown summary {
 		cursor: pointer;
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: inherit;
 	}
 	.thinking pre, .plan pre, .unknown pre {
-		margin: 0.4rem 0 0;
-		padding: 0.4rem;
-		background: rgba(0, 0, 0, 0.2);
-		border-radius: 3px;
+		margin: 4px 0 0;
+		padding: 4px;
+		background: var(--base);
+		border: 1px solid var(--border);
 		white-space: pre-wrap;
 		word-break: break-word;
 		font-size: 11px;
 	}
 	.tool {
 		display: flex;
-		gap: 0.6rem;
+		gap: 8px;
 		align-items: center;
-		background: rgba(88, 166, 255, 0.06);
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		background: var(--accent-bg);
+		font-family: inherit;
 		font-size: 12px;
 	}
 	.tool-title {
-		color: #58a6ff;
+		color: var(--accent);
 		font-weight: 600;
 	}
 	.tool-status {
@@ -356,28 +355,29 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
-	.status-started { color: #ddc05a; }
-	.status-in_progress { color: #58a6ff; }
-	.status-completed { color: #4ade80; }
-	.status-failed { color: #f87171; }
-	.status-cancelled { color: #6e7785; }
+	.status-started { color: var(--warn); }
+	.status-in_progress { color: var(--accent); }
+	.status-completed { color: var(--ok); }
+	.status-failed { color: var(--err); }
+	.status-cancelled { color: var(--dim); }
 	.conv-input {
 		display: flex;
 		flex-direction: column;
-		gap: 0.4rem;
-		padding: 0.5rem 0.75rem 0.75rem;
-		background: var(--panel-darker, #11151c);
-		border-top: 1px solid var(--border, #1c2230);
+		gap: 4px;
+		padding: 6px 8px 8px;
+		background: var(--surface);
+		border-top: 1px solid var(--border);
+		flex-shrink: 0;
 	}
 	.conv-input textarea {
 		resize: vertical;
 		font-family: inherit;
-		font-size: 14px;
-		padding: 0.5rem;
-		background: var(--input-bg, #0b0e14);
-		color: var(--text, #c8ccd4);
-		border: 1px solid var(--border, #1c2230);
-		border-radius: 4px;
+		font-size: 13px;
+		padding: 5px 7px;
+		background: var(--base);
+		color: var(--text);
+		border: 1px solid var(--border-2);
+		border-radius: 2px;
 	}
 	.conv-input textarea:disabled {
 		opacity: 0.5;
@@ -385,7 +385,7 @@
 	}
 	.conv-actions {
 		display: flex;
-		gap: 0.5rem;
+		gap: 5px;
 		justify-content: flex-end;
 	}
 </style>

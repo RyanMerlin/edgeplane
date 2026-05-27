@@ -22,6 +22,7 @@
     "vitest": "^4.1.5"
   },
   "dependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tanstack/svelte-query": "^6.1.28",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",

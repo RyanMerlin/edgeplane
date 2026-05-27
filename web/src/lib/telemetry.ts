@@ -33,7 +33,7 @@ let reconnectTimeout = 1000;
 let pausedUntil = 0;
 
 function buildUrl(token?: string) {
-  const base = '/events/stream';
+  const base = '/api/events/stream';
   if (!token) return base;
   return `${base}?ep_token=${encodeURIComponent(token)}`;
 }
