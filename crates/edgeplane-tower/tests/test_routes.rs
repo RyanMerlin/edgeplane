@@ -14,7 +14,7 @@ fn server() -> TestServer {
 
 #[tokio::test]
 async fn test_mcp_health() {
-    let res = server().get("/mcp/health").await;
+    let res = server().get("/api/mcp/health").await;
     res.assert_status_ok();
     let body: serde_json::Value = res.json();
     assert_eq!(body["ok"], true);
@@ -22,7 +22,7 @@ async fn test_mcp_health() {
 
 #[tokio::test]
 async fn test_mcp_tools_returns_list() {
-    let res = server().get("/mcp/tools").await;
+    let res = server().get("/api/mcp/tools").await;
     res.assert_status_ok();
     let body: serde_json::Value = res.json();
     assert!(body.is_array());
@@ -43,7 +43,7 @@ async fn test_mcp_call_requires_auth() {
     // attribution. The previous version of this test asserted the old
     // (anonymous-permissive) behavior; the new shape is the correct one.
     let res = server()
-        .post("/mcp/call")
+        .post("/api/mcp/call")
         .json(&serde_json::json!({"tool": "nonexistent_tool", "args": {}}))
         .await;
     let status = res.status_code().as_u16();
@@ -54,7 +54,7 @@ async fn test_mcp_call_requires_auth() {
 
 #[tokio::test]
 async fn test_schema_pack_returns_json() {
-    let res = server().get("/schema-pack").await;
+    let res = server().get("/api/schema-pack").await;
     res.assert_status_ok();
     let body: serde_json::Value = res.json();
     assert!(body.get("loaded").is_some());
@@ -65,7 +65,7 @@ async fn test_schema_pack_returns_json() {
 #[tokio::test]
 async fn test_evolve_seed_requires_auth() {
     let res = server()
-        .post("/evolve/domains")
+        .post("/api/evolve/domains")
         .json(&serde_json::json!({"spec": {}}))
         .await;
     // 401 (no token) or 500 (DB hit) — either is acceptable; must not be 200
@@ -75,14 +75,14 @@ async fn test_evolve_seed_requires_auth() {
 
 #[tokio::test]
 async fn test_evolve_status_requires_auth() {
-    let res = server().get("/evolve/domains/evolve-testid/status").await;
+    let res = server().get("/api/evolve/domains/evolve-testid/status").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 200);
 }
 
 #[tokio::test]
 async fn test_ai_sessions_requires_auth() {
-    let res = server().get("/ai/sessions").await;
+    let res = server().get("/api/ai/sessions").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 200);
 }
@@ -91,7 +91,7 @@ async fn test_ai_sessions_requires_auth() {
 
 #[tokio::test]
 async fn test_ops_backups_requires_auth() {
-    let res = server().get("/ops/backups").await;
+    let res = server().get("/api/ops/backups").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 200);
 }
@@ -101,7 +101,7 @@ async fn test_ops_backups_requires_auth() {
 #[tokio::test]
 async fn test_slack_events_missing_sig_returns_401() {
     let res = server()
-        .post("/integrations/slack/events")
+        .post("/api/integrations/slack/events")
         .text("{\"type\":\"url_verification\",\"challenge\":\"abc\"}")
         .await;
     // No SLACK_SIGNING_SECRET set → 401
@@ -113,7 +113,7 @@ async fn test_slack_events_missing_sig_returns_401() {
 
 #[tokio::test]
 async fn test_oidc_start_exists() {
-    let res = server().get("/auth/oidc/start").await;
+    let res = server().get("/api/auth/oidc/start").await;
     // Will fail due to missing OIDC env vars but should not 404
     let status = res.status_code().as_u16();
     assert_ne!(status, 404, "route should exist");
@@ -124,14 +124,14 @@ async fn test_oidc_start_exists() {
 
 #[tokio::test]
 async fn test_family_members_requires_auth() {
-    let res = server().get("/family/members").await;
+    let res = server().get("/api/family/members").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 200);
 }
 
 #[tokio::test]
 async fn test_family_member_access_requires_auth() {
-    let res = server().get("/family/members/somesubject/access").await;
+    let res = server().get("/api/family/members/somesubject/access").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 200);
 }
@@ -140,7 +140,7 @@ async fn test_family_member_access_requires_auth() {
 
 #[tokio::test]
 async fn test_ai_runtime_capabilities_requires_auth() {
-    let res = server().get("/ai/runtime-capabilities").await;
+    let res = server().get("/api/ai/runtime-capabilities").await;
     // Auth required — expect 401 without a token
     res.assert_status(axum::http::StatusCode::UNAUTHORIZED);
 }

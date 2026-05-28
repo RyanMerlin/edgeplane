@@ -74,7 +74,7 @@ async fn test_broadcast_multiple_domains_isolated() {
 #[tokio::test]
 async fn test_agent_notify_route_requires_auth() {
     let res = server()
-        .get("/work/agents/test-agent-id/notify")
+        .get("/api/work/agents/test-agent-id/notify")
         .await;
     // Without a valid token the auth middleware rejects before WS upgrade.
     // Acceptable: 401 (explicit auth failure) or 400 (WS handshake rejected).
@@ -88,7 +88,7 @@ async fn test_agent_notify_route_requires_auth() {
 
 #[tokio::test]
 async fn test_mission_graph_route_requires_auth() {
-    let res = server().get("/work/missions/k-123/graph").await;
+    let res = server().get("/api/work/missions/k-123/graph").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 404, "/work/missions/{{id}}/graph should be registered");
     assert_ne!(status, 200);
@@ -181,7 +181,7 @@ async fn test_assignment_changed_isolates_per_node() {
 
 #[tokio::test]
 async fn test_list_node_agents_route_registered() {
-    let res = server().get("/runtime/nodes/test-node-id/agents").await;
+    let res = server().get("/api/runtime/nodes/test-node-id/agents").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 404, "/runtime/nodes/{{id}}/agents should be registered");
     assert_ne!(status, 200, "unauthenticated request must not succeed");
@@ -189,7 +189,7 @@ async fn test_list_node_agents_route_registered() {
 
 #[tokio::test]
 async fn test_node_notify_route_registered() {
-    let res = server().get("/runtime/nodes/test-node-id/notify").await;
+    let res = server().get("/api/runtime/nodes/test-node-id/notify").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 404, "/runtime/nodes/{{id}}/notify should be registered");
     assert_ne!(status, 200, "unauthenticated request must not succeed");
@@ -199,7 +199,7 @@ async fn test_node_notify_route_registered() {
 // for the triage routing path (replaces the 4-call temp-agent dance).
 #[tokio::test]
 async fn test_dispatch_task_route_registered() {
-    let res = server().post("/work/tasks/test-task-id/dispatched").await;
+    let res = server().post("/api/work/tasks/test-task-id/dispatched").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 404, "POST /work/tasks/{{id}}/dispatched should be registered");
     assert_ne!(status, 200, "unauthenticated request must not succeed");
@@ -210,7 +210,7 @@ async fn test_dispatch_task_route_registered() {
 // See docs/design/ephemeral-task-subagents.md.
 #[tokio::test]
 async fn test_delete_agent_route_registered() {
-    let res = server().delete("/work/agents/test-agent-id").await;
+    let res = server().delete("/api/work/agents/test-agent-id").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 404, "DELETE /work/agents/{{id}} should be registered");
     assert_ne!(status, 200, "unauthenticated request must not succeed");
