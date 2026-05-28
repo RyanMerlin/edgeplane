@@ -38,7 +38,7 @@ async fn test_proxy_does_not_override_health() {
     let app = build_app(test_pool(), config);
     let server = TestServer::new(app);
 
-    let res = server.get("/health").await;
+    let res = server.get("/api/health").await;
     res.assert_status_ok();
     let body: serde_json::Value = res.json();
     assert_eq!(body["status"], "ok");
