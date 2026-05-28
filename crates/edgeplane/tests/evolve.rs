@@ -20,7 +20,7 @@ async fn evolve_seed_posts_spec_json() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
         when.method(POST)
-            .path("/evolve/domains")
+            .path("/api/evolve/domains")
             .json_body(json!({"spec":{"name":"seed-test","tasks":[]}}));
         then.status(200)
             .json_body(json!({"domain_id":"evolve-123","status":"seeded"}));
@@ -49,7 +49,7 @@ async fn evolve_run_posts_runtime_kind_to_domain_path() {
     let domain_id = "evolve-abc12345";
     let mock = server.mock(|when, then| {
         when.method(POST)
-            .path(format!("/evolve/domains/{domain_id}/run"))
+            .path(format!("/api/evolve/domains/{domain_id}/run"))
             .json_body(json!({"runtime_kind":"gemini"}));
         then.status(200)
             .json_body(json!({"domain_id":domain_id,"status":"launched"}));
@@ -77,7 +77,7 @@ async fn evolve_status_gets_domain_status_path() {
     let domain_id = "evolve-xyz00001";
     let mock = server.mock(|when, then| {
         when.method(GET)
-            .path(format!("/evolve/domains/{domain_id}/status"));
+            .path(format!("/api/evolve/domains/{domain_id}/status"));
         then.status(200)
             .json_body(json!({"domain_id":domain_id,"status":"running","run_count":1}));
     });

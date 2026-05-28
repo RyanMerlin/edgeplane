@@ -33,7 +33,11 @@ impl AgentBooster {
             } else {
                 parse_str(DEFAULT_WAT).context("failed to compile default booster wasm")?
             };
-            Some(Module::new(&engine, wasm_bytes).context("failed to compile booster module")?)
+            Some(
+                Module::new(&engine, wasm_bytes)
+                    .map_err(anyhow::Error::from)
+                    .context("failed to compile booster module")?,
+            )
         } else {
             None
         };
@@ -56,12 +60,14 @@ impl AgentBooster {
         if let Some(module) = &self.module {
             let mut store = Store::new(&self.engine, ());
             let instance = Instance::new(&mut store, module, &[])
+                .map_err(anyhow::Error::from)
                 .context("failed to instantiate booster module")?;
             let memory = instance
                 .get_memory(&mut store, "memory")
                 .context("booster wasm missing memory export")?;
             let validate: TypedFunc<(i32, i32), i32> = instance
                 .get_typed_func(&mut store, "validate")
+                .map_err(anyhow::Error::from)
                 .context("booster wasm missing validate export")?;
             let json = serde_json::to_string(payload)
                 .context("failed to serialize payload for booster")?;
@@ -85,6 +91,7 @@ fn ensure_memory_capacity(store: &mut Store<()>, memory: &Memory, len: i32) -> R
     let extra_pages = (len_usize - current).div_ceil(0x10000);
     memory
         .grow(store, extra_pages as u64)
+        .map_err(anyhow::Error::from)
         .context("failed to grow booster memory")?;
     Ok(())
 }

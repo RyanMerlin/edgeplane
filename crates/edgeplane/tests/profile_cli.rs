@@ -37,7 +37,7 @@ fn profile_list_uses_mcp_call() {
 
     let mock = server.mock(|when, then| {
         when.method(POST)
-            .path("/mcp/call")
+            .path("/api/mcp/call")
             .json_body(json!({"tool":"list_profiles","args":{"limit":2}}));
         then.status(200).json_body(json!({
             "ok": true,
@@ -74,7 +74,7 @@ fn profile_publish_uses_mcp_call() {
     fs::write(&bundle, b"demo-profile-bundle").expect("write bundle");
 
     let mock = server.mock(|when, then| {
-        when.method(POST).path("/mcp/call");
+        when.method(POST).path("/api/mcp/call");
         then.status(200).json_body(json!({
             "ok": true,
             "result": {
@@ -123,7 +123,7 @@ fn profile_pull_respects_pin_mismatch_from_mcp() {
     .expect("pin");
 
     let mock = server.mock(|when, then| {
-        when.method(POST).path("/mcp/call").json_body(json!({
+        when.method(POST).path("/api/mcp/call").json_body(json!({
             "tool":"download_profile",
             "args":{"name":"research","if_sha256":"pinned-sha"}
         }));
@@ -166,7 +166,7 @@ fn profile_status_calls_get_and_pin_tools() {
     .expect("pin");
 
     let get_mock = server.mock(|when, then| {
-        when.method(POST).path("/mcp/call").json_body(json!({
+        when.method(POST).path("/api/mcp/call").json_body(json!({
             "tool":"get_profile",
             "args":{"name":"research"}
         }));
@@ -177,7 +177,7 @@ fn profile_status_calls_get_and_pin_tools() {
     });
 
     let pin_mock = server.mock(|when, then| {
-        when.method(POST).path("/mcp/call").json_body(json!({
+        when.method(POST).path("/api/mcp/call").json_body(json!({
             "tool":"pin_profile_version",
             "args":{"name":"research","sha256":"remote-sha"}
         }));
@@ -220,7 +220,7 @@ fn init_bootstraps_default_profile_when_empty() {
 
     let list_mock = server.mock(|when, then| {
         when.method(POST)
-            .path("/mcp/call")
+            .path("/api/mcp/call")
             .json_body(json!({"tool":"list_profiles","args":{"limit":1}}));
         then.status(200).json_body(json!({
             "ok": true,
@@ -228,7 +228,7 @@ fn init_bootstraps_default_profile_when_empty() {
         }));
     });
     let publish_mock = server.mock(|when, then| {
-        when.method(POST).path("/mcp/call");
+        when.method(POST).path("/api/mcp/call");
         then.status(200).json_body(json!({
             "ok": true,
             "result": {

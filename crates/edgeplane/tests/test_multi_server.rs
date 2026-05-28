@@ -6,7 +6,7 @@ use wiremock::{matchers::{method, path}, Mock, MockServer, ResponseTemplate};
 async fn test_client_uses_first_live_server() {
     let mock = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/health"))
+        .and(path("/api/health"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"status":"ok"})))
         .mount(&mock)
         .await;
@@ -25,7 +25,7 @@ async fn test_client_uses_first_live_server() {
 async fn test_client_fails_over_to_second_server() {
     let live = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/domains"))
+        .and(path("/api/domains"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
         .mount(&live)
         .await;
@@ -65,14 +65,14 @@ async fn test_client_returns_4xx_immediately_without_trying_next() {
 
     // server_a returns 404
     Mock::given(method("GET"))
-        .and(path("/not-found"))
+        .and(path("/api/not-found"))
         .respond_with(ResponseTemplate::new(404).set_body_string("not found"))
         .mount(&server_a)
         .await;
 
     // server_b should never be reached
     Mock::given(method("GET"))
-        .and(path("/not-found"))
+        .and(path("/api/not-found"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
         .expect(0) // must not be called
         .mount(&server_b)
@@ -95,13 +95,13 @@ async fn test_client_skips_5xx_and_tries_next() {
     let server_b = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .and(path("/data"))
+        .and(path("/api/data"))
         .respond_with(ResponseTemplate::new(503))
         .mount(&server_a)
         .await;
 
     Mock::given(method("GET"))
-        .and(path("/data"))
+        .and(path("/api/data"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok":true})))
         .mount(&server_b)
         .await;

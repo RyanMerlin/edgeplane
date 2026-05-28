@@ -52,7 +52,7 @@ fn build_config_with_context_values(
 async fn get_json_returns_expected_payload() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
-        when.method(GET).path("/mcp/tools");
+        when.method(GET).path("/api/mcp/tools");
         then.status(200)
             .json_body(json!({ "ok": true, "payload": "hello" }));
     });
@@ -70,7 +70,7 @@ async fn post_json_sends_body() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
         when.method(httpmock::Method::POST)
-            .path("/mcp/call")
+            .path("/api/mcp/call")
             .json_body(json!({ "tool": "foo" }));
         then.status(200)
             .json_body(json!({ "tool": "foo", "status": "ok" }));
@@ -92,7 +92,7 @@ async fn request_includes_agent_session_and_profile_headers() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
         when.method(GET)
-            .path("/mcp/tools")
+            .path("/api/mcp/tools")
             .header("x-edgeplane-agent-id", "agent-alpha")
             .header("x-edgeplane-runtime-session-id", "rs_test123")
             .header("x-edgeplane-instance-id", "rs_test123")
@@ -112,7 +112,7 @@ async fn concurrent_clients_keep_distinct_identity_headers() {
     let server = MockServer::start();
     let mock_a = server.mock(|when, then| {
         when.method(GET)
-            .path("/mcp/tools")
+            .path("/api/mcp/tools")
             .header("x-edgeplane-agent-id", "agent-a")
             .header("x-edgeplane-runtime-session-id", "rs_a")
             .header("x-edgeplane-agent-profile", "research");
@@ -121,7 +121,7 @@ async fn concurrent_clients_keep_distinct_identity_headers() {
     });
     let mock_b = server.mock(|when, then| {
         when.method(GET)
-            .path("/mcp/tools")
+            .path("/api/mcp/tools")
             .header("x-edgeplane-agent-id", "agent-b")
             .header("x-edgeplane-runtime-session-id", "rs_b")
             .header("x-edgeplane-agent-profile", "security");

@@ -1,7 +1,53 @@
 [advisories]
 ignore = [
-    # lru 0.12.5 IterMut stacked borrows — transitive via ratatui 0.29; no direct IterMut usage
+    # ───── Vulnerabilities (no upstream fix, or blocked by transitive deps) ─────
+    #
+    # rsa: Marvin Attack timing sidechannel in PKCS#1 v1.5 decryption.
+    # No upgrade exists — the attack is inherent to PKCS#1v1.5.
+    # Transitive via sqlx-mysql; we do not use MySQL at runtime.
+    "RUSTSEC-2023-0071",
+
+    # rustls-webpki 0.101.7 name-constraints/CRL-parsing issues. Fixed in
+    # 0.103.12+. Blocked by rust-s3 0.35.1 which pins rustls 0.21 → webpki 0.101.
+    # Mitigation: edgeplane-tower only uses rust-s3 for vault writes against
+    # known endpoints; URIs are not attacker-controlled.
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+
+    # sqlx 0.8.0 binary-protocol overflow on truncating casts. Fixed in 0.8.1+.
+    # Bumping sqlx requires bumping libsqlite3-sys past rusqlite 0.31's pin —
+    # tracked as a separate dependency-graph cleanup task.
+    "RUSTSEC-2024-0363",
+
+    # ───── Informational warnings (unmaintained / unsound, all transitive) ─────
+    #
+    # serial 0.4.0 unmaintained — transitive via portable-pty 0.8.1. We use
+    # portable-pty for PTY allocation in claude-agent runtimes; no direct serial
+    # I/O path is exercised.
+    "RUSTSEC-2017-0008",
+
+    # lru 0.12.5 IterMut stacked-borrows unsoundness — transitive via
+    # ratatui 0.29; no direct IterMut usage in our code.
     "RUSTSEC-2026-0002",
-    # wasmtime-jit-debug JitDumpFile unsound — transitive via wasmtime 16; no JIT dump path exercised
-    "RUSTSEC-2024-0442",
+
+    # async-std 1.x discontinued — transitive; no direct dependency.
+    "RUSTSEC-2025-0052",
+
+    # paste 1.0.15 unmaintained — transitive macro crate; not a security
+    # vulnerability per se, just an unmaintained dep.
+    "RUSTSEC-2024-0436",
+
+    # rustls-pemfile 1.0.4 unmaintained — transitive via rustls 0.21.
+    # Same chain as the rustls-webpki entries above; same blocker.
+    "RUSTSEC-2025-0134",
+
+    # fxhash 0.2.1 unmaintained — transitive via wasmtime stack.
+    "RUSTSEC-2025-0057",
+
+    # mach 0.3.2 unmaintained — macOS-specific transitive; we ship Linux only.
+    "RUSTSEC-2020-0168",
+
+    # bincode 1.x unmaintained — transitive via wasmtime/cranelift stack.
+    "RUSTSEC-2025-0141",
 ]
