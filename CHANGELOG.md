@@ -4,6 +4,36 @@ All notable changes to edgeplane, edgeplaned, and edgeplane-tower are recorded h
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.12.0] — 2026-05-29
+
+### Breaking changes
+
+- **CLI: `--node-name` renamed to `--hostname`** for node registration (`edgeplane` / `edgeplaned`).
+
+### API
+
+- **`/api` prefix migration.** All edgeplane-tower routes (health, hooks, auth, work) are now served under `/api`. CLI, integration tests, and health probes updated. Callers must target `<base>/api`; the OIDC callback is now `https://<host>/api/auth/oidc/callback`.
+
+### Web / fleet dashboard
+
+- Design-system rewrite; the fleet dashboard (tabbed terminal views) is now the homepage.
+- Removed token-based web login; OIDC login redirect fixed via Authentik.
+- Fixed broken pages and the avatar menu.
+
+### edgeplaned
+
+- PTY bridge for ZellijHosted agents.
+
+### CI / tooling
+
+- GitHub Actions pinned to node24 release SHAs; Dependabot auto-merge for patch/minor; `/api/*` test paths; `set-version.sh` targets the root workspace `Cargo.toml`; schema-pack path fix.
+
+### Docs
+
+- GA4 tracking; agent isolation & lifecycle architecture spec; docs deploy to Cloudflare Pages.
+
+> Supersedes the undocumented **0.11.2** release (design-system rewrite, PTY bridge, `/api` prefix), which bumped the version without a changelog entry.
+
 ## [0.11.1] — 2026-05-26
 
 ### CI fixes

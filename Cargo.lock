@@ -1479,7 +1479,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "edgeplane"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1530,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "edgeplane-tower"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1568,7 +1568,7 @@ dependencies = [
 
 [[package]]
 name = "edgeplaned"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1608,7 +1608,7 @@ dependencies = [
 
 [[package]]
 name = "edgeplaned-acp"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1630,7 +1630,7 @@ dependencies = [
 
 [[package]]
 name = "edgeplaned-core"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1654,7 +1654,7 @@ dependencies = [
 
 [[package]]
 name = "edgeplaned-packs"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "edgeplaned-sandbox",
  "edgeplaned-secrets",
@@ -1667,7 +1667,7 @@ dependencies = [
 
 [[package]]
 name = "edgeplaned-receipts"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -1682,7 +1682,7 @@ dependencies = [
 
 [[package]]
 name = "edgeplaned-runtimes"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1705,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "edgeplaned-sandbox"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "dirs",
  "hex",
@@ -1720,7 +1720,7 @@ dependencies = [
 
 [[package]]
 name = "edgeplaned-secrets"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "keyring",
  "once_cell",
@@ -1736,7 +1736,7 @@ dependencies = [
 
 [[package]]
 name = "edgeplaned-sync"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1749,7 +1749,7 @@ dependencies = [
 
 [[package]]
 name = "edgeplaned-work"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
