@@ -10,6 +10,14 @@ const description = "Kubernetes orchestrates containers. EdgePlane orchestrates 
   <title>{title}</title>
   <meta name="description" content={description} />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <!-- Google Analytics (GA4) — matches Starlight head injection in astro.config.mjs -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-NCWY6TL7EW"></script>
+  <script is:inline>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-NCWY6TL7EW');
+  </script>
 </head>
 <body>
   <nav class="nav">
