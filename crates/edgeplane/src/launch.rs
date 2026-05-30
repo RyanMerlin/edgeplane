@@ -85,8 +85,6 @@ pub struct LaunchArgs {
 
 #[derive(Debug, Clone)]
 enum AgentKind {
-    #[cfg(test)]
-    Claude,
     Gemini,
     Openclaw,
     Custom,
@@ -95,8 +93,6 @@ enum AgentKind {
 impl AgentKind {
     fn driver(&self) -> Box<dyn AgentDriver> {
         match self {
-            #[cfg(test)]
-            AgentKind::Claude => Box::new(ClaudeDriver),
             AgentKind::Gemini => Box::new(GeminiDriver),
             AgentKind::Openclaw => Box::new(OpenClawDriver),
             AgentKind::Custom => Box::new(CustomDriver),
@@ -105,8 +101,6 @@ impl AgentKind {
 
     fn config_key(&self) -> &str {
         match self {
-            #[cfg(test)]
-            AgentKind::Claude => "claude",
             AgentKind::Gemini => "gemini",
             AgentKind::Openclaw => "openclaw",
             AgentKind::Custom => "custom",
@@ -145,381 +139,6 @@ trait AgentDriver {
     ) -> Result<()>;
     /// Build the Command to exec (binary + required flags).
     fn command(&self, extra_args: &[String], target_mc_home: &Path) -> std::process::Command;
-}
-
-// ── ClaudeDriver ─────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-struct ClaudeDriver;
-
-#[cfg(test)]
-impl AgentDriver for ClaudeDriver {
-    fn binary(&self) -> &str {
-        "claude"
-    }
-
-    fn install_hint(&self) -> &str {
-        "npm install -g @anthropic-ai/claude-code"
-    }
-
-    fn install_config(
-        &self,
-        _staging_dir: &Path,
-        base_url: &str,
-        token: &str,
-        embed_token: bool,
-        target_home: &Path,
-        _target_mc_home: &Path,
-    ) -> Result<()> {
-        let ep_entry = render_json_mcp_entry(
-            include_str!("../../../distribution/templates/claude.mcp.json.tmpl"),
-            "embedded claude template",
-            base_url,
-            token,
-            embed_token,
-        );
-        let ep_entry = absolutize_mc_command(ep_entry);
-        let config_path = target_home.join(".claude.json");
-        write_json_edgeplane_entry(&config_path, ep_entry.clone())?;
-        ep_ok!("claude MCP config written → {}", config_path.display());
-
-        // Inject MC lifecycle hooks (profile-update, session registration, audit) into settings.json.
-        let settings_path = target_home.join(".claude").join("settings.json");
-        if let Err(e) = inject_mc_lifecycle_hooks(&settings_path, base_url) {
-            ep_warn!("could not inject MC lifecycle hooks: {}", e);
-        }
-
-        // Write hook shell scripts into the instance home.
-        if let Err(e) = write_hook_scripts(target_home) {
-            ep_warn!("could not write hook scripts: {}", e);
-        }
-
-        if let Some(global_home) = dirs::home_dir() {
-            let global_path = global_home.join(".claude.json");
-            if global_path != config_path {
-                write_json_edgeplane_entry(&global_path, ep_entry)?;
-                ep_info!(
-                    "claude global MCP config updated → {}",
-                    global_path.display()
-                );
-            }
-        }
-
-        // Claude Code detects its install method by looking for itself at
-        // $HOME/.local/bin/claude. When HOME is set to the isolated instance
-        // home, this path doesn't exist and Claude errors with
-        // "installMethod is native, but claude command not found".
-        // Create a symlink so Claude can find itself in the instance home.
-        if let Ok(real_claude) = which_binary("claude") {
-            let local_bin = target_home.join(".local").join("bin");
-            std::fs::create_dir_all(&local_bin)?;
-            let claude_link = local_bin.join("claude");
-            if !claude_link.exists() {
-                #[cfg(unix)]
-                unix_fs::symlink(&real_claude, &claude_link).with_context(|| {
-                    format!(
-                        "failed to symlink claude into instance home: {} -> {}",
-                        claude_link.display(),
-                        real_claude.display()
-                    )
-                })?;
-                #[cfg(not(unix))]
-                std::fs::copy(&real_claude, &claude_link)?;
-                ep_info!("claude self-link → {}", claude_link.display());
-            }
-        }
-
-        Ok(())
-    }
-
-    fn command(&self, extra_args: &[String], _target_mc_home: &Path) -> std::process::Command {
-        let mut cmd = resolved_command("claude");
-        cmd.args(extra_args);
-        cmd
-    }
-}
-
-/// Inject all MC lifecycle hooks into the Claude Code settings.json.
-///
-/// Injects:
-/// - UserPromptSubmit: emit profile-updated marker (existing behaviour)
-/// - SessionStart (startup/resume): HTTP POST to /hooks/claude/session-start
-/// - SessionStart (compact): re-inject domain context via shell script
-/// - SessionEnd: HTTP POST to /hooks/claude/session-end
-/// - PostToolUse (mcp__edgeplane__.*): HTTP POST to /hooks/claude/tool-audit
-/// - PreCompact: dump current context summary to stdout
-///
-/// Idempotent — safe to call on every launch.
-#[cfg(test)]
-fn inject_mc_lifecycle_hooks(settings_path: &Path, backend_url: &str) -> Result<()> {
-    let mut root: Value = if settings_path.exists() {
-        let content = fs::read_to_string(settings_path)?;
-        serde_json::from_str(&content).unwrap_or_else(|_| json!({}))
-    } else {
-        json!({})
-    };
-
-    let hooks_obj = root
-        .as_object_mut()
-        .ok_or_else(|| anyhow!("settings.json is not an object"))?
-        .entry("hooks")
-        .or_insert_with(|| json!({}))
-        .as_object_mut()
-        .ok_or_else(|| anyhow!("hooks is not an object"))?
-        .clone();
-
-    // We'll rebuild the hooks object completely from the current state.
-    let mut hooks_map = hooks_obj;
-
-    // ── UserPromptSubmit: profile-update marker (existing) ────────────────
-    {
-        let ups = hooks_map
-            .entry("UserPromptSubmit".to_string())
-            .or_insert_with(|| json!([]));
-        let arr = ups
-            .as_array_mut()
-            .ok_or_else(|| anyhow!("UserPromptSubmit is not an array"))?;
-
-        let already = arr.iter().any(|h| {
-            h.get("hooks")
-                .and_then(|v| v.as_array())
-                .and_then(|a| a.first())
-                .and_then(|h| h.get("command"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.contains("profile-updated"))
-                .unwrap_or(false)
-        });
-        if !already {
-            let cmd = concat!(
-                "sh -c '",
-                r#"f="${EP_INSTANCE_HOME}/edgeplane/profile-updated"; "#,
-                r#"[ -f "$f" ] && cat "$f" && rm -f "$f"; "#,
-                "exit 0'"
-            );
-            arr.push(json!({
-                "matcher": "",
-                "hooks": [{"type": "command", "command": cmd}]
-            }));
-        }
-    }
-
-    // ── SessionStart: HTTP registration + compact context re-injection ────
-    {
-        let session_start = hooks_map
-            .entry("SessionStart".to_string())
-            .or_insert_with(|| json!([]));
-        let arr = session_start
-            .as_array_mut()
-            .ok_or_else(|| anyhow!("SessionStart is not an array"))?;
-
-        let already_http = arr.iter().any(|h| {
-            h.get("hooks")
-                .and_then(|v| v.as_array())
-                .and_then(|a| a.first())
-                .and_then(|h| h.get("url"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.contains("/hooks/claude/session-start"))
-                .unwrap_or(false)
-        });
-        if !already_http {
-            let url = format!("{}/hooks/claude/session-start", backend_url);
-            arr.push(json!({
-                "matcher": "startup|resume",
-                "hooks": [{
-                    "type": "http",
-                    "url": url,
-                    "headers": {"Authorization": "Bearer $EP_AGENT_TOKEN"},
-                    "allowedEnvVars": ["EP_AGENT_TOKEN"],
-                    "timeout": 10
-                }]
-            }));
-        }
-
-        let already_compact = arr.iter().any(|h| {
-            h.get("hooks")
-                .and_then(|v| v.as_array())
-                .and_then(|a| a.first())
-                .and_then(|h| h.get("command"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.contains("edgeplane-recompact-context.sh"))
-                .unwrap_or(false)
-        });
-        if !already_compact {
-            arr.push(json!({
-                "matcher": "compact",
-                "hooks": [{
-                    "type": "command",
-                    "command": "\"${EP_INSTANCE_HOME}\"/.claude/hooks/edgeplane-recompact-context.sh"
-                }]
-            }));
-        }
-    }
-
-    // ── SessionEnd: HTTP close ────────────────────────────────────────────
-    {
-        let session_end = hooks_map
-            .entry("SessionEnd".to_string())
-            .or_insert_with(|| json!([]));
-        let arr = session_end
-            .as_array_mut()
-            .ok_or_else(|| anyhow!("SessionEnd is not an array"))?;
-
-        let already = arr.iter().any(|h| {
-            h.get("hooks")
-                .and_then(|v| v.as_array())
-                .and_then(|a| a.first())
-                .and_then(|h| h.get("url"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.contains("/hooks/claude/session-end"))
-                .unwrap_or(false)
-        });
-        if !already {
-            let url = format!("{}/hooks/claude/session-end", backend_url);
-            arr.push(json!({
-                "hooks": [{
-                    "type": "http",
-                    "url": url,
-                    "headers": {"Authorization": "Bearer $EP_AGENT_TOKEN"},
-                    "allowedEnvVars": ["EP_AGENT_TOKEN"],
-                    "timeout": 10
-                }]
-            }));
-        }
-    }
-
-    // ── PostToolUse: audit MCP tool calls ────────────────────────────────
-    {
-        let post_tool = hooks_map
-            .entry("PostToolUse".to_string())
-            .or_insert_with(|| json!([]));
-        let arr = post_tool
-            .as_array_mut()
-            .ok_or_else(|| anyhow!("PostToolUse is not an array"))?;
-
-        let already = arr.iter().any(|h| {
-            h.get("hooks")
-                .and_then(|v| v.as_array())
-                .and_then(|a| a.first())
-                .and_then(|h| h.get("url"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.contains("/hooks/claude/tool-audit"))
-                .unwrap_or(false)
-        });
-        if !already {
-            let url = format!("{}/hooks/claude/tool-audit", backend_url);
-            arr.push(json!({
-                "matcher": "mcp__edgeplane__.*",
-                "hooks": [{
-                    "type": "http",
-                    "url": url,
-                    "headers": {"Authorization": "Bearer $EP_AGENT_TOKEN"},
-                    "allowedEnvVars": ["EP_AGENT_TOKEN"],
-                    "timeout": 5
-                }]
-            }));
-        }
-    }
-
-    // ── PreCompact: dump context summary ─────────────────────────────────
-    {
-        let pre_compact = hooks_map
-            .entry("PreCompact".to_string())
-            .or_insert_with(|| json!([]));
-        let arr = pre_compact
-            .as_array_mut()
-            .ok_or_else(|| anyhow!("PreCompact is not an array"))?;
-
-        let already = arr.iter().any(|h| {
-            h.get("hooks")
-                .and_then(|v| v.as_array())
-                .and_then(|a| a.first())
-                .and_then(|h| h.get("command"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.contains("edgeplane-precompact.sh"))
-                .unwrap_or(false)
-        });
-        if !already {
-            arr.push(json!({
-                "hooks": [{
-                    "type": "command",
-                    "command": "\"${EP_INSTANCE_HOME}\"/.claude/hooks/edgeplane-precompact.sh"
-                }]
-            }));
-        }
-    }
-
-    // Write back.
-    root.as_object_mut().unwrap().insert(
-        "hooks".to_string(),
-        Value::Object(hooks_map.into_iter().collect()),
-    );
-
-    if let Some(parent) = settings_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(settings_path, serde_json::to_string_pretty(&root)?)?;
-    Ok(())
-}
-
-/// Write the MC hook shell scripts into `<target_home>/.claude/hooks/`.
-/// Scripts are embedded at compile time from `distribution/hooks/`.
-#[cfg(test)]
-fn write_hook_scripts(target_home: &Path) -> Result<()> {
-    const PRECOMPACT: &str = include_str!("../../../distribution/hooks/edgeplane-precompact.sh");
-    const RECOMPACT: &str = include_str!("../../../distribution/hooks/edgeplane-recompact-context.sh");
-
-    let hooks_dir = target_home.join(".claude").join("hooks");
-    fs::create_dir_all(&hooks_dir)?;
-
-    let scripts: &[(&str, &str)] = &[
-        ("edgeplane-precompact.sh", PRECOMPACT),
-        ("edgeplane-recompact-context.sh", RECOMPACT),
-    ];
-
-    for (name, content) in scripts {
-        let path = hooks_dir.join(name);
-        fs::write(&path, content)?;
-        // Make executable on Unix.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&path)?.permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(&path, perms)?;
-        }
-        ep_info!("hook script written → {}", path.display());
-    }
-
-    Ok(())
-}
-
-#[cfg(test)]
-fn write_json_edgeplane_entry(config_path: &Path, ep_entry: serde_json::Value) -> Result<()> {
-    write_json_mcp_entry(config_path, "edgeplane", ep_entry)
-}
-
-#[cfg(test)]
-fn write_json_mcp_entry(
-    config_path: &Path,
-    server_name: &str,
-    entry: serde_json::Value,
-) -> Result<()> {
-    let mut root: serde_json::Value = if config_path.exists() {
-        let content = std::fs::read_to_string(config_path)?;
-        serde_json::from_str(&content)
-            .unwrap_or_else(|_| serde_json::Value::Object(Default::default()))
-    } else {
-        serde_json::Value::Object(Default::default())
-    };
-    root.as_object_mut()
-        .ok_or_else(|| anyhow!("{} is not a JSON object", config_path.display()))?
-        .entry("mcpServers")
-        .or_insert_with(|| serde_json::Value::Object(Default::default()))
-        .as_object_mut()
-        .ok_or_else(|| anyhow!("{} mcpServers is not an object", config_path.display()))?
-        .insert(server_name.to_string(), entry);
-    std::fs::write(config_path, serde_json::to_string_pretty(&root)?)?;
-    Ok(())
 }
 
 // ── GeminiDriver ─────────────────────────────────────────────────────────────
@@ -1087,13 +706,6 @@ fn resolve_agent_choice(agent: Option<String>) -> Result<AgentKind> {
 
 fn managed_config_relpaths(agent: &AgentKind) -> &'static [&'static str] {
     match agent {
-        #[cfg(test)]
-        AgentKind::Claude => &[
-            ".claude.json",
-            ".claude/.credentials.json",
-            ".claude/settings.json",
-            ".claude",
-        ],
         AgentKind::Gemini => &[".gemini/settings.json"],
         _ => &[],
     }
@@ -1609,29 +1221,6 @@ mod tests {
     }
 
     #[test]
-    fn claude_config_writes_to_target_home() {
-        let tmp = tempdir().expect("tempdir");
-        let target_home = tmp.path().join("agent-home");
-        let target_mc_home = tmp.path().join("edgeplane-home");
-        fs::create_dir_all(&target_home).expect("target_home");
-        fs::create_dir_all(&target_mc_home).expect("target_mc_home");
-
-        let driver = ClaudeDriver;
-        driver
-            .install_config(
-                tmp.path(),
-                "http://localhost:8008",
-                "tok",
-                true,
-                &target_home,
-                &target_mc_home,
-            )
-            .expect("install claude config");
-
-        assert!(target_home.join(".claude.json").exists());
-    }
-
-    #[test]
     fn gemini_config_writes_to_target_home() {
         let tmp = tempdir().expect("tempdir");
         let target_home = tmp.path().join("agent-home");
@@ -1661,24 +1250,24 @@ mod tests {
         let global_home = tmp.path().join("global-home");
         let profile_home = tmp.path().join("profile-home");
         let agent_home = tmp.path().join("agent-home");
-        fs::create_dir_all(global_home.join(".claude")).expect("global home");
+        fs::create_dir_all(global_home.join(".gemini")).expect("global home");
         fs::create_dir_all(&profile_home).expect("profile home");
         fs::create_dir_all(&agent_home).expect("agent home");
 
-        let global_cfg = global_home.join(".claude.json");
+        let global_cfg = global_home.join(".gemini/settings.json");
         fs::write(&global_cfg, r#"{"theme":"dark"}"#).expect("write global config");
 
-        initialize_profile_overlay(&AgentKind::Claude, &agent_home, &profile_home, &global_home)
+        initialize_profile_overlay(&AgentKind::Gemini, &agent_home, &profile_home, &global_home)
             .expect("initialize profile overlay");
 
-        let profile_cfg = profile_home.join(".claude.json");
+        let profile_cfg = profile_home.join(".gemini/settings.json");
         assert!(profile_cfg.exists(), "profile config should be seeded");
         assert_eq!(
             fs::read_to_string(&profile_cfg).expect("read profile"),
             r#"{"theme":"dark"}"#
         );
 
-        let instance_cfg = agent_home.join(".claude.json");
+        let instance_cfg = agent_home.join(".gemini/settings.json");
         let meta = fs::symlink_metadata(&instance_cfg).expect("instance metadata");
         assert!(
             meta.file_type().is_symlink(),
@@ -1686,79 +1275,5 @@ mod tests {
         );
         let target = fs::read_link(&instance_cfg).expect("read symlink");
         assert_eq!(target, profile_cfg);
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn overlay_seeds_claude_dir_and_links_instance_dir() {
-        let tmp = tempdir().expect("tempdir");
-        let global_home = tmp.path().join("global-home");
-        let profile_home = tmp.path().join("profile-home");
-        let agent_home = tmp.path().join("agent-home");
-        fs::create_dir_all(global_home.join(".claude")).expect("global claude dir");
-        fs::create_dir_all(&profile_home).expect("profile home");
-        fs::create_dir_all(&agent_home).expect("agent home");
-
-        let credentials = global_home.join(".claude").join(".credentials.json");
-        fs::write(&credentials, r#"{"kind":"oauth"}"#).expect("write global creds");
-
-        initialize_profile_overlay(&AgentKind::Claude, &agent_home, &profile_home, &global_home)
-            .expect("initialize profile overlay");
-
-        let profile_dir = profile_home.join(".claude");
-        let profile_creds = profile_dir.join(".credentials.json");
-        assert!(profile_creds.exists(), "profile creds should be seeded");
-        assert_eq!(
-            fs::read_to_string(&profile_creds).expect("read profile creds"),
-            r#"{"kind":"oauth"}"#
-        );
-
-        let instance_dir = agent_home.join(".claude");
-        let meta = fs::symlink_metadata(&instance_dir).expect("instance dir metadata");
-        assert!(
-            meta.file_type().is_symlink(),
-            "instance dir should be symlink"
-        );
-        let target = fs::read_link(&instance_dir).expect("read dir symlink");
-        assert_eq!(target, profile_dir);
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn overlay_merges_missing_files_into_existing_profile_claude_dir() {
-        let tmp = tempdir().expect("tempdir");
-        let global_home = tmp.path().join("global-home");
-        let profile_home = tmp.path().join("profile-home");
-        let agent_home = tmp.path().join("agent-home");
-        fs::create_dir_all(global_home.join(".claude")).expect("global claude dir");
-        fs::create_dir_all(profile_home.join(".claude")).expect("profile claude dir");
-        fs::create_dir_all(&agent_home).expect("agent home");
-
-        fs::write(
-            global_home.join(".claude").join(".credentials.json"),
-            r#"{"kind":"oauth"}"#,
-        )
-        .expect("write global creds");
-        fs::write(
-            profile_home.join(".claude").join("settings.json"),
-            r#"{"theme":"dark"}"#,
-        )
-        .expect("write existing profile settings");
-
-        initialize_profile_overlay(&AgentKind::Claude, &agent_home, &profile_home, &global_home)
-            .expect("initialize profile overlay");
-
-        assert!(
-            profile_home
-                .join(".claude")
-                .join(".credentials.json")
-                .exists(),
-            "credentials should be merged into existing profile dir"
-        );
-        assert_eq!(
-            fs::read_to_string(profile_home.join(".claude").join("settings.json"))
-                .expect("read settings"),
-            r#"{"theme":"dark"}"#
-        );
     }
 }
