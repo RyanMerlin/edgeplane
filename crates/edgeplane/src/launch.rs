@@ -31,10 +31,7 @@ use serde_json::{Value, json};
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs as unix_fs;
-use std::{
-    io::{self, Write},
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 // ── CLI args ────────────────────────────────────────────────────────────────
@@ -81,6 +78,18 @@ pub struct LaunchArgs {
     /// Extra args forwarded verbatim to the agent binary (after --)
     #[arg(last = true)]
     pub(crate) agent_args: Vec<String>,
+}
+
+/// Launch-shaping options for [`run_driver_agent`]. `edgeplane run` passes
+/// `DriverOpts::default()`; finer-grained knobs stay available for callers that
+/// need them (CI preflight, legacy global config, etc.).
+#[derive(Debug, Default)]
+pub struct DriverOpts {
+    pub preflight_only: bool,
+    pub skip_config_gen: bool,
+    pub legacy_global_config: bool,
+    pub allow_pin_mismatch: bool,
+    pub no_embed_token: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -385,13 +394,24 @@ fn install_acp_config(
 
 // ── Orchestration ─────────────────────────────────────────────────────────────
 
-pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) -> Result<()> {
-    let selected_agent = resolve_agent_choice(args.agent.clone())?;
+/// Launch a driver-based agent (gemini, openclaw, custom) with a fully wired
+/// Edgeplane harness: instance isolation, profile overlay, MCP config + auth,
+/// onboarding-manifest staging, and exec. Backs `edgeplane run <runtime>` for
+/// the driver runtimes (claude/codex/goose have their own native modules).
+pub async fn run_driver_agent(
+    runtime: &str,
+    profile: Option<String>,
+    passthrough: Vec<String>,
+    opts: DriverOpts,
+    client: &EdgeplaneClient,
+    config: &McConfig,
+) -> Result<()> {
+    let selected_agent = parse_agent_kind(runtime)?;
     let base_mc_home = ep_home_dir();
     fs::create_dir_all(&base_mc_home)?;
 
     let profile_name =
-        resolve_profile_name(&args.profile, Some(selected_agent.config_key()), client)
+        resolve_profile_name(&profile, Some(selected_agent.config_key()), client)
             .await
             .unwrap_or_else(|_| "default".to_string());
 
@@ -477,10 +497,10 @@ pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) 
         None
     };
     let effective_client: &EdgeplaneClient = login_client_holder.as_ref().unwrap_or(client);
-    enforce_profile_pin(effective_client, &profile_name, args.allow_pin_mismatch).await?;
+    enforce_profile_pin(effective_client, &profile_name, opts.allow_pin_mismatch).await?;
 
     // 4. Preflight-only mode: verify connectivity then stop.
-    if args.preflight_only {
+    if opts.preflight_only {
         effective_client
             .get_json("/mcp/health")
             .await
@@ -503,13 +523,13 @@ pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) 
     //      a) --no-embed-token flag  → never embed
     //      b) token is empty         → cannot embed; auto-implies no-embed with notice
     //      c) default                → embed
-    let embed_token = resolve_embed_token(args.no_embed_token, &token);
+    let embed_token = resolve_embed_token(opts.no_embed_token, &token);
 
     let staging_dir = instance_mc_home.join("config");
     std::fs::create_dir_all(&staging_dir)?;
 
     // 6. Fetch agent config from onboarding manifest and write to staging dir.
-    if !args.skip_config_gen {
+    if !opts.skip_config_gen {
         fetch_and_stage_agent_config(
             effective_client,
             &selected_agent,
@@ -521,7 +541,7 @@ pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) 
     }
 
     // 7. Install config in instance-local paths by default.
-    let config_target_home = if args.legacy_global_config {
+    let config_target_home = if opts.legacy_global_config {
         dirs::home_dir().ok_or_else(|| anyhow!("cannot determine home directory"))?
     } else {
         initialize_profile_overlay(
@@ -572,7 +592,7 @@ pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) 
     //    authenticate even when the token was NOT embedded in the config file.
     exec_agent(
         driver.as_ref(),
-        &args.agent_args,
+        &passthrough,
         &token,
         &runtime_session_id,
         &instance_home,
@@ -580,6 +600,27 @@ pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) 
         &instance_mc_home,
         &profile_name,
     )
+}
+
+/// Thin adapter backing the deprecated `edgeplane launch` command; maps
+/// `LaunchArgs` onto [`run_driver_agent`]. Removed when the launch command is.
+pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) -> Result<()> {
+    let runtime = args.agent.clone().unwrap_or_else(|| "gemini".to_string());
+    run_driver_agent(
+        &runtime,
+        args.profile,
+        args.agent_args,
+        DriverOpts {
+            preflight_only: args.preflight_only,
+            skip_config_gen: args.skip_config_gen,
+            legacy_global_config: args.legacy_global_config,
+            allow_pin_mismatch: args.allow_pin_mismatch,
+            no_embed_token: args.no_embed_token,
+        },
+        client,
+        config,
+    )
+    .await
 }
 
 /// Verify MCP backend connectivity and tool availability before exec.
@@ -681,21 +722,6 @@ fn resolve_embed_token(no_embed_flag: bool, token: &str) -> bool {
         return false;
     }
     true
-}
-
-fn resolve_agent_choice(agent: Option<String>) -> Result<AgentKind> {
-    if let Some(kind) = agent {
-        return parse_agent_kind(&kind);
-    }
-    eprint!("edgeplane launch: choose agent [gemini/openclaw/custom] (default gemini): ");
-    io::stderr().flush()?;
-    let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
-    let trimmed = answer.trim().to_lowercase();
-    if trimmed.is_empty() {
-        return Ok(AgentKind::Gemini);
-    }
-    parse_agent_kind(&trimmed)
 }
 
 fn managed_config_relpaths(agent: &AgentKind) -> &'static [&'static str] {

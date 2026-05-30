@@ -21,7 +21,6 @@ pub mod context;
 pub mod discover;
 pub mod drift;
 pub mod evolve;
-pub mod gemini;
 pub mod goose;
 pub mod governance;
 pub mod launch;
