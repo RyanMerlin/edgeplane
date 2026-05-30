@@ -1,6 +1,6 @@
 use crate::{
     client::EdgeplaneClient,
-    config::{McConfig, ep_home_dir},
+    config::{EdgeplaneConfig, ep_home_dir},
     ep_info, ep_ok, ep_warn,
 };
 use anyhow::{Context, Result, anyhow, bail};
@@ -58,7 +58,7 @@ pub async fn run_launch(
     _headless: bool,
     _with_rtk: bool,
     _passthrough: Vec<String>,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     let report = inspect_profile(&profile, config, true)?;
     if !report.ready {
@@ -113,7 +113,7 @@ pub async fn run_doctor(
     fix: bool,
     json: bool,
     _headless: bool,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     let report = inspect_profile(&profile, config, fix)?;
 
@@ -154,7 +154,7 @@ pub async fn run_doctor(
 pub async fn run_exec(
     profile: String,
     passthrough: Vec<String>,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     let paths = claude_paths(&profile);
 
@@ -180,7 +180,7 @@ pub async fn run_exec(
 
 /// Internal lifecycle hook dispatcher — called by Claude hook scripts.
 /// Invoked as: edgeplane run claude hook --event <session-start|post-tool-use|session-end>
-pub async fn run_hook(event: String, config: &McConfig) -> Result<()> {
+pub async fn run_hook(event: String, config: &EdgeplaneConfig) -> Result<()> {
     let hook_event = match event.as_str() {
         "session-start" => ClaudeHookEvent::SessionStart,
         "post-tool-use" => ClaudeHookEvent::PostToolUse,
@@ -286,7 +286,7 @@ fn add_rtk_issues(issues: &mut Vec<ClaudeDoctorIssue>, paths: &ClaudePaths) {
     }
 }
 
-fn inspect_profile(profile: &str, config: &McConfig, fix: bool) -> Result<ClaudeDoctorReport> {
+fn inspect_profile(profile: &str, config: &EdgeplaneConfig, fix: bool) -> Result<ClaudeDoctorReport> {
     let mut issues = Vec::<ClaudeDoctorIssue>::new();
     let mut repaired = false;
     let paths = claude_paths(profile);
@@ -409,7 +409,7 @@ fn inspect_profile(profile: &str, config: &McConfig, fix: bool) -> Result<Claude
 
 fn apply_repairs(
     paths: &ClaudePaths,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     claude_bin: Option<&Path>,
 ) -> Result<bool> {
     let mut changed = false;
@@ -475,7 +475,7 @@ fn seed_minimal_claude_state(paths: &ClaudePaths) -> Result<bool> {
     Ok(changed)
 }
 
-fn patch_mcp_config(config_path: &Path, config: &McConfig) -> Result<bool> {
+fn patch_mcp_config(config_path: &Path, config: &EdgeplaneConfig) -> Result<bool> {
     let mut root: Value = if config_path.exists() {
         serde_json::from_str(&fs::read_to_string(config_path)?)
             .unwrap_or_else(|_| Value::Object(Default::default()))
@@ -754,7 +754,7 @@ fn write_state_session(state_path: &Path, session_id: &str) -> Result<()> {
 fn run_claude_process(
     extra_args: &[String],
     runtime_home: &Path,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     profile: &str,
 ) -> Result<std::process::ExitStatus> {
     let mut cmd = resolved_command("claude");
@@ -793,7 +793,7 @@ pub fn resolved_command(name: &str) -> std::process::Command {
 pub fn launch_claude_blocking(
     extra_args: &[String],
     runtime_home: &Path,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     profile: &str,
     agent_id: &str,
     run_id: Option<&str>,

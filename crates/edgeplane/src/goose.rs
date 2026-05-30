@@ -1,11 +1,11 @@
 //! Goose runtime integration for Edgeplane.
 //!
 //! Goose is an open-source AI agent from AAIF (Linux Foundation) that uses a tool-calling
-//! loop to complete tasks. This module wires Goose into the MC agent mesh: it routes all
-//! inference through the cluster-internal LiteLLM proxy and injects the standard `MC_*`
+//! loop to complete tasks. This module wires Goose into the Edgeplane agent mesh: it routes
+//! all inference through the cluster-internal LiteLLM proxy and injects the standard `EP_*`
 //! environment variables so the running agent can report progress back to Edgeplane.
 use crate::{
-    config::{McConfig, ep_home_dir},
+    config::{EdgeplaneConfig, ep_home_dir},
     task_md,
 };
 use anyhow::{Context, Result, bail};
@@ -37,7 +37,7 @@ pub async fn run_launch(
     headless: bool,
     with_rtk: bool,
     passthrough: Vec<String>,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     if headless {
         bail!("headless mode is not supported for interactive launch; use `edgeplane run goose --domain <id>` instead");
@@ -54,7 +54,7 @@ pub async fn run_launch(
 pub async fn run_exec(
     profile: String,
     passthrough: Vec<String>,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     run_goose_inner(&profile, &passthrough, config)
 }
@@ -64,7 +64,7 @@ pub async fn run_exec(
 pub fn launch_goose_blocking(
     passthrough: &[String],
     runtime_home: &Path,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     profile: &str,
     agent_id: &str,
     run_id: Option<&str>,
@@ -97,7 +97,7 @@ pub fn launch_goose_blocking(
     cmd.status().context("failed to execute goose")
 }
 
-fn run_goose_inner(profile: &str, passthrough: &[String], config: &McConfig) -> Result<()> {
+fn run_goose_inner(profile: &str, passthrough: &[String], config: &EdgeplaneConfig) -> Result<()> {
     which_goose().context("goose binary not found on PATH; install Goose CLI first")?;
     let paths = goose_paths(profile);
     let status = run_goose_process(passthrough, &paths.runtime_home, config, profile)?;
@@ -110,7 +110,7 @@ fn run_goose_inner(profile: &str, passthrough: &[String], config: &McConfig) -> 
 fn run_goose_process(
     args: &[String],
     runtime_home: &Path,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     profile: &str,
 ) -> Result<std::process::ExitStatus> {
     let goose = which_goose().context("goose binary not found on PATH")?;
@@ -144,7 +144,7 @@ fn goose_model() -> String {
 fn apply_env(
     cmd: &mut std::process::Command,
     runtime_home: &Path,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     profile: &str,
     agent_id: Option<&str>,
     run_id: Option<&str>,

@@ -150,12 +150,12 @@ pub fn build_node(cmd: &clap::Command, remaining_depth: usize) -> CapabilityNode
 // ---------------------------------------------------------------------------
 
 pub async fn run(_args: CliSchemaArgs) -> Result<()> {
-    // Build the command tree from McCommand without pulling in the top-level
+    // Build the command tree from EdgeplaneCommand without pulling in the top-level
     // CliOpts from main.rs (which is not part of the library).
     let mut root_cmd = clap::Command::new("edgeplane")
         .about("Rust-native MCP bridge for Edgeplane")
         .version(env!("CARGO_PKG_VERSION"));
-    root_cmd = crate::commands::McCommand::augment_subcommands(root_cmd);
+    root_cmd = crate::commands::EdgeplaneCommand::augment_subcommands(root_cmd);
 
     let root_node = build_node(&root_cmd, usize::MAX);
 
@@ -182,7 +182,7 @@ mod tests {
         let mut root = clap::Command::new("edgeplane")
             .about("Rust-native MCP bridge for Edgeplane")
             .version(env!("CARGO_PKG_VERSION"));
-        root = crate::commands::McCommand::augment_subcommands(root);
+        root = crate::commands::EdgeplaneCommand::augment_subcommands(root);
         root
     }
 

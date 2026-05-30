@@ -1,4 +1,4 @@
-use crate::{claude, codex, config::McConfig, goose};
+use crate::{claude, codex, config::EdgeplaneConfig, goose};
 use crate::client::EdgeplaneClient;
 use anyhow::{Result, bail};
 use clap::{Args, ValueEnum};
@@ -86,7 +86,7 @@ pub struct RunArgs {
     pub passthrough: Vec<String>,
 }
 
-pub async fn run(args: RunArgs, client: &EdgeplaneClient, config: &McConfig) -> Result<()> {
+pub async fn run(args: RunArgs, client: &EdgeplaneClient, config: &EdgeplaneConfig) -> Result<()> {
     let profile = args.profile.unwrap_or_else(|| "default".to_string());
 
     match args.action {
@@ -129,7 +129,7 @@ async fn dispatch_launch(
     with_rtk: bool,
     passthrough: Vec<String>,
     client: &EdgeplaneClient,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     let use_solo = domain.is_some() || matches!(mode, RunMode::Solo);
 
@@ -252,7 +252,7 @@ async fn dispatch_doctor(
     fix: bool,
     json: bool,
     headless: bool,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     match runtime.as_str() {
         "claude" => claude::run_doctor(profile, fix, json, headless, config).await,
@@ -269,7 +269,7 @@ async fn dispatch_exec(
     runtime: String,
     profile: String,
     passthrough: Vec<String>,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     match runtime.as_str() {
         "claude" => claude::run_exec(profile, passthrough, config).await,
@@ -286,7 +286,7 @@ async fn dispatch_status(
     runtime: String,
     profile: String,
     json: bool,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     match runtime.as_str() {
         "claude" => bail!(
@@ -301,7 +301,7 @@ async fn dispatch_status(
     }
 }
 
-async fn dispatch_hook(runtime: String, event: String, config: &McConfig) -> Result<()> {
+async fn dispatch_hook(runtime: String, event: String, config: &EdgeplaneConfig) -> Result<()> {
     match runtime.as_str() {
         "claude" => claude::run_hook(event, config).await,
         other => bail!("hook is only supported for the claude runtime, got '{}'", other),

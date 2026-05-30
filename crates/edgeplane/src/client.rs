@@ -1,4 +1,4 @@
-use crate::config::{load_server_list, McConfig};
+use crate::config::{load_server_list, EdgeplaneConfig};
 use anyhow::{Context, Result};
 use reqwest::{Client, Method, RequestBuilder};
 use serde_json::Value;
@@ -17,7 +17,7 @@ pub struct EdgeplaneClient {
 }
 
 impl EdgeplaneClient {
-    pub fn new(config: &McConfig) -> Result<Self> {
+    pub fn new(config: &EdgeplaneConfig) -> Result<Self> {
         let mut builder = Client::builder().timeout(config.timeout);
         if config.allow_insecure {
             builder = builder.danger_accept_invalid_certs(true);
@@ -34,7 +34,7 @@ impl EdgeplaneClient {
     }
 
     /// Build a minimal client from a raw base URL + token, used during `edgeplane auth login`
-    /// before a full McConfig is available.
+    /// before a full EdgeplaneConfig is available.
     pub fn new_with_token(base_url: &str, token: &str) -> Result<Self> {
         let http = Client::builder().timeout(Duration::from_secs(15)).build()?;
         Ok(Self {
@@ -218,8 +218,8 @@ pub struct MultiServerClient {
 }
 
 impl MultiServerClient {
-    /// Build from a full McConfig, using `load_server_list()` for the URL list.
-    pub fn from_config(config: &McConfig) -> Result<Self> {
+    /// Build from a full EdgeplaneConfig, using `load_server_list()` for the URL list.
+    pub fn from_config(config: &EdgeplaneConfig) -> Result<Self> {
         let servers = load_server_list()
             .iter()
             .map(|u| Url::parse(u).with_context(|| format!("invalid server URL: {u}")))

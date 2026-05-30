@@ -1,7 +1,7 @@
 use clap::Parser;
 use edgeplane::{
     auth::resolve_startup_base_url, booster::AgentBooster, client::EdgeplaneClient,
-    commands::McCommand, config::McConfig, output::OutputMode, secrets,
+    commands::EdgeplaneCommand, config::EdgeplaneConfig, output::OutputMode, secrets,
 };
 use tracing::Level;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -56,7 +56,7 @@ pub struct CliOpts {
     json: bool,
 
     #[command(subcommand)]
-    command: McCommand,
+    command: EdgeplaneCommand,
 }
 
 #[tokio::main]
@@ -86,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let config = McConfig::from_parts(
+    let config = EdgeplaneConfig::from_parts(
         &base_url,
         token,
         opts.agent_id.clone(),

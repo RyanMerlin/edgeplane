@@ -1,4 +1,4 @@
-use crate::config::McConfig;
+use crate::config::EdgeplaneConfig;
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Subcommand};
 use reqwest::Client;
@@ -40,7 +40,7 @@ struct UpdateFile {
     sha256: Option<String>,
 }
 
-pub async fn run(command: UpdateCommand, config: &McConfig) -> Result<()> {
+pub async fn run(command: UpdateCommand, config: &EdgeplaneConfig) -> Result<()> {
     let UpdateCommand::SelfUpdate(args) = command;
     let client = Client::builder()
         .danger_accept_invalid_certs(config.allow_insecure)

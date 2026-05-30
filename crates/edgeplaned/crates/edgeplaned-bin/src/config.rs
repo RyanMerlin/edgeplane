@@ -257,7 +257,7 @@ pub struct AgentEntry {
 
 /// Shared persistent config written by `edgeplane auth login`.
 #[derive(Deserialize)]
-struct McConfig {
+struct EdgeplaneConfig {
     base_url: Option<String>,
 }
 
@@ -283,7 +283,7 @@ fn read_node_credential() -> Option<(String, String)> {
 
 fn read_mc_base_url() -> Option<String> {
     let content = std::fs::read_to_string(paths::ep_home_dir().join("config.json")).ok()?;
-    let cfg: McConfig = serde_json::from_str(&content).ok()?;
+    let cfg: EdgeplaneConfig = serde_json::from_str(&content).ok()?;
     cfg.base_url
 }
 

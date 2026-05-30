@@ -21,7 +21,7 @@
 use crate::{
     auth,
     client::EdgeplaneClient,
-    config::{McConfig, ep_home_dir},
+    config::{EdgeplaneConfig, ep_home_dir},
     ep_info, ep_ok, ep_warn, ui,
 };
 use anyhow::{Context, Result, anyhow, bail};
@@ -357,7 +357,7 @@ pub async fn run_driver_agent(
     passthrough: Vec<String>,
     opts: DriverOpts,
     client: &EdgeplaneClient,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     let selected_agent = parse_agent_kind(runtime)?;
     let base_mc_home = ep_home_dir();

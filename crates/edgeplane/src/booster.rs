@@ -1,4 +1,4 @@
-use crate::config::McConfig;
+use crate::config::EdgeplaneConfig;
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::fs;
@@ -24,7 +24,7 @@ pub struct AgentBooster {
 }
 
 impl AgentBooster {
-    pub fn load(config: &McConfig) -> Result<Self> {
+    pub fn load(config: &EdgeplaneConfig) -> Result<Self> {
         let engine = Engine::default();
         let module = if config.booster_enabled {
             let wasm_bytes = if let Some(path) = &config.booster_wasm {

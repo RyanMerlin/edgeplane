@@ -5,7 +5,7 @@ use crate::{
     client::EdgeplaneClient,
     cmd,
     compat,
-    config::McConfig,
+    config::EdgeplaneConfig,
     discover,
     agent_harness, daemon_ctl, drift, evolve, governance, maintenance, mcp_server, mcp_tools, ops,
     run,
@@ -29,7 +29,7 @@ use url::form_urlencoded;
 
 /// Top-level CLI entrypoints for the edgeplane binary.
 #[derive(Subcommand, Debug)]
-pub enum McCommand {
+pub enum EdgeplaneCommand {
     /// Show quick local/runtime/auth context for the current shell.
     Status(StatusArgs),
     /// Shortcut for `edgeplane system doctor`.
@@ -856,64 +856,64 @@ pub enum ApprovalCommand {
 }
 
 pub async fn run(
-    command: McCommand,
+    command: EdgeplaneCommand,
     client: EdgeplaneClient,
     booster: AgentBooster,
-    config: McConfig,
+    config: EdgeplaneConfig,
     output_mode: OutputMode,
 ) -> Result<()> {
     match command {
-        McCommand::Status(args) => handle_status(args, client, &config, output_mode).await,
-        McCommand::Doctor(args) => maintenance::run_doctor_command(&client, &config, &args).await,
-        McCommand::Health(_args) => handle_health(client, output_mode).await,
-        McCommand::Version(_args) => handle_version(client, &config, output_mode).await,
-        McCommand::Config(_args) => handle_config(&config, output_mode),
-        McCommand::Use(args) => handle_use(args, client, output_mode).await,
-        McCommand::Release(args) => handle_release(args, client, output_mode).await,
-        McCommand::Logs(args) => handle_logs(args, output_mode),
-        McCommand::Whoami(_) => auth::whoami(&client).await,
-        McCommand::Completion(args) => handle_completion(args),
-        McCommand::Artifact(cmd) => {
+        EdgeplaneCommand::Status(args) => handle_status(args, client, &config, output_mode).await,
+        EdgeplaneCommand::Doctor(args) => maintenance::run_doctor_command(&client, &config, &args).await,
+        EdgeplaneCommand::Health(_args) => handle_health(client, output_mode).await,
+        EdgeplaneCommand::Version(_args) => handle_version(client, &config, output_mode).await,
+        EdgeplaneCommand::Config(_args) => handle_config(&config, output_mode),
+        EdgeplaneCommand::Use(args) => handle_use(args, client, output_mode).await,
+        EdgeplaneCommand::Release(args) => handle_release(args, client, output_mode).await,
+        EdgeplaneCommand::Logs(args) => handle_logs(args, output_mode),
+        EdgeplaneCommand::Whoami(_) => auth::whoami(&client).await,
+        EdgeplaneCommand::Completion(args) => handle_completion(args),
+        EdgeplaneCommand::Artifact(cmd) => {
             handle_artifact(cmd, client, &booster, &config.schema_pack, output_mode).await
         }
-        McCommand::Auth(cmd) => handle_auth(cmd, client, &config).await,
-        McCommand::Data(cmd) => {
+        EdgeplaneCommand::Auth(cmd) => handle_auth(cmd, client, &config).await,
+        EdgeplaneCommand::Data(cmd) => {
             handle_data(cmd, client, &booster, &config.schema_pack, output_mode).await
         }
-        McCommand::Admin(cmd) => handle_admin(cmd, client).await,
-        McCommand::System(cmd) => handle_system(cmd, client, &config).await,
-        McCommand::Agent(cmd) => handle_agent(cmd, client, &booster, &config.schema_pack).await,
-        McCommand::Runtime(cmd) => handle_runtime(cmd, client, output_mode).await,
-        McCommand::Workspace(cmd) => {
+        EdgeplaneCommand::Admin(cmd) => handle_admin(cmd, client).await,
+        EdgeplaneCommand::System(cmd) => handle_system(cmd, client, &config).await,
+        EdgeplaneCommand::Agent(cmd) => handle_agent(cmd, client, &booster, &config.schema_pack).await,
+        EdgeplaneCommand::Runtime(cmd) => handle_runtime(cmd, client, output_mode).await,
+        EdgeplaneCommand::Workspace(cmd) => {
             handle_workspace(cmd, client, &booster, &config.schema_pack, output_mode).await
         }
-        McCommand::Approvals(cmd) => handle_approvals(cmd, client, output_mode).await,
-        McCommand::Ops(cmd) => ops::run(cmd, &client, &booster, &config.schema_pack).await,
-        McCommand::Daemon(cmd) => daemon_ctl::handle(cmd, &client, &config).await,
-        McCommand::Update(args) => {
+        EdgeplaneCommand::Approvals(cmd) => handle_approvals(cmd, client, output_mode).await,
+        EdgeplaneCommand::Ops(cmd) => ops::run(cmd, &client, &booster, &config.schema_pack).await,
+        EdgeplaneCommand::Daemon(cmd) => daemon_ctl::handle(cmd, &client, &config).await,
+        EdgeplaneCommand::Update(args) => {
             update::run(update::UpdateCommand::SelfUpdate(args), &config).await
         }
-        McCommand::Init(args) => handle_init(args, client, &config, output_mode).await,
-        McCommand::Serve(args) => mcp_server::run(&args, &client).await,
-        McCommand::Channel(cmd) => channel::run(cmd, &client).await,
-        McCommand::Profile(cmd) => handle_profile(cmd, client, output_mode).await,
-        McCommand::Secrets(cmd) => handle_secrets(cmd, client, output_mode).await,
-        McCommand::Run(args) => run::run(args, &client, &config).await,
-        McCommand::Capabilities(sub) => {
+        EdgeplaneCommand::Init(args) => handle_init(args, client, &config, output_mode).await,
+        EdgeplaneCommand::Serve(args) => mcp_server::run(&args, &client).await,
+        EdgeplaneCommand::Channel(cmd) => channel::run(cmd, &client).await,
+        EdgeplaneCommand::Profile(cmd) => handle_profile(cmd, client, output_mode).await,
+        EdgeplaneCommand::Secrets(cmd) => handle_secrets(cmd, client, output_mode).await,
+        EdgeplaneCommand::Run(args) => run::run(args, &client, &config).await,
+        EdgeplaneCommand::Capabilities(sub) => {
             // TODO: wire top-level --host and --route global flags through here
             cmd::capabilities::run(sub, None, None).await
         }
-        McCommand::Exec(args) => {
+        EdgeplaneCommand::Exec(args) => {
             // TODO: wire top-level --host global flag here when global flags are added
             cmd::run::run(args, None).await
         }
-        McCommand::Receipts(sub) => cmd::receipts::run(sub).map_err(Into::into),
-        McCommand::MeshSync(sub) => cmd::sync::run(Some(sub)).map_err(Into::into),
-        McCommand::Discover(args) => discover::run(args).await,
-        McCommand::Tui(args) => handle_tui(args, &config),
-        McCommand::Context(cmd) => handle_context(cmd),
-        McCommand::Domain(cmd) => handle_domain(cmd, client, &config).await,
-        McCommand::CliSchema(args) => crate::cli_schema::run(args).await,
+        EdgeplaneCommand::Receipts(sub) => cmd::receipts::run(sub).map_err(Into::into),
+        EdgeplaneCommand::MeshSync(sub) => cmd::sync::run(Some(sub)).map_err(Into::into),
+        EdgeplaneCommand::Discover(args) => discover::run(args).await,
+        EdgeplaneCommand::Tui(args) => handle_tui(args, &config),
+        EdgeplaneCommand::Context(cmd) => handle_context(cmd),
+        EdgeplaneCommand::Domain(cmd) => handle_domain(cmd, client, &config).await,
+        EdgeplaneCommand::CliSchema(args) => crate::cli_schema::run(args).await,
     }
 }
 
@@ -983,7 +983,7 @@ fn handle_context(cmd: ContextCommand) -> Result<()> {
     Ok(())
 }
 
-fn handle_tui(args: TuiArgs, config: &McConfig) -> Result<()> {
+fn handle_tui(args: TuiArgs, config: &EdgeplaneConfig) -> Result<()> {
     let ctxs = crate::context::load_contexts();
     let (context_name, _) = crate::context::active_context(&ctxs);
     let cfg = crate::tui::TuiConfig {
@@ -1082,7 +1082,7 @@ async fn handle_health(client: EdgeplaneClient, output_mode: OutputMode) -> Resu
 
 async fn handle_version(
     client: EdgeplaneClient,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     output_mode: OutputMode,
 ) -> Result<()> {
     let backend = client.get_json("/mcp/health").await.ok();
@@ -1095,7 +1095,7 @@ async fn handle_version(
     Ok(())
 }
 
-fn handle_config(config: &McConfig, output_mode: OutputMode) -> Result<()> {
+fn handle_config(config: &EdgeplaneConfig, output_mode: OutputMode) -> Result<()> {
     let payload = json!({
         "base_url": config.base_url.as_str(),
         "timeout_secs": config.timeout.as_secs(),
@@ -1250,7 +1250,7 @@ fn handle_completion(args: CompletionArgs) -> Result<()> {
     #[derive(clap::Parser)]
     struct CompletionRoot {
         #[command(subcommand)]
-        command: McCommand,
+        command: EdgeplaneCommand,
     }
     let mut cmd = CompletionRoot::command();
     clap_complete::generate(args.shell, &mut cmd, "edgeplane", &mut std::io::stdout());
@@ -1571,7 +1571,7 @@ async fn handle_artifact(
 async fn handle_status(
     args: StatusArgs,
     client: EdgeplaneClient,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     output_mode: OutputMode,
 ) -> Result<()> {
     let local_session = auth::load_saved_session(config.base_url.as_str());
@@ -1636,7 +1636,7 @@ async fn handle_status(
 async fn handle_auth(
     command: AuthCommand,
     client: EdgeplaneClient,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     match command {
         AuthCommand::Login(args) => auth::login(args, &client, config.base_url.as_str()).await,
@@ -2096,7 +2096,7 @@ async fn handle_data(
 async fn handle_system(
     command: SystemCommand,
     client: EdgeplaneClient,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     match command {
         SystemCommand::Doctor(args) => {
@@ -2156,7 +2156,7 @@ async fn handle_runtime(
 async fn handle_init(
     args: InitArgs,
     client: EdgeplaneClient,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     output_mode: OutputMode,
 ) -> Result<()> {
     // --repo bootstrap flow — runs independently of the MC backend.
@@ -3054,15 +3054,15 @@ fn empty_profile_tarball_b64() -> Result<String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-fn validate_init_base_url(config: &McConfig) -> Result<()> {
+fn validate_init_base_url(config: &EdgeplaneConfig) -> Result<()> {
     let base = config.base_url.as_str();
-    let parsed = url::Url::parse(base).with_context(|| format!("invalid MC base URL: {base}"))?;
+    let parsed = url::Url::parse(base).with_context(|| format!("invalid Edgeplane base URL: {base}"))?;
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
-        anyhow::bail!("MC base URL must use http/https, got '{}'", scheme);
+        anyhow::bail!("Edgeplane base URL must use http/https, got '{}'", scheme);
     }
     if parsed.host_str().unwrap_or("").trim().is_empty() {
-        anyhow::bail!("MC base URL missing host: {}", base);
+        anyhow::bail!("Edgeplane base URL missing host: {}", base);
     }
     if std::env::var("EP_BASE_URL").is_err() && base == "http://localhost:8008" {
         eprintln!(
@@ -3569,7 +3569,7 @@ async fn call_mcp_tool(
 
 // ── edgeplane domain ────────────────────────────────────────────────────────────────
 
-async fn handle_domain(cmd: DomainCommand, client: EdgeplaneClient, config: &McConfig) -> Result<()> {
+async fn handle_domain(cmd: DomainCommand, client: EdgeplaneClient, config: &EdgeplaneConfig) -> Result<()> {
     // Resolve the agent id for this runtime. Prefer the configured agent_id;
     // fall back to the default derived from the session state file.
     let agent_id = config

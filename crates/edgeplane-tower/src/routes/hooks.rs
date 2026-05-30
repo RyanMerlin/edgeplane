@@ -107,7 +107,7 @@ async fn session_start(
             // Best-effort surface — emit a body so the caller still gets the
             // descriptor, but no DB row is created.
             let body = format!(
-                "[MC Session — {session_id}]\nAgent: {subject} (reserved, not persisted)\nCapabilities: {capability}",
+                "[Edgeplane Session — {session_id}]\nAgent: {subject} (reserved, not persisted)\nCapabilities: {capability}",
                 session_id = if session_id.is_empty() { "unknown".to_string() } else { session_id.clone() },
             );
             return ([(header::CONTENT_TYPE, "text/plain")], body).into_response();
@@ -150,7 +150,7 @@ async fn session_start(
     }
 
     let body = format!(
-        "[MC Session — {session_id}]\nAgent: {subject}\nSource: {source}\nRegistered: {ts}\nAgent ID: {agent_id}\nCapabilities: {capability}",
+        "[Edgeplane Session — {session_id}]\nAgent: {subject}\nSource: {source}\nRegistered: {ts}\nAgent ID: {agent_id}\nCapabilities: {capability}",
         session_id = if session_id.is_empty() { "unknown".to_string() } else { session_id },
         ts = now.format("%Y-%m-%dT%H:%M:%SZ"),
     );

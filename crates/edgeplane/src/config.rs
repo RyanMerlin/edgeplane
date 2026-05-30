@@ -7,7 +7,7 @@ use url::Url;
 
 /// Runtime configuration derived from CLI flags and env vars.
 #[derive(Clone, Debug)]
-pub struct McConfig {
+pub struct EdgeplaneConfig {
     pub base_url: Url,
     pub token: Option<String>,
     pub timeout: Duration,
@@ -27,7 +27,7 @@ pub enum ConfigError {
     Timeout,
 }
 
-impl McConfig {
+impl EdgeplaneConfig {
     pub fn from_parts(
         base_url: &str,
         token: Option<String>,

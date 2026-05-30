@@ -1,5 +1,5 @@
 /// `edgeplane exec` — execute a capability through the edgeplaned routing layer.
-use crate::dispatch::McDispatch;
+use crate::dispatch::EdgeplaneDispatch;
 use anyhow::Result;
 use std::io::IsTerminal;
 
@@ -75,7 +75,7 @@ fn parse_args(args: &[String]) -> Result<serde_json::Value> {
 pub async fn run(args: ExecArgs, host: Option<String>) -> Result<()> {
     let parsed_args = parse_args(&args.args)?;
 
-    let dispatch = McDispatch::from_env(host, args.route);
+    let dispatch = EdgeplaneDispatch::from_env(host, args.route);
 
     let result = dispatch
         .dispatch(

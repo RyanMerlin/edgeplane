@@ -59,11 +59,11 @@ async fn run_list(
     host: Option<String>,
     route_override: Option<String>,
 ) -> Result<()> {
-    use crate::dispatch::McDispatch;
+    use crate::dispatch::EdgeplaneDispatch;
     use std::io::IsTerminal;
 
     // Try the daemon first.
-    let dispatch = McDispatch::from_env(host, route_override);
+    let dispatch = EdgeplaneDispatch::from_env(host, route_override);
     let daemon_result = dispatch.list_capabilities(tag).await;
 
     match daemon_result {

@@ -30,14 +30,14 @@ pub enum SyncCmd {
 
 /// Minimal overlay on top of the persisted config.json to read sync_repo.
 #[derive(serde::Deserialize, Default)]
-struct McSyncConfig {
+struct EdgeplaneSyncConfig {
     sync_repo: Option<String>,
 }
 
 fn read_config_sync_repo() -> Option<String> {
     let path = crate::config::ep_home_dir().join("config.json");
     let content = std::fs::read_to_string(path).ok()?;
-    let cfg: McSyncConfig = serde_json::from_str(&content).ok()?;
+    let cfg: EdgeplaneSyncConfig = serde_json::from_str(&content).ok()?;
     cfg.sync_repo
 }
 

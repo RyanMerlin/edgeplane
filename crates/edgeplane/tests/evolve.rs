@@ -1,14 +1,14 @@
 use httpmock::Method::{GET, POST};
 use httpmock::MockServer;
 use edgeplane::client::EdgeplaneClient;
-use edgeplane::config::McConfig;
+use edgeplane::config::EdgeplaneConfig;
 use edgeplane::evolve::{EvolveArgs, EvolveCommand, RunArgs, SeedArgs, StatusArgs, run};
 use serde_json::json;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
 fn build_client(base_url: &str) -> EdgeplaneClient {
-    let config = McConfig::from_parts(
+    let config = EdgeplaneConfig::from_parts(
         base_url, None, None, None, None, 2, true, false, false, None,
     )
     .unwrap();

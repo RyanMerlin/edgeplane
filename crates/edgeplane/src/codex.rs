@@ -1,5 +1,5 @@
 use crate::{
-    config::{McConfig, ep_home_dir},
+    config::{EdgeplaneConfig, ep_home_dir},
     ep_info, ep_ok,
 };
 use anyhow::{Context, Result, bail};
@@ -67,7 +67,7 @@ pub async fn run_launch(
     _headless: bool,
     _with_rtk: bool,
     _passthrough: Vec<String>,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     let report = inspect_profile(&profile, config, true)?;
 
@@ -131,7 +131,7 @@ pub async fn run_doctor(
     fix: bool,
     json: bool,
     _headless: bool,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     let report = inspect_profile(&profile, config, fix)?;
 
@@ -175,7 +175,7 @@ pub async fn run_doctor(
 }
 
 /// Read-only runtime status (exits 0 even when not ready).
-pub async fn run_status(profile: String, json: bool, config: &McConfig) -> Result<()> {
+pub async fn run_status(profile: String, json: bool, config: &EdgeplaneConfig) -> Result<()> {
     let report = inspect_profile(&profile, config, false)?;
     let status = CodexStatusReport {
         tool: report.tool,
@@ -216,7 +216,7 @@ pub async fn run_status(profile: String, json: bool, config: &McConfig) -> Resul
 pub async fn run_exec(
     profile: String,
     passthrough: Vec<String>,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     let paths = codex_paths(&profile);
 
@@ -251,7 +251,7 @@ pub fn codex_paths(profile: &str) -> CodexPaths {
     }
 }
 
-fn inspect_profile(profile: &str, config: &McConfig, repair: bool) -> Result<CodexDoctorReport> {
+fn inspect_profile(profile: &str, config: &EdgeplaneConfig, repair: bool) -> Result<CodexDoctorReport> {
     let mut issues = Vec::<CodexDoctorIssue>::new();
     let mut repaired_actions = Vec::<String>::new();
     let mut repaired = false;
@@ -413,7 +413,7 @@ fn inspect_profile(profile: &str, config: &McConfig, repair: bool) -> Result<Cod
 
 fn collect_profile_issues(
     paths: &CodexPaths,
-    _config: &McConfig,
+    _config: &EdgeplaneConfig,
     profile: &str,
 ) -> Result<(Vec<CodexDoctorIssue>, bool)> {
     let mut issues = Vec::<CodexDoctorIssue>::new();
@@ -550,7 +550,7 @@ fn rel_for_ownership(paths: &CodexPaths, value: &Path) -> String {
         .unwrap_or_else(|_| value.display().to_string())
 }
 
-fn write_codex_config(path: &Path, config: &McConfig, existing: Option<&str>) -> Result<()> {
+fn write_codex_config(path: &Path, config: &EdgeplaneConfig, existing: Option<&str>) -> Result<()> {
     let mut content = existing.unwrap_or_default().to_string();
     if !content.is_empty() {
         content = strip_mc_managed_block(&content);
@@ -618,7 +618,7 @@ fn render_mc_managed_block(base_url: &str) -> String {
 fn run_codex_process(
     args: &[String],
     runtime_home: &Path,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     profile: &str,
 ) -> Result<std::process::ExitStatus> {
     let mut cmd = resolved_command("codex");
@@ -648,7 +648,7 @@ pub fn resolved_command(name: &str) -> std::process::Command {
 pub fn launch_codex_blocking(
     args: &[String],
     runtime_home: &Path,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     profile: &str,
     agent_id: &str,
     run_id: Option<&str>,
@@ -863,7 +863,7 @@ b = 2
         let config_path = temp.path().join("config.toml");
         std::fs::write(&config_path, "model = \"gpt-5\"\n").expect("seed config");
 
-        let cfg = McConfig::from_parts(
+        let cfg = EdgeplaneConfig::from_parts(
             "http://localhost:8008",
             Some("tok".to_string()),
             None,
