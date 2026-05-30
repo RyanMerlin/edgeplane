@@ -112,7 +112,14 @@ pub async fn run_launch(
             &profile,
         )?;
         if !fresh_status.success() {
-            bail!("codex exited with status {}", fresh_status);
+            bail!(
+                "codex failed to start: resume exited {} and a fresh session exited {}; \
+                 inspect CODEX_HOME ({}) or run `edgeplane run codex doctor -p {}`",
+                resume_status,
+                fresh_status,
+                paths.runtime_home.display(),
+                profile
+            );
         }
     }
     Ok(())

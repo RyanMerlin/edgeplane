@@ -92,7 +92,10 @@ pub async fn run_launch(
 
     let status = run_claude_process(&launch_args, &paths.runtime_home, config, &profile)?;
     if !status.success() && use_resume {
-        ep_warn!("{}: resume failed; retrying with new session", profile);
+        ep_warn!("{}: resume failed; clearing stale session and retrying fresh", profile);
+        // Drop the poisoned session id so the next launch can't try to resume it
+        // again. On a successful fresh start the session-start hook rewrites it.
+        let _ = fs::remove_file(&paths.state_path);
         let retry_status = run_claude_process(&[], &paths.runtime_home, config, &profile)?;
         if !retry_status.success() {
             bail!("claude exited with status {}", retry_status);
