@@ -1174,6 +1174,19 @@ mod tests {
     }
 
     #[test]
+    fn parse_agent_kind_accepts_only_driver_agents() {
+        assert!(matches!(parse_agent_kind("gemini"), Ok(AgentKind::Gemini)));
+        assert!(matches!(parse_agent_kind("openclaw"), Ok(AgentKind::Openclaw)));
+        assert!(matches!(parse_agent_kind("custom"), Ok(AgentKind::Custom)));
+        // Native runtimes are handled by `edgeplane run` directly, never here.
+        assert!(parse_agent_kind("claude").is_err());
+        assert!(parse_agent_kind("codex").is_err());
+        // Removed legacy alias.
+        assert!(parse_agent_kind("nanoclaw").is_err());
+        assert!(parse_agent_kind("bogus").is_err());
+    }
+
+    #[test]
     fn gemini_config_writes_to_target_home() {
         let tmp = tempdir().expect("tempdir");
         let target_home = tmp.path().join("agent-home");
