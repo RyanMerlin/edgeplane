@@ -1,4 +1,5 @@
 use crate::{
+    client::EdgeplaneClient,
     config::{McConfig, ep_home_dir},
     ep_info, ep_ok, ep_warn,
 };
@@ -205,19 +206,21 @@ pub async fn run_hook(event: String, config: &McConfig) -> Result<()> {
         ClaudeHookEvent::SessionEnd => "/hooks/claude/session-end",
     };
 
-    let base = config.base_url.as_str().trim_end_matches('/');
-    let url = format!("{}{}", base, endpoint);
+    // Route through EdgeplaneClient so the request lands on the tower's
+    // /api-prefixed routes (EP_API_PREFIX) and carries auth the same way every
+    // other tower call does. Prefer the per-agent EP_AGENT_TOKEN injected at
+    // launch, falling back to the configured token.
     let token = std::env::var("EP_AGENT_TOKEN")
         .ok()
+        .filter(|t| !t.trim().is_empty())
         .or_else(|| config.token.clone());
-
-    let client = reqwest::Client::new();
-    let mut req = client.post(url).json(&payload);
-    if let Some(tok) = token {
-        if !tok.trim().is_empty() {
-            req = req.bearer_auth(tok);
-        }
-    }
+    let client = match token.as_deref() {
+        Some(tok) => EdgeplaneClient::new_with_token(config.base_url.as_str(), tok)?,
+        None => EdgeplaneClient::new(config)?,
+    };
+    let req = client
+        .request_builder(reqwest::Method::POST, endpoint)?
+        .json(&payload);
 
     match req.send().await {
         Ok(resp) => {
@@ -619,7 +622,7 @@ fn write_hook_wrappers(hooks_dir: &Path) -> Result<bool> {
     for (name, event) in scripts {
         let path = hooks_dir.join(name);
         let body = format!(
-            "#!/usr/bin/env sh\nset -eu\nexec \"{}\" claude hook {}\n",
+            "#!/usr/bin/env sh\nset -eu\nexec \"{}\" run claude hook --event {}\n",
             ep_bin, event
         );
         let current = fs::read_to_string(&path).unwrap_or_default();
@@ -871,5 +874,30 @@ mod tests {
             "hooks": [{"type":"command", "command":"\"${HOME}\"/.claude/hooks/edgeplane-session-start.sh"}]
         });
         assert!(is_managed_hook(&v));
+    }
+
+    // Regression: the generated hook wrappers must invoke the real CLI form
+    // `edgeplane run claude hook --event <event>`. An earlier wrapper emitted
+    // `edgeplane claude hook <event>`, which fails to parse ("unrecognized
+    // subcommand 'claude'") so every Claude hook silently no-op'd.
+    #[test]
+    fn hook_wrappers_use_run_claude_hook_invocation() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_hook_wrappers(dir.path()).expect("write wrappers");
+        for (script, event) in [
+            ("edgeplane-session-start.sh", "session-start"),
+            ("edgeplane-post-tool-use.sh", "post-tool-use"),
+            ("edgeplane-session-end.sh", "session-end"),
+        ] {
+            let body = fs::read_to_string(dir.path().join(script)).expect("read wrapper");
+            assert!(
+                body.contains(&format!("run claude hook --event {event}")),
+                "wrapper {script} must call `run claude hook --event {event}`, got:\n{body}"
+            );
+            assert!(
+                !body.contains(&format!("claude hook {event}\n")),
+                "wrapper {script} must not use the old broken `claude hook {event}` form"
+            );
+        }
     }
 }
