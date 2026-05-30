@@ -35,11 +35,13 @@ EP_TOKEN="<your-token>" edgeplane auth login   # saves ~/.edgeplane/session.json
 edgeplane run claude           # Claude Code
 edgeplane run codex            # OpenAI Codex CLI
 edgeplane run gemini           # Google Gemini CLI
-edgeplane launch openclaw      # OpenClaw
-edgeplane launch custom        # Custom ACP agent
+edgeplane run goose            # Goose (local models via LiteLLM)
+edgeplane run openclaw         # OpenClaw (ACP)
+edgeplane run custom           # Custom ACP agent
 ```
 
-That's it. `edgeplane run <runtime>` is the unified launch path. `edgeplane launch` remains for openclaw/custom and legacy compatibility.
+That's it. `edgeplane run <runtime>` is the single launch path for every agent.
+(The old `edgeplane launch` command has been removed — use `edgeplane run`.)
 
 Codex quick checks:
 ```bash
@@ -50,37 +52,28 @@ edgeplane run codex doctor --json      # detailed readiness diagnostics (machine
 
 ---
 
-## What `edgeplane launch` does
+## What `edgeplane run <driver agent>` does
 
-1. Checks agent binary is on PATH (with install hint if not)
+For the driver-managed agents (gemini, openclaw, custom), `edgeplane run`:
+
+1. Checks the agent binary is on PATH (with install hint if not)
 2. Validates profile/session context and pin policy (when configured)
-3. Validates auth against the MC API
+3. Validates auth against the Edgeplane API
 4. Fetches agent config from the onboarding manifest
-5. Writes config to an instance-local runtime home by default (token not embedded if using session)
+5. Writes config to an instance-local runtime home by default (token not embedded if using a session)
 6. Injects `EP_TOKEN` into the agent's process environment
 7. exec's the agent
 
-## `edgeplane launch` flags (non-Claude/Codex agents)
+(claude, codex, and goose are native runtimes with their own profile-scoped
+homes and `doctor`/`exec`/`status` actions; see `edgeplane run <runtime> --help`.)
 
-| Flag | Effect |
-|---|---|
-| `--preflight-only` | Validate env + auth without launching (CI-safe) |
-| `--no-daemon` | Skip daemon management (daemon externally managed) |
-| `--skip-config-gen` | Use existing config, skip manifest fetch |
-| `--no-embed-token` | Omit `EP_TOKEN` from written config file (auto-implied for session tokens) |
-| `--legacy-global-config` | Write config to global agent paths (`~/.codex`, `~/.gemini`) for compatibility |
-| `--daemon-timeout N` | Seconds to wait for daemon ready (default: 15) |
-| `-- <args>` | Pass remaining args verbatim to the agent |
+## Agent Config Locations (driver agents, default)
 
-## Agent Config Locations (default)
-
-| Agent | Config written by `edgeplane launch` |
+| Agent | Config written by `edgeplane run` |
 |---|---|
 | Gemini CLI | `~/.edgeplane/instances/<runtime_session_id>/home/.gemini/settings.json` |
 | OpenClaw | `~/.edgeplane/instances/<runtime_session_id>/edgeplane/config/openclaw.acp.json` |
 | Custom ACP agent | `~/.edgeplane/instances/<runtime_session_id>/edgeplane/config/custom.acp.json` |
-
-Use `--legacy-global-config` only when you explicitly need legacy global config writes.
 
 ---
 
@@ -144,7 +137,7 @@ export EP_TOKEN="$(get-oidc-token)"
 edgeplane run claude
 ```
 
-**Token embedding rules in `edgeplane launch` (non-Claude/Codex agents):**
+**Token embedding rules for driver agents (`edgeplane run` gemini/openclaw/custom):**
 - Session tokens (`mcs_*`) → never embedded, always injected at exec time
 - `--no-embed-token` flag → never embedded
 - `EP_TOKEN` absent → never embedded (auto-implied, notice printed)
@@ -274,7 +267,7 @@ edgeplane data sync status --domain-id <domain-id> --mission-id <optional-missio
 | Session token (`mcs_*`) | DB-backed, revocable, expiring | Interactive use, OIDC users |
 | OIDC JWT | Short-lived, identity-bound | SSO/Authentik environments |
 
-All auth types work with `edgeplane launch` for gemini/openclaw/custom. Codex/Claude use the dedicated command families.
+All auth types work with `edgeplane run` for gemini/openclaw/custom. Claude/codex/goose are native runtimes under the same `edgeplane run` command.
 
 ## Troubleshooting: Startup Timeout
 

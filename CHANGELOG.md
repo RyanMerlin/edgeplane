@@ -4,6 +4,46 @@ All notable changes to edgeplane, edgeplaned, and edgeplane-tower are recorded h
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [Unreleased]
+
+### Breaking changes
+
+- **`edgeplane launch` removed — `edgeplane run <runtime>` is the single agent launcher.**
+  All agents launch through `run`: `claude`, `codex`, `goose` (native, profile-scoped
+  homes with `doctor`/`exec`/`status`) and `gemini`, `openclaw`, `custom` (driver agents
+  with instance isolation). `edgeplane launch <agent>` now errors with an
+  unrecognized-subcommand message.
+
+### Fixed
+
+- **Claude lifecycle hooks were silently dead on the `run` path.** The generated hook
+  wrappers invoked `edgeplane claude hook <event>` (no such subcommand) and `run_hook`
+  POSTed to `/hooks/claude/*` without the `/api` prefix. Both fixed — session
+  registration, context injection, tool-audit, and session-end now work. Compaction
+  re-injects context too (the SessionStart matcher now includes `compact`).
+- claude: a failed `--resume` clears the stale session id before retrying fresh.
+- codex: a resume + fresh double-failure reports both exit codes and a next step.
+- solo supervisor: the heartbeat thread no longer panics if its runtime fails to build.
+
+### Changed
+
+- `gemini`/`openclaw`/`custom` are now first-class `run` runtimes (gemini was a shim;
+  openclaw/custom were `launch`-only).
+- Internal rebrand: `McConfig`→`EdgeplaneConfig`, `McCommand`→`EdgeplaneCommand`,
+  `McDispatch`→`EdgeplaneDispatch`, `McSyncConfig`→`EdgeplaneSyncConfig`; residual
+  "MC"/MissionControl user-visible strings rebranded.
+- Removed dead `#[cfg(test)]` Claude launch scaffolding; centralized edgeplane-binary
+  MCP-command resolution in `config::resolve_ep_command`.
+- `run goose doctor|status` return a clear message instead of "unknown runtime";
+  `--new`/`--with-rtk` emit a note for runtimes that ignore them.
+- Removed the undocumented `nanoclaw` alias and the unimplemented `--daemon-timeout` /
+  no-op `--no-daemon` flags from docs.
+
+### Known gaps
+
+- Profile-sync live notification (`sessions_for_profile`) still tracks only driver-agent
+  instances; wiring native `run` sessions into that index is a tracked follow-up.
+
 ## [0.12.0] — 2026-05-29
 
 ### Breaking changes

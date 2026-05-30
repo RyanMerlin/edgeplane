@@ -99,7 +99,7 @@ pub enum EdgeplaneCommand {
     /// edgeplaned daemon control and work-model commands.
     #[command(name = "daemon", subcommand)]
     Daemon(daemon_ctl::DaemonCommand),
-    /// Launch an agent runtime with a unified interface.
+    /// Launch and manage an agent runtime: claude, codex, gemini, goose, openclaw, custom.
     #[command(name = "run")]
     Run(run::RunArgs),
     /// List and describe capability packs available through edgeplaned.

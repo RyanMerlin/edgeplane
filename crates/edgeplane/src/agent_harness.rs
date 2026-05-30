@@ -871,13 +871,14 @@ fn merge_missing_dir_entries(src: &Path, dst: &Path) -> Result<usize> {
 
 fn parse_agent_kind(value: &str) -> Result<AgentKind> {
     match value.trim().to_lowercase().as_str() {
-        "codex" => bail!("`edgeplane launch codex` has been replaced. Use `edgeplane run codex [-p <profile>]`."),
-        "claude" => bail!("`edgeplane launch claude` has been replaced. Use `edgeplane run claude [-p <profile>]`."),
-        "resume" => bail!("`edgeplane launch resume` has been removed. Use `edgeplane run codex [-p <profile>]`."),
         "gemini" => Ok(AgentKind::Gemini),
         "openclaw" => Ok(AgentKind::Openclaw),
-        "custom" | "nanoclaw" => Ok(AgentKind::Custom),
-        _ => Err(anyhow!("unsupported agent '{}'", value)),
+        "custom" => Ok(AgentKind::Custom),
+        other => bail!(
+            "`{}` is not a driver-managed runtime; expected gemini, openclaw, or custom \
+             (claude/codex/goose are native runtimes handled by `edgeplane run` directly)",
+            other
+        ),
     }
 }
 
