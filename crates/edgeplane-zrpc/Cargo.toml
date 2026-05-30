@@ -1,0 +1,16 @@
+[package]
+name = "edgeplane-zrpc"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Zellij control plugin (WASM) for edgeplaned: focus-free inject/cancel, scrollback read, state classification, and pane-lifecycle events over Zellij pipes."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Pinned to the installed fleet server (0.44.3) so the plugin ABI matches the
+# running Zellij exactly. Do NOT bump without a coordinated fleet upgrade.
+zellij-tile = "0.44.3"
+edgeplane-zrpc-proto = { path = "../edgeplane-zrpc-proto" }

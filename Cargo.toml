@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/edgeplane",
     "crates/edgeplane-tower",
+    "crates/edgeplane-zrpc-proto",
     "crates/edgeplaned/crates/edgeplaned-bin",
     "crates/edgeplaned/crates/edgeplaned-acp",
     "crates/edgeplaned/crates/edgeplaned-core",
@@ -14,6 +15,9 @@ members = [
     "crates/edgeplaned/crates/edgeplaned-sync",
     "crates/edgeplaned/crates/edgeplaned-work",
 ]
+# Built only for wasm32-wasip1 (own .cargo/config.toml + lockfile); not part of
+# the host workspace build. Depends on edgeplane-zrpc-proto via path.
+exclude = ["crates/edgeplane-zrpc"]
 
 [workspace.package]
 version = "0.12.0"
