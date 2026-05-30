@@ -23,7 +23,7 @@ pub mod drift;
 pub mod evolve;
 pub mod goose;
 pub mod governance;
-pub mod launch;
+pub mod agent_harness;
 pub mod local_db;
 pub mod maintenance;
 pub mod mcp_server;

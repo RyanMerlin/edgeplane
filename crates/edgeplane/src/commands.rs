@@ -7,7 +7,8 @@ use crate::{
     compat,
     config::McConfig,
     discover,
-    daemon_ctl, drift, evolve, governance, launch, maintenance, mcp_server, mcp_tools, ops, run,
+    agent_harness, daemon_ctl, drift, evolve, governance, maintenance, mcp_server, mcp_tools, ops,
+    run,
     output::{self, OutputMode},
     runtime,
     schema_pack::SchemaPack,
@@ -80,8 +81,6 @@ pub enum McCommand {
     /// Domain operations (lifecycle orchestration and execution workflows).
     #[command(subcommand)]
     Ops(ops::OpsCommand),
-    /// Launch an agent with a fully wired Edgeplane harness.
-    Launch(launch::LaunchArgs),
     /// Self-update helper for the edgeplane binary.
     Update(update::SelfUpdateArgs),
     /// Initialize MC profile state for first-time usage.
@@ -891,7 +890,6 @@ pub async fn run(
         McCommand::Approvals(cmd) => handle_approvals(cmd, client, output_mode).await,
         McCommand::Ops(cmd) => ops::run(cmd, &client, &booster, &config.schema_pack).await,
         McCommand::Daemon(cmd) => daemon_ctl::handle(cmd, &client, &config).await,
-        McCommand::Launch(args) => launch::run(args, &client, &config).await,
         McCommand::Update(args) => {
             update::run(update::UpdateCommand::SelfUpdate(args), &config).await
         }
@@ -2948,11 +2946,11 @@ async fn handle_profile(
                 "additionalContext": format!(
                     "⚠ Profile '{}' was updated (sha256: {}). \
                      File-based config (CLAUDE.md, agents) is live now via symlinks. \
-                     MCP server changes require a restart — type /exit and relaunch with `edgeplane launch`.",
+                     MCP server changes require a restart — type /exit and relaunch with `edgeplane run <runtime>`.",
                     name, sha
                 )
             }))?;
-            let active_sessions = crate::launch::sessions_for_profile(&name);
+            let active_sessions = agent_harness::sessions_for_profile(&name);
             let mut notified = 0usize;
             for session in &active_sessions {
                 let ep_dir = PathBuf::from(&session.instance_home).join("edgeplane");

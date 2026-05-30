@@ -29,7 +29,7 @@ pub enum RunMode {
 
 #[derive(Args, Debug)]
 pub struct RunArgs {
-    /// Runtime to launch: claude, codex, gemini, goose.
+    /// Runtime to launch: claude, codex, gemini, goose, openclaw, custom.
     #[arg(value_name = "RUNTIME")]
     pub runtime: String,
 
@@ -223,11 +223,11 @@ async fn dispatch_launch(
         "codex" => codex::run_launch(profile, new, headless, with_rtk, passthrough, config).await,
         "goose" => goose::run_launch(profile, new, headless, with_rtk, passthrough, config).await,
         "gemini" | "openclaw" | "custom" => {
-            crate::launch::run_driver_agent(
+            crate::agent_harness::run_driver_agent(
                 runtime.as_str(),
                 Some(profile),
                 passthrough,
-                crate::launch::DriverOpts::default(),
+                crate::agent_harness::DriverOpts::default(),
                 client,
                 config,
             )

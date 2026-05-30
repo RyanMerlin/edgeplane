@@ -25,7 +25,6 @@ use crate::{
     ep_info, ep_ok, ep_warn, ui,
 };
 use anyhow::{Context, Result, anyhow, bail};
-use clap::Args;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs;
@@ -33,52 +32,6 @@ use std::fs;
 use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
-
-// ── CLI args ────────────────────────────────────────────────────────────────
-
-#[derive(Args, Debug)]
-pub struct LaunchArgs {
-    /// Agent to launch: gemini, openclaw, custom
-    /// (`claude`, `codex`, `gemini` moved to `edgeplane run <runtime>`)
-    pub(crate) agent: Option<String>,
-
-    /// No-op (daemon is no longer started by edgeplane launch; kept for backwards compat)
-    #[arg(long)]
-    pub(crate) no_daemon: bool,
-
-    /// Run preflights only; do not launch agent (useful for CI)
-    #[arg(long)]
-    pub(crate) preflight_only: bool,
-
-    /// Skip config generation (use existing ~/.ep/config/)
-    #[arg(long)]
-    pub(crate) skip_config_gen: bool,
-
-    /// Profile name (research, dev, security, etc). Defaults to active/default profile.
-    #[arg(long)]
-    pub(crate) profile: Option<String>,
-
-    /// Write agent config to global locations (~/.codex, ~/.claude.json, ~/.gemini)
-    /// instead of the instance-local runtime home. Compatibility escape hatch only.
-    #[arg(long)]
-    pub(crate) legacy_global_config: bool,
-
-    /// Allow launching when local profile pin does not match remote profile sha.
-    #[arg(long)]
-    pub(crate) allow_pin_mismatch: bool,
-
-    /// Do not embed EP_TOKEN in the written agent config.
-    ///
-    /// Use this for OIDC / short-lived tokens: the token is inherited from the
-    /// shell environment at agent exec time instead of being written to disk.
-    /// Automatically implied when EP_TOKEN is absent.
-    #[arg(long)]
-    pub(crate) no_embed_token: bool,
-
-    /// Extra args forwarded verbatim to the agent binary (after --)
-    #[arg(last = true)]
-    pub(crate) agent_args: Vec<String>,
-}
 
 /// Launch-shaping options for [`run_driver_agent`]. `edgeplane run` passes
 /// `DriverOpts::default()`; finer-grained knobs stay available for callers that
@@ -600,27 +553,6 @@ pub async fn run_driver_agent(
         &instance_mc_home,
         &profile_name,
     )
-}
-
-/// Thin adapter backing the deprecated `edgeplane launch` command; maps
-/// `LaunchArgs` onto [`run_driver_agent`]. Removed when the launch command is.
-pub async fn run(args: LaunchArgs, client: &EdgeplaneClient, config: &McConfig) -> Result<()> {
-    let runtime = args.agent.clone().unwrap_or_else(|| "gemini".to_string());
-    run_driver_agent(
-        &runtime,
-        args.profile,
-        args.agent_args,
-        DriverOpts {
-            preflight_only: args.preflight_only,
-            skip_config_gen: args.skip_config_gen,
-            legacy_global_config: args.legacy_global_config,
-            allow_pin_mismatch: args.allow_pin_mismatch,
-            no_embed_token: args.no_embed_token,
-        },
-        client,
-        config,
-    )
-    .await
 }
 
 /// Verify MCP backend connectivity and tool availability before exec.
