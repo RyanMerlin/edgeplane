@@ -286,17 +286,11 @@ fn absolutize_mc_command(mut entry: serde_json::Value) -> serde_json::Value {
     if cmd != "edgeplane" {
         return entry;
     }
-    let resolved = std::env::current_exe()
-        .ok()
-        .filter(|p| p.is_file())
-        .or_else(|| which_binary("edgeplane").ok());
-    if let Some(path) = resolved {
-        if let Some(obj) = entry.as_object_mut() {
-            obj.insert(
-                "command".to_string(),
-                serde_json::Value::String(path.display().to_string()),
-            );
-        }
+    if let Some(obj) = entry.as_object_mut() {
+        obj.insert(
+            "command".to_string(),
+            serde_json::Value::String(crate::config::resolve_ep_command()),
+        );
     }
     entry
 }

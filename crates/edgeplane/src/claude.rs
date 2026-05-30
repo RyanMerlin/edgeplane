@@ -490,11 +490,7 @@ fn patch_mcp_config(config_path: &Path, config: &McConfig) -> Result<bool> {
         .as_object_mut()
         .ok_or_else(|| anyhow!("{} mcpServers is not an object", config_path.display()))?;
 
-    let ep_command = std::env::current_exe()
-        .ok()
-        .filter(|p| p.is_file())
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "edgeplane".to_string());
+    let ep_command = crate::config::resolve_ep_command();
 
     mcp_servers.insert(
         "edgeplane".to_string(),
@@ -606,11 +602,7 @@ fn is_managed_hook(entry: &Value) -> bool {
 
 fn write_hook_wrappers(hooks_dir: &Path) -> Result<bool> {
     fs::create_dir_all(hooks_dir)?;
-    let ep_bin = std::env::current_exe()
-        .ok()
-        .filter(|p| p.is_file())
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "edgeplane".to_string());
+    let ep_bin = crate::config::resolve_ep_command();
 
     let scripts = [
         ("edgeplane-session-start.sh", "session-start"),

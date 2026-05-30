@@ -320,7 +320,7 @@ fn inspect_profile(profile: &str, config: &McConfig, repair: bool) -> Result<Cod
                 repaired_actions.push("patched edgeplane MCP entry".to_string());
             }
         } else {
-            let desired_command = desired_mc_command();
+            let desired_command = crate::config::resolve_ep_command();
             let expected = format!("command = \"{}\"", escape_toml(&desired_command));
             if !raw.contains(&expected) {
                 issues.push(issue(
@@ -457,7 +457,7 @@ fn collect_profile_issues(
                 true,
             ));
         } else {
-            let desired_command = desired_mc_command();
+            let desired_command = crate::config::resolve_ep_command();
             let expected = format!("command = \"{}\"", escape_toml(&desired_command));
             if !raw.contains(&expected) {
                 issues.push(issue(
@@ -564,15 +564,6 @@ fn write_codex_config(path: &Path, config: &McConfig, existing: Option<&str>) ->
     Ok(())
 }
 
-fn desired_mc_command() -> String {
-    std::env::current_exe()
-        .ok()
-        .filter(|p| p.is_file())
-        .or_else(|| which_binary("edgeplane").ok())
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "edgeplane".to_string())
-}
-
 fn strip_mc_managed_block(existing: &str) -> String {
     let mut output = Vec::<String>::new();
     let mut skip = false;
@@ -595,7 +586,7 @@ fn strip_mc_managed_block(existing: &str) -> String {
 }
 
 fn render_mc_managed_block(base_url: &str) -> String {
-    let ep_command = desired_mc_command();
+    let ep_command = crate::config::resolve_ep_command();
 
     let mut buf = String::new();
     buf.push_str(EP_CODEX_MARKER_BEGIN);
