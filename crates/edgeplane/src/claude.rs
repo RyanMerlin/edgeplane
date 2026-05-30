@@ -541,7 +541,7 @@ fn patch_hooks_config(settings_path: &Path) -> Result<bool> {
         (
             "SessionStart",
             json!({
-                "matcher": "startup|resume",
+                "matcher": "startup|resume|compact",
                 "hooks": [{"type":"command", "command":"\"${HOME}\"/.claude/hooks/edgeplane-session-start.sh"}]
             }),
         ),

@@ -33,14 +33,20 @@ pub fn goose_paths(profile: &str) -> GoosePaths {
 
 pub async fn run_launch(
     profile: String,
-    _new: bool,
+    new: bool,
     headless: bool,
-    _with_rtk: bool,
+    with_rtk: bool,
     passthrough: Vec<String>,
     config: &McConfig,
 ) -> Result<()> {
     if headless {
         bail!("headless mode is not supported for interactive launch; use `edgeplane run goose --domain <id>` instead");
+    }
+    if new {
+        crate::ep_warn!("--new has no effect for goose (no session resume)");
+    }
+    if with_rtk {
+        crate::ep_warn!("--with-rtk has no effect for goose (RTK hooks are claude-only)");
     }
     run_goose_inner(&profile, &passthrough, config)
 }

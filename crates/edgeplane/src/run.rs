@@ -223,6 +223,12 @@ async fn dispatch_launch(
         "codex" => codex::run_launch(profile, new, headless, with_rtk, passthrough, config).await,
         "goose" => goose::run_launch(profile, new, headless, with_rtk, passthrough, config).await,
         "gemini" | "openclaw" | "custom" => {
+            if new {
+                crate::ep_warn!("--new has no effect for {runtime} (no session resume)");
+            }
+            if with_rtk {
+                crate::ep_warn!("--with-rtk has no effect for {runtime} (RTK hooks are claude-only)");
+            }
             crate::agent_harness::run_driver_agent(
                 runtime.as_str(),
                 Some(profile),
@@ -251,6 +257,7 @@ async fn dispatch_doctor(
     match runtime.as_str() {
         "claude" => claude::run_doctor(profile, fix, json, headless, config).await,
         "codex" => codex::run_doctor(profile, fix, json, headless, config).await,
+        "goose" => bail!("goose has no doctor command"),
         "gemini" | "openclaw" | "custom" => {
             bail!("`{}` is a driver-managed runtime and has no doctor command", runtime)
         }
@@ -286,6 +293,7 @@ async fn dispatch_status(
             "claude does not have a status command; use `edgeplane run claude doctor` for diagnostics"
         ),
         "codex" => codex::run_status(profile, json, config).await,
+        "goose" => bail!("goose has no status command"),
         "gemini" | "openclaw" | "custom" => {
             bail!("`{}` is a driver-managed runtime and has no status command", runtime)
         }
