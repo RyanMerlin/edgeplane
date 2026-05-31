@@ -1,6 +1,38 @@
 # edgeplaned Windows build — design (compile + run, no SCM)
 
-**Status:** Draft for Merlin review · 2026-05-31 · author: Aria (engineer)
+**Status:** ⛔ BLOCKED by adversarial review (2026-05-31) — DO NOT EXECUTE. This design under-scoped the problem (audited only `edgeplaned-bin`, not the dependency graph). See "Adversarial review outcome" below. · author: Aria (engineer)
+
+---
+
+## Adversarial review outcome (2026-05-31) — design is NOT executable as written
+
+Three adversarial reviewers (soundness / completeness / security) + a real cross-compile attempt found the design's central premise wrong. Summary:
+
+### 1. Completeness — INCOMPLETE (the fatal one)
+`cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin` compiles the **whole dependency graph**, not just `edgeplaned-bin`. The design audited only `edgeplaned-bin` and missed ~7 blocker classes across 5 sibling crates:
+- **`edgeplaned-sandbox` (CRITICAL):** is an **ungated** dep of `edgeplaned-bin` and emits `compile_error!("...only Linux...")` on non-Linux; its real impl is Linux namespaces + seccomp + `caps` + cgroups. Hard compile failure before any `edgeplaned-bin` change matters.
+- **`edgeplaned-core` (CRITICAL):** has its own `tokio::signal::unix` (`SignalKind`) module — does not exist on Windows. (The design wrongly claimed shutdown was "already cross-platform"; that was only true in `edgeplaned-bin/daemon.rs`.)
+- **`edgeplaned-runtimes` (HIGH):** `std::os::unix::process::CommandExt::pre_exec` + `libc::setsid` (Unix process model), and `.as_raw_fd()` on the PTY master — the design's "portable-pty is cross-platform" hand-wave is wrong for *this usage*.
+- **`edgeplaned-secrets` (MEDIUM):** `PermissionsExt`/`0o600` on the on-disk session store (separate from the gateway the plan gated).
+- Plus ungated `nix` in `edgeplaned-runtimes`, `/`-path assumptions in `edgeplaned-sync`.
+
+### 2. Security — CRITICAL (unauthenticated daemon control on Windows by default)
+The mgmt-gateway AUTH handshake is **optional**: `if let Some(expected_token) = &self.ep_token`. When the token is `None` — the **default first-run state** before any `edgeplane auth login` — the connection is served with **no authentication**. On Unix the `0600` socket perm still gates access; on Windows loopback TCP has no perm equivalent, so **any local process in any session can drive the capability/agent-signal dispatch** = local privilege-escalation primitive. Fix is a ~6-line `#[cfg(windows)]` fail-closed guard (refuse to bind the TCP mgmt gateway when no token) — **mandatory before MVP, not a named-pipe follow-up.**
+
+### 3. Soundness — NEEDS REWORK (minor, fixable)
+- Windows `kill_holder` swallows `OpenProcess`→NULL as success (ACCESS_DENIED treated as "killed") → silent `--kill-existing` failure; must mirror the Unix ESRCH-vs-error split via `GetLastError()`.
+- `Duration` scope + `windows-sys` 0.59 import paths wrong (`WAIT_OBJECT_0` under `Threading` not `Foundation`; `GetLastError` not imported).
+- `handle_connection` gating assumes a function name that may not exist — verify before gating.
+- (The "`run()`/`pending` hangs the daemon" worry was a FALSE alarm — `run()` is already a spawned forever-task; that part is fine.)
+
+### 4. Toolchain — local cross-check not viable on this Linux host
+The real `cargo check --target x86_64-pc-windows-msvc` failed at **`ring v0.17.14`** (C dep via the TLS stack) needing an absent C cross-toolchain — before reaching any Rust blocker. So the design's "local cross-check during implementation" step does not work here; validation must be **`windows-latest` CI** (or a real Windows host).
+
+### Implication
+A real Windows port of `edgeplaned` is **substantially larger** than this design stated — `edgeplaned-sandbox` (Linux namespaces/seccomp) and the `edgeplaned-runtimes` exec/PTY path are deeply Linux-coupled. This also raises a **value question**: a Windows `edgeplaned` that can't sandbox or exec agents (those paths are Linux-only) may not be worth porting — which ties directly to the open "Layer A: is the Windows laptop a full edgeplaned node or a thin remote client?" question in `aria` repo `docs/superpowers/plans/2026-05-29-edgeplane-tower-auth-architecture.md`. **Decision needed from Merlin before any rework.**
+
+---
+
 **Branch:** `feat/edgeplaned-windows-build`
 **Origin:** Merlinlabs flag — "if edgeplaned is ever distributed/installed by others on Windows, the windows-service crate is worth doing properly — behind a `#[cfg(windows)]` feature flag so the Linux/systemd path stays intact."
 

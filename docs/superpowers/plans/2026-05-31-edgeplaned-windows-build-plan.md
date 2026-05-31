@@ -1,5 +1,7 @@
 # edgeplaned Windows Build Implementation Plan
 
+> ⛔ **BLOCKED — DO NOT EXECUTE (2026-05-31).** Adversarial review found this plan's scope is wrong: it gates 5 sites in `edgeplaned-bin` but `cargo check -p edgeplaned-bin` compiles the whole dep graph, and `edgeplaned-sandbox` (ungated dep) hard-fails with `compile_error!` on non-Linux — plus `edgeplaned-core`'s `tokio::signal::unix`, the `edgeplaned-runtimes` exec/PTY path, and a CRITICAL unauthenticated-mgmt-gateway security default on Windows. See the design doc's "Adversarial review outcome" section. The real blocker list must come from a `windows-latest` CI cross-check (local Linux cross-check fails at `ring`'s C dep). Awaiting Merlin's scope decision before rework.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `edgeplaned-bin` compile for `x86_64-pc-windows-msvc` and run as a Windows console app, with the Linux/systemd path byte-for-byte unchanged.
