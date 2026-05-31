@@ -25,7 +25,7 @@ pub enum RouteMode {
 
 pub struct McDispatch {
     pub mode: RouteMode,
-    ep_token: Option<String>,
+    session_token: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ fn load_file_config() -> FileConfig {
 impl McDispatch {
     /// Build from environment + config file with optional CLI overrides.
     pub fn from_env(host: Option<String>, route_override: Option<String>) -> Self {
-        let ep_token = crate::config::load_session_token("");
+        let session_token = crate::config::load_session_token("");
 
         // 1. --host flag → Remote immediately.
         if let Some(ref h) = host {
@@ -101,7 +101,7 @@ impl McDispatch {
                     host: hostname,
                     port,
                 },
-                ep_token,
+                session_token,
             };
         }
 
@@ -109,7 +109,7 @@ impl McDispatch {
         if let Some(ref r) = route_override {
             return Self {
                 mode: route_mode_from_str(r, None),
-                ep_token,
+                session_token,
             };
         }
 
@@ -117,7 +117,7 @@ impl McDispatch {
         if let Ok(r) = std::env::var("EP_ROUTE") {
             return Self {
                 mode: route_mode_from_str(&r, None),
-                ep_token,
+                session_token,
             };
         }
 
@@ -127,14 +127,14 @@ impl McDispatch {
             let host_hint = cfg.default_host.as_deref();
             return Self {
                 mode: route_mode_from_str(r, host_hint),
-                ep_token,
+                session_token,
             };
         }
 
         // 5. Default: Auto
         Self {
             mode: RouteMode::Auto,
-            ep_token,
+            session_token,
         }
     }
 
@@ -157,7 +157,7 @@ impl McDispatch {
                 send_jsonrpc_unix(&socket_path, "capabilities.list", params).await?
             }
             RouteMode::Remote { host, port } => {
-                send_jsonrpc_tcp(host, *port, self.ep_token.as_deref(), "capabilities.list", params).await?
+                send_jsonrpc_tcp(host, *port, self.session_token.as_deref(), "capabilities.list", params).await?
             }
             RouteMode::Backend | RouteMode::Auto => {
                 anyhow::bail!("daemon not reachable: no socket or remote host configured")
@@ -203,7 +203,7 @@ impl McDispatch {
                 send_jsonrpc_unix(&socket_path, "dispatch", params).await
             }
             RouteMode::Remote { host, port } => {
-                send_jsonrpc_tcp(host, *port, self.ep_token.as_deref(), "dispatch", params).await
+                send_jsonrpc_tcp(host, *port, self.session_token.as_deref(), "dispatch", params).await
             }
             RouteMode::Backend => {
                 anyhow::bail!(

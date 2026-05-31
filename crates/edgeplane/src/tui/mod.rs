@@ -90,9 +90,8 @@ fn event_loop<B: ratatui::backend::Backend>(
 ///
 /// Returns the token to pass to the data client (None means anonymous) and
 /// the initial AuthState shown in the identity badge. The token from `cfg`
-/// wins over the saved session — that path is set by `--token` / `EP_TOKEN`
-/// in the parent CLI and the operator may be testing against a one-off
-/// credential.
+/// wins over the saved session — that path is set by `--token` in the parent
+/// CLI and the operator may be testing against a one-off credential.
 fn resolve_auth(cfg: &TuiConfig) -> (Option<String>, AuthState) {
     // Explicit token: trust it, mark as session-like (we don't know expiry).
     if let Some(tok) = cfg.token.clone() {

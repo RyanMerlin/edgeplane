@@ -95,7 +95,7 @@ pub fn default_agent_id_from_session(base_url: &str) -> Option<String> {
 /// Load a session token from `~/.ep/session.json` if one exists,
 /// has not expired, and was created for `base_url`.
 ///
-/// Called by `main.rs` when `EP_TOKEN` / `--token` is absent.
+/// Called by `main.rs` when `--token` is absent and no EP_AGENT_TOKEN bootstrap was used.
 pub fn load_session_token(base_url: &str) -> Option<String> {
     crate::auth::load_saved_session(base_url).map(|s| s.token)
 }

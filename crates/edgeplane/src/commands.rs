@@ -1719,7 +1719,7 @@ async fn handle_secrets(
                 .unwrap_or_else(|| "env".to_string())
                 .to_ascii_lowercase();
             let standard_names = [
-                "EP_TOKEN",
+                "EP_AGENT_TOKEN",
                 "MQTT_PASSWORD",
                 "POSTGRES_PASSWORD",
                 "EP_OBJECT_STORAGE_ACCESS_KEY",

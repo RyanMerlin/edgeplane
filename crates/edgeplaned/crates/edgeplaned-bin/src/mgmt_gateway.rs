@@ -2,7 +2,8 @@
 ///
 /// Unix socket: `~/.edgeplane/mgmt.sock` (mode 0600, no auth)
 /// TCP socket:  `0.0.0.0:<EP_MESH_MGMT_PORT>` (default 7731)
-///              Requires AUTH handshake when `EP_TOKEN` env var is set.
+///              Requires AUTH handshake when a session token is loaded from the
+///              edgeplaned state file (profiles.<active>.auth.token).
 ///
 /// Both endpoints serve the same JSON-RPC 2.0 protocol (newline-delimited).
 use std::path::PathBuf;
@@ -25,7 +26,7 @@ use crate::supervisor::Supervisor;
 pub struct MgmtGateway {
     dispatcher: Arc<CapabilityDispatcher>,
     registry: Arc<PackRegistry>,
-    ep_token: Option<String>,
+    session_token: Option<String>,
     socket_path: PathBuf,
     tcp_port: u16,
     /// Local agent ops dependencies. Populated by `daemon::run` after the
@@ -59,7 +60,7 @@ pub struct AgentOpsHandle {
 
 impl MgmtGateway {
     pub fn new(dispatcher: Arc<CapabilityDispatcher>, registry: Arc<PackRegistry>) -> Self {
-        let ep_token = edgeplaned_core::paths::state_file_path()
+        let session_token = edgeplaned_core::paths::state_file_path()
             .parent()
             .and_then(|_| {
                 let content = std::fs::read_to_string(edgeplaned_core::paths::state_file_path()).ok()?;
@@ -77,7 +78,7 @@ impl MgmtGateway {
         MgmtGateway {
             dispatcher,
             registry,
-            ep_token,
+            session_token,
             socket_path,
             tcp_port,
             agent_ops: None,
@@ -185,8 +186,8 @@ impl MgmtGateway {
         let (read_half, mut write_half) = stream.into_split();
         let mut reader = BufReader::new(read_half);
 
-        // AUTH handshake only when EP_TOKEN is configured.
-        if let Some(expected_token) = &self.ep_token {
+        // AUTH handshake only when a session token is configured.
+        if let Some(expected_token) = &self.session_token {
             let mut line = String::new();
             reader.read_line(&mut line).await?;
             let line = line.trim();
@@ -1276,7 +1277,7 @@ mod tests {
         MgmtGateway {
             dispatcher,
             registry,
-            ep_token: None,
+            session_token: None,
             socket_path,
             tcp_port,
             agent_ops: None,
@@ -1293,7 +1294,7 @@ mod tests {
         MgmtGateway {
             dispatcher,
             registry,
-            ep_token: Some(token.to_string()),
+            session_token: Some(token.to_string()),
             socket_path,
             tcp_port,
             agent_ops: None,
