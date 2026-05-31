@@ -12,10 +12,10 @@ pub fn default_db_path() -> std::path::PathBuf {
 }
 
 fn ep_home_dir() -> std::path::PathBuf {
-    if let Ok(val) = std::env::var("EP_HOME") {
-        if !val.is_empty() {
-            return expand_home(&val);
-        }
+    if let Ok(val) = std::env::var("EP_HOME")
+        && !val.is_empty()
+    {
+        return expand_home(&val);
     }
     dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -23,10 +23,10 @@ fn ep_home_dir() -> std::path::PathBuf {
 }
 
 fn expand_home(val: &str) -> std::path::PathBuf {
-    if let Some(stripped) = val.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(stripped);
-        }
+    if let Some(stripped) = val.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(stripped);
     }
     std::path::PathBuf::from(val)
 }

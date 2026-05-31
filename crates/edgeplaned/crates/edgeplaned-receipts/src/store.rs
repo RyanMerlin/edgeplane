@@ -16,11 +16,11 @@ pub struct ReceiptStore {
 impl ReceiptStore {
     /// Open or create the SQLite database at `path`, enabling WAL mode and creating schema.
     pub fn open(path: &Path) -> Result<Self, ReceiptsError> {
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| rusqlite::Error::InvalidPath(format!("{e}").into()))?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| rusqlite::Error::InvalidPath(format!("{e}").into()))?;
         }
 
         let conn = Connection::open(path)?;
