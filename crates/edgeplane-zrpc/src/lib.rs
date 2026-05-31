@@ -29,6 +29,11 @@ struct ZrpcPlugin {
     /// Latest pane manifest, cached from `PaneUpdate` events; the source for
     /// `list_agent_panes`.
     manifest: Option<PaneManifest>,
+    /// CLI pipe id of edgeplaned's long-lived event subscription (the
+    /// `zellij pipe --name zrpc-events` it holds open). Cached when that pipe
+    /// opens so `update()` can push events back to that specific caller's
+    /// stdout. `None` until edgeplaned subscribes.
+    event_pipe_id: Option<String>,
 }
 
 register_plugin!(ZrpcPlugin);
@@ -54,10 +59,10 @@ impl ZellijPlugin for ZrpcPlugin {
         match event {
             Event::PaneUpdate(manifest) => self.manifest = Some(manifest),
             Event::CommandPaneExited(pane_id, exit_code, _ctx) => {
-                emit_event(&PluginEvent::CommandPaneExited { pane_id, exit_code });
+                self.emit_event(&PluginEvent::CommandPaneExited { pane_id, exit_code });
             }
             Event::PaneClosed(pane_id) => {
-                emit_event(&PluginEvent::PaneClosed {
+                self.emit_event(&PluginEvent::PaneClosed {
                     pane_id: pane_id_num(pane_id),
                 });
             }
@@ -68,25 +73,53 @@ impl ZellijPlugin for ZrpcPlugin {
     }
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
-        if pipe_message.name != CONTROL_PIPE {
-            return false;
-        }
-        let Some(payload) = pipe_message.payload.as_deref() else {
+        // We only serve CLI-originated pipes; the `pipe_id` is what
+        // `cli_pipe_output`/`block`/`unblock` correlate on (NOT the name), so
+        // the reply routes back to *this* `zellij pipe` invocation's stdout.
+        let PipeSource::Cli(pipe_id) = pipe_message.source else {
             return false;
         };
-        for parsed in parse_requests(payload) {
-            let line = match parsed {
-                Ok(req) => handle(&req, self).to_ndjson_line(),
-                // Unparseable line: no id to correlate, emit a best-effort error.
-                Err(e) => Response::error("", e.to_string()).to_ndjson_line(),
-            };
-            cli_pipe_output(CONTROL_PIPE, &format!("{line}\n"));
+        match pipe_message.name.as_str() {
+            CONTROL_PIPE => {
+                if let Some(payload) = pipe_message.payload.as_deref() {
+                    // Block the caller until every response line is written, so
+                    // the synchronous `zellij pipe` call returns with our output.
+                    block_cli_pipe_input(&pipe_id);
+                    for parsed in parse_requests(payload) {
+                        let line = match parsed {
+                            Ok(req) => handle(&req, self).to_ndjson_line(),
+                            // Unparseable line: no id to correlate; best-effort error.
+                            Err(e) => Response::error("", e.to_string()).to_ndjson_line(),
+                        };
+                        cli_pipe_output(&pipe_id, &format!("{line}\n"));
+                    }
+                    unblock_cli_pipe_input(&pipe_id);
+                }
+                false
+            }
+            EVENT_PIPE => {
+                // edgeplaned's long-lived event subscription. Keep it open and
+                // remember its id so `update()` can push events to it.
+                block_cli_pipe_input(&pipe_id);
+                self.event_pipe_id = Some(pipe_id);
+                false
+            }
+            _ => false,
         }
-        false
     }
 
     fn render(&mut self, _rows: usize, _cols: usize) {
         // Hidden background service — no UI.
+    }
+}
+
+impl ZrpcPlugin {
+    /// Push a lifecycle event to edgeplaned over its cached event-pipe id.
+    /// No-op until edgeplaned has subscribed (opened the `zrpc-events` pipe).
+    fn emit_event(&self, event: &PluginEvent) {
+        if let Some(pipe_id) = &self.event_pipe_id {
+            cli_pipe_output(pipe_id, &format!("{}\n", event.to_ndjson_line()));
+        }
     }
 }
 
@@ -134,11 +167,6 @@ impl PaneOps for ZrpcPlugin {
         out.sort();
         Ok(out)
     }
-}
-
-/// Push a lifecycle event to edgeplaned over the long-lived event pipe.
-fn emit_event(event: &PluginEvent) {
-    cli_pipe_output(EVENT_PIPE, &format!("{}\n", event.to_ndjson_line()));
 }
 
 /// Numeric id of a pane regardless of kind.

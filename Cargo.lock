@@ -1698,6 +1698,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dirs",
+ "edgeplane-zrpc-proto",
  "edgeplaned-acp",
  "edgeplaned-core",
  "futures",

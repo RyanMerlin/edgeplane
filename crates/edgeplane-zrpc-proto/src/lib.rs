@@ -64,6 +64,51 @@ pub enum Call {
 }
 
 impl Request {
+    /// Build an `inject` request (focus-free text write into a pane).
+    pub fn inject(id: impl Into<String>, pane_id: &str, text: &str) -> Self {
+        Self {
+            id: id.into(),
+            method: "inject".into(),
+            params: serde_json::json!({ "pane_id": pane_id, "text": text }),
+        }
+    }
+
+    /// Build a `cancel` request (interrupt a pane).
+    pub fn cancel(id: impl Into<String>, pane_id: &str) -> Self {
+        Self {
+            id: id.into(),
+            method: "cancel".into(),
+            params: serde_json::json!({ "pane_id": pane_id }),
+        }
+    }
+
+    /// Build a `read_scrollback` request.
+    pub fn read_scrollback(id: impl Into<String>, pane_id: &str, lines: Option<usize>) -> Self {
+        Self {
+            id: id.into(),
+            method: "read_scrollback".into(),
+            params: serde_json::json!({ "pane_id": pane_id, "lines": lines }),
+        }
+    }
+
+    /// Build a `classify` request.
+    pub fn classify(id: impl Into<String>, pane_id: &str) -> Self {
+        Self {
+            id: id.into(),
+            method: "classify".into(),
+            params: serde_json::json!({ "pane_id": pane_id }),
+        }
+    }
+
+    /// Build a `list_agent_panes` request.
+    pub fn list_agent_panes(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            method: "list_agent_panes".into(),
+            params: serde_json::Value::Null,
+        }
+    }
+
     /// Validate `method` + `params` into a typed [`Call`].
     pub fn call(&self) -> Result<Call, ProtoError> {
         // Each method deserializes `params` into its own struct; a `null`
@@ -372,6 +417,52 @@ mod tests {
             method: method.into(),
             params,
         }
+    }
+
+    // ── Request constructors round-trip through the validator ───────────
+
+    #[test]
+    fn inject_constructor_round_trips() {
+        let req = Request::inject("1", "terminal_3", "hi");
+        assert_eq!(req.method, "inject");
+        assert_eq!(
+            req.call().unwrap(),
+            Call::Inject {
+                pane_id: "terminal_3".into(),
+                text: "hi".into()
+            }
+        );
+    }
+
+    #[test]
+    fn cancel_constructor_round_trips() {
+        let req = Request::cancel("2", "terminal_3");
+        assert_eq!(req.call().unwrap(), Call::Cancel { pane_id: "terminal_3".into() });
+    }
+
+    #[test]
+    fn read_scrollback_constructor_round_trips() {
+        let req = Request::read_scrollback("3", "terminal_3", Some(40));
+        assert_eq!(
+            req.call().unwrap(),
+            Call::ReadScrollback {
+                pane_id: "terminal_3".into(),
+                lines: Some(40)
+            }
+        );
+    }
+
+    #[test]
+    fn classify_constructor_round_trips() {
+        let req = Request::classify("4", "terminal_3");
+        assert_eq!(req.call().unwrap(), Call::Classify { pane_id: "terminal_3".into() });
+    }
+
+    #[test]
+    fn list_agent_panes_constructor_round_trips() {
+        let req = Request::list_agent_panes("5");
+        assert_eq!(req.id, "5");
+        assert_eq!(req.call().unwrap(), Call::ListAgentPanes);
     }
 
     // ── parse_pane_ref ──────────────────────────────────────────────────

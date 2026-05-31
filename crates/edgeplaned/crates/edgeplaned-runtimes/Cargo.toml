@@ -8,6 +8,7 @@ license = "Apache-2.0"
 [dependencies]
 edgeplaned-acp = { path = "../edgeplaned-acp" }
 edgeplaned-core = { path = "../edgeplaned-core" }
+edgeplane-zrpc-proto = { path = "../../../edgeplane-zrpc-proto" }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
