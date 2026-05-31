@@ -82,29 +82,32 @@ impl PluginRouting {
 }
 
 /// Drives the `edgeplane-zrpc` plugin in one Zellij session via `zellij pipe`.
+///
+/// Pipes **by name** to the already-running plugin. The plugin MUST be
+/// pre-loaded via the session's Zellij config (`plugins {}` + `load_plugins
+/// {}`) — the install tooling writes that config. The on-demand
+/// `--plugin file:<wasm>` "first-message load" form is deliberately NOT used:
+/// it fails to instantiate on the running 0.44.3 fleet (verified 2026-05-30,
+/// erroring "could not find exported function" — identically for the
+/// known-good `zellij-aria-fleet` plugin), whereas a config-preloaded plugin
+/// accepts pipes fine by name.
 pub struct ZellijPluginClient {
     session: String,
-    plugin_url: String,
 }
 
 impl ZellijPluginClient {
-    /// `wasm_path` is the on-disk path to `edgeplane_zrpc.wasm`; it is turned
-    /// into the `file:` URL Zellij expects.
-    pub fn new(session: impl Into<String>, wasm_path: &str) -> Self {
+    pub fn new(session: impl Into<String>) -> Self {
         Self {
             session: session.into(),
-            plugin_url: format!("file:{wasm_path}"),
         }
     }
 
-    /// argv for `zellij --session <s> pipe --plugin <url> --name zrpc -- <payload>`.
+    /// argv for `zellij --session <s> pipe --name zrpc -- <payload>`.
     pub fn pipe_argv(&self, payload: &str) -> Vec<String> {
         vec![
             "--session".into(),
             self.session.clone(),
             "pipe".into(),
-            "--plugin".into(),
-            self.plugin_url.clone(),
             "--name".into(),
             ZRPC_PIPE_NAME.into(),
             "--".into(),
@@ -223,8 +226,8 @@ mod tests {
     // ── pipe_argv ───────────────────────────────────────────────────────
 
     #[test]
-    fn pipe_argv_shape() {
-        let c = ZellijPluginClient::new("research", "/plugins/edgeplane_zrpc.wasm");
+    fn pipe_argv_pipes_by_name_without_plugin_flag() {
+        let c = ZellijPluginClient::new("research");
         let argv = c.pipe_argv(r#"{"id":"1","method":"cancel"}"#);
         assert_eq!(
             argv,
@@ -232,14 +235,14 @@ mod tests {
                 "--session",
                 "research",
                 "pipe",
-                "--plugin",
-                "file:/plugins/edgeplane_zrpc.wasm",
                 "--name",
                 "zrpc",
                 "--",
                 r#"{"id":"1","method":"cancel"}"#,
             ]
         );
+        // The on-demand load form must NOT be used (fails on 0.44.3).
+        assert!(!argv.iter().any(|a| a == "--plugin"));
     }
 
     // ── parse_response ──────────────────────────────────────────────────

@@ -91,14 +91,11 @@ impl ZellijHostedRuntime {
         text: String,
     ) -> Result<()> {
         if self.routing.enabled_for(zellij_session) {
-            let path = self
-                .routing
-                .plugin_path()
-                .expect("enabled_for guarantees a configured plugin path");
             // Focus-free write; trailing CR submits (matches the legacy
             // paste+Enter). Multi-line bracketed-paste semantics are tuned in
-            // live integration.
-            ZellijPluginClient::new(zellij_session, path)
+            // live integration. Plugin must be pre-loaded via the session's
+            // Zellij config; we pipe to it by name.
+            ZellijPluginClient::new(zellij_session)
                 .inject(DEFAULT_PANE_ID, &format!("{text}\r"))
                 .await
         } else {
@@ -232,11 +229,7 @@ impl AgentRuntime for ZellijHostedRuntime {
             }
             AgentSignal::Cancel => {
                 if self.routing.enabled_for(&zellij_session) {
-                    let path = self
-                        .routing
-                        .plugin_path()
-                        .expect("enabled_for guarantees a configured plugin path");
-                    ZellijPluginClient::new(&zellij_session, path)
+                    ZellijPluginClient::new(&zellij_session)
                         .cancel(DEFAULT_PANE_ID)
                         .await
                 } else {
