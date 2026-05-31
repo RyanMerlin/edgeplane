@@ -9,7 +9,7 @@ DURATION_SEC="${EP_SHIM_LOAD_DURATION_SEC:-60}"
 BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
 SHIM_HOST="${EP_DAEMON_HOST:-127.0.0.1}"
 SHIM_PORT="${EP_DAEMON_PORT:-8765}"
-TOKEN="${EP_TOKEN:-}"
+TOKEN="${EP_AGENT_TOKEN:-}"
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "curl is required" >&2
@@ -20,7 +20,7 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 if [[ -z "$TOKEN" ]]; then
-  echo "EP_TOKEN is required" >&2
+  echo "EP_AGENT_TOKEN is required" >&2
   exit 2
 fi
 

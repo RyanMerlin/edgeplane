@@ -24,7 +24,7 @@ def main():
 
     domain_id = sys.argv[1]
     base_url = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("EP_BASE_URL", "http://localhost:8008")
-    token = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("EP_TOKEN", "")
+    token = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("EP_AGENT_TOKEN", "")
     worker_id = f"demo-worker-{os.getpid()}"
 
     def api(method, path, body=None):

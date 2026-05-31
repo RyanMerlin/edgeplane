@@ -14,7 +14,7 @@ Goal: run multiple Codex sessions collaborating on the same domain/mission witho
 
 - Edgeplane full stack healthy (`postgres`, `api`, `mcpd`, `mosquitto`, `rustfs`).
 - Local shim reachable at `127.0.0.1:8765`.
-- `EP_TOKEN` valid for your API.
+- `EP_AGENT_TOKEN` valid for your API (or a valid OIDC session from `edgeplane auth login`).
 
 ## 1) Start a collaboration run (driver session)
 
@@ -22,7 +22,7 @@ Run in one terminal:
 
 ```bash
 EP_BASE_URL=http://localhost:8008 \
-EP_TOKEN="<token>" \
+EP_AGENT_TOKEN="<mcs_sa_token>" \
 EP_STACK_PROFILE=full \
 EP_COLLAB_DURATION_SEC=600 \
 EP_COLLAB_POLL_SEC=5 \
@@ -40,7 +40,7 @@ Attach to an existing domain/mission instead:
 
 ```bash
 EP_BASE_URL=http://localhost:8008 \
-EP_TOKEN="<token>" \
+EP_AGENT_TOKEN="<mcs_sa_token>" \
 EP_STACK_PROFILE=full \
 EP_COLLAB_DOMAIN_ID="<domain_id>" \
 EP_COLLAB_MISSION_ID="<mission_id>" \

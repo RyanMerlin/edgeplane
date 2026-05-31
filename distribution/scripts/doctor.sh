@@ -34,7 +34,7 @@ else
 fi
 
 if [[ -n "$ENDPOINT" ]]; then
-  if doctor_raw="$(EP_BASE_URL="$ENDPOINT" EP_TOKEN="$TOKEN" edgeplane-mcp doctor 2>/dev/null)"; then
+  if doctor_raw="$(EP_BASE_URL="$ENDPOINT" EP_AGENT_TOKEN="$TOKEN" edgeplane-mcp doctor 2>/dev/null)"; then
     echo "$doctor_raw" | sed -n '1,80p' >/tmp/edgeplane_mcp_doctor.out
     if command -v jq >/dev/null 2>&1; then
       if echo "$doctor_raw" | jq -e --arg endpoint "$ENDPOINT" '.checks[$endpoint].health_ok == true' >/dev/null 2>&1; then
@@ -91,7 +91,7 @@ fi
 
 if command -v edgeplane-explorer >/dev/null 2>&1; then
   if [[ -n "$ENDPOINT" ]]; then
-    if explorer_raw="$(EP_BASE_URL="$ENDPOINT" EP_TOKEN="$TOKEN" edgeplane-explorer tree --format json 2>/tmp/edgeplane_explorer.err)"; then
+    if explorer_raw="$(EP_BASE_URL="$ENDPOINT" EP_AGENT_TOKEN="$TOKEN" edgeplane-explorer tree --format json 2>/tmp/edgeplane_explorer.err)"; then
       if command -v jq >/dev/null 2>&1; then
         if echo "$explorer_raw" | jq -e '.mission_count >= 0' >/dev/null 2>&1; then
           echo "[OK] edgeplane-explorer tree --format json"

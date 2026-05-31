@@ -11,7 +11,6 @@ Set these on the `edgeplane-api` deployment:
 ```env
 AUTH_MODE=oidc
 OIDC_REQUIRED=false
-EP_TOKEN=<static-token-for-mcp>
 OIDC_ISSUER_URL=https://<authentik-host>/application/o/<provider-slug>/
 OIDC_AUDIENCE=<oidc-client-id>
 OIDC_CLIENT_ID=<oidc-client-id>
@@ -89,12 +88,12 @@ Modes:
 - `AUTH_MODE=dual`: accept token and OIDC.
 
 `OIDC_REQUIRED=true` in dual mode enforces OIDC for non-`/mcp` paths.
-If `AUTH_MODE` is unset, runtime defaults to OIDC when OIDC vars are present, and falls back to token mode when only `EP_TOKEN` is configured.
+If `AUTH_MODE` is unset, runtime defaults to OIDC when OIDC vars are present.
 
 ## Kubernetes secret guidance
 
 - Source all auth settings from Kubernetes Secrets.
-- Do not commit client secrets, service tokens, or static `EP_TOKEN` values.
+- Do not commit client secrets or service-account tokens.
 - Mount/inject only secret refs in manifests (`envFrom.secretRef` / `env.valueFrom.secretKeyRef`).
 - Roll out with:
   1. `AUTH_MODE=oidc`, `OIDC_REQUIRED=false`

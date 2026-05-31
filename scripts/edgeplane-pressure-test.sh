@@ -39,8 +39,8 @@ if ! command -v curl >/dev/null 2>&1; then
   echo "curl is required" >&2
   exit 1
 fi
-if [[ -z "${EP_TOKEN:-}" ]]; then
-  echo "EP_TOKEN is required" >&2
+if [[ -z "${EP_AGENT_TOKEN:-}" ]]; then
+  echo "EP_AGENT_TOKEN is required" >&2
   exit 2
 fi
 
@@ -117,7 +117,7 @@ if ! curl -fsS "http://${SHIM_HOST}:${SHIM_PORT}/v1/health" >/dev/null 2>&1; the
       exit 1
     fi
     echo "shim not reachable; auto-starting edgeplane daemon"
-    EP_BASE_URL="$BASE_URL" EP_TOKEN="${EP_TOKEN}" \
+    EP_BASE_URL="$BASE_URL" EP_AGENT_TOKEN="${EP_AGENT_TOKEN}" \
       edgeplane daemon --disable-matrix --shim-host "$SHIM_HOST" --shim-port "$SHIM_PORT" \
       >"$RUN_DIR/edgeplane-daemon.log" 2>&1 &
     DAEMON_PID="$!"
@@ -129,7 +129,7 @@ if ! curl -fsS "http://${SHIM_HOST}:${SHIM_PORT}/v1/health" >/dev/null 2>&1; the
     done
   fi
 fi
-curl -fsS -H "Authorization: Bearer ${EP_TOKEN}" "$BASE_URL/mcp/health" >/dev/null
+curl -fsS -H "Authorization: Bearer ${EP_AGENT_TOKEN}" "$BASE_URL/mcp/health" >/dev/null
 curl -fsS "http://${SHIM_HOST}:${SHIM_PORT}/v1/health" >/dev/null
 echo "preflight=ok"
 
@@ -204,7 +204,7 @@ EOF
         -c "mcp_servers.edgeplane.args=[\"serve\"]" \
         -c "mcp_servers.edgeplane.startup_timeout_sec=${AGENT_STARTUP_TIMEOUT_SEC}" \
         -c "mcp_servers.edgeplane.tool_timeout_sec=${AGENT_TOOL_TIMEOUT_SEC}" \
-        -c "mcp_servers.edgeplane.env={EP_MCP_MODE=\"shim\",EP_DAEMON_HOST=\"$SHIM_HOST\",EP_DAEMON_PORT=\"$SHIM_PORT\",EP_FAIL_OPEN_ON_LIST=\"1\",EP_STARTUP_PREFLIGHT=\"none\",EP_BASE_URL=\"$BASE_URL\",EP_TOKEN=\"${worker_token}\",EDGEPLANE_BASE_URL=\"$BASE_URL\",EDGEPLANE_TOKEN=\"${worker_token}\",EDGEPLANE_STARTUP_PREFLIGHT=\"none\",EDGEPLANE_FAIL_OPEN_ON_LIST=\"1\"}" \
+        -c "mcp_servers.edgeplane.env={EP_MCP_MODE=\"shim\",EP_DAEMON_HOST=\"$SHIM_HOST\",EP_DAEMON_PORT=\"$SHIM_PORT\",EP_FAIL_OPEN_ON_LIST=\"1\",EP_STARTUP_PREFLIGHT=\"none\",EP_BASE_URL=\"$BASE_URL\",EP_AGENT_TOKEN=\"${worker_token}\",EDGEPLANE_BASE_URL=\"$BASE_URL\",EDGEPLANE_TOKEN=\"${worker_token}\",EDGEPLANE_STARTUP_PREFLIGHT=\"none\",EDGEPLANE_FAIL_OPEN_ON_LIST=\"1\"}" \
         -o "$iter_msg" "$prompt" >"$iter_log" 2>"$worker_dir/iter-${attempts}.stderr"; then
         if rg -q "RESULT: ok" "$iter_msg"; then
           successes=$((successes + 1))
@@ -256,7 +256,7 @@ run_playbook_worker() {
       EP_PLAYBOOK_SCENARIO_FILE="${SCENARIO_FILE}" \
       EP_PLAYBOOK_SKIP_CLEANUP="${PLAYBOOK_SKIP_CLEANUP}" \
       EP_BASE_URL="$BASE_URL" \
-      EP_TOKEN="${worker_token}" \
+      EP_AGENT_TOKEN="${worker_token}" \
       "$ROOT_DIR/scripts/mcp-validation-playbook.sh" \
       >"$worker_dir/iter-${attempts}.log" 2>"$err_file"; then
       successes=$((successes + 1))
@@ -303,13 +303,13 @@ run_playbook_worker() {
 IFS=',' read -r -a token_list <<< "$TOKENS_CSV"
 token_count="${#token_list[@]}"
 for i in $(seq 1 "$WORKERS"); do
-  worker_token="${EP_TOKEN:-}"
+  worker_token="${EP_AGENT_TOKEN:-}"
   if [[ "$token_count" -gt 0 && -n "${token_list[0]}" ]]; then
     idx=$(( (i - 1) % token_count ))
     worker_token="$(echo "${token_list[$idx]}" | xargs)"
   fi
   if [[ -z "$worker_token" ]]; then
-    echo "worker $i has empty token; set EP_TOKEN or EP_PRESSURE_TOKENS" >&2
+    echo "worker $i has empty token; set EP_AGENT_TOKEN or EP_PRESSURE_TOKENS" >&2
     exit 2
   fi
   if [[ "$MODE" == "agent" ]]; then
@@ -368,7 +368,7 @@ latency_p95=$(echo "$all_latencies_json" | jq 'if length > 0 then .[(((length * 
 latency_p99=$(echo "$all_latencies_json" | jq 'if length > 0 then .[(((length * 0.99)|tostring|split(".")[0])|tonumber)] else 0 end')
 
 startup_timeout_hits="$({ rg -n -e "MCP startup incomplete" -e "timed out after" "$RUN_DIR" -g '*.stderr' -g '*.txt' 2>/dev/null || true; } | wc -l | tr -d ' ')"
-auth_config_hits="$({ rg -n -e "EP_TOKEN is required" -e "Forbidden" -e "Unauthorized" "$RUN_DIR/workers" -g '*.stderr' -g '*.log' 2>/dev/null || true; } | wc -l | tr -d ' ')"
+auth_config_hits="$({ rg -n -e "EP_AGENT_TOKEN is required" -e "Forbidden" -e "Unauthorized" "$RUN_DIR/workers" -g '*.stderr' -g '*.log' 2>/dev/null || true; } | wc -l | tr -d ' ')"
 rate_limit_hits="$({ rg -n -e " 429" -e "error: 429" -e "URL returned error: 429" "$RUN_DIR/workers" -g '*.stderr' -g '*.log' 2>/dev/null || true; rg -n -e '"http_code":"429"' "$RUN_DIR/workers" -g '*.jsonl' 2>/dev/null || true; } | wc -l | tr -d ' ')"
 ownership_acl_hits="$({ rg -n -e "owner required" -e "contributor or owner required" "$RUN_DIR/workers" -g '*.stderr' -g '*.log' 2>/dev/null || true; } | wc -l | tr -d ' ')"
 shim_transport_hits="$({ rg -n -e "MCP startup incomplete" -e "timed out handshaking" -e "timed out after" -e "unexpected status code" -e "Connection refused" "$RUN_DIR/workers" -g '*.stderr' -g '*.log' -g '*.txt' 2>/dev/null || true; } | wc -l | tr -d ' ')"
@@ -380,7 +380,7 @@ playbook_results_file="$RUN_DIR/playbook-results.jsonl"
 
 diag_startup_samples="$(collect_log_samples 'MCP startup incomplete|timed out handshaking|timed out after|unexpected status code|Connection refused')"
 diag_rate_limit_samples="$(collect_log_samples ' 429|error: 429|URL returned error: 429|too many requests|http_code.*429')"
-diag_auth_samples="$(collect_log_samples 'EP_TOKEN is required|Forbidden|Unauthorized')"
+diag_auth_samples="$(collect_log_samples 'EP_AGENT_TOKEN is required|Forbidden|Unauthorized')"
 diag_ownership_samples="$(collect_log_samples 'owner required|contributor or owner required')"
 diag_shim_samples="$(collect_log_samples 'MCP startup incomplete|timed out handshaking|timed out after|unexpected status code|Connection refused')"
 diag_api_samples="$(collect_log_samples 'HTTP 5[0-9][0-9]')"

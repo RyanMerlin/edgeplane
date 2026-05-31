@@ -50,8 +50,8 @@ wait_for_api() {
 
 api_get() {
   local url="$1"
-  if [[ -n "${EP_TOKEN:-}" ]]; then
-    curl -fsS -H "Authorization: Bearer ${EP_TOKEN}" "$url" >/dev/null
+  if [[ -n "${EP_AGENT_TOKEN:-}" ]]; then
+    curl -fsS -H "Authorization: Bearer ${EP_AGENT_TOKEN}" "$url" >/dev/null
   else
     curl -fsS "$url" >/dev/null
   fi
@@ -69,7 +69,7 @@ expect_unauthorized() {
 
 check_protected_endpoint() {
   local url="$1"
-  if [[ -n "${EP_TOKEN:-}" ]]; then
+  if [[ -n "${EP_AGENT_TOKEN:-}" ]]; then
     api_get "$url"
   else
     expect_unauthorized "$url"

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
-TOKEN="${EP_TOKEN:-}"
+TOKEN="${EP_AGENT_TOKEN:-}"
 RUN_ID="${EP_COLLAB_RUN_ID:-$(date +%Y%m%d%H%M%S)}"
 OUT_ROOT="${EP_COLLAB_OUT_ROOT:-$ROOT_DIR/artifacts/collab}"
 SCENARIO_FILE="${EP_COLLAB_SCENARIO_FILE:-$ROOT_DIR/scripts/pressure-scenarios/reliability-trio.json}"
@@ -15,7 +15,7 @@ MISSION_ID="${EP_COLLAB_MISSION_ID:-}"
 ACTOR="${EP_COLLAB_ACTOR:-token-client}"
 
 if [[ -z "$TOKEN" ]]; then
-  echo "EP_TOKEN is required" >&2
+  echo "EP_AGENT_TOKEN is required" >&2
   exit 2
 fi
 if ! command -v jq >/dev/null 2>&1; then

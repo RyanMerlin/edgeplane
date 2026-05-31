@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
-TOKEN="${EP_TOKEN:-}"
+TOKEN="${EP_AGENT_TOKEN:-}"
 SHIM_HOST="${EP_DAEMON_HOST:-127.0.0.1}"
 SHIM_PORT="${EP_DAEMON_PORT:-8765}"
 MATRIX_ENDPOINT="${EP_MATRIX_ENDPOINT:-/events/stream}"
@@ -17,7 +17,7 @@ if ! command -v edgeplane >/dev/null 2>&1; then
 fi
 
 if [[ -z "$TOKEN" ]]; then
-  echo "EP_TOKEN is required" >&2
+  echo "EP_AGENT_TOKEN is required" >&2
   exit 2
 fi
 
@@ -37,4 +37,4 @@ if [[ -n "$FANOUT_PORT" ]]; then
   args+=(--fanout-port "$FANOUT_PORT")
 fi
 
-EP_BASE_URL="$BASE_URL" EP_TOKEN="$TOKEN" exec edgeplane "${args[@]}"
+EP_BASE_URL="$BASE_URL" EP_AGENT_TOKEN="$TOKEN" exec edgeplane "${args[@]}"
