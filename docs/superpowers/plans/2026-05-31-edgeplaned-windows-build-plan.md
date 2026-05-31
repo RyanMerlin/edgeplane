@@ -1,162 +1,539 @@
-# Plan: edgeplaned Windows build (compile + run, no SCM)
+# edgeplaned Windows Build Implementation Plan
 
-## Context
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-- **Design:** `docs/superpowers/specs/2026-05-31-edgeplaned-windows-build-design.md` (approved 2026-05-31).
-- **Goal:** `edgeplaned-bin` compiles for `x86_64-pc-windows-msvc` and `edgeplaned run` runs as a Windows console app; Linux/systemd path byte-for-byte unchanged.
-- **Approach:** target-cfg gating (`#[cfg(unix)]` / `#[cfg(windows)]`), TCP-loopback IPC, session-token AUTH handshake (no EP_TOKEN — eradicated in PR #4).
-- **§10 decisions (Merlin, 2026-05-31):** (1) real `TerminateProcess` for `--kill-existing`; (2) defer secrets gateway on Windows; (3) `windows-sys`.
-- **Crate:** `crates/edgeplaned/crates/edgeplaned-bin` (abbreviated `EPB` below).
+**Goal:** Make `edgeplaned-bin` compile for `x86_64-pc-windows-msvc` and run as a Windows console app, with the Linux/systemd path byte-for-byte unchanged.
 
-### Prerequisite — rebase onto PR #4
+**Architecture:** Target-cfg gating (`#[cfg(unix)]` / `#[cfg(windows)]` + `[target.'cfg(...)'.dependencies]`). On Windows the mgmt gateway serves TCP-loopback only (session-token AUTH handshake — no EP_TOKEN, eradicated in PR #4); the secrets gateway and `get-secret` are deferred (unavailable); `--kill-existing` uses `TerminateProcess` via `windows-sys`.
 
-This branch (`feat/edgeplaned-windows-build`) is based on pre-#4 `main` (`a814bc1`), where the mgmt-gateway session-token field is still named `ep_token` and the doc comment still says "EP_TOKEN". **Step 0 rebases onto a `main` that includes #4** so the field is `session_token` and no EP_TOKEN reference is reintroduced. All steps below assume post-#4 naming (`self.session_token`).
+**Tech Stack:** Rust, tokio, `nix` (Unix-gated), `windows-sys` (Windows-gated), `fs2` (already cross-platform), GitHub Actions.
 
-### Starting state (ground truth, verified on branch)
-
-- `EPB/Cargo.toml:40` — `nix = { version = "0.29", features = ["signal"] }` (unconditional).
-- `EPB/src/singleton.rs:197` — `fn kill_holder(pid: i32) -> Result<()>` using `nix::sys::signal::kill` (SIGTERM → poll 5s → SIGKILL). The lock itself uses `fs2::FileExt::try_lock_exclusive` (already cross-platform).
-- `EPB/src/mgmt_gateway.rs` — `run()` spawns `run_unix()` + `run_tcp()` (`tokio::spawn` → `try_join!`). `run_unix` (≈L100) uses `std::os::unix::fs::PermissionsExt` + `tokio::net::UnixListener` + `from_mode(0o600)`. `run_tcp` (≈L125) binds `format!("0.0.0.0:{}", self.tcp_port)`. `handle_tcp_connection` does the AUTH handshake against `self.session_token`.
-- `EPB/src/secrets_gateway.rs:27` — `pub async fn serve(self)` uses `tokio::net::UnixListener::bind`; already has a `#[cfg(unix)]` perms block at L29.
-- `EPB/src/main.rs:159` — `async fn run_get_secret(args)` uses `std::os::unix::net::UnixStream`.
-- `EPB/src/daemon.rs` — shutdown uses `tokio::signal::ctrl_c()` (already cross-platform; no change).
-- Already `#[cfg(unix)]`-gated (no work): `attach_gateway.rs`, `register.rs`, `state.rs`, `local_registry.rs`, the `secrets_gateway` perms block.
-
-### Verification baseline
-
-`cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin` is the canonical "did Windows compile" gate. Requires `rustup target add x86_64-pc-windows-msvc` once (Step 1). Linux regression gate: `cargo nextest run -p edgeplaned` stays green throughout.
+**Design:** `docs/superpowers/specs/2026-05-31-edgeplaned-windows-build-design.md` (approved 2026-05-31).
+**Decisions locked (Merlin):** real `TerminateProcess`; defer secrets gateway on Windows; `windows-sys`.
+**Crate path (abbrev `EPB`):** `crates/edgeplaned/crates/edgeplaned-bin`.
 
 ---
 
-## Steps
+## Verification model (read first)
 
-### Step 0: Rebase branch onto PR #4
+This is a cross-compilation port, not feature work — the canonical "did it work" gate is the **compiler for the Windows target**, not new unit tests:
 
-**What:** Ensure the working branch includes the EP_TOKEN eradication so the mgmt field is `session_token`.
-**Where:** `feat/edgeplaned-windows-build`.
-**How:** After #4 merges to `main`: `git rebase origin/main`. If #4 is not yet merged, rebase onto `fix/nuke-ep-token-complete` and re-target later. Resolve any trivial conflicts (the design doc + this plan are new files; no overlap expected).
-**Verify:** `grep -rn "ep_token\|EP_TOKEN" crates/edgeplaned/crates/edgeplaned-bin/src/mgmt_gateway.rs` shows only `session_token` (and no `EP_TOKEN`); `cargo check -p edgeplaned-bin` (Linux) passes.
+- **Windows gate:** `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin` (and `cargo build --target ...` at the end).
+- **Linux regression gate:** `cargo nextest run -p edgeplaned` must keep its current pass count (197/197 at last measurement) — Unix code is only being annotated, not changed (except the loopback bind, which has existing tests).
 
-### Step 1: Add the Windows cross-compile target locally
+There are no new behaviors to TDD on Linux. The one piece of genuinely new logic — the Windows `kill_holder` — cannot be unit-tested from Linux (it's `#[cfg(windows)]`); its correctness is gated by the Windows cross-compile plus the documented behavior note. Where a step adds code, the full code is shown.
 
-**What:** Install the MSVC target so cross-checks run.
-**Where:** Local toolchain.
-**How:** `rustup target add x86_64-pc-windows-msvc`.
-**Verify:** `rustup target list --installed | grep x86_64-pc-windows-msvc` prints the target. `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin` now runs and **fails** with errors pointing at the `nix`/`UnixListener`/`os::unix` sites (this confirms the baseline blockers before fixing them — capture the error list).
+---
 
-### Step 2: Gate the `nix` dependency to Unix; add `windows-sys` for Windows
+## File structure
 
-**What:** Make `nix` Unix-only; add the minimal `windows-sys` surface for process termination.
-**Where:** `EPB/Cargo.toml`.
-**How:** Remove `nix = { version = "0.29", features = ["signal"] }` from `[dependencies]`. Add:
+| File | Responsibility | Change |
+|------|----------------|--------|
+| `EPB/Cargo.toml` | dependency manifest | Gate `nix` to `cfg(unix)`; add `windows-sys` for `cfg(windows)` |
+| `EPB/src/singleton.rs` | singleton lock + stale-daemon kill | Split `kill_holder` into Unix (existing) + Windows (new) |
+| `EPB/src/mgmt_gateway.rs` | CLI↔daemon JSON-RPC gateway | Gate Unix accept loop; bind TCP to loopback |
+| `EPB/src/secrets_gateway.rs` | secrets broker (Unix socket) | Gate to `cfg(unix)` |
+| `EPB/src/main.rs` | CLI entrypoint, `get-secret` | Gate `get_secret` handler to `cfg(unix)` |
+| `.github/workflows/release-edgeplane.yml` | release/extras build matrix | Add `edgeplaned` Windows cross-compile entry |
+| `docs/guides/edgeplaned-windows.md` (new) | Windows run + limitations | Document MVP scope |
+
+---
+
+## Task 0: Rebase onto PR #4
+
+**Files:** none (git operation)
+
+The branch `feat/edgeplaned-windows-build` is based on pre-#4 `main` (`a814bc1`), where the mgmt-gateway session-token field is still `ep_token` and the doc comment still says "EP_TOKEN". Rebasing first ensures this work assumes the post-#4 `session_token` naming and never reintroduces EP_TOKEN.
+
+- [ ] **Step 1: Rebase**
+
+```bash
+cd /tmp/ep-windows
+git fetch origin
+# After #4 merges to main:
+git rebase origin/main
+# If #4 not yet merged, rebase onto its branch instead:
+# git rebase origin/fix/nuke-ep-token-complete
+```
+
+- [ ] **Step 2: Verify post-#4 naming present, no EP_TOKEN**
+
+Run:
+```bash
+grep -n "session_token" crates/edgeplaned/crates/edgeplaned-bin/src/mgmt_gateway.rs
+grep -rn "EP_TOKEN" crates/edgeplaned/crates/edgeplaned-bin/src/
+```
+Expected: `session_token` matches present; `EP_TOKEN` returns nothing.
+
+- [ ] **Step 3: Confirm Linux baseline green**
+
+Run: `cargo nextest run -p edgeplaned`
+Expected: PASS (197/197 or current count — record it).
+
+---
+
+## Task 1: Install the Windows target and capture the baseline failures
+
+**Files:** none (toolchain)
+
+- [ ] **Step 1: Add the MSVC target**
+
+Run: `rustup target add x86_64-pc-windows-msvc`
+Expected: target installed (or "up to date").
+
+- [ ] **Step 2: Capture the baseline cross-compile errors**
+
+Run: `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin 2>&1 | tee /tmp/win-baseline.txt`
+Expected: FAIL. Errors should reference `nix` (unresolved for target), `UnixListener`, `std::os::unix::net`, `PermissionsExt`. This is the blocker list Tasks 2–6 clear.
+
+---
+
+## Task 2: Gate `nix` to Unix; add `windows-sys`
+
+**Files:**
+- Modify: `EPB/Cargo.toml` (the `nix` line, currently `nix = { version = "0.29", features = ["signal"] }`)
+
+- [ ] **Step 1: Move `nix` under cfg(unix) and add `windows-sys`**
+
+Remove the existing top-level `nix = { version = "0.29", features = ["signal"] }` from `[dependencies]`. Add these target tables (place after `[dependencies]`):
+
 ```toml
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation"] }
+windows-sys = { version = "0.59", features = [
+    "Win32_System_Threading",
+    "Win32_Foundation",
+] }
 ```
-(Place near other target-specific deps if any; otherwise at the end of the manifest. Keep existing non-nix deps in `[dependencies]`.)
-**Verify:** `cargo check -p edgeplaned-bin` (Linux) still passes (nix resolves via the cfg(unix) table). `cargo tree -p edgeplaned-bin --target x86_64-pc-windows-msvc | grep -E "nix|windows-sys"` shows `windows-sys` present and `nix` absent for the Windows target.
 
-### Step 3: Split `kill_holder` into Unix + Windows implementations
+- [ ] **Step 2: Verify Linux still resolves `nix`**
 
-**What:** Keep the existing `nix` body under `#[cfg(unix)]`; add a `#[cfg(windows)]` sibling using `windows-sys` `OpenProcess`/`TerminateProcess`/`WaitForSingleObject`.
-**Where:** `EPB/src/singleton.rs` (the `kill_holder` fn, ≈L197).
-**How:**
-- Annotate the current fn `#[cfg(unix)]`.
-- Add a `#[cfg(windows)]` `fn kill_holder(pid: i32) -> Result<()>` with identical signature:
-  - `OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid as u32)`. If the handle is null, treat `GetLastError()` of `ERROR_INVALID_PARAMETER`/process-not-found as "already gone" → `Ok(())`; otherwise return an error.
-  - `TerminateProcess(handle, 1)`.
-  - `WaitForSingleObject(handle, 5000)` to mirror the Unix 5s grace, then `CloseHandle(handle)`.
-  - Document inline that Windows has no SIGTERM/SIGKILL split — `TerminateProcess` is a single hard kill (no graceful phase).
-- All `unsafe` FFI calls wrapped in a single `unsafe { }` block with a `// SAFETY:` note.
-**Verify:** `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin` no longer errors in `singleton.rs`. `cargo check -p edgeplaned-bin` (Linux) still passes. `cargo clippy --target x86_64-pc-windows-msvc -p edgeplaned-bin -- -D warnings` clean for `singleton.rs` (allowing pre-existing unrelated findings).
+Run: `cargo check -p edgeplaned-bin`
+Expected: PASS (nix resolves via the cfg(unix) table). `singleton.rs` still compiles on Linux.
 
-### Step 4: Gate the mgmt gateway's Unix accept loop; provide a Windows no-op arm
+- [ ] **Step 3: Verify dep graph per target**
 
-**What:** Make `run_unix` Unix-only so `run()` compiles on Windows with only the TCP loop active.
-**Where:** `EPB/src/mgmt_gateway.rs` — `run_unix` (≈L100) and its spawn in `run()` (≈L96).
-**How:**
-- Annotate `async fn run_unix(...)` with `#[cfg(unix)]`.
-- Add a `#[cfg(not(unix))]` `async fn run_unix(self: &Arc<Self>) -> Result<()>` whose body is `std::future::pending::<()>().await; Ok(())` (the spawned task exists but never resolves; the Unix socket simply isn't served on Windows). Add a one-line `tracing::debug!` noting the Unix mgmt socket is unavailable on this platform.
-- `run()` is unchanged — it spawns both; on Windows the unix task idles and `run_tcp` carries traffic.
-- Leave `handle_unix_connection` (`tokio::net::UnixStream`) as-is but annotate it `#[cfg(unix)]` (only `run_unix` calls it).
-**Verify:** `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin` no longer errors in `mgmt_gateway.rs` for the unix-socket path (TCP path + `run()` compile on Windows). Linux `cargo nextest run -p edgeplaned` still green.
+Run:
+```bash
+cargo tree -p edgeplaned-bin --target x86_64-pc-windows-msvc 2>/dev/null | grep -E "nix|windows-sys" || true
+cargo tree -p edgeplaned-bin --target x86_64-unknown-linux-gnu 2>/dev/null | grep -E "nix|windows-sys" || true
+```
+Expected: Windows target shows `windows-sys`, NOT `nix`. Linux target shows `nix`, NOT `windows-sys`.
 
-### Step 5: Bind the mgmt TCP listener to loopback (all platforms)
+- [ ] **Step 4: Commit**
 
-**What:** Change the TCP bind from `0.0.0.0` to `127.0.0.1` — a security tightening that lands unconditionally.
-**Where:** `EPB/src/mgmt_gateway.rs` — `run_tcp` (≈L128), the `format!("0.0.0.0:{}", self.tcp_port)`.
-**How:** Replace `0.0.0.0` with `127.0.0.1`. Update the module doc comment header (the `TCP socket: 0.0.0.0:<port>` line) to `127.0.0.1:<port>`. Confirm the AUTH handshake against `self.session_token` (in `handle_tcp_connection`) is unchanged.
-**Where (tests):** Existing mgmt tests bind `127.0.0.1:0` already and connect to `127.0.0.1:{port}` — no test change needed, but confirm.
-**Verify:** `cargo nextest run -p edgeplaned` green (incl. `mgmt_gateway::tests::tcp_auth_*`). `grep -n "0.0.0.0" EPB/src/mgmt_gateway.rs` returns nothing.
-
-### Step 6: Gate the secrets gateway and `get-secret` to Unix (defer on Windows)
-
-**What:** Make the secrets gateway + `get-secret` Unix-only with a clear Windows "not supported yet" path.
-**Where:** `EPB/src/secrets_gateway.rs` (`serve`, ≈L27, uses `UnixListener`); `EPB/src/main.rs` (`run_get_secret`, ≈L159, uses `os::unix::net::UnixStream`); and the call site in the daemon startup that spawns `SecretsGateway::serve`.
-**How:**
-- `secrets_gateway.rs`: annotate `serve` (and the `UnixListener` import + `SecretsGateway` impl methods that touch the socket) `#[cfg(unix)]`. If the whole module is Unix-only, gate the `mod secrets_gateway;` declaration with `#[cfg(unix)]` in its parent (cleanest — confirm no Windows code path references the type).
-- Daemon startup: wrap the `SecretsGateway::serve` spawn in `#[cfg(unix)]`; add a `#[cfg(windows)]` `tracing::warn!("secrets gateway unavailable on Windows (follow-up)")`.
-- `main.rs` `run_get_secret`: annotate `#[cfg(unix)]`; add a `#[cfg(windows)]` arm at the subcommand dispatch that returns `anyhow::bail!("get-secret is not supported on Windows yet")`. Ensure the `GetSecretArgs` struct + subcommand enum variant still compile on Windows (the clap arg can stay; only the handler is gated).
-**Verify:** `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin` no longer errors in `secrets_gateway.rs` / `main.rs`. Linux `cargo nextest run -p edgeplaned` green. On Linux, `edgeplaned get-secret` still works (manual: subcommand still present in `edgeplaned --help`).
-
-### Step 7: Add the `windows.rs` module for Windows-only siblings (optional consolidation)
-
-**What:** If Step 3's Windows `kill_holder` (or any other `#[cfg(windows)]` helper) grows beyond a few lines, move it into a single discoverable `windows.rs` module per the design's §6.
-**Where:** `EPB/src/windows.rs` (new), declared `#[cfg(windows)] mod windows;` in `main.rs`/`lib.rs`.
-**How:** Only do this if it improves clarity; for a single ~15-line `kill_holder` sibling, an inline `#[cfg(windows)]` in `singleton.rs` is acceptable and Step 7 can be skipped. Decide during implementation; note the choice in the commit.
-**Verify:** Both targets still check; no behavior change. (Skippable step — document if skipped.)
-
-### Step 8: Full cross-compile gate
-
-**What:** Confirm the entire daemon crate compiles for Windows.
-**Where:** Whole `EPB`.
-**How:** `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin` and `cargo build --target x86_64-pc-windows-msvc -p edgeplaned-bin`.
-**Verify:** Both succeed with zero errors. Capture the output. Run `cargo clippy --target x86_64-pc-windows-msvc -p edgeplaned-bin` and note any NEW findings (pre-existing workspace clippy debt is out of scope, tracked in PR #3).
-
-### Step 9: Linux regression gate
-
-**What:** Prove Linux is untouched.
-**Where:** Workspace.
-**How:** `cargo nextest run -p edgeplaned` (and `-p edgeplane -p edgeplane-tower` if the rebase touched shared crates).
-**Verify:** Same pass counts as before the branch (197/197 for edgeplaned at last measurement). `cargo build -p edgeplaned-bin` (native Linux) succeeds.
-
-### Step 10: Add the `windows-latest` CI compile lane
-
-**What:** A standing CI guarantee that the Windows build stays green.
-**Where:** `.github/workflows/` — extend the existing `release-edgeplane.yml` extras matrix (which already builds the *edgeplane CLI* on `x86_64-pc-windows-msvc`) to add an `edgeplaned` Windows entry, OR add a small job to `ci.yml`. Prefer reusing the existing extras matrix pattern.
-**How:** Add a matrix entry `{ bin: edgeplaned, target: x86_64-pc-windows-msvc, os: windows-latest }` running `cargo build -p edgeplaned-bin --target x86_64-pc-windows-msvc` (compile-only; no run — SCM/runtime tests are out of scope per design §7). Pin actions to existing SHAs used in the repo. If gating to avoid burning CI minutes on every push, mirror how the CLI Windows build is gated (e.g. `workflow_dispatch`/extras), but the design calls for a *standing* lane — prefer running on PRs that touch `crates/edgeplaned/**` via a `paths` filter.
-**Verify:** Trigger the workflow (or open the PR) and confirm the new `edgeplaned` Windows job goes green. Capture the run URL.
-
-### Step 11: Document the Windows console-run + limitations
-
-**What:** A short note so users know what works on Windows.
-**Where:** `docs/guides/` (e.g. a "Running edgeplaned on Windows" section) and/or `AGENTS.md` if appropriate.
-**How:** Document: `edgeplaned run` works as a console app; mgmt gateway is TCP-loopback with session-token auth; `--kill-existing` works (hard kill, no graceful phase); **unavailable on Windows:** secrets gateway / `get-secret`, ACP attach, managed-service install (console only). Link the design doc and its §8 follow-ups (SCM, named pipes, secrets-over-pipes).
-**Verify:** Doc renders; the limitation table matches the design's §5.
-
-### Step 12: Final integration check
-
-**What:** End-to-end confirmation against the design's success criteria.
-**Where:** Whole change.
-**How:** Re-run Steps 8 + 9 from a clean `cargo` state; confirm both the Windows cross-build and the Linux native build + tests pass. Review the full `git diff origin/main..HEAD` to confirm: zero behavior change on Unix (only `#[cfg(...)]` annotations + the loopback bind), no `EP_TOKEN` reintroduced, no new dependencies on Unix.
-**Verify:** `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin` ✓; `cargo nextest run -p edgeplaned` ✓ (unchanged counts); `grep -rn "EP_TOKEN" crates/edgeplaned/crates/edgeplaned-bin/src` returns nothing; `cargo tree --target x86_64-unknown-linux-gnu -p edgeplaned-bin | grep windows-sys` returns nothing (Windows dep absent on Linux).
+```bash
+git add crates/edgeplaned/crates/edgeplaned-bin/Cargo.toml
+git commit -m "build(edgeplaned): gate nix to cfg(unix); add windows-sys for windows"
+```
 
 ---
 
-## Commit strategy
+## Task 3: Split `kill_holder` into Unix + Windows
 
-One commit per logical group, all on `feat/edgeplaned-windows-build`:
-1. Steps 2–3: `feat(edgeplaned): gate nix to unix; windows kill_holder via windows-sys`
-2. Steps 4–5: `feat(edgeplaned): windows mgmt gateway (TCP-loopback only); bind 127.0.0.1`
-3. Step 6: `feat(edgeplaned): defer secrets gateway + get-secret on windows`
-4. Step 10: `ci(edgeplaned): add windows-latest cross-compile lane`
-5. Step 11: `docs(edgeplaned): windows console-run + limitations`
+**Files:**
+- Modify: `EPB/src/singleton.rs` (the `kill_holder` fn at ~L199-235)
 
-Each commit must keep **both** `cargo nextest run -p edgeplaned` (Linux) and `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin` green. Co-author trailer: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`. Flag for Merlin's review; do not merge without approval.
+The existing Unix body (SIGTERM → poll 5s → SIGKILL) stays, gated `#[cfg(unix)]`. Add a Windows sibling with the same signature using `windows-sys`.
 
-## Out of scope (design §8 — do NOT do here)
+- [ ] **Step 1: Annotate the existing fn `#[cfg(unix)]`**
 
-Windows Service (SCM / `windows-service`), named-pipe IPC, secrets gateway on Windows, ACP attach on Windows, runtime CI test on Windows. Each is a named follow-up.
+Find `fn kill_holder(pid: i32) -> Result<()> {` (~L199) and add the attribute immediately above it:
+
+```rust
+#[cfg(unix)]
+fn kill_holder(pid: i32) -> Result<()> {
+    use nix::sys::signal::{Signal, kill};
+    use nix::unistd::Pid;
+    // ... existing body unchanged ...
+}
+```
+
+- [ ] **Step 2: Add the Windows sibling directly below the Unix fn**
+
+```rust
+/// Windows equivalent of `kill_holder`. Windows has no SIGTERM/SIGKILL
+/// distinction — `TerminateProcess` is a single, immediate hard kill (no
+/// graceful phase). We open the process, terminate it, then wait up to 5s for
+/// the handle to signal exit so the caller can safely retry the lock.
+#[cfg(windows)]
+fn kill_holder(pid: i32) -> Result<()> {
+    use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+        PROCESS_TERMINATE,
+    };
+
+    // SAFETY: all calls are standard Win32 process APIs with checked return
+    // values; the handle is closed on every path before returning.
+    unsafe {
+        let handle = OpenProcess(
+            PROCESS_TERMINATE | PROCESS_SYNCHRONIZE,
+            0, // bInheritHandles = FALSE
+            pid as u32,
+        );
+        if handle.is_null() {
+            // Process already gone (or no rights to it). Treat "gone" as success;
+            // the lock retry will confirm. We can't cheaply distinguish ACCESS_DENIED
+            // here, so surface a clear error only if termination is genuinely needed.
+            return Ok(());
+        }
+
+        if TerminateProcess(handle, 1) == 0 {
+            CloseHandle(handle);
+            return Err(anyhow!("TerminateProcess PID {pid} failed"));
+        }
+
+        // Mirror the Unix 5s grace: wait for the process to actually exit.
+        let wait = WaitForSingleObject(handle, 5000);
+        CloseHandle(handle);
+        if wait != WAIT_OBJECT_0 {
+            eprintln!("--kill-existing: PID {pid} did not exit within 5s after TerminateProcess");
+        }
+    }
+
+    // Give the OS a moment to release the lock file before the caller retries.
+    std::thread::sleep(Duration::from_millis(200));
+    Ok(())
+}
+```
+
+(`anyhow!` and `Duration` are already imported in this file — confirm; if `Duration` is only imported inside the Unix fn, add `use std::time::Duration;` at module scope or inside the Windows fn.)
+
+- [ ] **Step 3: Verify Windows cross-compiles `singleton.rs`**
+
+Run: `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin 2>&1 | grep -A3 singleton.rs || echo "no singleton errors"`
+Expected: no errors in `singleton.rs` (other files may still error until Tasks 4–6).
+
+- [ ] **Step 4: Verify Linux unchanged**
+
+Run: `cargo nextest run -p edgeplaned`
+Expected: PASS, same count as Task 0.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/edgeplaned/crates/edgeplaned-bin/src/singleton.rs
+git commit -m "feat(edgeplaned): windows kill_holder via TerminateProcess (windows-sys)"
+```
+
+---
+
+## Task 4: Gate the mgmt gateway's Unix accept loop
+
+**Files:**
+- Modify: `EPB/src/mgmt_gateway.rs` (`run_unix` at ~L118, `handle_connection`'s Unix caller; `run()` at ~L96 unchanged)
+
+On Windows, `run()` still spawns both tasks; the Unix task becomes an inert no-op so only TCP serves.
+
+- [ ] **Step 1: Annotate the real `run_unix` `#[cfg(unix)]`**
+
+Find `async fn run_unix(self: &Arc<Self>) -> Result<()> {` (~L118) and add above it:
+
+```rust
+#[cfg(unix)]
+async fn run_unix(self: &Arc<Self>) -> Result<()> {
+    // ... existing body unchanged ...
+}
+```
+
+- [ ] **Step 2: Add the Windows no-op sibling directly below**
+
+```rust
+/// Windows has no Unix-domain sockets; the mgmt gateway serves TCP-loopback
+/// only (see `run_tcp`). This task exists so `run()` is platform-agnostic but
+/// simply idles.
+#[cfg(not(unix))]
+async fn run_unix(self: &Arc<Self>) -> Result<()> {
+    tracing::debug!("mgmt unix socket unavailable on this platform; TCP-only");
+    std::future::pending::<()>().await;
+    Ok(())
+}
+```
+
+- [ ] **Step 3: Verify Windows cross-compiles the gateway's unix path**
+
+Run: `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin 2>&1 | grep -A3 mgmt_gateway.rs || echo "no mgmt_gateway errors"`
+Expected: no `UnixListener`/`PermissionsExt` errors from `run_unix` (the TCP bind is fixed in Task 5; it may still flag the `0.0.0.0` line as fine — that's not a Windows error).
+
+- [ ] **Step 4: Verify Linux unchanged**
+
+Run: `cargo nextest run -p edgeplaned`
+Expected: PASS, same count.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/edgeplaned/crates/edgeplaned-bin/src/mgmt_gateway.rs
+git commit -m "feat(edgeplaned): gate mgmt unix accept loop; windows serves TCP-only"
+```
+
+---
+
+## Task 5: Bind the mgmt TCP listener to loopback (all platforms)
+
+**Files:**
+- Modify: `EPB/src/mgmt_gateway.rs` (`run_tcp` at ~L158; module doc header at ~L4)
+
+Security tightening that lands on every platform: stop binding `0.0.0.0`.
+
+- [ ] **Step 1: Change the bind address**
+
+At ~L158, replace:
+
+```rust
+        let addr = format!("0.0.0.0:{}", self.tcp_port);
+```
+with:
+```rust
+        let addr = format!("127.0.0.1:{}", self.tcp_port);
+```
+
+- [ ] **Step 2: Fix the stale module doc header**
+
+At ~L4, change the line `/// TCP socket:  \`0.0.0.0:<EP_MESH_MGMT_PORT>\` (default 7731)` to `127.0.0.1:<EP_MESH_MGMT_PORT>`. Confirm the AUTH-handshake doc references `session_token` (post-#4), not EP_TOKEN.
+
+- [ ] **Step 3: Verify no `0.0.0.0` remains**
+
+Run: `grep -n "0.0.0.0" crates/edgeplaned/crates/edgeplaned-bin/src/mgmt_gateway.rs`
+Expected: no output.
+
+- [ ] **Step 4: Verify Linux tests still pass (incl. the TCP auth tests)**
+
+Run: `cargo nextest run -p edgeplaned -E 'test(mgmt_gateway)'`
+Expected: PASS — `tcp_auth_accepts_good_token`, `tcp_auth_rejects_bad_token` etc. (they already bind/connect on `127.0.0.1`).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/edgeplaned/crates/edgeplaned-bin/src/mgmt_gateway.rs
+git commit -m "fix(edgeplaned): bind mgmt TCP listener to 127.0.0.1 (loopback-only)"
+```
+
+---
+
+## Task 6: Defer the secrets gateway + `get-secret` on Windows
+
+**Files:**
+- Modify: `EPB/src/secrets_gateway.rs` (`run` at ~L30; the `mod` declaration in parent)
+- Modify: `EPB/src/main.rs` (`get_secret` at ~L162; the `Commands::GetSecret` arm at ~L152)
+
+No secret material over unauthenticated loopback; restored later over named pipes (design §8).
+
+- [ ] **Step 1: Gate the secrets_gateway module declaration to Unix**
+
+Find the `mod secrets_gateway;` (or `pub mod secrets_gateway;`) line in `main.rs`/`lib.rs` and gate it:
+
+```rust
+#[cfg(unix)]
+mod secrets_gateway;
+```
+Then gate the daemon startup spawn of `SecretsGateway::run` similarly. Search for where `SecretsGateway::new(...).run()` is spawned (daemon bootstrap) and wrap it:
+
+```rust
+#[cfg(unix)]
+{
+    // existing SecretsGateway spawn
+}
+#[cfg(windows)]
+{
+    tracing::warn!("secrets gateway unavailable on Windows (follow-up: named-pipe transport)");
+}
+```
+
+- [ ] **Step 2: Gate the `get_secret` handler**
+
+In `main.rs`, annotate the fn (~L162):
+
+```rust
+#[cfg(unix)]
+fn get_secret(name: &str) -> anyhow::Result<()> {
+    // ... existing body (uses std::os::unix::net::UnixStream) ...
+}
+
+#[cfg(windows)]
+fn get_secret(_name: &str) -> anyhow::Result<()> {
+    anyhow::bail!("get-secret is not supported on Windows yet (secrets gateway is Unix-only)")
+}
+```
+
+The `Commands::GetSecret { name } => get_secret(&name),` dispatch arm (~L152) stays unchanged — both cfg variants share the signature, so the subcommand remains visible in `--help` on all platforms.
+
+- [ ] **Step 3: Verify Windows cross-compiles `secrets_gateway.rs` / `main.rs`**
+
+Run: `cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin 2>&1 | grep -A3 -E "secrets_gateway.rs|main.rs" || echo "no secrets/main errors"`
+Expected: no `UnixListener`/`os::unix::net` errors.
+
+- [ ] **Step 4: Verify Linux `get-secret` still works**
+
+Run: `cargo nextest run -p edgeplaned` and `cargo run -p edgeplaned-bin -- --help | grep -i get-secret`
+Expected: tests PASS; `get-secret` still listed.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/edgeplaned/crates/edgeplaned-bin/src/secrets_gateway.rs crates/edgeplaned/crates/edgeplaned-bin/src/main.rs
+git commit -m "feat(edgeplaned): defer secrets gateway + get-secret on windows"
+```
+
+---
+
+## Task 7: Full Windows cross-compile + Linux regression gate
+
+**Files:** none (verification)
+
+- [ ] **Step 1: Windows check + build**
+
+Run:
+```bash
+cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin
+cargo build --target x86_64-pc-windows-msvc -p edgeplaned-bin
+```
+Expected: both PASS, zero errors. If any remain, return to the relevant task.
+
+- [ ] **Step 2: Windows clippy (note new findings only)**
+
+Run: `cargo clippy --target x86_64-pc-windows-msvc -p edgeplaned-bin 2>&1 | tail -20`
+Expected: no NEW findings from our code (pre-existing workspace clippy debt is out of scope — PR #3). Fix any our-code findings.
+
+- [ ] **Step 3: Linux regression**
+
+Run: `cargo nextest run -p edgeplaned`
+Expected: PASS, identical count to Task 0.
+
+- [ ] **Step 4: Confirm zero Unix-side behavior change**
+
+Run:
+```bash
+cargo tree -p edgeplaned-bin --target x86_64-unknown-linux-gnu 2>/dev/null | grep windows-sys || echo "windows-sys absent on linux (good)"
+grep -rn "EP_TOKEN" crates/edgeplaned/crates/edgeplaned-bin/src/ || echo "no EP_TOKEN (good)"
+```
+Expected: `windows-sys` absent on Linux; no EP_TOKEN.
+
+---
+
+## Task 8: Add the `windows-latest` CI compile lane
+
+**Files:**
+- Modify: `.github/workflows/release-edgeplane.yml` (the extras build matrix that already builds the edgeplane CLI on `x86_64-pc-windows-msvc`)
+
+- [ ] **Step 1: Read the existing extras matrix**
+
+Run: `grep -n "windows-msvc\|build-extras\|matrix\|bin:\|target:" .github/workflows/release-edgeplane.yml`
+Identify the matrix entry that builds `bin: edgeplane` on `target: x86_64-pc-windows-msvc` / `os: windows-latest`.
+
+- [ ] **Step 2: Add an edgeplaned Windows entry**
+
+Add a sibling matrix entry mirroring the CLI one but for the daemon, compile-only:
+
+```yaml
+          - bin: edgeplaned
+            target: x86_64-pc-windows-msvc
+            os: windows-latest
+```
+
+Ensure the build step runs `cargo build -p edgeplaned-bin --target ${{ matrix.target }}` (no run; SCM/runtime tests are out of scope). Reuse the existing checkout/toolchain/cache steps and their pinned action SHAs. If the daemon should be checked on PRs (not just release dispatch), add a `paths`-filtered job in `ci.yml` instead/additionally: trigger on `crates/edgeplaned/**`, run the same `cargo build --target` on `windows-latest`. Prefer the standing PR lane per design §7.
+
+- [ ] **Step 3: Validate the workflow YAML**
+
+Run: `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release-edgeplane.yml')); print('valid')"` (and `ci.yml` if edited).
+Expected: `valid`.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add .github/workflows/
+git commit -m "ci(edgeplaned): add windows-latest cross-compile lane"
+```
+
+- [ ] **Step 5: Confirm the lane runs green**
+
+After pushing/opening the PR, check the new `edgeplaned` Windows job. Expected: green. Record the run URL. (If it fails on something the local cross-check missed — e.g. a transitive dep — fix and note.)
+
+---
+
+## Task 9: Document Windows console-run + limitations
+
+**Files:**
+- Create: `docs/guides/edgeplaned-windows.md`
+
+- [ ] **Step 1: Write the guide**
+
+```markdown
+# Running edgeplaned on Windows
+
+edgeplaned compiles and runs on Windows (`x86_64-pc-windows-msvc`) as a
+**foreground console application**. This is the MVP from
+`docs/superpowers/specs/2026-05-31-edgeplaned-windows-build-design.md`.
+
+## What works
+- `edgeplaned run` — console app; Ctrl-C shuts down cleanly.
+- mgmt gateway — **TCP loopback** (`127.0.0.1:<EP_MESH_MGMT_PORT>`, default 7731)
+  with the session-token AUTH handshake. The `edgeplane` CLI reaches it over TCP.
+- `--kill-existing` — terminates a stale edgeplaned via `TerminateProcess`
+  (a single hard kill; no graceful SIGTERM phase like on Unix).
+
+## Not available on Windows yet (follow-ups)
+- Secrets gateway / `edgeplaned get-secret` (Unix-socket only today).
+- ACP attach gateway.
+- Running as a managed Windows Service (console only; no SCM registration).
+- Named-pipe IPC (loopback TCP is the current transport).
+
+## Security note
+On Unix the mgmt/secrets sockets are owner-only via `0600` file perms. On
+Windows loopback TCP there is no file-perm equivalent, so the mgmt gateway
+relies on the session-token handshake and binds `127.0.0.1` only. Named pipes
+with a per-user ACL are the planned follow-up to restore the owner-only property.
+```
+
+- [ ] **Step 2: Confirm the limitation list matches design §5**
+
+Cross-check against the design's capability table. Fix any drift.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/guides/edgeplaned-windows.md
+git commit -m "docs(edgeplaned): windows console-run guide + limitations"
+```
+
+---
+
+## Task 10: Final integration check + flag for review
+
+**Files:** none
+
+- [ ] **Step 1: Clean re-verify both targets**
+
+Run:
+```bash
+cargo check --target x86_64-pc-windows-msvc -p edgeplaned-bin
+cargo nextest run -p edgeplaned
+```
+Expected: Windows ✓; Linux ✓ (unchanged count).
+
+- [ ] **Step 2: Review the whole diff for Unix-side neutrality**
+
+Run: `git diff origin/main..HEAD -- crates/`
+Confirm: every Unix-side change is either a `#[cfg(...)]` annotation or the loopback bind; no logic changes; no EP_TOKEN; no new Linux deps.
+
+- [ ] **Step 3: Push and flag**
+
+```bash
+git push origin feat/edgeplaned-windows-build
+```
+Summarize for Merlin: Windows cross-compile green, Linux untouched, CI lane added. Await approval before merge. Do NOT merge without explicit approval.
+
+---
+
+## Self-review (completed by author)
+
+- **Spec coverage:** design §3 blockers B1–B5 → Tasks 2,3,4,6; §3 loopback → Task 5; §6 flag structure → target-cfg throughout (windows.rs consolidation left optional/inline since `kill_holder` is the only sibling); §7 verification → Tasks 1,7,8; §8 out-of-scope → none attempted; §9 prereq (#4 rebase) → Task 0; §10 decisions → baked into Tasks 3 (TerminateProcess), 6 (defer secrets), 2 (windows-sys). All covered.
+- **Placeholder scan:** none — the one new code body (`kill_holder` Windows) is shown in full.
+- **Type consistency:** `kill_holder(pid: i32) -> Result<()>` identical across both cfg arms; `run_unix(self: &Arc<Self>) -> Result<()>` identical across both arms; `get_secret(name)` signature shared.
+
+## Out of scope (design §8 — do NOT implement here)
+
+Windows Service / SCM (`windows-service`), named-pipe IPC, secrets gateway on Windows, ACP attach on Windows, runtime (not compile-only) CI test on Windows.
