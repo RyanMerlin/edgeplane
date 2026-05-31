@@ -156,6 +156,21 @@ impl MgmtGateway {
     async fn run_tcp(self: &Arc<Self>) -> Result<()> {
         use tokio::net::TcpListener;
 
+        // Fail closed: the TCP mgmt channel is the remote capability-dispatch
+        // path and authenticates via the session-token AUTH handshake. With no
+        // token configured the handshake is skipped, which would expose
+        // unauthenticated remote control to any host that can reach the port.
+        // Refuse to bind in that case; the local Unix socket (0600-gated)
+        // remains available.
+        if self.session_token.is_none() {
+            tracing::error!(
+                "mgmt TCP gateway not started: no session token configured \
+                 (would be unauthenticated). Authenticate (edgeplane auth login) to \
+                 enable the remote control channel; the local Unix socket is unaffected."
+            );
+            return Ok(());
+        }
+
         let addr = format!("0.0.0.0:{}", self.tcp_port);
         let listener = TcpListener::bind(&addr)
             .await
@@ -1683,5 +1698,49 @@ mod tests {
         );
 
         let _ = tokio::time::timeout(std::time::Duration::from_millis(500), server_task).await;
+    }
+
+    /// Security regression: `run_tcp` with no session token must return
+    /// promptly (fail closed) rather than binding a listener and blocking
+    /// in the accept loop. An unauthenticated TCP control channel must never
+    /// be served.
+    ///
+    /// Expected post-fix: `run_tcp` returns `Ok(())` immediately when
+    /// `session_token` is `None`. The `timeout` resolves to `Ok(Ok(()))`.
+    ///
+    /// Current behaviour (pre-fix): `run_tcp` binds and blocks forever in
+    /// the accept loop → the timeout elapses → the future resolves to `Err`
+    /// (timeout), causing this test to fail.
+    #[tokio::test]
+    async fn tcp_refuses_to_serve_without_token() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let sock = tmp.path().join("mgmt-no-token.sock");
+        let port = free_port();
+        // No token: session_token is None.
+        let gw = Arc::new(make_gateway_on(sock, port));
+
+        // run_tcp must return Ok(()) promptly — no blocking accept loop.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            gw.run_tcp(),
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "run_tcp should return before the 500ms timeout when no token is configured, \
+             but it timed out (likely still blocking in the accept loop)"
+        );
+        assert!(
+            result.unwrap().is_ok(),
+            "run_tcp should return Ok(()) when no token is configured"
+        );
+
+        // Confirm no listener was bound: a connect attempt should fail.
+        let connect_result = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}")).await;
+        assert!(
+            connect_result.is_err(),
+            "no TCP listener should have been bound when session_token is None"
+        );
     }
 }
