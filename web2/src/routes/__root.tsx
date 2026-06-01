@@ -1,5 +1,6 @@
 import { api } from '@/lib/api/http';
 import { useAuthStore } from '@/stores/auth';
+import { useToastStore } from '@/stores/toast';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, Outlet, createRootRoute, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -221,6 +222,7 @@ function RootLayout() {
 
   const [theme, setTheme] = useState('dark');
   const [toast, setToast] = useState<string | null>(null);
+  const storeToast = useToastStore((s) => s.message);
 
   const router = useRouter();
 
@@ -301,9 +303,9 @@ function RootLayout() {
       ) : (
         <LoginScreen />
       )}
-      {toast && (
+      {(toast ?? storeToast) && (
         <div className="toast" role="alert">
-          {toast}
+          {toast ?? storeToast}
         </div>
       )}
     </QueryClientProvider>

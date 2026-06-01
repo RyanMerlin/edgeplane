@@ -29,7 +29,8 @@
     "ignore": [
       "node_modules",
       "dist",
-      "src/routeTree.gen.ts"
+      "src/routeTree.gen.ts",
+      "src/api/schema.gen.ts"
     ]
   }
 }
