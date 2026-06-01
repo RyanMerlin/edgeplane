@@ -31,10 +31,17 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   };
 });
 
-// Mock the typed API client
+// Mock the typed API client.
+// `unwrap` is an identity passthrough so each test can control what
+// `apiClient.GET` returns per endpoint. `apiClient.POST` is used for reload
+// (not via unwrap) and defaults to resolving with { data: { ok: true } }.
 vi.mock('@/api/client', () => ({
-  apiClient: { GET: vi.fn(), POST: vi.fn(), use: vi.fn() },
-  unwrap: vi.fn((p: Promise<unknown>) => p),
+  apiClient: {
+    GET: vi.fn(),
+    POST: vi.fn().mockResolvedValue({ data: { ok: true } }),
+    use: vi.fn(),
+  },
+  unwrap: vi.fn((p: unknown) => Promise.resolve(p)),
 }));
 
 // Mock toast store
@@ -108,8 +115,9 @@ describe('GovernancePage', () => {
   });
 
   it('shows loading state while query is pending', async () => {
-    const { unwrap } = await import('@/api/client');
-    (unwrap as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
+    const { apiClient } = await import('@/api/client');
+    // Return a never-resolving promise so the query stays in loading state.
+    (apiClient.GET as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
 
     renderGovernance(queryClient);
 
@@ -117,8 +125,11 @@ describe('GovernancePage', () => {
   });
 
   it('renders policy data when query succeeds', async () => {
-    const { unwrap } = await import('@/api/client');
-    (unwrap as ReturnType<typeof vi.fn>).mockResolvedValue(samplePolicy);
+    const { apiClient } = await import('@/api/client');
+    // Policy query returns samplePolicy; events query returns an empty array.
+    (apiClient.GET as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(samplePolicy) // GET /api/governance/policy/active
+      .mockResolvedValueOnce([]); // GET /api/governance/policy/events
 
     renderGovernance(queryClient);
 
@@ -136,8 +147,8 @@ describe('GovernancePage', () => {
   });
 
   it('shows error state when query fails', async () => {
-    const { unwrap } = await import('@/api/client');
-    (unwrap as ReturnType<typeof vi.fn>).mockRejectedValue(
+    const { apiClient } = await import('@/api/client');
+    (apiClient.GET as ReturnType<typeof vi.fn>).mockRejectedValue(
       Object.assign(new Error('Unauthorized'), { status: 401 }),
     );
 
@@ -148,8 +159,10 @@ describe('GovernancePage', () => {
   });
 
   it('shows empty state when data resolves to null', async () => {
-    const { unwrap } = await import('@/api/client');
-    (unwrap as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const { apiClient } = await import('@/api/client');
+    (apiClient.GET as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(null) // GET /api/governance/policy/active
+      .mockResolvedValueOnce([]); // GET /api/governance/policy/events
 
     renderGovernance(queryClient);
 

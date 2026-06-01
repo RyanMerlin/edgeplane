@@ -10,7 +10,13 @@ use serde::Deserialize;
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
-use crate::{auth::Principal, state::AppState};
+use crate::{
+    auth::Principal,
+    models::governance::{
+        GovernancePolicyResponse, GovernanceReloadResponse, PolicyDoc, PolicyEvent,
+    },
+    state::AppState,
+};
 
 const DEFAULT_POLICY: &str = r#"{"global":{"require_approval_for_mutations":false,"allow_create_without_approval":true,"allow_update":true,"allow_delete":true,"allow_publish":true},"actions":{"domain.create":{"enabled":true,"requires_approval":false},"domain.update":{"enabled":true,"requires_approval":false},"domain.delete":{"enabled":true,"requires_approval":false},"domain.publish":{"enabled":true,"requires_approval":false},"mission.create":{"enabled":true,"requires_approval":false},"mission.update":{"enabled":true,"requires_approval":false},"mission.delete":{"enabled":true,"requires_approval":false},"mission.publish":{"enabled":true,"requires_approval":false},"task.create":{"enabled":true,"requires_approval":false},"task.update":{"enabled":true,"requires_approval":false},"task.delete":{"enabled":true,"requires_approval":false},"task.publish":{"enabled":true,"requires_approval":false},"doc.create":{"enabled":true,"requires_approval":false},"doc.update":{"enabled":true,"requires_approval":false},"doc.delete":{"enabled":true,"requires_approval":false},"doc.publish":{"enabled":true,"requires_approval":false},"artifact.create":{"enabled":true,"requires_approval":false},"artifact.update":{"enabled":true,"requires_approval":false},"artifact.delete":{"enabled":true,"requires_approval":false},"artifact.publish":{"enabled":true,"requires_approval":false},"skills.bundle.publish":{"enabled":true,"requires_approval":false},"skills.bundle.deprecate":{"enabled":true,"requires_approval":false},"skills.snapshot.resolve":{"enabled":true,"requires_approval":false},"workspace.load":{"enabled":true,"requires_approval":false},"workspace.heartbeat":{"enabled":true,"requires_approval":false},"workspace.fetch_artifact":{"enabled":true,"requires_approval":false},"workspace.commit":{"enabled":true,"requires_approval":false},"workspace.release":{"enabled":true,"requires_approval":false}},"terminal":{"allow_create_actions":true,"allow_publish_actions":false},"mcp":{"allow_mutation_tools":true}}"#;
 
@@ -41,39 +47,46 @@ fn bad_request(msg: &str) -> axum::response::Response {
     (StatusCode::BAD_REQUEST, Json(serde_json::json!({"detail": msg}))).into_response()
 }
 
-fn row_to_policy(row: &sqlx::postgres::PgRow) -> serde_json::Value {
+fn row_to_policy(row: &sqlx::postgres::PgRow) -> GovernancePolicyResponse {
     let policy_json_str: String = row.try_get("policy_json").unwrap_or_default();
-    let policy: serde_json::Value = serde_json::from_str(&policy_json_str)
-        .unwrap_or_else(|_| serde_json::from_str(DEFAULT_POLICY).unwrap_or(serde_json::json!({})));
+    let fallback = PolicyDoc {
+        global: None,
+        actions: None,
+        terminal: None,
+        mcp: None,
+    };
+    let policy: PolicyDoc = serde_json::from_str(&policy_json_str).unwrap_or_else(|_| {
+        serde_json::from_str(DEFAULT_POLICY).unwrap_or(fallback)
+    });
 
-    serde_json::json!({
-        "id": row.get::<i32, _>("id"),
-        "version": row.get::<i32, _>("version"),
-        "state": row.get::<String, _>("state"),
-        "policy": policy,
-        "change_note": row.get::<String, _>("change_note"),
-        "created_by": row.get::<String, _>("created_by"),
-        "published_by": row.get::<String, _>("published_by"),
-        "published_at": row.try_get::<Option<NaiveDateTime>, _>("published_at").ok().flatten(),
-        "created_at": row.get::<NaiveDateTime, _>("created_at"),
-        "updated_at": row.get::<NaiveDateTime, _>("updated_at"),
-    })
+    GovernancePolicyResponse {
+        id: row.get("id"),
+        version: row.get("version"),
+        state: row.get("state"),
+        policy,
+        change_note: row.get("change_note"),
+        created_by: row.get("created_by"),
+        published_by: row.get("published_by"),
+        published_at: row.try_get::<Option<NaiveDateTime>, _>("published_at").ok().flatten(),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
 }
 
-fn row_to_event(row: &sqlx::postgres::PgRow) -> serde_json::Value {
+fn row_to_event(row: &sqlx::postgres::PgRow) -> PolicyEvent {
     let detail_json_str: String = row.try_get("detail_json").unwrap_or_default();
-    let detail: serde_json::Value = serde_json::from_str(&detail_json_str)
-        .unwrap_or(serde_json::json!({}));
+    let detail: serde_json::Value =
+        serde_json::from_str(&detail_json_str).unwrap_or(serde_json::json!({}));
 
-    serde_json::json!({
-        "id": row.get::<i32, _>("id"),
-        "policy_id": row.try_get::<Option<i32>, _>("policy_id").ok().flatten(),
-        "version": row.get::<i32, _>("version"),
-        "event_type": row.get::<String, _>("event_type"),
-        "actor_subject": row.get::<String, _>("actor_subject"),
-        "detail": detail,
-        "created_at": row.get::<NaiveDateTime, _>("created_at"),
-    })
+    PolicyEvent {
+        id: row.get("id"),
+        policy_id: row.try_get::<Option<i32>, _>("policy_id").ok().flatten(),
+        version: row.get("version"),
+        event_type: row.get("event_type"),
+        actor_subject: row.get("actor_subject"),
+        detail,
+        created_at: row.get("created_at"),
+    }
 }
 
 async fn log_event(
@@ -521,7 +534,7 @@ async fn reload_policy(
     if !principal.is_admin {
         return forbidden("admin required");
     }
-    Json(serde_json::json!({"ok": true})).into_response()
+    Json(GovernanceReloadResponse { ok: true }).into_response()
 }
 
 async fn list_events(

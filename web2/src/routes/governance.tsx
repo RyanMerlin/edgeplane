@@ -1,16 +1,13 @@
 /**
  * Governance screen — Phase 0.9 frontend slice.
  *
- * Data source: GET /api/governance/policy/active (typed via schema.gen.ts)
- * Mutation:    POST /api/governance/policy/reload
- * Cadence:     refetchInterval 30s (matches Svelte page)
+ * Data source:  GET  /api/governance/policy/active (typed via schema.gen.ts)
+ * Mutation:     POST /api/governance/policy/reload  (typed via schema.gen.ts)
+ * Events feed:  GET  /api/governance/policy/events  (typed via schema.gen.ts)
+ * Cadence:      refetchInterval 30s (matches Svelte page)
  *
- * NOTE: GovernancePolicyResponse.policy is typed as `unknown` in schema.gen.ts
- * because the backend DTO uses a serde_json::Value mirror field. We cast it
- * locally to PolicyDoc below — this works at runtime but loses compile-time
- * safety on the nested policy shape. Backend should tighten the DTO to a
- * concrete struct so utoipa emits a real schema for the `policy` object.
- * See report for details.
+ * `policy` is now a real typed object from the generated schema — the local
+ * PolicyDoc cast / `unknown` workaround has been removed.
  */
 
 import { apiClient, unwrap } from '@/api/client';
@@ -21,24 +18,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Generated schema types (no local casts needed) ────────────────────────────
 
-type PolicyActionRule = {
-  enabled: boolean;
-  requires_approval: boolean;
-};
-
-type PolicyDoc = {
-  global?: Record<string, boolean>;
-  actions?: Record<string, PolicyActionRule>;
-  terminal?: Record<string, boolean>;
-  mcp?: Record<string, boolean>;
-};
-
-/** The generated type with the `policy` field cast to our local PolicyDoc. */
-type PolicyRecord = Omit<components['schemas']['GovernancePolicyResponse'], 'policy'> & {
-  policy: PolicyDoc | null;
-};
+type PolicyRecord = components['schemas']['GovernancePolicyResponse'];
+type PolicyActionRule = components['schemas']['PolicyActionRule'];
+type PolicyEvent = components['schemas']['PolicyEvent'];
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
@@ -113,17 +97,17 @@ function SubsystemsTable({
   terminal,
   mcp,
 }: {
-  terminal?: Record<string, boolean>;
-  mcp?: Record<string, boolean>;
+  terminal?: { allow_create_actions?: boolean; allow_publish_actions?: boolean } | null;
+  mcp?: { allow_mutation_tools?: boolean } | null;
 }) {
   const rows: Array<{ label: string; value: boolean }> = [
     ...Object.entries(terminal ?? {}).map(([k, v]) => ({
       label: `terminal.${k.replaceAll('_', ' ')}`,
-      value: v,
+      value: Boolean(v),
     })),
     ...Object.entries(mcp ?? {}).map(([k, v]) => ({
       label: `mcp.${k.replaceAll('_', ' ')}`,
-      value: v,
+      value: Boolean(v),
     })),
   ];
   if (rows.length === 0) return null;
@@ -191,6 +175,54 @@ function ActionGroups({
   );
 }
 
+function EventTypeTag({ type: eventType }: { type: string }) {
+  const variant =
+    eventType === 'published'
+      ? 'ok'
+      : eventType === 'rollback'
+        ? 'warn'
+        : eventType === 'seeded'
+          ? 'accent'
+          : 'default';
+  return <Tag variant={variant}>{eventType}</Tag>;
+}
+
+function EventsFeed({ events }: { events: PolicyEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <p className="muted" style={{ fontSize: '12px' }}>
+        No events recorded yet.
+      </p>
+    );
+  }
+  return (
+    <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: '12px' }}>
+      {events.map((ev) => (
+        <li
+          key={ev.id}
+          style={{
+            padding: '6px 0',
+            borderBottom: '1px solid var(--border, #2a2a2a)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '2px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <EventTypeTag type={ev.event_type} />
+            <span className="dim" style={{ fontSize: '10px' }}>
+              v{ev.version}
+            </span>
+          </div>
+          <span style={{ color: 'var(--text-muted, #888)', fontSize: '10px' }}>
+            {ev.actor_subject} · {fmtDate(ev.created_at)}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 // Named export for direct use in tests (avoids router context requirement)
@@ -202,41 +234,23 @@ export function GovernancePage() {
   // ── Policy query ───────────────────────────────────────────────────────────
   const policyQuery = useQuery({
     queryKey: queryKeys.governance.policy(),
-    queryFn: () =>
-      unwrap(apiClient.GET('/api/governance/policy/active')).then((d) => d as PolicyRecord),
+    queryFn: () => unwrap(apiClient.GET('/api/governance/policy/active')),
+    refetchInterval: 30_000,
+  });
+
+  // ── Events query ───────────────────────────────────────────────────────────
+  const eventsQuery = useQuery({
+    queryKey: queryKeys.governance.events(),
+    queryFn: () => unwrap(apiClient.GET('/api/governance/policy/events')),
     refetchInterval: 30_000,
   });
 
   // ── Reload mutation ────────────────────────────────────────────────────────
   const reloadMutation = useMutation({
     mutationFn: () =>
-      // POST /api/governance/policy/reload — not in schema.gen.ts (stub only covers active GET)
-      // Call via the typed client's raw fetch with CSRF middleware applied.
-      // When the backend adds this path to the OpenAPI spec, update to apiClient.POST(...).
-      fetch('/api/governance/policy/reload', {
-        method: 'POST',
-        credentials: 'include',
-        headers: (() => {
-          const h = new Headers({ 'Content-Type': 'application/json' });
-          // CSRF: read cookie and inject header
-          if (typeof document !== 'undefined') {
-            const needle = 'ep_csrf_token=';
-            for (const part of document.cookie.split(';')) {
-              const item = part.trim();
-              if (item.startsWith(needle)) {
-                h.set('X-CSRF-Token', decodeURIComponent(item.slice(needle.length)));
-                break;
-              }
-            }
-          }
-          return h;
-        })(),
-      }).then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          throw new Error(text || `Reload failed: ${res.status}`);
-        }
-        return res.json().catch(() => ({ ok: true }));
+      apiClient.POST('/api/governance/policy/reload').then(({ data, error }) => {
+        if (error) throw new Error(String(error));
+        return data;
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.governance.all });
@@ -263,6 +277,8 @@ export function GovernancePage() {
     if (!actionGroups[resource]) actionGroups[resource] = [];
     actionGroups[resource].push({ action, rule });
   }
+
+  const events: PolicyEvent[] = eventsQuery.data ?? [];
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -360,7 +376,7 @@ export function GovernancePage() {
             </div>
           </div>
 
-          {/* Right: events feed placeholder (events endpoint not in schema.gen.ts yet) */}
+          {/* Right: events feed */}
           <div
             className="pane"
             style={{ width: '340px', flexShrink: 0 }}
@@ -368,12 +384,20 @@ export function GovernancePage() {
           >
             <div className="pane-header">
               <span className="pane-title">Policy Events</span>
+              {eventsQuery.isFetching && (
+                <span className="muted" style={{ fontSize: '10px' }}>
+                  ⟳
+                </span>
+              )}
             </div>
             <div className="pane-body" style={{ padding: '10px' }}>
-              <p className="muted" style={{ fontSize: '12px' }}>
-                Events feed — deferred until <code>/api/governance/policy/events</code> is added to
-                the OpenAPI spec.
-              </p>
+              {eventsQuery.isError ? (
+                <p className="error" style={{ fontSize: '12px' }}>
+                  Failed to load events
+                </p>
+              ) : (
+                <EventsFeed events={events} />
+              )}
             </div>
           </div>
         </div>

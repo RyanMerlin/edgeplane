@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "EdgePlane Tower API",
-    "description": "EdgePlane Tower — HTTP API (spike: 3-endpoint surface)",
+    "description": "EdgePlane Tower — HTTP API",
     "contact": {
       "name": "Edgeplane Engineers",
       "email": "support@edgeplane.ai"
@@ -82,6 +82,85 @@
         ]
       }
     },
+    "/api/governance/policy/events": {
+      "get": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "List recent governance policy audit-log events (admin only).",
+        "operationId": "governance_events_stub",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of events to return (default 50, max 500)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of policy events, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PolicyEvent"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "403": {
+            "description": "Admin role required"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/governance/policy/reload": {
+      "post": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "Reload the in-memory governance policy from the database (admin only).",
+        "operationId": "governance_reload_stub",
+        "responses": {
+          "200": {
+            "description": "Policy reloaded successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GovernanceReloadResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "403": {
+            "description": "Admin role required"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/api/health": {
       "get": {
         "tags": [
@@ -108,7 +187,7 @@
     "schemas": {
       "GovernancePolicyResponse": {
         "type": "object",
-        "description": "Response emitted by `GET /api/governance/policy/active`.",
+        "description": "Response emitted by `GET /api/governance/policy/active` and related\npolicy-record endpoints.\n\nThe `policy` field is now a concrete typed struct rather than\n`serde_json::Value`, which allows utoipa to emit a real JSON Schema for the\n`policy` object and openapi-typescript to generate a typed TypeScript\ninterface instead of `unknown`.\n\nTimestamp fields use `NaiveDateTime` which matches the existing wire format\n(chrono serializes without a timezone suffix, preserving byte-identical\noutput vs. the previous `serde_json::json!` construction).",
         "required": [
           "id",
           "version",
@@ -127,7 +206,7 @@
           },
           "created_at": {
             "type": "string",
-            "description": "ISO-8601 UTC timestamp of record creation."
+            "description": "Timestamp of record creation."
           },
           "created_by": {
             "type": "string",
@@ -139,14 +218,15 @@
             "description": "Database row ID."
           },
           "policy": {
-            "description": "Parsed governance policy object."
+            "$ref": "#/components/schemas/PolicyDoc",
+            "description": "Parsed governance policy document."
           },
           "published_at": {
             "type": [
               "string",
               "null"
             ],
-            "description": "ISO-8601 UTC timestamp of publication; `null` for drafts."
+            "description": "Timestamp of publication; `null` for drafts."
           },
           "published_by": {
             "type": "string",
@@ -158,12 +238,25 @@
           },
           "updated_at": {
             "type": "string",
-            "description": "ISO-8601 UTC timestamp of last update."
+            "description": "Timestamp of last update."
           },
           "version": {
             "type": "integer",
             "format": "int32",
             "description": "Monotonically increasing version number."
+          }
+        }
+      },
+      "GovernanceReloadResponse": {
+        "type": "object",
+        "description": "Response emitted by `POST /api/governance/policy/reload`.",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Always `true` on success."
           }
         }
       },
@@ -207,6 +300,165 @@
           "subject": {
             "type": "string",
             "description": "The authenticated principal's subject identifier (e.g. OIDC sub or service account name)."
+          }
+        }
+      },
+      "PolicyActionRule": {
+        "type": "object",
+        "description": "Per-action rule — controls whether an action is enabled and whether it\nrequires an approval gate before execution.",
+        "required": [
+          "enabled",
+          "requires_approval"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the action is allowed at all."
+          },
+          "requires_approval": {
+            "type": "boolean",
+            "description": "Whether the action requires an approval workflow before proceeding."
+          }
+        }
+      },
+      "PolicyDoc": {
+        "type": "object",
+        "description": "Parsed governance policy document stored in the `policy_json` column.\n\nAll top-level sections are optional so that partial documents (e.g. the\nseeded default before all subsystems existed) still round-trip cleanly.",
+        "properties": {
+          "actions": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Per-action rules keyed by `\"<entity>.<verb>\"` (e.g. `\"domain.create\"`).",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PolicyActionRule"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "global": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PolicyGlobal",
+                "description": "Global flags that apply across all entity actions."
+              }
+            ]
+          },
+          "mcp": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PolicyMcp",
+                "description": "MCP-subsystem flags."
+              }
+            ]
+          },
+          "terminal": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PolicyTerminal",
+                "description": "Terminal-subsystem flags."
+              }
+            ]
+          }
+        }
+      },
+      "PolicyEvent": {
+        "type": "object",
+        "description": "A single governance policy audit-log event.",
+        "required": [
+          "id",
+          "version",
+          "event_type",
+          "actor_subject",
+          "detail",
+          "created_at"
+        ],
+        "properties": {
+          "actor_subject": {
+            "type": "string",
+            "description": "Subject (user or service) that triggered the event."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Timestamp of the event."
+          },
+          "detail": {
+            "description": "Arbitrary JSON detail payload (shape varies by event type)."
+          },
+          "event_type": {
+            "type": "string",
+            "description": "Event type string (e.g. `\"seeded\"`, `\"published\"`, `\"rollback\"`)."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Database row ID."
+          },
+          "policy_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "ID of the policy record this event refers to; `null` for system events."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Policy version at the time of the event."
+          }
+        }
+      },
+      "PolicyGlobal": {
+        "type": "object",
+        "description": "Global policy flags that apply across all actions.\n\nAll fields use `#[serde(default)]` so older policy documents that lack a\nfield deserialize without error (field defaults to `false`).",
+        "properties": {
+          "allow_create_without_approval": {
+            "type": "boolean"
+          },
+          "allow_delete": {
+            "type": "boolean"
+          },
+          "allow_publish": {
+            "type": "boolean"
+          },
+          "allow_update": {
+            "type": "boolean"
+          },
+          "require_approval_for_mutations": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PolicyMcp": {
+        "type": "object",
+        "description": "MCP-subsystem flags.",
+        "properties": {
+          "allow_mutation_tools": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PolicyTerminal": {
+        "type": "object",
+        "description": "Terminal-subsystem flags.",
+        "properties": {
+          "allow_create_actions": {
+            "type": "boolean"
+          },
+          "allow_publish_actions": {
+            "type": "boolean"
           }
         }
       }
