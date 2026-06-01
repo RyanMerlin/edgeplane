@@ -727,3 +727,15 @@ summary {
   color: var(--err, #f87171) !important;
   border-top: 1px solid var(--border);
 }
+
+/* ── ACP conversation kit ─────────────────────────────────────────────── */
+
+@keyframes acp-caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}

@@ -1,5 +1,5 @@
 /**
- * Agent detail screen — Phase 1 React migration.
+ * Agent detail screen — Phase 4: ACP conversation pane.
  *
  * Data source: GET /api/agents/{agent_id} (typed via schema.gen.ts)
  * Route param: agentId — public_id string (e.g. `aria-operator-e8820c0d`) or
@@ -8,16 +8,17 @@
  * 404 from the API is rendered as a distinct not-found affordance.
  * Back-link returns to /agents list.
  *
- * Cadence: refetchInterval 30s (matches Svelte list cadence; detail is live).
- *
- * Svelte detail note: the Svelte page (web/src/routes/agents/[agentId]/+page.svelte)
- * primarily renders an AgentConversation ACP pane — not a metadata grid. The React
- * implementation renders the full agent record instead; the ACP conversation pane is
- * out of scope for Phase 1 (requires xterm.js wiring not yet ported).
+ * ACP pane (Phase 4):
+ *   - nodeId resolved from agent.metadata.node_id (JSON-parsed)
+ *   - If no nodeId is resolvable, a "not attachable" state is shown instead of
+ *     a broken WebSocket.
+ *   - Uses ConversationView + useAcpConversation hook (transport-agnostic shell).
  */
 
 import { apiClient } from '@/api/client';
 import type { components } from '@/api/schema.gen';
+import { ConversationView } from '@/components/conversation/ConversationView';
+import { useAcpConversation } from '@/lib/conversation/useAcpConversation';
 import { queryKeys } from '@/lib/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { Link, createFileRoute } from '@tanstack/react-router';
@@ -134,6 +135,43 @@ function MetadataBlock({ metadata }: { metadata: string }) {
   );
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the nodeId used for the ACP attach endpoint.
+ *
+ * The agent record carries a `metadata` JSON string. We look for `node_id`
+ * inside it (set during agent registration via `register_agent` with
+ * metadata="{\"node_id\":\"...\"}"`).
+ *
+ * Returns null when metadata is absent, malformed, or doesn't contain node_id.
+ * A null nodeId triggers the "not attachable" affordance rather than a broken socket.
+ */
+function resolveNodeId(metadata: string | null | undefined): string | null {
+  if (!metadata) return null;
+  try {
+    const parsed = JSON.parse(metadata);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof parsed.node_id === 'string' &&
+      parsed.node_id.length > 0
+    ) {
+      return parsed.node_id;
+    }
+  } catch {
+    // malformed JSON — not attachable
+  }
+  return null;
+}
+
+// ── ACP pane — inner component so the hook only runs when nodeId is known ─────
+
+function AcpPane({ nodeId, agentId }: { nodeId: string; agentId: string }) {
+  const { items, status, send, cancel } = useAcpConversation(nodeId, agentId);
+  return <ConversationView items={items} status={status} onSend={send} onCancel={cancel} />;
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 // Named export for direct use in tests
@@ -167,6 +205,8 @@ export function AgentDetailPage() {
     agentQuery.error !== null &&
     'status' in agentQuery.error &&
     (agentQuery.error as { status: number }).status === 404;
+
+  const nodeId = agent ? resolveNodeId(agent.metadata) : null;
 
   return (
     <div className="gov-page">
@@ -214,8 +254,12 @@ export function AgentDetailPage() {
 
       {/* Data */}
       {agent && (
-        <div className="pane-row" style={{ flex: 1, minHeight: 0 }}>
-          <div className="pane" style={{ flex: 1, minWidth: 0 }}>
+        <div className="pane-row" style={{ flex: 1, minHeight: 0, display: 'flex', gap: '0' }}>
+          {/* Left pane: metadata */}
+          <div
+            className="pane"
+            style={{ width: '320px', flexShrink: 0, minWidth: 0, overflowY: 'auto' }}
+          >
             <div className="pane-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span className="pane-title">{agent.name}</span>
@@ -225,6 +269,51 @@ export function AgentDetailPage() {
             <div className="pane-body" style={{ padding: '10px' }}>
               <AgentMetaDl agent={agent} />
               <MetadataBlock metadata={agent.metadata} />
+            </div>
+          </div>
+
+          {/* Right pane: ACP conversation or not-attachable affordance */}
+          <div
+            className="pane"
+            style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}
+          >
+            <div className="pane-header">
+              <span className="pane-title">Live conversation</span>
+              {nodeId && (
+                <span
+                  className="muted"
+                  style={{ fontSize: '10px', marginLeft: '8px' }}
+                  data-testid="acp-node-id"
+                >
+                  {nodeId}
+                </span>
+              )}
+            </div>
+            <div
+              className="pane-body"
+              style={{
+                flex: 1,
+                minHeight: 0,
+                padding: 0,
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {nodeId ? (
+                <AcpPane nodeId={nodeId} agentId={agentId} />
+              ) : (
+                <div
+                  style={{ padding: '20px 12px', color: 'var(--muted)', fontSize: '12px' }}
+                  data-testid="not-attachable"
+                >
+                  <div style={{ fontWeight: 600, marginBottom: '4px' }}>Not attachable</div>
+                  <div>
+                    This agent does not have a <code>node_id</code> in its metadata. To enable the
+                    live conversation pane, register the agent with{' '}
+                    <code>{`metadata='{"node_id":"<node>"}'`}</code>.
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

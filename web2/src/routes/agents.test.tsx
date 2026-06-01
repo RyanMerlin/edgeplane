@@ -239,7 +239,8 @@ describe('AgentDetailPage', () => {
 
     // Metadata fields parsed out
     expect(screen.getByText('claude-code')).toBeInTheDocument();
-    expect(screen.getByText('excalibur')).toBeInTheDocument();
+    // 'excalibur' appears in both the metadata table and the acp-node-id span
+    expect(screen.getAllByText('excalibur').length).toBeGreaterThanOrEqual(1);
 
     // Back link to agents list
     expect(screen.getByRole('link', { name: /← Agents/ })).toBeInTheDocument();
