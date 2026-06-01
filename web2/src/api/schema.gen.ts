@@ -4,6 +4,62 @@
  */
 
 export interface paths {
+    "/api/agent-onboarding.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the agent onboarding manifest for this EdgePlane instance.
+         * @description The manifest describes all integration endpoints, MCP server configuration,
+         *     and bootstrap steps needed to connect an agent runtime (edgeplaned) to this
+         *     controlplane. No authentication required.
+         */
+        get: operations["onboarding_manifest_stub"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all registered control-plane agents. */
+        get: operations["agents_list_stub"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{agent_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return a single agent by numeric id or public_id. */
+        get: operations["agents_get_stub"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/me": {
         parameters: {
             query?: never;
@@ -13,6 +69,47 @@ export interface paths {
         };
         /** Return the authenticated caller's identity. */
         get: operations["auth_me_stub"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/explorer/node/{node_type}/{node_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return full detail for a specific explorer node (domain, mission, or task).
+         * @description The response shape varies by `node_type`; see `ExplorerNodeDetail` for field
+         *     presence rules by type.
+         */
+        get: operations["explorer_node_stub"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/explorer/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the full explorer tree — domains → missions → task summaries.
+         * @description Supports text search (`q`), domain/status filtering, and per-cluster task limits.
+         */
+        get: operations["explorer_tree_stub"];
         put?: never;
         post?: never;
         delete?: never;
@@ -89,10 +186,220 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runtime/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List runtime nodes registered by the authenticated subject. */
+        get: operations["runtime_nodes_list_stub"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runtime/nodes/{node_id}/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List mesh agents assigned to a specific runtime node. */
+        get: operations["runtime_node_agents_stub"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description A registered control-plane agent (fleet member). Returned by `GET /api/agents`
+         *     and `GET /api/agents/{agent_id}`.
+         */
+        Agent: {
+            capabilities: string;
+            created_at: string;
+            /**
+             * @description Active domain context. Follows the agent when attached elsewhere;
+             *     reset to `home_domain_id` on detach. Joined to `domain_name` in API responses.
+             */
+            current_domain_id?: string | null;
+            /** @description Permanent home domain — created automatically on first registration. */
+            home_domain_id?: string | null;
+            /**
+             * Format: int32
+             * @description Internal database row id (used only for foreign keys; prefer `public_id` externally).
+             */
+            id: number;
+            /** @description Free-form JSON string with runtime-supplied metadata (e.g. `runtime`, `node_id`). */
+            metadata: string;
+            name: string;
+            /**
+             * @description Stable, human-readable wire identifier — `{name}-{8-char-hex-suffix}`.
+             *     Used by edgeplaned, CLI, TUI, and dashboard for all external references.
+             */
+            public_id: string;
+            /** @description Lifecycle status: `"online"`, `"offline"`, `"busy"`, `"archived"`, etc. */
+            status: string;
+            updated_at: string;
+        };
+        /** @description A message sent between two control-plane agents. */
+        AgentMessage: {
+            content: string;
+            created_at: string;
+            /** Format: int32 */
+            from_agent_id: number;
+            /** Format: int32 */
+            id: number;
+            message_type: string;
+            read: boolean;
+            /** Format: int32 */
+            task_id?: number | null;
+            /** Format: int32 */
+            to_agent_id: number;
+        };
+        /** @description A session record for a control-plane agent (Claude Code run, etc.). */
+        AgentSession: {
+            /** Format: int32 */
+            agent_id: number;
+            audit_log?: string | null;
+            claude_session_id?: string | null;
+            context: string;
+            end_reason?: string | null;
+            ended_at?: string | null;
+            /** Format: int32 */
+            id: number;
+            started_at: string;
+        };
+        /** @description A domain detail record (nested inside ExplorerNodeDetail). */
+        ExplorerDomain: {
+            contributors: string;
+            description: string;
+            id: string;
+            name: string;
+            owners: string;
+            status: string;
+            tags?: string | null;
+            updated_at: string;
+            visibility: string;
+        };
+        /** @description A domain node in the explorer tree (top-level container). */
+        ExplorerDomainNode: {
+            description: string;
+            id: string;
+            /** @description Number of missions in this domain (after filters). */
+            mission_count: number;
+            missions: components["schemas"]["ExplorerMissionNode"][];
+            name: string;
+            owners: string;
+            status: string;
+            tags?: string | null;
+            /** @description Total task count across all missions (after filters). */
+            task_count: number;
+            updated_at: string;
+            visibility: string;
+        };
+        /** @description A mission detail record (nested inside ExplorerNodeDetail). */
+        ExplorerMission: {
+            created_at: string;
+            description: string;
+            domain_id?: string | null;
+            id: string;
+            name: string;
+            owners: string;
+            status: string;
+            tags?: string | null;
+            updated_at: string;
+        };
+        /** @description A mission (workstream) node inside the explorer tree. */
+        ExplorerMissionNode: {
+            description: string;
+            domain_id?: string | null;
+            id: string;
+            name: string;
+            owners: string;
+            /** @description Most recently updated tasks (up to `limit_tasks_per_cluster`). */
+            recent_tasks: components["schemas"]["ExplorerTaskSummary"][];
+            status: string;
+            tags?: string | null;
+            /** @description Total visible task count for this mission. */
+            task_count: number;
+            /** @description Per-status task counts (`"open"`, `"done"`, etc.). */
+            task_status_counts: {
+                [key: string]: number;
+            };
+            updated_at: string;
+        };
+        /**
+         * @description Response from `GET /api/explorer/node/{node_type}/{node_id}`.
+         *
+         *     Shape varies by `node_type`:
+         *     - `"domain"`: `domain` + `missions[]` + `tasks[]` are populated; `mission` and `task` are absent.
+         *     - `"mission"`: `domain` (nullable), `mission`, `tasks[]` are populated; `missions` is absent.
+         *     - `"task"`: `domain` (nullable), `mission`, `task` are populated; `missions` and `tasks` are absent.
+         *
+         *     MIRROR: heterogeneous response combined into one struct. Optional fields
+         *     are `null` when not applicable to the `node_type`.
+         */
+        ExplorerNodeDetail: {
+            domain?: null | components["schemas"]["ExplorerDomain"];
+            mission?: null | components["schemas"]["ExplorerMission"];
+            /** @description Present only when `node_type == "domain"`. */
+            missions?: components["schemas"]["ExplorerMission"][] | null;
+            node_id: string;
+            /** @description The requested node type: `"domain"`, `"mission"`, or `"task"`. */
+            node_type: string;
+            task?: null | components["schemas"]["ExplorerTask"];
+            /** @description Present when `node_type == "domain"` or `node_type == "mission"`. */
+            tasks?: components["schemas"]["ExplorerTask"][] | null;
+        };
+        /** @description A task detail record (nested inside ExplorerNodeDetail). */
+        ExplorerTask: {
+            contributors: string;
+            created_at: string;
+            description: string;
+            /** Format: int32 */
+            id: number;
+            mission_id: string;
+            owner: string;
+            public_id: string;
+            status: string;
+            title: string;
+            updated_at: string;
+        };
+        /** @description A task summary inside an explorer tree node. */
+        ExplorerTaskSummary: {
+            /** Format: int32 */
+            id: number;
+            mission_id: string;
+            owner: string;
+            status: string;
+            title: string;
+            updated_at: string;
+        };
+        /** @description The explorer tree response (`GET /api/explorer/tree`). */
+        ExplorerTreeResponse: {
+            domain_count: number;
+            /** @description Domains (each containing their missions and task summaries). */
+            domains: components["schemas"]["ExplorerDomainNode"][];
+            generated_at: string;
+            mission_count: number;
+            task_count: number;
+            /** @description Missions not assigned to any domain. */
+            unassigned_missions: components["schemas"]["ExplorerMissionNode"][];
+        };
         /**
          * @description Response emitted by `GET /api/governance/policy/active` and related
          *     policy-record endpoints.
@@ -146,6 +453,26 @@ export interface components {
             /** @description Crate version string (e.g. `"0.12.0"`). */
             version: string;
         };
+        /** @description MCP defaults block. */
+        McpDefaults: {
+            endpoint_candidates: string[];
+            healthcheck_path: string;
+            protocol_version: string;
+            /** Format: int32 */
+            startup_timeout_sec: number;
+            /** Format: int32 */
+            tool_timeout_sec: number;
+        };
+        /** @description MCP server config block embedded in the onboarding manifest. */
+        McpServerConfig: {
+            args: string[];
+            command: string;
+            /** @description Environment variables required to launch the MCP server. */
+            env: {
+                [key: string]: string;
+            };
+            name: string;
+        };
         MeResponse: {
             /** @description Authentication mechanism used: "session", "service_account", or "oidc_jwt". */
             auth_type: string;
@@ -156,6 +483,96 @@ export interface components {
             session_id?: number | null;
             /** @description The authenticated principal's subject identifier (e.g. OIDC sub or service account name). */
             subject: string;
+        };
+        /**
+         * @description A mesh agent assigned to a runtime node. Returned by
+         *     `GET /api/runtime/nodes/{node_id}/agents`.
+         *
+         *     MIRROR: handler (`routes/runtime.rs::list_node_agents`) builds JSON via
+         *     `routes::work::row_to_agent` + domain join. Fields with open schemas
+         *     (`profile`, `machine`, `runtime`, `labels`, `capabilities`) stay as
+         *     `serde_json::Value` — their shape is runtime-class dependent.
+         */
+        NodeMeshAgent: {
+            /** @description The linked persistent agent identity, if set at enrollment. */
+            agent_public_id?: string | null;
+            /** @description List of capability strings (JSON array). */
+            capabilities: unknown;
+            current_task_id?: string | null;
+            /** @description Capabilities discovered at runtime (JSON array). */
+            discovered_capabilities: unknown;
+            domain_id: string;
+            /** @description Kind of the assigned domain (joined server-side). */
+            domain_kind?: string | null;
+            /** @description Human name of the assigned domain (joined server-side). */
+            domain_name?: string | null;
+            enrolled_at: string;
+            /** @description Meshagent row UUID. */
+            id: string;
+            /** @description Scheduling/placement labels (JSON object). */
+            labels: unknown;
+            last_heartbeat_at?: string | null;
+            /** @description Machine descriptor blob (shape varies by runtime_kind). */
+            machine?: unknown;
+            node_id?: string | null;
+            /** @description Runtime-class profile blob (shape varies by runtime_kind). */
+            profile?: unknown;
+            /** @description Stable wire identifier (agent public_id or meshagent id as fallback). */
+            public_id: string;
+            /** @description Runtime config blob (shape varies by runtime_kind). */
+            runtime?: unknown;
+            runtime_kind: string;
+            runtime_node_id?: string | null;
+            runtime_version: string;
+            /** @description Agent status: `"online"`, `"offline"`, `"busy"`. */
+            status: string;
+            /** @description Supervision mode: `"task"` or `"persistent"`. */
+            supervision_mode?: string | null;
+        };
+        /** @description Automation block. */
+        OnboardingAutomation: {
+            config_generator_script: string;
+        };
+        /** @description Bootstrap instructions embedded in the onboarding manifest. */
+        OnboardingBootstrap: {
+            local_script: string;
+            remote_script: string;
+            step_1: string;
+            step_2: string;
+        };
+        /** @description Endpoint URLs embedded in the onboarding manifest. */
+        OnboardingEndpoints: {
+            explorer_tree: string;
+            governance_active: string;
+            health: string;
+            mcp_call: string;
+            mcp_health: string;
+            mcp_tools: string;
+            openapi: string;
+            skills_snapshot_resolve: string;
+            skills_sync_status: string;
+            ui: string;
+        };
+        /**
+         * @description The onboarding manifest returned by `GET /api/agent-onboarding.json`.
+         *
+         *     Describes how to connect an agent runtime (edgeplaned) to this EdgePlane
+         *     instance. No auth required — the manifest itself contains no secrets.
+         */
+        OnboardingManifest: {
+            /** @description Per-agent-runtime config snippets (keys: `"claude_code"`, `"codex"`, etc.). */
+            agent_configs: unknown;
+            automation: components["schemas"]["OnboardingAutomation"];
+            bootstrap: components["schemas"]["OnboardingBootstrap"];
+            endpoints: components["schemas"]["OnboardingEndpoints"];
+            ep_serve_mcp_server: components["schemas"]["McpServerConfig"];
+            generated_for_base_url: string;
+            integration_contract_version: string;
+            mcp_defaults: components["schemas"]["McpDefaults"];
+            mcp_server: components["schemas"]["McpServerConfig"];
+            name: string;
+            notes: string[];
+            version: string;
         };
         /**
          * @description Per-action rule — controls whether an action is enabled and whether it
@@ -230,6 +647,48 @@ export interface components {
             allow_create_actions?: boolean;
             allow_publish_actions?: boolean;
         };
+        /**
+         * @description A registered runtime node. Returned by `GET /api/runtime/nodes`.
+         *
+         *     MIRROR: handler (`routes/runtime.rs::list_nodes`) still builds JSON via
+         *     `row_to_node`. Field set matches `row_to_node` exactly; JSON-embedded
+         *     fields (`labels`, `capacity`, `capabilities`) stay as `serde_json::Value`
+         *     because their schema is caller-defined.
+         */
+        RuntimeNode: {
+            /** @description List of capability strings the node advertises (JSON array of strings). */
+            capabilities: unknown;
+            /** @description Capacity declarations — CPU, memory, etc. (JSON object). */
+            capacity: unknown;
+            hostname: string;
+            id: string;
+            /** @description Free-form key/value labels (JSON object). */
+            labels: unknown;
+            last_heartbeat_at?: string | null;
+            node_name: string;
+            owner_subject: string;
+            registered_at: string;
+            runtime_version: string;
+            /** @description Node lifecycle status: `"registered"`, `"online"`, `"offline"`, `"cordoned"`, `"draining"`. */
+            status: string;
+            tailscale_fqdn?: string | null;
+            tailscale_ip?: string | null;
+            /** @description Trust tier: `"untrusted"`, `"trusted"`, `"admin"`. */
+            trust_tier: string;
+            updated_at: string;
+        };
+        /** @description A task-to-agent assignment record. */
+        TaskAssignment: {
+            /** Format: int32 */
+            agent_id: number;
+            created_at: string;
+            /** Format: int32 */
+            id: number;
+            status: string;
+            /** Format: int32 */
+            task_id: number;
+            updated_at: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -239,6 +698,100 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    onboarding_manifest_stub: {
+        parameters: {
+            query?: {
+                /** @description Base URL to embed in the manifest (defaults to `Host` header) */
+                endpoint?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Onboarding manifest */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingManifest"];
+                };
+            };
+        };
+    };
+    agents_list_stub: {
+        parameters: {
+            query?: {
+                /** @description Filter by agent status (e.g. `online`, `offline`) */
+                status?: string;
+                /** @description Maximum number of results (default 100, max 500) */
+                limit?: number;
+                /** @description Include archived agents (default false) */
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of agents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"][];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agents_get_stub: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Numeric agent id or public_id string (e.g. `aria-work-qwn5eb33`) */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agent record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agent"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     auth_me_stub: {
         parameters: {
             query?: never;
@@ -255,6 +808,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    explorer_node_stub: {
+        parameters: {
+            query?: {
+                /** @description Max tasks to return (default 50, max 200) */
+                limit_tasks?: number;
+            };
+            header?: never;
+            path: {
+                /** @description One of: `domain`, `mission`, `task` */
+                node_type: string;
+                /** @description Entity id (UUID for domain/mission; numeric or public_id for task) */
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Node detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplorerNodeDetail"];
+                };
+            };
+            /** @description Invalid node_type */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Node not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    explorer_tree_stub: {
+        parameters: {
+            query?: {
+                /** @description Restrict to a single domain */
+                domain_id?: string;
+                /** @description Filter tasks by status */
+                status?: string;
+                /** @description Full-text filter across domain/mission/task names, descriptions, owners, and tags */
+                q?: string;
+                /** @description Max tasks per mission (default 5, max 50) */
+                limit_tasks_per_cluster?: number;
+                /** @description Max missions fetched (default 100, max 200) */
+                limit_missions?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Explorer tree */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplorerTreeResponse"];
                 };
             };
             /** @description Missing or invalid token */
@@ -390,6 +1037,82 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
                 };
+            };
+        };
+    };
+    runtime_nodes_list_stub: {
+        parameters: {
+            query?: {
+                /** @description Filter by node status */
+                status?: string;
+                /** @description Maximum number of results (default 100, max 500) */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of runtime nodes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeNode"][];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    runtime_node_agents_stub: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Runtime node UUID */
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of mesh agents on this node */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeMeshAgent"][];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Node does not belong to the caller */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Node not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

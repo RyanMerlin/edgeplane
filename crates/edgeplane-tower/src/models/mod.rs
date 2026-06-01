@@ -2,9 +2,12 @@ pub mod agent;
 pub mod approval;
 pub mod auth;
 pub mod domain;
+pub mod explorer;
 pub mod governance;
 pub mod mission;
+pub mod onboarding;
 pub mod run;
+pub mod runtime;
 pub mod task;
 
 pub use agent::{Agent, AgentMessage, AgentSession, TaskAssignment};

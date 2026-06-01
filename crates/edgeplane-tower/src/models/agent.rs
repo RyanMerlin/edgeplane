@@ -1,17 +1,22 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A registered control-plane agent (fleet member). Returned by `GET /api/agents`
+/// and `GET /api/agents/{agent_id}`.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Agent {
+    /// Internal database row id (used only for foreign keys; prefer `public_id` externally).
     pub id: i32,
-    /// Stable, human-readable identifier — `{name}-{8-char-suffix}`. Used
-    /// as the external/wire identity (edgeplaned, CLI, TUI, dashboard). The
-    /// numeric `id` stays internal to the database for foreign keys.
+    /// Stable, human-readable wire identifier — `{name}-{8-char-hex-suffix}`.
+    /// Used by edgeplaned, CLI, TUI, and dashboard for all external references.
     pub public_id: String,
     pub name: String,
     pub capabilities: String,
+    /// Lifecycle status: `"online"`, `"offline"`, `"busy"`, `"archived"`, etc.
     pub status: String,
+    /// Free-form JSON string with runtime-supplied metadata (e.g. `runtime`, `node_id`).
     pub metadata: String,
     /// Permanent home domain — created automatically on first registration.
     pub home_domain_id: Option<String>,
@@ -27,33 +32,42 @@ pub struct Agent {
     /// Extracted from `metadata.node_id` (joined server-side, not a DB column).
     #[serde(skip_deserializing, default)]
     pub node_id: Option<String>,
+    #[schema(value_type = String)]
     pub created_at: NaiveDateTime,
+    #[schema(value_type = String)]
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+/// A session record for a control-plane agent (Claude Code run, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, sqlx::FromRow)]
 pub struct AgentSession {
     pub id: i32,
     pub agent_id: i32,
     pub context: String,
+    #[schema(value_type = String)]
     pub started_at: NaiveDateTime,
+    #[schema(value_type = Option<String>)]
     pub ended_at: Option<NaiveDateTime>,
     pub claude_session_id: Option<String>,
     pub end_reason: Option<String>,
     pub audit_log: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+/// A task-to-agent assignment record.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, sqlx::FromRow)]
 pub struct TaskAssignment {
     pub id: i32,
     pub task_id: i32,
     pub agent_id: i32,
     pub status: String,
+    #[schema(value_type = String)]
     pub created_at: NaiveDateTime,
+    #[schema(value_type = String)]
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+/// A message sent between two control-plane agents.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, sqlx::FromRow)]
 pub struct AgentMessage {
     pub id: i32,
     pub from_agent_id: i32,
@@ -62,6 +76,7 @@ pub struct AgentMessage {
     pub message_type: String,
     pub task_id: Option<i32>,
     pub read: bool,
+    #[schema(value_type = String)]
     pub created_at: NaiveDateTime,
 }
 

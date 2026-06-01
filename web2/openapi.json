@@ -14,6 +14,144 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/agent-onboarding.json": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Return the agent onboarding manifest for this EdgePlane instance.",
+        "description": "The manifest describes all integration endpoints, MCP server configuration,\nand bootstrap steps needed to connect an agent runtime (edgeplaned) to this\ncontrolplane. No authentication required.",
+        "operationId": "onboarding_manifest_stub",
+        "parameters": [
+          {
+            "name": "endpoint",
+            "in": "query",
+            "description": "Base URL to embed in the manifest (defaults to `Host` header)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Onboarding manifest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingManifest"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "List all registered control-plane agents.",
+        "operationId": "agents_list_stub",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by agent status (e.g. `online`, `offline`)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default 100, max 500)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "description": "Include archived agents (default false)",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Agent"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/agents/{agent_id}": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Return a single agent by numeric id or public_id.",
+        "operationId": "agents_get_stub",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Numeric agent id or public_id string (e.g. `aria-work-qwn5eb33`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "description": "Agent not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/api/auth/me": {
       "get": {
         "tags": [
@@ -28,6 +166,154 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/explorer/node/{node_type}/{node_id}": {
+      "get": {
+        "tags": [
+          "explorer"
+        ],
+        "summary": "Return full detail for a specific explorer node (domain, mission, or task).",
+        "description": "The response shape varies by `node_type`; see `ExplorerNodeDetail` for field\npresence rules by type.",
+        "operationId": "explorer_node_stub",
+        "parameters": [
+          {
+            "name": "node_type",
+            "in": "path",
+            "description": "One of: `domain`, `mission`, `task`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "node_id",
+            "in": "path",
+            "description": "Entity id (UUID for domain/mission; numeric or public_id for task)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit_tasks",
+            "in": "query",
+            "description": "Max tasks to return (default 50, max 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Node detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorerNodeDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid node_type"
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "404": {
+            "description": "Node not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/explorer/tree": {
+      "get": {
+        "tags": [
+          "explorer"
+        ],
+        "summary": "Return the full explorer tree — domains → missions → task summaries.",
+        "description": "Supports text search (`q`), domain/status filtering, and per-cluster task limits.",
+        "operationId": "explorer_tree_stub",
+        "parameters": [
+          {
+            "name": "domain_id",
+            "in": "query",
+            "description": "Restrict to a single domain",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter tasks by status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Full-text filter across domain/mission/task names, descriptions, owners, and tags",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit_tasks_per_cluster",
+            "in": "query",
+            "description": "Max tasks per mission (default 5, max 50)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit_missions",
+            "in": "query",
+            "description": "Max missions fetched (default 100, max 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Explorer tree",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorerTreeResponse"
                 }
               }
             }
@@ -181,10 +467,687 @@
           }
         }
       }
+    },
+    "/api/runtime/nodes": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "List runtime nodes registered by the authenticated subject.",
+        "operationId": "runtime_nodes_list_stub",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by node status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default 100, max 500)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of runtime nodes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RuntimeNode"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/runtime/nodes/{node_id}/agents": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "List mesh agents assigned to a specific runtime node.",
+        "operationId": "runtime_node_agents_stub",
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "description": "Runtime node UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of mesh agents on this node",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NodeMeshAgent"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "403": {
+            "description": "Node does not belong to the caller"
+          },
+          "404": {
+            "description": "Node not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "Agent": {
+        "type": "object",
+        "description": "A registered control-plane agent (fleet member). Returned by `GET /api/agents`\nand `GET /api/agents/{agent_id}`.",
+        "required": [
+          "id",
+          "public_id",
+          "name",
+          "capabilities",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "capabilities": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "current_domain_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Active domain context. Follows the agent when attached elsewhere;\nreset to `home_domain_id` on detach. Joined to `domain_name` in API responses."
+          },
+          "home_domain_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Permanent home domain — created automatically on first registration."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Internal database row id (used only for foreign keys; prefer `public_id` externally)."
+          },
+          "metadata": {
+            "type": "string",
+            "description": "Free-form JSON string with runtime-supplied metadata (e.g. `runtime`, `node_id`)."
+          },
+          "name": {
+            "type": "string"
+          },
+          "public_id": {
+            "type": "string",
+            "description": "Stable, human-readable wire identifier — `{name}-{8-char-hex-suffix}`.\nUsed by edgeplaned, CLI, TUI, and dashboard for all external references."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle status: `\"online\"`, `\"offline\"`, `\"busy\"`, `\"archived\"`, etc."
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentMessage": {
+        "type": "object",
+        "description": "A message sent between two control-plane agents.",
+        "required": [
+          "id",
+          "from_agent_id",
+          "to_agent_id",
+          "content",
+          "message_type",
+          "read",
+          "created_at"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "from_agent_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message_type": {
+            "type": "string"
+          },
+          "read": {
+            "type": "boolean"
+          },
+          "task_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "to_agent_id": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "AgentSession": {
+        "type": "object",
+        "description": "A session record for a control-plane agent (Claude Code run, etc.).",
+        "required": [
+          "id",
+          "agent_id",
+          "context",
+          "started_at"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "audit_log": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claude_session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context": {
+            "type": "string"
+          },
+          "end_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "started_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerDomain": {
+        "type": "object",
+        "description": "A domain detail record (nested inside ExplorerNodeDetail).",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "status",
+          "visibility",
+          "owners",
+          "contributors",
+          "updated_at"
+        ],
+        "properties": {
+          "contributors": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owners": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerDomainNode": {
+        "type": "object",
+        "description": "A domain node in the explorer tree (top-level container).",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "status",
+          "visibility",
+          "owners",
+          "updated_at",
+          "mission_count",
+          "task_count",
+          "missions"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mission_count": {
+            "type": "integer",
+            "description": "Number of missions in this domain (after filters).",
+            "minimum": 0
+          },
+          "missions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExplorerMissionNode"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "owners": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "task_count": {
+            "type": "integer",
+            "description": "Total task count across all missions (after filters).",
+            "minimum": 0
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerMission": {
+        "type": "object",
+        "description": "A mission detail record (nested inside ExplorerNodeDetail).",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "status",
+          "owners",
+          "updated_at",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "domain_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owners": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerMissionNode": {
+        "type": "object",
+        "description": "A mission (workstream) node inside the explorer tree.",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "status",
+          "owners",
+          "updated_at",
+          "task_count",
+          "task_status_counts",
+          "recent_tasks"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "domain_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owners": {
+            "type": "string"
+          },
+          "recent_tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExplorerTaskSummary"
+            },
+            "description": "Most recently updated tasks (up to `limit_tasks_per_cluster`)."
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "task_count": {
+            "type": "integer",
+            "description": "Total visible task count for this mission.",
+            "minimum": 0
+          },
+          "task_status_counts": {
+            "type": "object",
+            "description": "Per-status task counts (`\"open\"`, `\"done\"`, etc.).",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerNodeDetail": {
+        "type": "object",
+        "description": "Response from `GET /api/explorer/node/{node_type}/{node_id}`.\n\nShape varies by `node_type`:\n- `\"domain\"`: `domain` + `missions[]` + `tasks[]` are populated; `mission` and `task` are absent.\n- `\"mission\"`: `domain` (nullable), `mission`, `tasks[]` are populated; `missions` is absent.\n- `\"task\"`: `domain` (nullable), `mission`, `task` are populated; `missions` and `tasks` are absent.\n\nMIRROR: heterogeneous response combined into one struct. Optional fields\nare `null` when not applicable to the `node_type`.",
+        "required": [
+          "node_type",
+          "node_id"
+        ],
+        "properties": {
+          "domain": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExplorerDomain",
+                "description": "Present for all node types; `null` when the mission/task has no parent domain."
+              }
+            ]
+          },
+          "mission": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExplorerMission",
+                "description": "Present only when `node_type == \"mission\"` or `node_type == \"task\"`."
+              }
+            ]
+          },
+          "missions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExplorerMission"
+            },
+            "description": "Present only when `node_type == \"domain\"`."
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "node_type": {
+            "type": "string",
+            "description": "The requested node type: `\"domain\"`, `\"mission\"`, or `\"task\"`."
+          },
+          "task": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExplorerTask",
+                "description": "Present only when `node_type == \"task\"`."
+              }
+            ]
+          },
+          "tasks": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExplorerTask"
+            },
+            "description": "Present when `node_type == \"domain\"` or `node_type == \"mission\"`."
+          }
+        }
+      },
+      "ExplorerTask": {
+        "type": "object",
+        "description": "A task detail record (nested inside ExplorerNodeDetail).",
+        "required": [
+          "id",
+          "public_id",
+          "mission_id",
+          "title",
+          "description",
+          "status",
+          "owner",
+          "contributors",
+          "updated_at",
+          "created_at"
+        ],
+        "properties": {
+          "contributors": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mission_id": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "public_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerTaskSummary": {
+        "type": "object",
+        "description": "A task summary inside an explorer tree node.",
+        "required": [
+          "id",
+          "mission_id",
+          "title",
+          "status",
+          "owner",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mission_id": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerTreeResponse": {
+        "type": "object",
+        "description": "The explorer tree response (`GET /api/explorer/tree`).",
+        "required": [
+          "generated_at",
+          "domain_count",
+          "mission_count",
+          "task_count",
+          "domains",
+          "unassigned_missions"
+        ],
+        "properties": {
+          "domain_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExplorerDomainNode"
+            },
+            "description": "Domains (each containing their missions and task summaries)."
+          },
+          "generated_at": {
+            "type": "string"
+          },
+          "mission_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "task_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unassigned_missions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExplorerMissionNode"
+            },
+            "description": "Missions not assigned to any domain."
+          }
+        }
+      },
       "GovernancePolicyResponse": {
         "type": "object",
         "description": "Response emitted by `GET /api/governance/policy/active` and related\npolicy-record endpoints.\n\nThe `policy` field is now a concrete typed struct rather than\n`serde_json::Value`, which allows utoipa to emit a real JSON Schema for the\n`policy` object and openapi-typescript to generate a typed TypeScript\ninterface instead of `unknown`.\n\nTimestamp fields use `NaiveDateTime` which matches the existing wire format\n(chrono serializes without a timezone suffix, preserving byte-identical\noutput vs. the previous `serde_json::json!` construction).",
@@ -278,6 +1241,75 @@
           }
         }
       },
+      "McpDefaults": {
+        "type": "object",
+        "description": "MCP defaults block.",
+        "required": [
+          "startup_timeout_sec",
+          "tool_timeout_sec",
+          "protocol_version",
+          "healthcheck_path",
+          "endpoint_candidates"
+        ],
+        "properties": {
+          "endpoint_candidates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "healthcheck_path": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "startup_timeout_sec": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tool_timeout_sec": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "McpServerConfig": {
+        "type": "object",
+        "description": "MCP server config block embedded in the onboarding manifest.",
+        "required": [
+          "name",
+          "command",
+          "args",
+          "env"
+        ],
+        "properties": {
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "command": {
+            "type": "string"
+          },
+          "env": {
+            "type": "object",
+            "description": "Environment variables required to launch the MCP server.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "MeResponse": {
         "type": "object",
         "required": [
@@ -300,6 +1332,261 @@
           "subject": {
             "type": "string",
             "description": "The authenticated principal's subject identifier (e.g. OIDC sub or service account name)."
+          }
+        }
+      },
+      "NodeMeshAgent": {
+        "type": "object",
+        "description": "A mesh agent assigned to a runtime node. Returned by\n`GET /api/runtime/nodes/{node_id}/agents`.\n\nMIRROR: handler (`routes/runtime.rs::list_node_agents`) builds JSON via\n`routes::work::row_to_agent` + domain join. Fields with open schemas\n(`profile`, `machine`, `runtime`, `labels`, `capabilities`) stay as\n`serde_json::Value` — their shape is runtime-class dependent.",
+        "required": [
+          "id",
+          "public_id",
+          "domain_id",
+          "runtime_kind",
+          "runtime_version",
+          "capabilities",
+          "labels",
+          "status",
+          "enrolled_at",
+          "discovered_capabilities"
+        ],
+        "properties": {
+          "agent_public_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The linked persistent agent identity, if set at enrollment."
+          },
+          "capabilities": {
+            "description": "List of capability strings (JSON array)."
+          },
+          "current_task_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discovered_capabilities": {
+            "description": "Capabilities discovered at runtime (JSON array)."
+          },
+          "domain_id": {
+            "type": "string"
+          },
+          "domain_kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Kind of the assigned domain (joined server-side)."
+          },
+          "domain_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human name of the assigned domain (joined server-side)."
+          },
+          "enrolled_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "Meshagent row UUID."
+          },
+          "labels": {
+            "description": "Scheduling/placement labels (JSON object)."
+          },
+          "last_heartbeat_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "machine": {
+            "description": "Machine descriptor blob (shape varies by runtime_kind)."
+          },
+          "node_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile": {
+            "description": "Runtime-class profile blob (shape varies by runtime_kind)."
+          },
+          "public_id": {
+            "type": "string",
+            "description": "Stable wire identifier (agent public_id or meshagent id as fallback)."
+          },
+          "runtime": {
+            "description": "Runtime config blob (shape varies by runtime_kind)."
+          },
+          "runtime_kind": {
+            "type": "string"
+          },
+          "runtime_node_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Agent status: `\"online\"`, `\"offline\"`, `\"busy\"`."
+          },
+          "supervision_mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Supervision mode: `\"task\"` or `\"persistent\"`."
+          }
+        }
+      },
+      "OnboardingAutomation": {
+        "type": "object",
+        "description": "Automation block.",
+        "required": [
+          "config_generator_script"
+        ],
+        "properties": {
+          "config_generator_script": {
+            "type": "string"
+          }
+        }
+      },
+      "OnboardingBootstrap": {
+        "type": "object",
+        "description": "Bootstrap instructions embedded in the onboarding manifest.",
+        "required": [
+          "step_1",
+          "step_2",
+          "remote_script",
+          "local_script"
+        ],
+        "properties": {
+          "local_script": {
+            "type": "string"
+          },
+          "remote_script": {
+            "type": "string"
+          },
+          "step_1": {
+            "type": "string"
+          },
+          "step_2": {
+            "type": "string"
+          }
+        }
+      },
+      "OnboardingEndpoints": {
+        "type": "object",
+        "description": "Endpoint URLs embedded in the onboarding manifest.",
+        "required": [
+          "health",
+          "openapi",
+          "explorer_tree",
+          "governance_active",
+          "mcp_tools",
+          "mcp_call",
+          "mcp_health",
+          "skills_snapshot_resolve",
+          "skills_sync_status",
+          "ui"
+        ],
+        "properties": {
+          "explorer_tree": {
+            "type": "string"
+          },
+          "governance_active": {
+            "type": "string"
+          },
+          "health": {
+            "type": "string"
+          },
+          "mcp_call": {
+            "type": "string"
+          },
+          "mcp_health": {
+            "type": "string"
+          },
+          "mcp_tools": {
+            "type": "string"
+          },
+          "openapi": {
+            "type": "string"
+          },
+          "skills_snapshot_resolve": {
+            "type": "string"
+          },
+          "skills_sync_status": {
+            "type": "string"
+          },
+          "ui": {
+            "type": "string"
+          }
+        }
+      },
+      "OnboardingManifest": {
+        "type": "object",
+        "description": "The onboarding manifest returned by `GET /api/agent-onboarding.json`.\n\nDescribes how to connect an agent runtime (edgeplaned) to this EdgePlane\ninstance. No auth required — the manifest itself contains no secrets.",
+        "required": [
+          "name",
+          "version",
+          "integration_contract_version",
+          "generated_for_base_url",
+          "endpoints",
+          "mcp_defaults",
+          "mcp_server",
+          "ep_serve_mcp_server",
+          "agent_configs",
+          "bootstrap",
+          "automation",
+          "notes"
+        ],
+        "properties": {
+          "agent_configs": {
+            "description": "Per-agent-runtime config snippets (keys: `\"claude_code\"`, `\"codex\"`, etc.)."
+          },
+          "automation": {
+            "$ref": "#/components/schemas/OnboardingAutomation"
+          },
+          "bootstrap": {
+            "$ref": "#/components/schemas/OnboardingBootstrap"
+          },
+          "endpoints": {
+            "$ref": "#/components/schemas/OnboardingEndpoints"
+          },
+          "ep_serve_mcp_server": {
+            "$ref": "#/components/schemas/McpServerConfig"
+          },
+          "generated_for_base_url": {
+            "type": "string"
+          },
+          "integration_contract_version": {
+            "type": "string"
+          },
+          "mcp_defaults": {
+            "$ref": "#/components/schemas/McpDefaults"
+          },
+          "mcp_server": {
+            "$ref": "#/components/schemas/McpServerConfig"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "string"
           }
         }
       },
@@ -461,6 +1748,117 @@
             "type": "boolean"
           }
         }
+      },
+      "RuntimeNode": {
+        "type": "object",
+        "description": "A registered runtime node. Returned by `GET /api/runtime/nodes`.\n\nMIRROR: handler (`routes/runtime.rs::list_nodes`) still builds JSON via\n`row_to_node`. Field set matches `row_to_node` exactly; JSON-embedded\nfields (`labels`, `capacity`, `capabilities`) stay as `serde_json::Value`\nbecause their schema is caller-defined.",
+        "required": [
+          "id",
+          "owner_subject",
+          "node_name",
+          "hostname",
+          "status",
+          "trust_tier",
+          "labels",
+          "capacity",
+          "capabilities",
+          "runtime_version",
+          "registered_at",
+          "updated_at"
+        ],
+        "properties": {
+          "capabilities": {
+            "description": "List of capability strings the node advertises (JSON array of strings)."
+          },
+          "capacity": {
+            "description": "Capacity declarations — CPU, memory, etc. (JSON object)."
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "labels": {
+            "description": "Free-form key/value labels (JSON object)."
+          },
+          "last_heartbeat_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "node_name": {
+            "type": "string"
+          },
+          "owner_subject": {
+            "type": "string"
+          },
+          "registered_at": {
+            "type": "string"
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Node lifecycle status: `\"registered\"`, `\"online\"`, `\"offline\"`, `\"cordoned\"`, `\"draining\"`."
+          },
+          "tailscale_fqdn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tailscale_ip": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trust_tier": {
+            "type": "string",
+            "description": "Trust tier: `\"untrusted\"`, `\"trusted\"`, `\"admin\"`."
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskAssignment": {
+        "type": "object",
+        "description": "A task-to-agent assignment record.",
+        "required": [
+          "id",
+          "task_id",
+          "agent_id",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
       }
     }
   },
@@ -481,6 +1879,18 @@
     {
       "name": "governance",
       "description": "Policy lifecycle management"
+    },
+    {
+      "name": "agents",
+      "description": "Control-plane agent registry"
+    },
+    {
+      "name": "runtime",
+      "description": "Runtime node fleet management"
+    },
+    {
+      "name": "explorer",
+      "description": "Domain / mission / task explorer tree"
     }
   ]
 }
