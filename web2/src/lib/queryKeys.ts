@@ -1,4 +1,8 @@
 export const queryKeys = {
+  onboarding: {
+    all: ['onboarding'] as const,
+    manifest: () => [...queryKeys.onboarding.all, 'manifest'] as const,
+  },
   ai: {
     all: ['ai'] as const,
     sessions: () => [...queryKeys.ai.all, 'sessions'] as const,

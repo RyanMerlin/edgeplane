@@ -86,6 +86,7 @@ function TopBar({
       <NavLink to="/explorer">Explorer</NavLink>
       <NavLink to="/feed">Feed</NavLink>
       <NavLink to="/governance">Governance</NavLink>
+      <NavLink to="/onboarding">Onboarding</NavLink>
 
       <div className="topbar-right">
         <button
