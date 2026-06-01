@@ -60,6 +60,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ai/runtime-capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return the list of supported AI runtime capabilities. */
+        get: operations["ai_runtime_capabilities_stub"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List AI sessions owned by the authenticated caller. */
+        get: operations["ai_sessions_list_stub"];
+        put?: never;
+        /** Create a new AI session. */
+        post: operations["ai_sessions_create_stub"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch a single AI session by id, including all turns, events, and pending actions. */
+        get: operations["ai_sessions_get_stub"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/sessions/{id}/actions/{action_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a pending tool-execution action. */
+        post: operations["ai_sessions_approve_action_stub"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/sessions/{id}/actions/{action_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a pending tool-execution action. */
+        post: operations["ai_sessions_reject_action_stub"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/sessions/{id}/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append a user turn to an AI session. */
+        post: operations["ai_sessions_create_turn_stub"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/me": {
         parameters: {
             query?: never;
@@ -282,6 +385,154 @@ export interface components {
             /** Format: int32 */
             id: number;
             started_at: string;
+        };
+        /** @description A lifecycle / IO / tool / approval event associated with an AI session. */
+        AiEvent: {
+            /** @description Event creation timestamp, microsecond precision, no timezone suffix. */
+            created_at: string;
+            /** @description Event type string (e.g. `"user_message"`, `"approval_outcome"`). */
+            event_type: string;
+            /**
+             * Format: int64
+             * @description Row id (stored as i32 in DB, cast to i64 for wire compatibility).
+             */
+            id: number;
+            /** @description Polymorphic event payload — shape varies by `event_type`. */
+            payload: unknown;
+            /**
+             * Format: int32
+             * @description Optional parent turn; `null` for session-level events.
+             */
+            turn_id?: number | null;
+        };
+        /** @description A pending tool-execution action waiting for human approval or rejection. */
+        AiPendingAction: {
+            /** @description Subject that approved the action (empty string if not yet approved). */
+            approved_by: string;
+            /** @description Polymorphic tool arguments — shape varies by tool. */
+            args: unknown;
+            /** @description Action creation timestamp, microsecond precision, no timezone suffix. */
+            created_at: string;
+            /** @description Stable string identifier (UUID or custom slug stored in the DB). */
+            id: string;
+            /** @description Human-readable reason the runtime requested this action. */
+            reason: string;
+            /** @description Subject that rejected the action (empty string if not yet rejected). */
+            rejected_by: string;
+            /** @description Rejection note (empty string if action was not rejected). */
+            rejection_note: string;
+            /** @description Subject that requested the action. */
+            requested_by: string;
+            /** @description Lifecycle status: `"pending"`, `"executed"`, or `"rejected"`. */
+            status: string;
+            /** @description Tool name (e.g. `"bash"`, `"edit"`). */
+            tool: string;
+            /** @description Action last-updated timestamp, microsecond precision, no timezone suffix. */
+            updated_at: string;
+        };
+        /**
+         * @description A full AI session record, including nested turns, events, and pending actions.
+         *
+         *     Returned by `POST /api/ai/sessions`, `GET /api/ai/sessions/{id}`,
+         *     `POST /api/ai/sessions/{id}/turns`, and the action approve/reject endpoints.
+         *
+         *     `GET /api/ai/sessions` (list) returns a lightweight variant: `turns`,
+         *     `events`, and `pending_actions` are empty arrays, and `capability_snapshot`
+         *     and `policy` are `null` (those columns are not fetched in the list query for
+         *     performance reasons — the wire shape is identical; only the values differ).
+         */
+        AiSession: {
+            /**
+             * @description Snapshot of the `CapabilitySet` at the time the session was created.
+             *     Polymorphic — stays as `Value` (→ `unknown` in TypeScript).
+             *     `null` in list responses (not fetched in the list query).
+             */
+            capability_snapshot?: unknown;
+            /** @description Session creation timestamp, microsecond precision, no timezone suffix. */
+            created_at: string;
+            /** @description All events associated with this session (empty in list responses). */
+            events: components["schemas"]["AiEvent"][];
+            /** @description Stable session identifier (e.g. `"ais_a1b2c3d4e5f6g7h8"`). */
+            id: string;
+            /** @description OIDC subject of the session owner. */
+            owner_subject: string;
+            /** @description Pending tool-execution actions awaiting approval (empty in list responses). */
+            pending_actions: components["schemas"]["AiPendingAction"][];
+            /**
+             * @description Governance policy document applied to this session.
+             *     Polymorphic — stays as `Value` (→ `unknown` in TypeScript).
+             *     `null` in list responses (not fetched in the list query).
+             */
+            policy?: unknown;
+            /** @description Runtime kind used for this session (e.g. `"claude_code"`, `"opencode"`). */
+            runtime_kind: string;
+            /** @description External runtime session identifier (set by the runtime after launch). */
+            runtime_session_id?: string | null;
+            /** @description Lifecycle status: `"active"`, `"completed"`, or `"error"`. */
+            status: string;
+            /** @description Human-readable session title. */
+            title: string;
+            /** @description Ordered list of turns in this session (empty in list responses). */
+            turns: components["schemas"]["AiTurn"][];
+            /** @description Session last-updated timestamp, microsecond precision, no timezone suffix. */
+            updated_at: string;
+            /** @description Filesystem workspace path used by the runtime, if any. */
+            workspace_path?: string | null;
+        };
+        /** @description A single conversational turn in an AI session. */
+        AiTurn: {
+            /** @description Polymorphic turn content — shape varies by role and runtime kind. */
+            content: unknown;
+            /** @description Turn creation timestamp, microsecond precision, no timezone suffix. */
+            created_at: string;
+            /**
+             * Format: int64
+             * @description Row id (stored as i32 in DB, cast to i64 for wire compatibility with
+             *     the original `row.get::<i32,_>("id") as i64` conversion).
+             */
+            id: number;
+            /** @description `"user"`, `"assistant"`, or `"tool"`. */
+            role: string;
+        };
+        /**
+         * @description A capability descriptor for a supported AI runtime kind.
+         *
+         *     Returned as an array by `GET /api/ai/runtime-capabilities`.
+         */
+        CapabilitySet: {
+            /** @description Human-readable display name. */
+            display_name: string;
+            /** @description Icon slug used by the frontend asset resolver. */
+            icon_slug: string;
+            /**
+             * Format: int32
+             * @description Maximum usable context window in tokens.
+             */
+            max_context_tokens: number;
+            /** @description Runtime kind identifier (e.g. `"claude_code"`, `"opencode"`). */
+            runtime_kind: string;
+            /** @description Whether this runtime can operate on a file-system workspace. */
+            supports_file_workspace: boolean;
+            /** @description Whether a suspended session can be resumed. */
+            supports_session_resume: boolean;
+            /** @description Whether edgeplaned skill packs are supported. */
+            supports_skill_packs: boolean;
+            /** @description Whether this runtime supports SSE event streaming. */
+            supports_streaming: boolean;
+            /** @description Whether tool calls can be intercepted for approval gating. */
+            supports_tool_interception: boolean;
+        };
+        /** @description Request body for `POST /api/ai/sessions`. */
+        CreateSessionRequest: {
+            /**
+             * @description Governance policy document to apply to the session.
+             *     Polymorphic — stays as `Value`.
+             */
+            policy?: unknown;
+            /** @description Runtime kind to use for this session (defaults to `"opencode"`). */
+            runtime_kind?: string | null;
+            /** @description Optional human-readable session title (defaults to empty string). */
+            title?: string | null;
         };
         /** @description A domain detail record (nested inside ExplorerNodeDetail). */
         ExplorerDomain: {
@@ -647,6 +898,11 @@ export interface components {
             allow_create_actions?: boolean;
             allow_publish_actions?: boolean;
         };
+        /** @description Request body for `POST /api/ai/sessions/{id}/turns`. */
+        PostTurnRequest: {
+            /** @description The user message to add as a new turn. */
+            message: string;
+        };
         /**
          * @description A registered runtime node. Returned by `GET /api/runtime/nodes`.
          *
@@ -785,6 +1041,274 @@ export interface operations {
             };
             /** @description Agent not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_runtime_capabilities_stub: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of supported runtime capability sets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilitySet"][];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_sessions_list_stub: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of sessions to return (default 20, max 100) */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of AI sessions (turns/events/pending_actions are empty arrays in list responses) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSession"][];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_sessions_create_stub: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created AI session with empty turns/events/pending_actions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSession"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_sessions_get_stub: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description AI session id (e.g. `ais_a1b2c3d4e5f6g7h8`) */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Full AI session with nested turns, events, and pending actions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSession"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found or not owned by caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_sessions_approve_action_stub: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description AI session id */
+                id: string;
+                /** @description Pending action id */
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Full session after the action was approved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSession"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session or action not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Action is not in pending status */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_sessions_reject_action_stub: {
+        parameters: {
+            query?: {
+                /** @description Optional rejection note */
+                note?: string;
+            };
+            header?: never;
+            path: {
+                /** @description AI session id */
+                id: string;
+                /** @description Pending action id */
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Full session after the action was rejected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSession"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session or action not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Action is not in pending status */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_sessions_create_turn_stub: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description AI session id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostTurnRequest"];
+            };
+        };
+        responses: {
+            /** @description Full session after the turn was appended */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSession"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Message body is empty */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

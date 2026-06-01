@@ -199,6 +199,133 @@ pub fn runtime_node_agents_stub() {}
 #[allow(dead_code)]
 pub fn onboarding_manifest_stub() {}
 
+// ── AI console ───────────────────────────────────────────────────────────────
+
+/// Return the list of supported AI runtime capabilities.
+#[utoipa::path(
+    get,
+    path = "/api/ai/runtime-capabilities",
+    tag = "ai",
+    security(("bearerAuth" = [])),
+    responses(
+        (status = 200, description = "List of supported runtime capability sets", body = Vec<crate::models::ai::CapabilitySet>),
+        (status = 401, description = "Missing or invalid token")
+    )
+)]
+#[allow(dead_code)]
+pub fn ai_runtime_capabilities_stub() {}
+
+/// List AI sessions owned by the authenticated caller.
+#[utoipa::path(
+    get,
+    path = "/api/ai/sessions",
+    tag = "ai",
+    security(("bearerAuth" = [])),
+    params(
+        ("limit" = Option<i64>, Query, description = "Maximum number of sessions to return (default 20, max 100)")
+    ),
+    responses(
+        (status = 200, description = "List of AI sessions (turns/events/pending_actions are empty arrays in list responses)", body = Vec<crate::models::ai::AiSession>),
+        (status = 401, description = "Missing or invalid token")
+    )
+)]
+#[allow(dead_code)]
+pub fn ai_sessions_list_stub() {}
+
+/// Create a new AI session.
+#[utoipa::path(
+    post,
+    path = "/api/ai/sessions",
+    tag = "ai",
+    security(("bearerAuth" = [])),
+    request_body = crate::models::ai::CreateSessionRequest,
+    responses(
+        (status = 200, description = "Created AI session with empty turns/events/pending_actions", body = crate::models::ai::AiSession),
+        (status = 401, description = "Missing or invalid token")
+    )
+)]
+#[allow(dead_code)]
+pub fn ai_sessions_create_stub() {}
+
+/// Fetch a single AI session by id, including all turns, events, and pending actions.
+#[utoipa::path(
+    get,
+    path = "/api/ai/sessions/{id}",
+    tag = "ai",
+    security(("bearerAuth" = [])),
+    params(
+        ("id" = String, Path, description = "AI session id (e.g. `ais_a1b2c3d4e5f6g7h8`)")
+    ),
+    responses(
+        (status = 200, description = "Full AI session with nested turns, events, and pending actions", body = crate::models::ai::AiSession),
+        (status = 401, description = "Missing or invalid token"),
+        (status = 404, description = "Session not found or not owned by caller")
+    )
+)]
+#[allow(dead_code)]
+pub fn ai_sessions_get_stub() {}
+
+/// Append a user turn to an AI session.
+#[utoipa::path(
+    post,
+    path = "/api/ai/sessions/{id}/turns",
+    tag = "ai",
+    security(("bearerAuth" = [])),
+    params(
+        ("id" = String, Path, description = "AI session id")
+    ),
+    request_body = crate::models::ai::PostTurnRequest,
+    responses(
+        (status = 200, description = "Full session after the turn was appended", body = crate::models::ai::AiSession),
+        (status = 401, description = "Missing or invalid token"),
+        (status = 404, description = "Session not found"),
+        (status = 422, description = "Message body is empty")
+    )
+)]
+#[allow(dead_code)]
+pub fn ai_sessions_create_turn_stub() {}
+
+/// Approve a pending tool-execution action.
+#[utoipa::path(
+    post,
+    path = "/api/ai/sessions/{id}/actions/{action_id}/approve",
+    tag = "ai",
+    security(("bearerAuth" = [])),
+    params(
+        ("id"        = String, Path, description = "AI session id"),
+        ("action_id" = String, Path, description = "Pending action id")
+    ),
+    responses(
+        (status = 200, description = "Full session after the action was approved", body = crate::models::ai::AiSession),
+        (status = 401, description = "Missing or invalid token"),
+        (status = 404, description = "Session or action not found"),
+        (status = 422, description = "Action is not in pending status")
+    )
+)]
+#[allow(dead_code)]
+pub fn ai_sessions_approve_action_stub() {}
+
+/// Reject a pending tool-execution action.
+#[utoipa::path(
+    post,
+    path = "/api/ai/sessions/{id}/actions/{action_id}/reject",
+    tag = "ai",
+    security(("bearerAuth" = [])),
+    params(
+        ("id"        = String, Path, description = "AI session id"),
+        ("action_id" = String, Path, description = "Pending action id"),
+        ("note"      = Option<String>, Query, description = "Optional rejection note")
+    ),
+    responses(
+        (status = 200, description = "Full session after the action was rejected", body = crate::models::ai::AiSession),
+        (status = 401, description = "Missing or invalid token"),
+        (status = 404, description = "Session or action not found"),
+        (status = 422, description = "Action is not in pending status")
+    )
+)]
+#[allow(dead_code)]
+pub fn ai_sessions_reject_action_stub() {}
+
 // ── Explorer ──────────────────────────────────────────────────────────────────
 
 /// Return the full explorer tree — domains → missions → task summaries.
@@ -275,6 +402,13 @@ pub fn explorer_node_stub() {}
         onboarding_manifest_stub,
         explorer_tree_stub,
         explorer_node_stub,
+        ai_runtime_capabilities_stub,
+        ai_sessions_list_stub,
+        ai_sessions_create_stub,
+        ai_sessions_get_stub,
+        ai_sessions_create_turn_stub,
+        ai_sessions_approve_action_stub,
+        ai_sessions_reject_action_stub,
     ),
     components(
         schemas(
@@ -305,6 +439,14 @@ pub fn explorer_node_stub() {}
             crate::models::onboarding::McpDefaults,
             crate::models::onboarding::OnboardingBootstrap,
             crate::models::onboarding::OnboardingAutomation,
+            // ai console
+            crate::models::ai::CapabilitySet,
+            crate::models::ai::AiSession,
+            crate::models::ai::AiTurn,
+            crate::models::ai::AiEvent,
+            crate::models::ai::AiPendingAction,
+            crate::models::ai::CreateSessionRequest,
+            crate::models::ai::PostTurnRequest,
             // explorer
             crate::models::explorer::ExplorerTreeResponse,
             crate::models::explorer::ExplorerDomainNode,
@@ -326,6 +468,7 @@ pub fn explorer_node_stub() {}
         (name = "agents",     description = "Control-plane agent registry"),
         (name = "runtime",    description = "Runtime node fleet management"),
         (name = "explorer",   description = "Domain / mission / task explorer tree"),
+        (name = "ai",         description = "AI session management console"),
     )
 )]
 pub struct ApiDoc;

@@ -11,7 +11,14 @@ use sqlx::Row;
 use std::sync::Arc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::{auth::Principal, state::AppState};
+use crate::{
+    auth::Principal,
+    models::ai::{
+        AiEvent, AiPendingAction, AiSession, AiTurn, CapabilitySet, CreateSessionRequest,
+        PostTurnRequest,
+    },
+    state::AppState,
+};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -41,42 +48,42 @@ fn unprocessable(msg: &str) -> Response {
 }
 
 // ---------------------------------------------------------------------------
-// Session serialization helpers
+// Session serialization helpers — now return typed structs
 // ---------------------------------------------------------------------------
 
 fn parse_json_field(s: &str) -> serde_json::Value {
     serde_json::from_str(s).unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
 }
 
-fn row_to_turn(row: &sqlx::postgres::PgRow) -> serde_json::Value {
+fn row_to_turn(row: &sqlx::postgres::PgRow) -> AiTurn {
     let id: i64 = row.get::<i32, _>("id") as i64;
     let role: String = row.get("role");
     let content_json: String = row.get("content_json");
     let created_at: chrono::NaiveDateTime = row.get("created_at");
-    serde_json::json!({
-        "id": id,
-        "role": role,
-        "content": parse_json_field(&content_json),
-        "created_at": created_at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string()
-    })
+    AiTurn {
+        id,
+        role,
+        content: parse_json_field(&content_json),
+        created_at,
+    }
 }
 
-fn row_to_event(row: &sqlx::postgres::PgRow) -> serde_json::Value {
+fn row_to_event(row: &sqlx::postgres::PgRow) -> AiEvent {
     let id: i64 = row.get::<i32, _>("id") as i64;
     let turn_id: Option<i32> = row.try_get("turn_id").ok().flatten();
     let event_type: String = row.get("event_type");
     let payload_json: String = row.get("payload_json");
     let created_at: chrono::NaiveDateTime = row.get("created_at");
-    serde_json::json!({
-        "id": id,
-        "turn_id": turn_id,
-        "event_type": event_type,
-        "payload": parse_json_field(&payload_json),
-        "created_at": created_at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string()
-    })
+    AiEvent {
+        id,
+        turn_id,
+        event_type,
+        payload: parse_json_field(&payload_json),
+        created_at,
+    }
 }
 
-fn row_to_pending_action(row: &sqlx::postgres::PgRow) -> serde_json::Value {
+fn row_to_pending_action(row: &sqlx::postgres::PgRow) -> AiPendingAction {
     let id: String = row.get("id");
     let tool: String = row.get("tool");
     let args_json: String = row.get("args_json");
@@ -88,26 +95,26 @@ fn row_to_pending_action(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     let rejection_note: String = row.get("rejection_note");
     let created_at: chrono::NaiveDateTime = row.get("created_at");
     let updated_at: chrono::NaiveDateTime = row.get("updated_at");
-    serde_json::json!({
-        "id": id,
-        "tool": tool,
-        "args": parse_json_field(&args_json),
-        "reason": reason,
-        "status": status,
-        "requested_by": requested_by,
-        "approved_by": approved_by,
-        "rejected_by": rejected_by,
-        "rejection_note": rejection_note,
-        "created_at": created_at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string(),
-        "updated_at": updated_at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string()
-    })
+    AiPendingAction {
+        id,
+        tool,
+        args: parse_json_field(&args_json),
+        reason,
+        status,
+        requested_by,
+        approved_by,
+        rejected_by,
+        rejection_note,
+        created_at,
+        updated_at,
+    }
 }
 
-/// Build a full session JSON object fetching associated turns/events/pending.
+/// Build a full `AiSession` struct fetching associated turns/events/pending.
 async fn serialize_session(
     db: &sqlx::PgPool,
     session_row: &sqlx::postgres::PgRow,
-) -> serde_json::Value {
+) -> AiSession {
     let id: String = session_row.get("id");
     let owner_subject: String = session_row.get("owner_subject");
     let title: String = session_row.get("title");
@@ -154,22 +161,22 @@ async fn serialize_session(
     .map(row_to_pending_action)
     .collect::<Vec<_>>();
 
-    serde_json::json!({
-        "id": id,
-        "owner_subject": owner_subject,
-        "title": title,
-        "status": status,
-        "runtime_kind": runtime_kind,
-        "runtime_session_id": runtime_session_id,
-        "workspace_path": workspace_path,
-        "capability_snapshot": parse_json_field(&capability_snapshot_json),
-        "policy": parse_json_field(&policy_json),
-        "turns": turns,
-        "events": events,
-        "pending_actions": pending_actions,
-        "created_at": created_at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string(),
-        "updated_at": updated_at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string()
-    })
+    AiSession {
+        id,
+        owner_subject,
+        title,
+        status,
+        runtime_kind,
+        runtime_session_id,
+        workspace_path,
+        capability_snapshot: Some(parse_json_field(&capability_snapshot_json)),
+        policy: Some(parse_json_field(&policy_json)),
+        turns,
+        events,
+        pending_actions,
+        created_at,
+        updated_at,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -177,47 +184,41 @@ async fn serialize_session(
 // ---------------------------------------------------------------------------
 
 async fn runtime_capabilities(_principal: Principal) -> Response {
-    Json(serde_json::json!([
-        {
-            "runtime_kind": "claude_code",
-            "display_name": "Claude Code",
-            "icon_slug": "claude",
-            "supports_streaming": true,
-            "supports_file_workspace": true,
-            "supports_tool_interception": true,
-            "supports_skill_packs": true,
-            "supports_session_resume": true,
-            "max_context_tokens": 200000
+    let capabilities = vec![
+        CapabilitySet {
+            runtime_kind: "claude_code".to_string(),
+            display_name: "Claude Code".to_string(),
+            icon_slug: "claude".to_string(),
+            supports_streaming: true,
+            supports_file_workspace: true,
+            supports_tool_interception: true,
+            supports_skill_packs: true,
+            supports_session_resume: true,
+            max_context_tokens: 200_000,
         },
-        {
-            "runtime_kind": "opencode",
-            "display_name": "OpenCode",
-            "icon_slug": "opencode",
-            "supports_streaming": true,
-            "supports_file_workspace": true,
-            "supports_tool_interception": true,
-            "supports_skill_packs": false,
-            "supports_session_resume": false,
-            "max_context_tokens": 128000
-        }
-    ])).into_response()
+        CapabilitySet {
+            runtime_kind: "opencode".to_string(),
+            display_name: "OpenCode".to_string(),
+            icon_slug: "opencode".to_string(),
+            supports_streaming: true,
+            supports_file_workspace: true,
+            supports_tool_interception: true,
+            supports_skill_packs: false,
+            supports_session_resume: false,
+            max_context_tokens: 128_000,
+        },
+    ];
+    Json(capabilities).into_response()
 }
 
 // ---------------------------------------------------------------------------
 // POST /ai/sessions
 // ---------------------------------------------------------------------------
 
-#[derive(Deserialize)]
-struct CreateSessionBody {
-    title: Option<String>,
-    runtime_kind: Option<String>,
-    policy: Option<serde_json::Value>,
-}
-
 async fn create_session(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Json(body): Json<CreateSessionBody>,
+    Json(body): Json<CreateSessionRequest>,
 ) -> Response {
 
     let session_id = format!(
@@ -288,7 +289,7 @@ async fn list_sessions(
 
     match rows {
         Ok(rows) => {
-            let sessions: Vec<serde_json::Value> = rows.iter().map(|row| {
+            let sessions: Vec<AiSession> = rows.iter().map(|row| {
                 let id: String = row.get("id");
                 let owner_subject: String = row.get("owner_subject");
                 let title: String = row.get("title");
@@ -298,20 +299,23 @@ async fn list_sessions(
                 let workspace_path: Option<String> = row.try_get("workspace_path").ok().flatten();
                 let created_at: chrono::NaiveDateTime = row.get("created_at");
                 let updated_at: chrono::NaiveDateTime = row.get("updated_at");
-                serde_json::json!({
-                    "id": id,
-                    "owner_subject": owner_subject,
-                    "title": title,
-                    "status": status,
-                    "runtime_kind": runtime_kind,
-                    "runtime_session_id": runtime_session_id,
-                    "workspace_path": workspace_path,
-                    "turns": [],
-                    "events": [],
-                    "pending_actions": [],
-                    "created_at": created_at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string(),
-                    "updated_at": updated_at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string()
-                })
+                AiSession {
+                    id,
+                    owner_subject,
+                    title,
+                    status,
+                    runtime_kind,
+                    runtime_session_id,
+                    workspace_path,
+                    // Not fetched in the list query — null in the response.
+                    capability_snapshot: None,
+                    policy: None,
+                    turns: vec![],
+                    events: vec![],
+                    pending_actions: vec![],
+                    created_at,
+                    updated_at,
+                }
             }).collect();
             Json(sessions).into_response()
         }
@@ -359,19 +363,14 @@ async fn get_session(
 // POST /ai/sessions/{id}/turns
 // ---------------------------------------------------------------------------
 
-#[derive(Deserialize)]
-struct CreateTurnBody {
-    message: Option<String>,
-}
-
 async fn create_turn(
     State(state): State<Arc<AppState>>,
     principal: Principal,
     Path(id): Path<String>,
-    Json(body): Json<CreateTurnBody>,
+    Json(body): Json<PostTurnRequest>,
 ) -> Response {
 
-    let message = body.message.unwrap_or_default();
+    let message = body.message;
     if message.trim().is_empty() {
         return unprocessable("message must not be empty");
     }
@@ -662,6 +661,7 @@ async fn reject_action(
 
 // ---------------------------------------------------------------------------
 // GET /ai/sessions/{id}/stream  — SSE
+// not codegen'd: SSE event stream (not a request/response endpoint)
 // ---------------------------------------------------------------------------
 
 #[derive(Deserialize)]
@@ -716,16 +716,20 @@ async fn stream_events(
 
             if let Ok(rows) = rows {
                 for row in &rows {
-                    let id: i32 = row.get("id");
-                    let id64 = id as i64;
+                    let id_i32: i32 = row.get("id");
+                    let id64 = id_i32 as i64;
                     if id64 > last_id {
                         last_id = id64;
                     }
-                    let data = row_to_event(row);
+                    // SSE stream continues to use serde_json::Value for the
+                    // event data — the stream wire format is unchanged.
+                    let event_struct = row_to_event(row);
+                    let data = serde_json::to_string(&event_struct)
+                        .unwrap_or_else(|_| "{}".to_string());
                     let evt = Event::default()
                         .id(id64.to_string())
                         .event("ai_event")
-                        .data(data.to_string());
+                        .data(data);
                     if tx.send(Ok(evt)).await.is_err() {
                         return;
                     }
