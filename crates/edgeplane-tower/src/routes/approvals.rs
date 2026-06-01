@@ -38,7 +38,7 @@ fn conflict(msg: &str) -> axum::response::Response {
 }
 
 fn clamp_expires(seconds: Option<i64>) -> i64 {
-    seconds.unwrap_or(900).max(60).min(86400)
+    seconds.unwrap_or(900).clamp(60, 86400)
 }
 
 /// Generates an HMAC-SHA256 signed approval token compatible with the Python backend.

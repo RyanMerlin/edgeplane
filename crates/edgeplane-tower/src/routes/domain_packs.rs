@@ -47,7 +47,7 @@ fn add_json_to_tar<W: std::io::Write>(
     value: &serde_json::Value,
 ) -> std::io::Result<()> {
     let content = serde_json::to_vec_pretty(value)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
     let mut header = tar::Header::new_gnu();
     header.set_size(content.len() as u64);
     header.set_mode(0o644);

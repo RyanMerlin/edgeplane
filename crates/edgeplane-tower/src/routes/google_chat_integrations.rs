@@ -82,12 +82,11 @@ fn verify_google_chat(headers: &axum::http::HeaderMap, body: &[u8]) -> VerifyRes
             );
         }
         // Try payload token
-        if let Ok(payload) = serde_json::from_slice::<serde_json::Value>(body) {
-            if let Some(token) = payload.get("token").and_then(|v| v.as_str()) {
-                if constant_time_eq(token, &verification_token) {
-                    return VerifyResult::Ok;
-                }
-            }
+        if let Ok(payload) = serde_json::from_slice::<serde_json::Value>(body)
+            && let Some(token) = payload.get("token").and_then(|v| v.as_str())
+            && constant_time_eq(token, &verification_token)
+        {
+            return VerifyResult::Ok;
         }
         return VerifyResult::Err(
             StatusCode::UNAUTHORIZED,

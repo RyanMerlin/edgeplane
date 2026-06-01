@@ -10,6 +10,10 @@ license.workspace = true
 name = "edgeplane-tower"
 path = "src/main.rs"
 
+[[bin]]
+name = "gen-openapi"
+path = "src/bin/gen_openapi.rs"
+
 [lib]
 name = "edgeplane_tower"
 path = "src/lib.rs"
@@ -45,6 +49,7 @@ futures-util = "0.3"
 tempfile = "3.9"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-webpki-roots", "connect"] }
 rust-s3 = { version = "0.35", default-features = false, features = ["with-tokio", "tokio-rustls-tls", "fail-on-err"] }
+utoipa = { version = "5", features = ["chrono"] }
 
 [dev-dependencies]
 axum-test = "20"

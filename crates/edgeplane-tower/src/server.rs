@@ -47,7 +47,7 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
     let web_dir = std::env::var("EP_WEB_DIR")
         .unwrap_or_else(|_| "/usr/local/share/edgeplane-web".to_string());
     let web_path = PathBuf::from(&web_dir);
-    let router = if web_path.is_dir() {
+    if web_path.is_dir() {
         let serve = ServeDir::new(&web_path)
             .not_found_service(ServeFile::new(web_path.join("index.html")));
         Router::new()
@@ -59,8 +59,7 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
             .nest("/api", authed)
             .fallback(proxy_fallback)
             .with_state(state)
-    };
-    router
+    }
 }
 
 fn load_jwt_keys() -> (jsonwebtoken::EncodingKey, jsonwebtoken::DecodingKey) {

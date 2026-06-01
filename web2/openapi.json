@@ -1,0 +1,234 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "EdgePlane Tower API",
+    "description": "EdgePlane Tower — HTTP API (spike: 3-endpoint surface)",
+    "contact": {
+      "name": "Edgeplane Engineers",
+      "email": "support@edgeplane.ai"
+    },
+    "license": {
+      "name": "Apache-2.0",
+      "identifier": "Apache-2.0"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Return the authenticated caller's identity.",
+        "operationId": "auth_me_stub",
+        "responses": {
+          "200": {
+            "description": "Caller identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/governance/policy/active": {
+      "get": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "Return the currently active governance policy, seeding the default if none exists.",
+        "operationId": "governance_active_stub",
+        "responses": {
+          "200": {
+            "description": "Active governance policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GovernancePolicyResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Default policy seeded (first call on empty DB)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GovernancePolicyResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Liveness probe — returns `200 ok` with version string. No auth required.",
+        "operationId": "health_stub",
+        "responses": {
+          "200": {
+            "description": "Server is reachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GovernancePolicyResponse": {
+        "type": "object",
+        "description": "Response emitted by `GET /api/governance/policy/active`.",
+        "required": [
+          "id",
+          "version",
+          "state",
+          "policy",
+          "change_note",
+          "created_by",
+          "published_by",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "change_note": {
+            "type": "string",
+            "description": "Human-readable change note."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO-8601 UTC timestamp of record creation."
+          },
+          "created_by": {
+            "type": "string",
+            "description": "Subject that created this policy record."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Database row ID."
+          },
+          "policy": {
+            "description": "Parsed governance policy object."
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ISO-8601 UTC timestamp of publication; `null` for drafts."
+          },
+          "published_by": {
+            "type": "string",
+            "description": "Subject that published this policy (empty string for drafts)."
+          },
+          "state": {
+            "type": "string",
+            "description": "Policy lifecycle state: `\"active\"`, `\"draft\"`, or `\"archived\"`."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "ISO-8601 UTC timestamp of last update."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Monotonically increasing version number."
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "description": "Response emitted by `GET /api/health`.",
+        "required": [
+          "status",
+          "version"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Always `\"ok\"` when the server is reachable."
+          },
+          "version": {
+            "type": "string",
+            "description": "Crate version string (e.g. `\"0.12.0\"`)."
+          }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "required": [
+          "subject",
+          "auth_type"
+        ],
+        "properties": {
+          "auth_type": {
+            "type": "string",
+            "description": "Authentication mechanism used: \"session\", \"service_account\", or \"oidc_jwt\"."
+          },
+          "session_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Session database ID — present for session tokens, absent for service account tokens."
+          },
+          "subject": {
+            "type": "string",
+            "description": "The authenticated principal's subject identifier (e.g. OIDC sub or service account name)."
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "system",
+      "description": "Infrastructure endpoints"
+    },
+    {
+      "name": "auth",
+      "description": "Authentication and identity"
+    },
+    {
+      "name": "governance",
+      "description": "Policy lifecycle management"
+    }
+  ]
+}

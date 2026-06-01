@@ -28,7 +28,7 @@ async fn search_tasks(
     principal: Principal,
     Query(q): Query<SearchQuery>,
 ) -> impl IntoResponse {
-    let limit = q.limit.unwrap_or(10).min(50).max(1);
+    let limit = q.limit.unwrap_or(10).clamp(1, 50);
     let pattern = format!("%{}%", q.q.to_lowercase());
 
     let rows = sqlx::query(
@@ -91,7 +91,7 @@ async fn search_docs(
     principal: Principal,
     Query(q): Query<SearchQuery>,
 ) -> impl IntoResponse {
-    let limit = q.limit.unwrap_or(10).min(50).max(1);
+    let limit = q.limit.unwrap_or(10).clamp(1, 50);
     let pattern = format!("%{}%", q.q.to_lowercase());
 
     let rows = sqlx::query(
@@ -148,7 +148,7 @@ async fn search_missions(
     principal: Principal,
     Query(q): Query<SearchQuery>,
 ) -> impl IntoResponse {
-    let limit = q.limit.unwrap_or(10).min(50).max(1);
+    let limit = q.limit.unwrap_or(10).clamp(1, 50);
     let pattern = format!("%{}%", q.q.to_lowercase());
 
     let rows = if principal.is_admin {
