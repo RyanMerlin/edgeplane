@@ -55,7 +55,14 @@ function StatusDot({ status }: { status: TransportStatus }) {
 
 // ── Item renderer ─────────────────────────────────────────────────────────────
 
-function ItemRenderer({ item }: { item: ConversationItem }) {
+interface ItemRendererProps {
+  item: ConversationItem;
+  onApprove?: (id: string) => void;
+  onReject?: (id: string, note: string) => void;
+  approvalBusy?: boolean;
+}
+
+function ItemRenderer({ item, onApprove, onReject, approvalBusy }: ItemRendererProps) {
   switch (item.kind) {
     case 'message':
       return <MessageBubble item={item} />;
@@ -64,7 +71,9 @@ function ItemRenderer({ item }: { item: ConversationItem }) {
     case 'tool_call':
       return <ToolCallCard item={item} />;
     case 'approval':
-      return <ApprovalPrompt item={item} />;
+      return (
+        <ApprovalPrompt item={item} onApprove={onApprove} onReject={onReject} busy={approvalBusy} />
+      );
   }
 }
 
@@ -75,13 +84,26 @@ interface Props {
   status: TransportStatus;
   onSend: (text: string) => void;
   onCancel: () => void;
+  /** Optional approval handlers — only needed when items may include 'approval' kind. */
+  onApprove?: (actionId: string) => void;
+  onReject?: (actionId: string, note: string) => void;
+  /** Disable approval buttons while a mutation is in flight. */
+  approvalBusy?: boolean;
 }
 
 // Scroll threshold: if the user has scrolled more than this many px from
 // the bottom, we stop auto-scrolling.
 const AUTOSCROLL_THRESHOLD = 80;
 
-export function ConversationView({ items, status, onSend, onCancel }: Props) {
+export function ConversationView({
+  items,
+  status,
+  onSend,
+  onCancel,
+  onApprove,
+  onReject,
+  approvalBusy,
+}: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
   const prevItemCountRef = useRef(items.length);
@@ -170,7 +192,13 @@ export function ConversationView({ items, status, onSend, onCancel }: Props) {
           </div>
         )}
         {items.map((item) => (
-          <ItemRenderer key={item.id} item={item} />
+          <ItemRenderer
+            key={item.id}
+            item={item}
+            onApprove={onApprove}
+            onReject={onReject}
+            approvalBusy={approvalBusy}
+          />
         ))}
       </div>
 
