@@ -21,6 +21,11 @@ export const queryKeys = {
     all: ['evolve'] as const,
     mission: (id: string) => [...queryKeys.evolve.all, 'mission', id] as const,
   },
+  agents: {
+    all: ['agents'] as const,
+    list: () => [...queryKeys.agents.all, 'list'] as const,
+    detail: (agentId: string) => [...queryKeys.agents.all, 'detail', agentId] as const,
+  },
   jobs: {
     all: ['jobs'] as const,
     list: () => [...queryKeys.jobs.all, 'list'] as const,
