@@ -85,6 +85,7 @@ function TopBar({
       <NavLink to="/agents">Agents</NavLink>
       <NavLink to="/explorer">Explorer</NavLink>
       <NavLink to="/feed">Feed</NavLink>
+      <NavLink to="/matrix">Matrix</NavLink>
       <NavLink to="/governance">Governance</NavLink>
       <NavLink to="/onboarding">Onboarding</NavLink>
 
