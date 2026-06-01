@@ -45,7 +45,7 @@ pub struct LoginArgs {
     #[arg(long)]
     pub print_token: bool,
 
-    /// Skip prompts: use EP_TOKEN env var directly (non-interactive)
+    /// Skip prompts: use EP_AGENT_TOKEN env var directly (non-interactive)
     #[arg(long)]
     pub non_interactive: bool,
 
@@ -251,16 +251,16 @@ pub async fn login(
     current_base_url: &str,
 ) -> Result<()> {
     if args.non_interactive {
-        // Non-interactive: use EP_TOKEN env directly with the resolved URL
+        // Non-interactive: use EP_AGENT_TOKEN env directly with the resolved URL
         let token =
-            std::env::var("EP_TOKEN").context("--non-interactive requires EP_TOKEN to be set")?;
+            std::env::var("EP_AGENT_TOKEN").context("--non-interactive requires EP_AGENT_TOKEN to be set")?;
         let client = EdgeplaneClient::new_with_token(current_base_url, &token)
             .context("could not build client")?;
         let ttl = args.ttl_hours.clamp(1, 8760);
         let resp = client
             .post_json("/auth/sessions", &serde_json::json!({ "ttl_hours": ttl }))
             .await
-            .context("token rejected — verify EP_TOKEN and EP_BASE_URL")?;
+            .context("token rejected — verify EP_AGENT_TOKEN and EP_BASE_URL")?;
         return finish_session_login(resp, current_base_url, args.print_token);
     }
 
@@ -302,7 +302,7 @@ async fn login_oidc(base_url: &str, ttl_hours: u64, print_token: bool) -> Result
     eprintln!();
     eprintln!("  {}Starting OIDC login…{}", ui::CYAN, ui::RESET);
 
-    // Call the CLI-specific initiate endpoint (no EP_TOKEN required)
+    // Call the CLI-specific initiate endpoint (no EP_AGENT_TOKEN required)
     let init: serde_json::Value = anon_client
         .get_json("/auth/oidc/cli-initiate")
         .await

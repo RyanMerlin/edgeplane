@@ -41,7 +41,7 @@ pub enum AuthState {
     /// flags this so the operator knows the silent-empty panels aren't a
     /// real outage.
     SessionExpired,
-    /// Token came from `--token` / `EP_TOKEN`. We don't know its expiry, so
+    /// Token came from `--token` (or EP_AGENT_TOKEN bootstrap). We don't know its expiry, so
     /// the badge labels it explicitly rather than guessing.
     SessionFromFlag,
 }
@@ -208,7 +208,7 @@ impl App {
         pool.dispatch(client.clone(), WorkRequest::Ping { job_id: next_job_id() });
         // Load agents immediately on startup
         pool.dispatch(client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
-        // Resolve token identity when auth came from --token / EP_TOKEN
+        // Resolve token identity when auth came from --token or EP_AGENT_TOKEN bootstrap
         if matches!(auth_state, AuthState::SessionFromFlag) {
             pool.dispatch(client.clone(), WorkRequest::Whoami { job_id: next_job_id() });
         }

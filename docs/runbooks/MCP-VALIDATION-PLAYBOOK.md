@@ -29,7 +29,7 @@ Defaults:
 Required env:
 
 - `EP_BASE_URL`
-- `EP_TOKEN`
+- `EP_AGENT_TOKEN`
 - local shim must be reachable at `EP_DAEMON_HOST:EP_DAEMON_PORT` (defaults `127.0.0.1:8765`)
 - full Docker stack should be running (`bash scripts/dev-up.sh`)
 
@@ -37,7 +37,7 @@ Example:
 
 ```bash
 export EP_BASE_URL=http://localhost:8008
-export EP_TOKEN="<token>"
+export EP_AGENT_TOKEN="<mcs_sa_token>"
 EP_PRESSURE_MODE=agent EP_PRESSURE_WORKERS=5 EP_PRESSURE_DURATION_SEC=600 \
 scripts/edgeplane-pressure-test.sh
 ```
@@ -78,14 +78,14 @@ Report includes strict gate fields:
 ## Prerequisites
 
 - Running API (default `http://localhost:8008`)
-- Auth token exported as `EP_TOKEN`
+- Auth token exported as `EP_AGENT_TOKEN` (or a valid OIDC session from `edgeplane auth login`)
 - `jq` and `curl` installed
 
 ## Run
 
 ```bash
 export EP_BASE_URL=http://localhost:8008
-export EP_TOKEN="<token>"
+export EP_AGENT_TOKEN="<mcs_sa_token>"
 scripts/mcp-validation-playbook.sh
 ```
 

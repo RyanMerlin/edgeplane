@@ -2,14 +2,14 @@
 set -euo pipefail
 
 BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
-TOKEN="${EP_TOKEN:-}"
+TOKEN="${EP_AGENT_TOKEN:-}"
 ACTOR="${EP_PLAYBOOK_ACTOR:-token-client}"
 RUN_ID="${EP_PLAYBOOK_RUN_ID:-$(date +%Y%m%d%H%M%S)}"
 SCENARIO_FILE="${EP_PLAYBOOK_SCENARIO_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/pressure-scenarios/reliability-trio.json}"
 SKIP_CLEANUP="${EP_PLAYBOOK_SKIP_CLEANUP:-0}"
 
 if [[ -z "$TOKEN" ]]; then
-  echo "EP_TOKEN is required" >&2
+  echo "EP_AGENT_TOKEN is required" >&2
   exit 2
 fi
 if [[ ! -f "$SCENARIO_FILE" ]]; then

@@ -25,9 +25,8 @@ python3 -m venv /opt/edgeplane/.venv
 Create `/opt/edgeplane/.env` (minimum example):
 
 ```env
-AUTH_MODE=dual
+AUTH_MODE=oidc
 OIDC_REQUIRED=false
-EP_TOKEN=<static-token-for-mcp>
 OIDC_ISSUER_URL=https://<authentik-host>/application/o/<provider-slug>/
 OIDC_AUDIENCE=<oidc-client-id>
 EP_ADMIN_EMAILS=<comma-separated-admin-emails>
@@ -115,6 +114,6 @@ When deploying on Kubernetes, provide secrets via the platform’s secret object
 - `curl http://localhost:8000/` returns status ok.
 - `curl http://localhost:8000/healthz` returns status ok without auth.
 - `curl http://localhost:8000/readyz` returns status ok only when dependencies are ready.
-- `curl -H "Authorization: Bearer <EP_TOKEN>" http://localhost:8000/mcp/health` returns ok.
+- `curl -H "Authorization: Bearer <session-or-service-account-token>" http://localhost:8000/mcp/health` returns ok.
 - Bearer token callers are not platform admins unless their subject/email is allowlisted in `EP_ADMIN_SUBJECTS` or `EP_ADMIN_EMAILS`.
 - Docs/artifacts create + delete paths work with expected mission authz.

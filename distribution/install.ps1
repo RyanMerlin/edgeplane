@@ -98,7 +98,7 @@ function Install-McIntegration {
                     command = "edgeplane-mcp"
                     env = @{
                         EP_BASE_URL = $effectiveEndpoint
-                        EP_TOKEN = $Token
+                        EP_AGENT_TOKEN = $Token
                     }
                 }
             }
@@ -120,7 +120,7 @@ function Install-McIntegration {
 command = "edgeplane-mcp"
 startup_timeout_sec = 45
 tool_timeout_sec = 60
-env = { EP_BASE_URL = $endpointToml, EP_TOKEN = $tokenToml }
+env = { EP_BASE_URL = $endpointToml, EP_AGENT_TOKEN = $tokenToml }
 "@
 
         Set-Content -Path $OutPath -Value $tomlConfig -Encoding UTF8
@@ -189,7 +189,7 @@ env = { EP_BASE_URL = $endpointToml, EP_TOKEN = $tokenToml }
     $envFile = Join-Path $effectiveHome ".edgeplane-agent.env"
     @(
         "EP_BASE_URL=$effectiveEndpoint"
-        "EP_TOKEN=$Token"
+        "EP_AGENT_TOKEN=$Token"
     ) | Set-Content -Path $envFile -Encoding UTF8
 
     $scriptRoot = if ($PSScriptRoot) {

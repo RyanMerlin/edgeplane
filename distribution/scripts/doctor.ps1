@@ -22,9 +22,9 @@ catch {
 
 if ($Endpoint) {
     $previousBaseUrl = $env:EP_BASE_URL
-    $previousToken = $env:EP_TOKEN
+    $previousToken = $env:EP_AGENT_TOKEN
     $env:EP_BASE_URL = $Endpoint
-    $env:EP_TOKEN = $Token
+    $env:EP_AGENT_TOKEN = $Token
     try {
         $doctorRaw = & edgeplane-mcp doctor | Out-String
         if (-not $doctorRaw) {
@@ -53,7 +53,7 @@ if ($Endpoint) {
     }
     finally {
         $env:EP_BASE_URL = $previousBaseUrl
-        $env:EP_TOKEN = $previousToken
+        $env:EP_AGENT_TOKEN = $previousToken
     }
 }
 
@@ -92,9 +92,9 @@ else {
 if (Get-Command edgeplane-explorer -ErrorAction SilentlyContinue) {
     if ($Endpoint) {
         $previousBaseUrl = $env:EP_BASE_URL
-        $previousToken = $env:EP_TOKEN
+        $previousToken = $env:EP_AGENT_TOKEN
         $env:EP_BASE_URL = $Endpoint
-        $env:EP_TOKEN = $Token
+        $env:EP_AGENT_TOKEN = $Token
         try {
             $explorerRaw = & edgeplane-explorer tree --format json 2>$null | Out-String
             if (-not $explorerRaw) {
@@ -115,7 +115,7 @@ if (Get-Command edgeplane-explorer -ErrorAction SilentlyContinue) {
         }
         finally {
             $env:EP_BASE_URL = $previousBaseUrl
-            $env:EP_TOKEN = $previousToken
+            $env:EP_AGENT_TOKEN = $previousToken
         }
     }
     else {

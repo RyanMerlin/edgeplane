@@ -4,7 +4,7 @@ This runbook captures the operator steps for supporting the two gated pressure m
 
 ## Preconditions
 - Edgeplane full stack is healthy (postgres, api, mcpd/shim, mosquitto, rustfs) and reachable from the pressure harness.
-- `EP_TOKEN` is valid, `EP_BASE_URL` points to the primary API, and the MCP shim at `127.0.0.1:8765` is up.
+- `EP_AGENT_TOKEN` is valid (or a valid OIDC session from `edgeplane auth login`), `EP_BASE_URL` points to the primary API, and the MCP shim at `127.0.0.1:8765` is up.
 - Pressure assets already exist (docs/press scripts, artifacts path) and the `docs/CODEX-SWARM-WORKFLOW.md` sequence has been reviewed.
 - Metrics pipes are configured (`mosquitto`/`edgeplane daemon` log forwarding, `artifacts/collab/` writable) so every run deposits `summary.json` and `pressure-results.jsonl` where the gate owner can pull them.
 

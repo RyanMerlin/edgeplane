@@ -11,15 +11,15 @@
 #
 # Prerequisites:
 #   export EP_BASE_URL=http://edgeplane:8008
-#   export EP_TOKEN=<your-token>
+#   export EP_AGENT_TOKEN=<your-token>
 
 set -euo pipefail
 
 : "${EP_BASE_URL:?Set EP_BASE_URL to the edgeplane-tower base URL}"
-: "${EP_TOKEN:?Set EP_TOKEN to a valid bearer token}"
+: "${EP_AGENT_TOKEN:?Set EP_AGENT_TOKEN to a valid bearer token}"
 
 BASE="${EP_BASE_URL%/}"
-AUTH="Authorization: Bearer $EP_TOKEN"
+AUTH="Authorization: Bearer $EP_AGENT_TOKEN"
 RUN_ID="$(date +%s)"
 PASS=0
 FAIL=0

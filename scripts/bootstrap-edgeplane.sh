@@ -135,7 +135,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
 # Edgeplane shell environment
 export EP_INSTALL_PREFIX="$PREFIX"
 export EP_BASE_URL="${EP_BASE_URL:-https://edgeplane.example.com}"
-export EP_TOKEN="${EP_TOKEN:-}"
+export EP_AGENT_TOKEN="${EP_AGENT_TOKEN:-}"
 EOF
   chmod 0600 "$ENV_FILE"
 fi

@@ -530,8 +530,8 @@ pub fn router() -> Router<Arc<AppState>> {
             get(execution_session_pty),
         )
         // Mesh agent attach proxy: browser WS → controlplane → edgeplaned node WS.
-        // The browser uses ?ep_token=<bearer> for auth; controlplane signs a
-        // short-lived HMAC token to dial the mesh node.
+        // Auth via Authorization header; controlplane signs a short-lived HMAC
+        // token to dial the mesh node.
         .route(
             "/runtime/nodes/{node_id}/agents/{agent_id}/attach",
             get(agent_attach_proxy),
@@ -2514,8 +2514,7 @@ async fn handle_pty_ws(socket: WebSocket, session_id: String, conn_id: String) {
 
 /// `GET /runtime/nodes/{node_id}/agents/{agent_id}/attach`
 ///
-/// Auth: bearer token in `Authorization` header **or** `?ep_token=` query
-/// param (browsers can't set headers on a WS upgrade). The token is checked
+/// Auth: bearer token in `Authorization` header. The token is checked
 /// the same way `Principal` extraction does — admin token or a valid user
 /// session.
 ///
@@ -2527,16 +2526,14 @@ async fn agent_attach_proxy(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
     Path((node_id, agent_id)): Path<(String, String)>,
-    Query(params): Query<HashMap<String, String>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    // 1) Auth — accept either Authorization header or ep_token query.
+    // 1) Auth — Authorization header only (query-param path removed).
     let token = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.to_string())
-        .or_else(|| params.get("ep_token").cloned())
         .unwrap_or_default();
 
     if !verify_attach_caller_token(&state, &token).await {

@@ -81,7 +81,8 @@ Then bring up the full stack locally:
 
 ```bash
 bash scripts/dev-up.sh
-EP_TOKEN="TopSecret" edgeplane system doctor
+edgeplane auth login          # OIDC or token prompt
+edgeplane system doctor
 ```
 
 Then open:
@@ -146,8 +147,8 @@ irm https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstra
 ### Launch an agent
 
 ```bash
-export EP_TOKEN="<your-token>"
 export EP_BASE_URL="https://your-edgeplane.example.com"
+edgeplane auth login       # OIDC browser flow (or --with-token for API token prompt)
 
 edgeplane run claude       # Claude Code
 edgeplane run codex        # OpenAI Codex CLI
@@ -156,13 +157,20 @@ edgeplane run gemini       # Google Gemini CLI
 
 ### Auth
 
-`edgeplane auth login` exchanges a static token for a server-issued session token (`mcs_*`) — revocable, never stored in agent config files, auto-loaded on next run:
+`edgeplane auth login` issues a server-managed session token (`mcs_*`) — revocable, never stored in agent config files, auto-loaded on next run:
 
 ```bash
-EP_TOKEN="<static-token>" edgeplane auth login
+edgeplane auth login       # interactive OIDC (default)
+edgeplane auth login --with-token   # prompt for an mcs_sa_* service-account token
 edgeplane run claude       # session auto-loaded
 edgeplane auth whoami
 edgeplane auth logout
+```
+
+For CI/non-interactive environments, set `EP_AGENT_TOKEN` to an `mcs_sa_*` service-account token and pass `--non-interactive`:
+
+```bash
+EP_AGENT_TOKEN="mcs_sa_..." edgeplane auth login --non-interactive
 ```
 
 Pass `--preflight-only` to validate connectivity without launching.

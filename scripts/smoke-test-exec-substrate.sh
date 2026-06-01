@@ -3,19 +3,19 @@
 # Requires a running Edgeplane backend.
 #
 # Usage:
-#   EP_BASE_URL=http://localhost:8000 EP_TOKEN=<token> ./scripts/smoke-test-exec-substrate.sh
+#   EP_BASE_URL=http://localhost:8000 EP_AGENT_TOKEN=<token> ./scripts/smoke-test-exec-substrate.sh
 #
 # The script creates a throwaway mission, exercises the major subsystems,
 # and cleans up on exit.
 set -euo pipefail
 
 BASE_URL="${EP_BASE_URL:-http://localhost:8000}"
-TOKEN="${EP_TOKEN:-}"
+TOKEN="${EP_AGENT_TOKEN:-}"
 PASS=0
 FAIL=0
 
 if [[ -z "$TOKEN" ]]; then
-  echo "ERROR: EP_TOKEN not set" >&2
+  echo "ERROR: EP_AGENT_TOKEN not set" >&2
   exit 1
 fi
 
