@@ -1,4 +1,4 @@
-FROM node:22-slim AS web-builder
+FROM node:24-slim AS web-builder
 WORKDIR /build/web2
 COPY web2/package.json web2/package-lock.json ./
 RUN npm ci
