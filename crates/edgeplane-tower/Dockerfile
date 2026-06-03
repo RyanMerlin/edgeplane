@@ -43,6 +43,13 @@ RUN for d in \
       echo 'fn main() {}' > $d/src/main.rs && \
       printf 'pub fn stub() {}\n' > $d/src/lib.rs; \
     done
+# edgeplane-tower declares a second [[bin]] (gen-openapi, src/bin/gen_openapi.rs),
+# used only for OpenAPI codegen in CI. The dependency-cache build below compiles
+# ALL of the crate's bins, so the stub stage must also stub this one or it fails
+# with "couldn't read src/bin/gen_openapi.rs". The real source replaces it at the
+# COPY below, so this stub only exists to satisfy the dep-caching build.
+RUN mkdir -p crates/edgeplane-tower/src/bin \
+    && echo 'fn main() {}' > crates/edgeplane-tower/src/bin/gen_openapi.rs
 RUN cargo build --release -p edgeplane-tower
 
 # Replace stub source with real edgeplane-tower source and rebuild
