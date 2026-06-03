@@ -216,6 +216,7 @@ function LoginScreen() {
 
 function RootLayout() {
   const loggedIn = useAuthStore((s) => s.loggedIn);
+  const bootstrapped = useAuthStore((s) => s.bootstrapped);
   const userSubject = useAuthStore((s) => s.userSubject);
   const bootstrap = useAuthStore((s) => s.bootstrap);
   const loginWithCookieSession = useAuthStore((s) => s.loginWithCookieSession);
@@ -289,7 +290,15 @@ function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {loggedIn ? (
+      {!bootstrapped ? (
+        // Auth state not yet known — show a minimal dark splash instead of
+        // flashing the login screen before GET /api/auth/me resolves.
+        <div className="login-view">
+          <div className="login-card-logo" style={{ opacity: 0.4 }}>
+            edgeplane
+          </div>
+        </div>
+      ) : loggedIn ? (
         <div className="app-shell">
           <TopBar
             theme={theme}

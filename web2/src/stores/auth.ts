@@ -7,6 +7,9 @@ import { create } from 'zustand';
 
 interface AuthState {
   loggedIn: boolean;
+  /** False until the initial GET /api/auth/me probe resolves. Gates the UI so
+   *  we don't flash the login screen before auth state is known. */
+  bootstrapped: boolean;
   userSubject: string | null;
   bootstrap: () => Promise<void>;
   loginWithCookieSession: () => void;
@@ -17,24 +20,25 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set) => ({
   loggedIn: false,
+  bootstrapped: false,
   userSubject: null,
 
   setUserSubject: (subject) => set({ userSubject: subject }),
 
-  loginWithCookieSession: () => set({ loggedIn: true }),
+  loginWithCookieSession: () => set({ loggedIn: true, bootstrapped: true }),
 
   bootstrap: async () => {
     try {
       const res = await fetch('/api/auth/me', { credentials: 'include' });
       if (res.ok) {
         const data = (await res.json()) as { subject?: string };
-        set({ loggedIn: true, userSubject: data.subject ?? null });
+        set({ loggedIn: true, userSubject: data.subject ?? null, bootstrapped: true });
         return;
       }
     } catch {
       // Ignore — keep logged out.
     }
-    set({ loggedIn: false, userSubject: null });
+    set({ loggedIn: false, userSubject: null, bootstrapped: true });
   },
 
   logout: async () => {
