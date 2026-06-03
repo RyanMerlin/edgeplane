@@ -7,15 +7,17 @@
  *   - vi.mock('@tanstack/react-router') — no router context required
  *
  * Test surface:
- *   - Profile tabs render from agents query
- *   - Clicking a tab changes active profile
- *   - Ctrl+<n> hotkey switches active profile
- *   - Per-profile status badge and node id render
- *   - Not-registered profile shows fallback
- *   - Not-attachable profile (no node_id) shows fallback
+ *   - Tabs render one-per-agent from the merged agent list (generic names AND aria-* names)
+ *   - Tab label = agent.name as-is (no stripping)
+ *   - No placeholder / disabled "not registered" tabs
+ *   - Empty state when zero agents
+ *   - Clicking a tab changes the active agent
+ *   - Ctrl+N hotkey switches active tab by index
+ *   - Not-attachable fallback (agent has no node_id in metadata)
+ *   - ConversationView rendered for active, attachable agent
+ *   - useAcpConversation called with correct nodeId + agentId
  *   - Loading / error states
  *   - Fleet summary counts
- *   - Only active tab mounts AcpPane (useAcpConversation called once per render)
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -46,8 +48,6 @@ vi.mock('@/api/client', () => ({
 }));
 
 // Mock the conversation hook so no WebSocket opens in tests.
-// The factory cannot reference a top-level variable (vi.mock is hoisted),
-// so we use vi.fn() inline and retrieve the mock via import() in tests.
 vi.mock('@/lib/conversation/useAcpConversation', () => ({
   useAcpConversation: vi.fn().mockReturnValue({
     items: [],
@@ -75,13 +75,14 @@ import { FleetDashboard } from './index';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
+// Intentionally mix a generic name with an aria-* name to prove both are shown as-is.
 const sampleCpAgents = [
   {
     id: 1,
-    public_id: 'aria-operator-e8820c0d',
-    name: 'aria-operator-e8820c0d',
+    public_id: 'aria-engineer-f1a2b3c4',
+    name: 'aria-engineer-f1a2b3c4',
     status: 'online',
-    capabilities: 'fleet-management',
+    capabilities: 'mc-development',
     metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'excalibur' }),
     home_domain_id: 'dom-abc',
     current_domain_id: null,
@@ -90,11 +91,11 @@ const sampleCpAgents = [
   },
   {
     id: 2,
-    public_id: 'aria-engineer-f1a2b3c4',
-    name: 'aria-engineer-f1a2b3c4',
+    public_id: 'worker-bot-99',
+    name: 'worker-bot-99',
     status: 'offline',
-    capabilities: 'mc-development',
-    metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'excalibur' }),
+    capabilities: 'batch-processing',
+    metadata: JSON.stringify({ runtime: 'custom', node_id: 'kai' }),
     home_domain_id: 'dom-def',
     current_domain_id: null,
     created_at: '2026-01-02T00:00:00Z',
@@ -102,10 +103,10 @@ const sampleCpAgents = [
   },
   {
     id: 3,
-    public_id: 'aria-merlinlabs-a1b2c3d4',
-    name: 'aria-merlinlabs-a1b2c3d4',
+    public_id: 'analytics-agent-77',
+    name: 'analytics-agent-77',
     status: 'online',
-    capabilities: 'k8s,homelab',
+    capabilities: 'reporting',
     // no node_id in metadata — "not attachable" case
     metadata: JSON.stringify({ runtime: 'claude-code' }),
     home_domain_id: 'dom-ghi',
@@ -177,9 +178,9 @@ describe('FleetDashboard', () => {
     expect(screen.getByText(/Failed to load fleet/)).toBeInTheDocument();
   });
 
-  // ── Profile tabs render ───────────────────────────────────────────────────
+  // ── Tab render — one per agent, label = name as-is ────────────────────────
 
-  it('renders all six profile tabs', async () => {
+  it('renders exactly one tab per registered agent', async () => {
     const { apiClient, unwrap } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(sampleCpAgents)
@@ -191,45 +192,73 @@ describe('FleetDashboard', () => {
 
     await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
 
-    for (const profile of ['operator', 'engineer', 'merlinlabs', 'publisher', 'work', 'research']) {
-      expect(screen.getByTestId(`tab-${profile}`)).toBeInTheDocument();
+    // Tabs keyed by public_id
+    for (const agent of sampleCpAgents) {
+      expect(screen.getByTestId(`tab-${agent.public_id}`)).toBeInTheDocument();
+    }
+
+    // Exactly 3 tabs — no extras, no placeholders
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs).toHaveLength(3);
+  });
+
+  it('tab labels show agent name as-is (no stripping)', async () => {
+    const { apiClient, unwrap } = await import('@/api/client');
+    (apiClient.GET as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(sampleCpAgents)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([]);
+    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
+
+    renderWith(<FleetDashboard />, queryClient);
+
+    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
+
+    // aria-* name should show the full name, not a stripped version
+    expect(screen.getByTestId('tab-aria-engineer-f1a2b3c4')).toHaveTextContent(
+      'aria-engineer-f1a2b3c4',
+    );
+    // Generic name shown verbatim
+    expect(screen.getByTestId('tab-worker-bot-99')).toHaveTextContent('worker-bot-99');
+  });
+
+  it('no tabs are disabled — no "not registered" placeholder tabs', async () => {
+    const { apiClient, unwrap } = await import('@/api/client');
+    (apiClient.GET as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(sampleCpAgents)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([]);
+    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
+
+    renderWith(<FleetDashboard />, queryClient);
+
+    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
+
+    const tabs = screen.getAllByRole('tab');
+    for (const tab of tabs) {
+      expect(tab).not.toBeDisabled();
     }
   });
 
-  it('shows per-profile status badge for registered agents', async () => {
+  // ── Empty state ───────────────────────────────────────────────────────────
+
+  it('shows empty state when no agents are registered', async () => {
     const { apiClient, unwrap } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // no cp agents
+      .mockResolvedValueOnce([]) // no runtime nodes
       .mockResolvedValue([]);
     (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
 
     renderWith(<FleetDashboard />, queryClient);
 
-    // Wait for data to load and operator tab to be active (first profile)
-    await waitFor(() =>
-      expect(screen.getByTestId('profile-status-badge-operator')).toBeInTheDocument(),
-    );
-    expect(screen.getByTestId('profile-status-badge-operator')).toHaveTextContent('online');
-  });
-
-  it('shows node id in the profile header when present', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
-    renderWith(<FleetDashboard />, queryClient);
-
-    await waitFor(() => expect(screen.getByTestId('profile-node-operator')).toBeInTheDocument());
-    expect(screen.getByTestId('profile-node-operator')).toHaveTextContent('excalibur');
+    await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
+    expect(screen.getByText(/No agents registered/)).toBeInTheDocument();
   });
 
   // ── Tab switching via click ───────────────────────────────────────────────
 
-  it('clicking a different tab changes the active profile', async () => {
+  it('clicking a different tab changes the active agent', async () => {
     const { apiClient, unwrap } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(sampleCpAgents)
@@ -241,18 +270,21 @@ describe('FleetDashboard', () => {
 
     await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
 
-    // operator is default active; click engineer (which has an agent)
-    fireEvent.click(screen.getByTestId('tab-engineer'));
+    // First agent is default active; click the second
+    fireEvent.click(screen.getByTestId('tab-worker-bot-99'));
 
     await waitFor(() =>
-      expect(screen.getByTestId('tab-engineer')).toHaveAttribute('aria-selected', 'true'),
+      expect(screen.getByTestId('tab-worker-bot-99')).toHaveAttribute('aria-selected', 'true'),
     );
-    expect(screen.getByTestId('tab-operator')).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByTestId('tab-aria-engineer-f1a2b3c4')).toHaveAttribute(
+      'aria-selected',
+      'false',
+    );
   });
 
   // ── Tab switching via keyboard hotkey ─────────────────────────────────────
 
-  it('Ctrl+2 hotkey switches to the engineer profile (index 1)', async () => {
+  it('Ctrl+2 hotkey switches to the second agent (index 1)', async () => {
     const { apiClient, unwrap } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(sampleCpAgents)
@@ -267,11 +299,11 @@ describe('FleetDashboard', () => {
     fireEvent.keyDown(document, { key: '2', ctrlKey: true });
 
     await waitFor(() =>
-      expect(screen.getByTestId('tab-engineer')).toHaveAttribute('aria-selected', 'true'),
+      expect(screen.getByTestId('tab-worker-bot-99')).toHaveAttribute('aria-selected', 'true'),
     );
   });
 
-  it('Ctrl+1 hotkey switches to the operator profile (index 0)', async () => {
+  it('Ctrl+1 hotkey switches to the first agent (index 0)', async () => {
     const { apiClient, unwrap } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(sampleCpAgents)
@@ -283,43 +315,25 @@ describe('FleetDashboard', () => {
 
     await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
 
-    // First switch to engineer (tab 2), then back to operator via hotkey
-    fireEvent.click(screen.getByTestId('tab-engineer'));
+    // Switch to second agent first, then back via hotkey
+    fireEvent.click(screen.getByTestId('tab-worker-bot-99'));
     await waitFor(() =>
-      expect(screen.getByTestId('tab-engineer')).toHaveAttribute('aria-selected', 'true'),
+      expect(screen.getByTestId('tab-worker-bot-99')).toHaveAttribute('aria-selected', 'true'),
     );
 
     fireEvent.keyDown(document, { key: '1', ctrlKey: true });
 
     await waitFor(() =>
-      expect(screen.getByTestId('tab-operator')).toHaveAttribute('aria-selected', 'true'),
+      expect(screen.getByTestId('tab-aria-engineer-f1a2b3c4')).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
     );
-  });
-
-  // ── Not-registered fallback ───────────────────────────────────────────────
-
-  it('shows not-registered fallback for a profile with no agent', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents) // only operator, engineer, merlinlabs registered
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
-    renderWith(<FleetDashboard />, queryClient);
-
-    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
-
-    // publisher, work, research are not registered; click work tab
-    // (disabled button click won't fire, so we look at pane content via active tab state)
-    // Switch manually to a profile we know is unregistered by checking the tab is disabled
-    const publisherTab = screen.getByTestId('tab-publisher');
-    expect(publisherTab).toBeDisabled();
   });
 
   // ── Not-attachable fallback ───────────────────────────────────────────────
 
-  it('shows not-attachable fallback when the active profile agent has no node_id', async () => {
+  it('shows not-attachable fallback when the active agent has no node_id', async () => {
     const { apiClient, unwrap } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(sampleCpAgents)
@@ -331,17 +345,17 @@ describe('FleetDashboard', () => {
 
     await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
 
-    // Switch to merlinlabs — has an agent but no node_id in metadata
-    fireEvent.click(screen.getByTestId('tab-merlinlabs'));
+    // analytics-agent-77 has no node_id in metadata
+    fireEvent.click(screen.getByTestId('tab-analytics-agent-77'));
 
     await waitFor(() =>
-      expect(screen.getByTestId('profile-not-attachable-merlinlabs')).toBeInTheDocument(),
+      expect(screen.getByTestId('agent-not-attachable-analytics-agent-77')).toBeInTheDocument(),
     );
   });
 
-  // ── ConversationView is rendered for active, attachable profile ───────────
+  // ── ConversationView rendered for active, attachable agent ────────────────
 
-  it('renders ConversationView for the active profile with a valid node_id', async () => {
+  it('renders ConversationView for the active agent with a valid node_id', async () => {
     const { apiClient, unwrap } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(sampleCpAgents)
@@ -351,7 +365,7 @@ describe('FleetDashboard', () => {
 
     renderWith(<FleetDashboard />, queryClient);
 
-    // operator tab is active by default and has node_id=excalibur
+    // First agent (aria-engineer-f1a2b3c4) is active by default and has node_id=excalibur
     await waitFor(() => expect(screen.getByTestId('conversation-view')).toBeInTheDocument());
   });
 
@@ -368,10 +382,10 @@ describe('FleetDashboard', () => {
 
     await waitFor(() => expect(useAcpConversation as ReturnType<typeof vi.fn>).toHaveBeenCalled());
 
-    // Should be called with the operator agent's nodeId and public_id
+    // Should be called with the first agent's nodeId and public_id
     expect(useAcpConversation as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
       'excalibur',
-      'aria-operator-e8820c0d',
+      'aria-engineer-f1a2b3c4',
     );
   });
 
@@ -380,7 +394,7 @@ describe('FleetDashboard', () => {
   it('shows fleet online/total summary when agents are loaded', async () => {
     const { apiClient, unwrap } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents) // operator=online, engineer=offline, merlinlabs=online
+      .mockResolvedValueOnce(sampleCpAgents) // aria-engineer=online, worker-bot=offline, analytics=online
       .mockResolvedValueOnce([])
       .mockResolvedValue([]);
     (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
@@ -389,9 +403,45 @@ describe('FleetDashboard', () => {
 
     await waitFor(() => expect(screen.getByTestId('fleet-summary')).toBeInTheDocument());
 
-    // 2 online (operator + merlinlabs), 3 total
+    // 2 online (aria-engineer + analytics-agent), 3 total
     const countEl = screen.getByTestId('fleet-online-count');
     expect(countEl).toHaveTextContent('2');
     expect(countEl).toHaveTextContent('3');
+  });
+
+  // ── Status badge ──────────────────────────────────────────────────────────
+
+  it('shows per-agent status badge in the pane header', async () => {
+    const { apiClient, unwrap } = await import('@/api/client');
+    (apiClient.GET as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(sampleCpAgents)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([]);
+    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
+
+    renderWith(<FleetDashboard />, queryClient);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-status-badge-aria-engineer-f1a2b3c4')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('agent-status-badge-aria-engineer-f1a2b3c4')).toHaveTextContent(
+      'online',
+    );
+  });
+
+  it('shows node id in the agent pane header when present', async () => {
+    const { apiClient, unwrap } = await import('@/api/client');
+    (apiClient.GET as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(sampleCpAgents)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([]);
+    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
+
+    renderWith(<FleetDashboard />, queryClient);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-node-aria-engineer-f1a2b3c4')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('agent-node-aria-engineer-f1a2b3c4')).toHaveTextContent('excalibur');
   });
 });

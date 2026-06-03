@@ -1,11 +1,8 @@
 /**
  * Fleet dashboard — Phase 4 landing page.
  *
- * Ports structure from web/src/routes/+page.svelte (Svelte home):
- *   - FLEET_PROFILES order: operator, engineer, merlinlabs, publisher, work, research
- *   - Profile-to-agent mapping via profileName() parsing "aria-<profile>-<8hex>" names
- *   - Keyboard hotkeys: Ctrl/Meta+1..6 switch tabs by index (same as Svelte bindings)
- *   - Per-profile status dot + last-seen from the agent record
+ * Tabs are driven dynamically from registered agents returned by the tower.
+ * No hardcoded fleet profile list — one tab per agent, label = agent.name as-is.
  *
  * React changes vs. Svelte:
  *   - xterm terminal pane replaced with <ConversationView> via useAcpConversation
@@ -23,7 +20,7 @@ import { useAcpConversation } from '@/lib/conversation/useAcpConversation';
 import { queryKeys } from '@/lib/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 // ── Route ──────────────────────────────────────────────────────────────────────
 
@@ -37,18 +34,6 @@ type Agent = components['schemas']['Agent'];
 type NodeMeshAgent = components['schemas']['NodeMeshAgent'];
 type RuntimeNode = components['schemas']['RuntimeNode'];
 
-// ── Fleet profile order (ported from Svelte FLEET_PROFILES) ───────────────────
-
-const FLEET_PROFILES = [
-  'operator',
-  'engineer',
-  'merlinlabs',
-  'publisher',
-  'work',
-  'research',
-] as const;
-type FleetProfile = (typeof FLEET_PROFILES)[number];
-
 // ── Merged agent row (same shape as agents.tsx) ────────────────────────────────
 
 type MergedAgent = {
@@ -61,18 +46,6 @@ type MergedAgent = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-
-/**
- * Extract a short profile name from agent IDs like "aria-operator-e8820c0d".
- * Ported from web/src/lib/api/fleet.ts profileName().
- */
-function profileName(agentId: string): string {
-  const parts = agentId.split('-');
-  if (parts.length >= 3 && parts[0] === 'aria') {
-    return parts.slice(1, -1).join('-');
-  }
-  return agentId;
-}
 
 /** Resolve the nodeId from the agent's metadata JSON string. */
 function resolveNodeId(metadata: string | null | undefined): string | null {
@@ -189,24 +162,23 @@ function AcpPane({ nodeId, agentId }: { nodeId: string; agentId: string }) {
   return <ConversationView items={items} status={status} onSend={send} onCancel={cancel} />;
 }
 
-interface ProfilePaneProps {
-  profile: FleetProfile;
-  agent: MergedAgent | undefined;
+interface AgentPaneProps {
+  agent: MergedAgent;
   isActive: boolean;
 }
 
-function ProfilePane({ profile, agent, isActive }: ProfilePaneProps) {
-  const nodeId = agent ? resolveNodeId(agent.metadata) : null;
+function AgentPane({ agent, isActive }: AgentPaneProps) {
+  const nodeId = resolveNodeId(agent.metadata);
 
   // Derive last-seen from whichever timestamp is available
-  const lastSeen = agent?.last_heartbeat_at ?? agent?.updated_at;
+  const lastSeen = agent.last_heartbeat_at ?? agent.updated_at;
 
   return (
     <div
       style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-      data-testid={`profile-pane-${profile}`}
+      data-testid={`agent-pane-${agent.public_id}`}
     >
-      {/* Profile status header */}
+      {/* Agent status header */}
       <div
         style={{
           display: 'flex',
@@ -219,48 +191,42 @@ function ProfilePane({ profile, agent, isActive }: ProfilePaneProps) {
           fontSize: '11px',
           color: 'var(--muted)',
         }}
-        data-testid={`profile-status-${profile}`}
+        data-testid={`agent-status-${agent.public_id}`}
       >
         <span
-          aria-label={agent ? `status: ${agent.status}` : 'not registered'}
+          aria-label={`status: ${agent.status}`}
           style={{
             width: '7px',
             height: '7px',
             borderRadius: '50%',
-            background: agent ? statusColor(agent.status) : '#333',
+            background: statusColor(agent.status),
             flexShrink: 0,
             display: 'inline-block',
           }}
         />
         <span style={{ fontFamily: 'monospace', color: 'var(--text)', fontWeight: 600 }}>
-          {profile}
+          {agent.name}
         </span>
-        {agent ? (
-          <>
-            <span
-              className={`tag ${agent.status === 'online' || agent.status === 'active' ? 'ok' : ''}`}
-              data-testid={`profile-status-badge-${profile}`}
-            >
-              {agent.status}
-            </span>
-            {nodeId && (
-              <span
-                style={{ color: 'var(--dim)', fontSize: '10px' }}
-                data-testid={`profile-node-${profile}`}
-              >
-                {nodeId}
-              </span>
-            )}
-            <span style={{ marginLeft: 'auto', fontSize: '10px' }}>{fmtRelative(lastSeen)}</span>
-          </>
-        ) : (
-          <span style={{ color: 'var(--dim)', fontSize: '10px' }}>not registered</span>
+        <span
+          className={`tag ${agent.status === 'online' || agent.status === 'active' ? 'ok' : ''}`}
+          data-testid={`agent-status-badge-${agent.public_id}`}
+        >
+          {agent.status}
+        </span>
+        {nodeId && (
+          <span
+            style={{ color: 'var(--dim)', fontSize: '10px' }}
+            data-testid={`agent-node-${agent.public_id}`}
+          >
+            {nodeId}
+          </span>
         )}
+        <span style={{ marginLeft: 'auto', fontSize: '10px' }}>{fmtRelative(lastSeen)}</span>
       </div>
 
       {/* Conversation pane or fallback */}
       <div style={{ flex: 1, minHeight: 0 }}>
-        {!agent && (
+        {!nodeId && (
           <div
             style={{
               padding: '24px 16px',
@@ -268,24 +234,7 @@ function ProfilePane({ profile, agent, isActive }: ProfilePaneProps) {
               fontSize: '13px',
               textAlign: 'center',
             }}
-            data-testid={`profile-unregistered-${profile}`}
-          >
-            <div style={{ fontWeight: 600, marginBottom: '4px' }}>{profile}</div>
-            <div>Not registered in EdgePlane.</div>
-            <div style={{ fontSize: '11px', marginTop: '4px', color: 'var(--dim)' }}>
-              Check that edgeplaned has imported this profile.
-            </div>
-          </div>
-        )}
-        {agent && !nodeId && (
-          <div
-            style={{
-              padding: '24px 16px',
-              color: 'var(--muted)',
-              fontSize: '13px',
-              textAlign: 'center',
-            }}
-            data-testid={`profile-not-attachable-${profile}`}
+            data-testid={`agent-not-attachable-${agent.public_id}`}
           >
             <div style={{ fontWeight: 600, marginBottom: '4px' }}>Not attachable</div>
             <div>
@@ -293,7 +242,7 @@ function ProfilePane({ profile, agent, isActive }: ProfilePaneProps) {
             </div>
           </div>
         )}
-        {agent && nodeId && isActive && <AcpPane nodeId={nodeId} agentId={agent.public_id} />}
+        {nodeId && isActive && <AcpPane nodeId={nodeId} agentId={agent.public_id} />}
       </div>
     </div>
   );
@@ -302,7 +251,7 @@ function ProfilePane({ profile, agent, isActive }: ProfilePaneProps) {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function FleetDashboard() {
-  const [activeProfile, setActiveProfile] = useState<FleetProfile>(FLEET_PROFILES[0]);
+  const [activeProfile, setActiveProfile] = useState<string | null>(null);
 
   const cpQuery = useQuery({
     queryKey: queryKeys.agents.list(),
@@ -321,29 +270,22 @@ export function FleetDashboard() {
       ? mergeAgents(cpQuery.data ?? [], meshQuery.data ?? [])
       : [];
 
-  /** Find the agent record for a fleet profile using the naming convention. */
-  const agentForProfile = useCallback(
-    (profile: FleetProfile): MergedAgent | undefined => {
-      return agents.find(
-        (a) => profileName(a.public_id) === profile || profileName(a.name) === profile,
-      );
-    },
-    [agents],
-  );
+  // Derive active agent id: explicit selection or first agent as default
+  const activeAgentId = activeProfile ?? (agents.length ? agents[0].public_id : null);
 
-  // Keyboard hotkeys: Ctrl/Meta+1..6 switch profiles (ported from Svelte handleKeydown)
+  // Keyboard hotkeys: Ctrl/Meta+N switches to the Nth agent tab (1-indexed)
   useEffect(() => {
     function handleKeydown(e: KeyboardEvent) {
       if (!(e.ctrlKey || e.metaKey)) return;
       const num = Number.parseInt(e.key, 10);
-      if (num >= 1 && num <= FLEET_PROFILES.length) {
+      if (num >= 1 && num <= agents.length) {
         e.preventDefault();
-        setActiveProfile(FLEET_PROFILES[num - 1]);
+        setActiveProfile(agents[num - 1].public_id);
       }
     }
     document.addEventListener('keydown', handleKeydown);
     return () => document.removeEventListener('keydown', handleKeydown);
-  }, []);
+  }, [agents]);
 
   const isLoading = cpQuery.isLoading && meshQuery.isLoading;
   const isError = cpQuery.isError && meshQuery.isError;
@@ -351,6 +293,8 @@ export function FleetDashboard() {
   // Fleet summary counts — derived from merged agents, no extra endpoint needed
   const onlineCount = agents.filter((a) => a.status === 'online' || a.status === 'active').length;
   const totalCount = agents.length;
+
+  const activeAgent = agents.find((a) => a.public_id === activeAgentId) ?? null;
 
   return (
     <div
@@ -406,7 +350,7 @@ export function FleetDashboard() {
             </div>
           )}
 
-          {/* Profile tabs (session-tabs from Svelte) */}
+          {/* Agent tabs — one per registered agent, driven by the merged list */}
           <div
             style={{
               display: 'flex',
@@ -416,30 +360,21 @@ export function FleetDashboard() {
               flexShrink: 0,
             }}
             role="tablist"
-            aria-label="Fleet profiles"
+            aria-label="Fleet agents"
             data-testid="profile-tabs"
           >
-            {FLEET_PROFILES.map((profile, i) => {
-              const agent = agentForProfile(profile);
-              const isActive = activeProfile === profile;
-              const unavailable = !agent;
+            {agents.map((a, i) => {
+              const isActive = a.public_id === activeAgentId;
               return (
                 <button
-                  key={profile}
+                  key={a.public_id}
                   type="button"
                   role="tab"
                   aria-selected={isActive}
-                  aria-controls={`panel-${profile}`}
-                  id={`tab-${profile}`}
-                  disabled={unavailable}
-                  onClick={() => {
-                    if (!unavailable) setActiveProfile(profile);
-                  }}
-                  title={
-                    agent
-                      ? `${profile} (${agent.status}) — Ctrl+${i + 1}`
-                      : `${profile} — not registered`
-                  }
+                  aria-controls={`panel-${a.public_id}`}
+                  id={`tab-${a.public_id}`}
+                  onClick={() => setActiveProfile(a.public_id)}
+                  title={`${a.name} (${a.status}) — Ctrl+${i + 1}`}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -448,13 +383,12 @@ export function FleetDashboard() {
                     background: 'none',
                     border: 'none',
                     borderBottom: isActive ? '2px solid var(--accent)' : '2px solid transparent',
-                    color: unavailable ? 'var(--dim)' : isActive ? 'var(--text)' : 'var(--muted)',
+                    color: isActive ? 'var(--text)' : 'var(--muted)',
                     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                     fontSize: '13px',
-                    cursor: unavailable ? 'not-allowed' : 'pointer',
-                    opacity: unavailable ? 0.35 : 1,
+                    cursor: 'pointer',
                   }}
-                  data-testid={`tab-${profile}`}
+                  data-testid={`tab-${a.public_id}`}
                 >
                   <span
                     aria-hidden="true"
@@ -462,32 +396,41 @@ export function FleetDashboard() {
                       width: '6px',
                       height: '6px',
                       borderRadius: '50%',
-                      background: agent ? statusColor(agent.status) : '#333',
+                      background: statusColor(a.status),
                       flexShrink: 0,
                       display: 'inline-block',
                     }}
                   />
-                  {profile}
+                  {a.name}
                 </button>
               );
             })}
           </div>
 
-          {/* Active profile pane */}
-          <div
-            role="tabpanel"
-            id={`panel-${activeProfile}`}
-            aria-labelledby={`tab-${activeProfile}`}
-            style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-            data-testid="active-profile-panel"
-          >
-            <ProfilePane
-              key={activeProfile}
-              profile={activeProfile}
-              agent={agentForProfile(activeProfile)}
-              isActive
-            />
-          </div>
+          {/* Empty state — no agents registered */}
+          {agents.length === 0 && (
+            <div className="empty-state" data-testid="empty-state">
+              <div className="empty-icon">⊙</div>
+              <div className="empty-title">No agents registered</div>
+              <div className="empty-body">
+                No agents have been registered yet. Start an agent with{' '}
+                <code>edgeplane agent register</code>.
+              </div>
+            </div>
+          )}
+
+          {/* Active agent pane */}
+          {activeAgent && (
+            <div
+              role="tabpanel"
+              id={`panel-${activeAgent.public_id}`}
+              aria-labelledby={`tab-${activeAgent.public_id}`}
+              style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+              data-testid="active-profile-panel"
+            >
+              <AgentPane key={activeAgent.public_id} agent={activeAgent} isActive />
+            </div>
+          )}
         </>
       )}
     </div>
