@@ -1,0 +1,2535 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "EdgePlane Tower API",
+    "description": "EdgePlane Tower — HTTP API",
+    "contact": {
+      "name": "Edgeplane Engineers",
+      "email": "support@edgeplane.ai"
+    },
+    "license": {
+      "name": "Apache-2.0",
+      "identifier": "Apache-2.0"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/agent-onboarding.json": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Return the agent onboarding manifest for this EdgePlane instance.",
+        "description": "The manifest describes all integration endpoints, MCP server configuration,\nand bootstrap steps needed to connect an agent runtime (edgeplaned) to this\ncontrolplane. No authentication required.",
+        "operationId": "onboarding_manifest_stub",
+        "parameters": [
+          {
+            "name": "endpoint",
+            "in": "query",
+            "description": "Base URL to embed in the manifest (defaults to `Host` header)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Onboarding manifest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingManifest"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "List all registered control-plane agents.",
+        "operationId": "agents_list_stub",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by agent status (e.g. `online`, `offline`)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default 100, max 500)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "description": "Include archived agents (default false)",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Agent"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/agents/{agent_id}": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Return a single agent by numeric id or public_id.",
+        "operationId": "agents_get_stub",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Numeric agent id or public_id string (e.g. `aria-work-qwn5eb33`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "description": "Agent not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/ai/runtime-capabilities": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Return the list of supported AI runtime capabilities.",
+        "operationId": "ai_runtime_capabilities_stub",
+        "responses": {
+          "200": {
+            "description": "List of supported runtime capability sets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilitySet"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/ai/sessions": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "List AI sessions owned by the authenticated caller.",
+        "operationId": "ai_sessions_list_stub",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of sessions to return (default 20, max 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of AI sessions (turns/events/pending_actions are empty arrays in list responses)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AiSession"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Create a new AI session.",
+        "operationId": "ai_sessions_create_stub",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Created AI session with empty turns/events/pending_actions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/ai/sessions/{id}": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Fetch a single AI session by id, including all turns, events, and pending actions.",
+        "operationId": "ai_sessions_get_stub",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "AI session id (e.g. `ais_a1b2c3d4e5f6g7h8`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full AI session with nested turns, events, and pending actions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "description": "Session not found or not owned by caller"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/ai/sessions/{id}/actions/{action_id}/approve": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Approve a pending tool-execution action.",
+        "operationId": "ai_sessions_approve_action_stub",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "AI session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action_id",
+            "in": "path",
+            "description": "Pending action id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full session after the action was approved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "description": "Session or action not found"
+          },
+          "422": {
+            "description": "Action is not in pending status"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/ai/sessions/{id}/actions/{action_id}/reject": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Reject a pending tool-execution action.",
+        "operationId": "ai_sessions_reject_action_stub",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "AI session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action_id",
+            "in": "path",
+            "description": "Pending action id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "note",
+            "in": "query",
+            "description": "Optional rejection note",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full session after the action was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "description": "Session or action not found"
+          },
+          "422": {
+            "description": "Action is not in pending status"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/ai/sessions/{id}/turns": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Append a user turn to an AI session.",
+        "operationId": "ai_sessions_create_turn_stub",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "AI session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostTurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Full session after the turn was appended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "description": "Session not found"
+          },
+          "422": {
+            "description": "Message body is empty"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Return the authenticated caller's identity.",
+        "operationId": "auth_me_stub",
+        "responses": {
+          "200": {
+            "description": "Caller identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/explorer/node/{node_type}/{node_id}": {
+      "get": {
+        "tags": [
+          "explorer"
+        ],
+        "summary": "Return full detail for a specific explorer node (domain, mission, or task).",
+        "description": "The response shape varies by `node_type`; see `ExplorerNodeDetail` for field\npresence rules by type.",
+        "operationId": "explorer_node_stub",
+        "parameters": [
+          {
+            "name": "node_type",
+            "in": "path",
+            "description": "One of: `domain`, `mission`, `task`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "node_id",
+            "in": "path",
+            "description": "Entity id (UUID for domain/mission; numeric or public_id for task)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit_tasks",
+            "in": "query",
+            "description": "Max tasks to return (default 50, max 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Node detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorerNodeDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid node_type"
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "404": {
+            "description": "Node not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/explorer/tree": {
+      "get": {
+        "tags": [
+          "explorer"
+        ],
+        "summary": "Return the full explorer tree — domains → missions → task summaries.",
+        "description": "Supports text search (`q`), domain/status filtering, and per-cluster task limits.",
+        "operationId": "explorer_tree_stub",
+        "parameters": [
+          {
+            "name": "domain_id",
+            "in": "query",
+            "description": "Restrict to a single domain",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter tasks by status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Full-text filter across domain/mission/task names, descriptions, owners, and tags",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit_tasks_per_cluster",
+            "in": "query",
+            "description": "Max tasks per mission (default 5, max 50)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit_missions",
+            "in": "query",
+            "description": "Max missions fetched (default 100, max 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Explorer tree",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorerTreeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/governance/policy/active": {
+      "get": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "Return the currently active governance policy, seeding the default if none exists.",
+        "operationId": "governance_active_stub",
+        "responses": {
+          "200": {
+            "description": "Active governance policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GovernancePolicyResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Default policy seeded (first call on empty DB)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GovernancePolicyResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/governance/policy/events": {
+      "get": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "List recent governance policy audit-log events (admin only).",
+        "operationId": "governance_events_stub",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of events to return (default 50, max 500)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of policy events, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PolicyEvent"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "403": {
+            "description": "Admin role required"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/governance/policy/reload": {
+      "post": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "Reload the in-memory governance policy from the database (admin only).",
+        "operationId": "governance_reload_stub",
+        "responses": {
+          "200": {
+            "description": "Policy reloaded successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GovernanceReloadResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "403": {
+            "description": "Admin role required"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Liveness probe — returns `200 ok` with version string. No auth required.",
+        "operationId": "health_stub",
+        "responses": {
+          "200": {
+            "description": "Server is reachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runtime/nodes": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "List runtime nodes registered by the authenticated subject.",
+        "operationId": "runtime_nodes_list_stub",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by node status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default 100, max 500)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of runtime nodes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RuntimeNode"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/runtime/nodes/{node_id}/agents": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "List mesh agents assigned to a specific runtime node.",
+        "operationId": "runtime_node_agents_stub",
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "description": "Runtime node UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of mesh agents on this node",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NodeMeshAgent"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "403": {
+            "description": "Node does not belong to the caller"
+          },
+          "404": {
+            "description": "Node not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Agent": {
+        "type": "object",
+        "description": "A registered control-plane agent (fleet member). Returned by `GET /api/agents`\nand `GET /api/agents/{agent_id}`.",
+        "required": [
+          "id",
+          "public_id",
+          "name",
+          "capabilities",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "capabilities": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "current_domain_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Active domain context. Follows the agent when attached elsewhere;\nreset to `home_domain_id` on detach. Joined to `domain_name` in API responses."
+          },
+          "home_domain_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Permanent home domain — created automatically on first registration."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Internal database row id (used only for foreign keys; prefer `public_id` externally)."
+          },
+          "metadata": {
+            "type": "string",
+            "description": "Free-form JSON string with runtime-supplied metadata (e.g. `runtime`, `node_id`)."
+          },
+          "name": {
+            "type": "string"
+          },
+          "public_id": {
+            "type": "string",
+            "description": "Stable, human-readable wire identifier — `{name}-{8-char-hex-suffix}`.\nUsed by edgeplaned, CLI, TUI, and dashboard for all external references."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle status: `\"online\"`, `\"offline\"`, `\"busy\"`, `\"archived\"`, etc."
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentMessage": {
+        "type": "object",
+        "description": "A message sent between two control-plane agents.",
+        "required": [
+          "id",
+          "from_agent_id",
+          "to_agent_id",
+          "content",
+          "message_type",
+          "read",
+          "created_at"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "from_agent_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message_type": {
+            "type": "string"
+          },
+          "read": {
+            "type": "boolean"
+          },
+          "task_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "to_agent_id": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "AgentSession": {
+        "type": "object",
+        "description": "A session record for a control-plane agent (Claude Code run, etc.).",
+        "required": [
+          "id",
+          "agent_id",
+          "context",
+          "started_at"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "audit_log": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claude_session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context": {
+            "type": "string"
+          },
+          "end_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "started_at": {
+            "type": "string"
+          }
+        }
+      },
+      "AiEvent": {
+        "type": "object",
+        "description": "A lifecycle / IO / tool / approval event associated with an AI session.",
+        "required": [
+          "id",
+          "event_type",
+          "payload",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "Event creation timestamp, microsecond precision, no timezone suffix."
+          },
+          "event_type": {
+            "type": "string",
+            "description": "Event type string (e.g. `\"user_message\"`, `\"approval_outcome\"`)."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Row id (stored as i32 in DB, cast to i64 for wire compatibility)."
+          },
+          "payload": {
+            "description": "Polymorphic event payload — shape varies by `event_type`."
+          },
+          "turn_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Optional parent turn; `null` for session-level events."
+          }
+        }
+      },
+      "AiPendingAction": {
+        "type": "object",
+        "description": "A pending tool-execution action waiting for human approval or rejection.",
+        "required": [
+          "id",
+          "tool",
+          "args",
+          "reason",
+          "status",
+          "requested_by",
+          "approved_by",
+          "rejected_by",
+          "rejection_note",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "approved_by": {
+            "type": "string",
+            "description": "Subject that approved the action (empty string if not yet approved)."
+          },
+          "args": {
+            "description": "Polymorphic tool arguments — shape varies by tool."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Action creation timestamp, microsecond precision, no timezone suffix."
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable string identifier (UUID or custom slug stored in the DB)."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Human-readable reason the runtime requested this action."
+          },
+          "rejected_by": {
+            "type": "string",
+            "description": "Subject that rejected the action (empty string if not yet rejected)."
+          },
+          "rejection_note": {
+            "type": "string",
+            "description": "Rejection note (empty string if action was not rejected)."
+          },
+          "requested_by": {
+            "type": "string",
+            "description": "Subject that requested the action."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle status: `\"pending\"`, `\"executed\"`, or `\"rejected\"`."
+          },
+          "tool": {
+            "type": "string",
+            "description": "Tool name (e.g. `\"bash\"`, `\"edit\"`)."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Action last-updated timestamp, microsecond precision, no timezone suffix."
+          }
+        }
+      },
+      "AiSession": {
+        "type": "object",
+        "description": "A full AI session record, including nested turns, events, and pending actions.\n\nReturned by `POST /api/ai/sessions`, `GET /api/ai/sessions/{id}`,\n`POST /api/ai/sessions/{id}/turns`, and the action approve/reject endpoints.\n\n`GET /api/ai/sessions` (list) returns a lightweight variant: `turns`,\n`events`, and `pending_actions` are empty arrays, and `capability_snapshot`\nand `policy` are `null` (those columns are not fetched in the list query for\nperformance reasons — the wire shape is identical; only the values differ).",
+        "required": [
+          "id",
+          "owner_subject",
+          "title",
+          "status",
+          "runtime_kind",
+          "turns",
+          "events",
+          "pending_actions",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "capability_snapshot": {
+            "description": "Snapshot of the `CapabilitySet` at the time the session was created.\nPolymorphic — stays as `Value` (→ `unknown` in TypeScript).\n`null` in list responses (not fetched in the list query)."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Session creation timestamp, microsecond precision, no timezone suffix."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiEvent"
+            },
+            "description": "All events associated with this session (empty in list responses)."
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable session identifier (e.g. `\"ais_a1b2c3d4e5f6g7h8\"`)."
+          },
+          "owner_subject": {
+            "type": "string",
+            "description": "OIDC subject of the session owner."
+          },
+          "pending_actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiPendingAction"
+            },
+            "description": "Pending tool-execution actions awaiting approval (empty in list responses)."
+          },
+          "policy": {
+            "description": "Governance policy document applied to this session.\nPolymorphic — stays as `Value` (→ `unknown` in TypeScript).\n`null` in list responses (not fetched in the list query)."
+          },
+          "runtime_kind": {
+            "type": "string",
+            "description": "Runtime kind used for this session (e.g. `\"claude_code\"`, `\"opencode\"`)."
+          },
+          "runtime_session_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "External runtime session identifier (set by the runtime after launch)."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle status: `\"active\"`, `\"completed\"`, or `\"error\"`."
+          },
+          "title": {
+            "type": "string",
+            "description": "Human-readable session title."
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiTurn"
+            },
+            "description": "Ordered list of turns in this session (empty in list responses)."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Session last-updated timestamp, microsecond precision, no timezone suffix."
+          },
+          "workspace_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Filesystem workspace path used by the runtime, if any."
+          }
+        }
+      },
+      "AiTurn": {
+        "type": "object",
+        "description": "A single conversational turn in an AI session.",
+        "required": [
+          "id",
+          "role",
+          "content",
+          "created_at"
+        ],
+        "properties": {
+          "content": {
+            "description": "Polymorphic turn content — shape varies by role and runtime kind."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Turn creation timestamp, microsecond precision, no timezone suffix."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Row id (stored as i32 in DB, cast to i64 for wire compatibility with\nthe original `row.get::<i32,_>(\"id\") as i64` conversion)."
+          },
+          "role": {
+            "type": "string",
+            "description": "`\"user\"`, `\"assistant\"`, or `\"tool\"`."
+          }
+        }
+      },
+      "CapabilitySet": {
+        "type": "object",
+        "description": "A capability descriptor for a supported AI runtime kind.\n\nReturned as an array by `GET /api/ai/runtime-capabilities`.",
+        "required": [
+          "runtime_kind",
+          "display_name",
+          "icon_slug",
+          "supports_streaming",
+          "supports_file_workspace",
+          "supports_tool_interception",
+          "supports_skill_packs",
+          "supports_session_resume",
+          "max_context_tokens"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable display name."
+          },
+          "icon_slug": {
+            "type": "string",
+            "description": "Icon slug used by the frontend asset resolver."
+          },
+          "max_context_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum usable context window in tokens.",
+            "minimum": 0
+          },
+          "runtime_kind": {
+            "type": "string",
+            "description": "Runtime kind identifier (e.g. `\"claude_code\"`, `\"opencode\"`)."
+          },
+          "supports_file_workspace": {
+            "type": "boolean",
+            "description": "Whether this runtime can operate on a file-system workspace."
+          },
+          "supports_session_resume": {
+            "type": "boolean",
+            "description": "Whether a suspended session can be resumed."
+          },
+          "supports_skill_packs": {
+            "type": "boolean",
+            "description": "Whether edgeplaned skill packs are supported."
+          },
+          "supports_streaming": {
+            "type": "boolean",
+            "description": "Whether this runtime supports SSE event streaming."
+          },
+          "supports_tool_interception": {
+            "type": "boolean",
+            "description": "Whether tool calls can be intercepted for approval gating."
+          }
+        }
+      },
+      "CreateSessionRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/ai/sessions`.",
+        "properties": {
+          "policy": {
+            "description": "Governance policy document to apply to the session.\nPolymorphic — stays as `Value`."
+          },
+          "runtime_kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Runtime kind to use for this session (defaults to `\"opencode\"`)."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional human-readable session title (defaults to empty string)."
+          }
+        }
+      },
+      "ExplorerDomain": {
+        "type": "object",
+        "description": "A domain detail record (nested inside ExplorerNodeDetail).",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "status",
+          "visibility",
+          "owners",
+          "contributors",
+          "updated_at"
+        ],
+        "properties": {
+          "contributors": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owners": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerDomainNode": {
+        "type": "object",
+        "description": "A domain node in the explorer tree (top-level container).",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "status",
+          "visibility",
+          "owners",
+          "updated_at",
+          "mission_count",
+          "task_count",
+          "missions"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mission_count": {
+            "type": "integer",
+            "description": "Number of missions in this domain (after filters).",
+            "minimum": 0
+          },
+          "missions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExplorerMissionNode"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "owners": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "task_count": {
+            "type": "integer",
+            "description": "Total task count across all missions (after filters).",
+            "minimum": 0
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerMission": {
+        "type": "object",
+        "description": "A mission detail record (nested inside ExplorerNodeDetail).",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "status",
+          "owners",
+          "updated_at",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "domain_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owners": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerMissionNode": {
+        "type": "object",
+        "description": "A mission (workstream) node inside the explorer tree.",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "status",
+          "owners",
+          "updated_at",
+          "task_count",
+          "task_status_counts",
+          "recent_tasks"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "domain_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owners": {
+            "type": "string"
+          },
+          "recent_tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExplorerTaskSummary"
+            },
+            "description": "Most recently updated tasks (up to `limit_tasks_per_cluster`)."
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "task_count": {
+            "type": "integer",
+            "description": "Total visible task count for this mission.",
+            "minimum": 0
+          },
+          "task_status_counts": {
+            "type": "object",
+            "description": "Per-status task counts (`\"open\"`, `\"done\"`, etc.).",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerNodeDetail": {
+        "type": "object",
+        "description": "Response from `GET /api/explorer/node/{node_type}/{node_id}`.\n\nShape varies by `node_type`:\n- `\"domain\"`: `domain` + `missions[]` + `tasks[]` are populated; `mission` and `task` are absent.\n- `\"mission\"`: `domain` (nullable), `mission`, `tasks[]` are populated; `missions` is absent.\n- `\"task\"`: `domain` (nullable), `mission`, `task` are populated; `missions` and `tasks` are absent.\n\nMIRROR: heterogeneous response combined into one struct. Optional fields\nare `null` when not applicable to the `node_type`.",
+        "required": [
+          "node_type",
+          "node_id"
+        ],
+        "properties": {
+          "domain": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExplorerDomain",
+                "description": "Present for all node types; `null` when the mission/task has no parent domain."
+              }
+            ]
+          },
+          "mission": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExplorerMission",
+                "description": "Present only when `node_type == \"mission\"` or `node_type == \"task\"`."
+              }
+            ]
+          },
+          "missions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExplorerMission"
+            },
+            "description": "Present only when `node_type == \"domain\"`."
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "node_type": {
+            "type": "string",
+            "description": "The requested node type: `\"domain\"`, `\"mission\"`, or `\"task\"`."
+          },
+          "task": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExplorerTask",
+                "description": "Present only when `node_type == \"task\"`."
+              }
+            ]
+          },
+          "tasks": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExplorerTask"
+            },
+            "description": "Present when `node_type == \"domain\"` or `node_type == \"mission\"`."
+          }
+        }
+      },
+      "ExplorerTask": {
+        "type": "object",
+        "description": "A task detail record (nested inside ExplorerNodeDetail).",
+        "required": [
+          "id",
+          "public_id",
+          "mission_id",
+          "title",
+          "description",
+          "status",
+          "owner",
+          "contributors",
+          "updated_at",
+          "created_at"
+        ],
+        "properties": {
+          "contributors": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mission_id": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "public_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerTaskSummary": {
+        "type": "object",
+        "description": "A task summary inside an explorer tree node.",
+        "required": [
+          "id",
+          "mission_id",
+          "title",
+          "status",
+          "owner",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mission_id": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ExplorerTreeResponse": {
+        "type": "object",
+        "description": "The explorer tree response (`GET /api/explorer/tree`).",
+        "required": [
+          "generated_at",
+          "domain_count",
+          "mission_count",
+          "task_count",
+          "domains",
+          "unassigned_missions"
+        ],
+        "properties": {
+          "domain_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExplorerDomainNode"
+            },
+            "description": "Domains (each containing their missions and task summaries)."
+          },
+          "generated_at": {
+            "type": "string"
+          },
+          "mission_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "task_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unassigned_missions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExplorerMissionNode"
+            },
+            "description": "Missions not assigned to any domain."
+          }
+        }
+      },
+      "GovernancePolicyResponse": {
+        "type": "object",
+        "description": "Response emitted by `GET /api/governance/policy/active` and related\npolicy-record endpoints.\n\nThe `policy` field is now a concrete typed struct rather than\n`serde_json::Value`, which allows utoipa to emit a real JSON Schema for the\n`policy` object and openapi-typescript to generate a typed TypeScript\ninterface instead of `unknown`.\n\nTimestamp fields use `NaiveDateTime` which matches the existing wire format\n(chrono serializes without a timezone suffix, preserving byte-identical\noutput vs. the previous `serde_json::json!` construction).",
+        "required": [
+          "id",
+          "version",
+          "state",
+          "policy",
+          "change_note",
+          "created_by",
+          "published_by",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "change_note": {
+            "type": "string",
+            "description": "Human-readable change note."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Timestamp of record creation."
+          },
+          "created_by": {
+            "type": "string",
+            "description": "Subject that created this policy record."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Database row ID."
+          },
+          "policy": {
+            "$ref": "#/components/schemas/PolicyDoc",
+            "description": "Parsed governance policy document."
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Timestamp of publication; `null` for drafts."
+          },
+          "published_by": {
+            "type": "string",
+            "description": "Subject that published this policy (empty string for drafts)."
+          },
+          "state": {
+            "type": "string",
+            "description": "Policy lifecycle state: `\"active\"`, `\"draft\"`, or `\"archived\"`."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Timestamp of last update."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Monotonically increasing version number."
+          }
+        }
+      },
+      "GovernanceReloadResponse": {
+        "type": "object",
+        "description": "Response emitted by `POST /api/governance/policy/reload`.",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Always `true` on success."
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "description": "Response emitted by `GET /api/health`.",
+        "required": [
+          "status",
+          "version"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Always `\"ok\"` when the server is reachable."
+          },
+          "version": {
+            "type": "string",
+            "description": "Crate version string (e.g. `\"0.12.0\"`)."
+          }
+        }
+      },
+      "McpDefaults": {
+        "type": "object",
+        "description": "MCP defaults block.",
+        "required": [
+          "startup_timeout_sec",
+          "tool_timeout_sec",
+          "protocol_version",
+          "healthcheck_path",
+          "endpoint_candidates"
+        ],
+        "properties": {
+          "endpoint_candidates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "healthcheck_path": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "startup_timeout_sec": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tool_timeout_sec": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "McpServerConfig": {
+        "type": "object",
+        "description": "MCP server config block embedded in the onboarding manifest.",
+        "required": [
+          "name",
+          "command",
+          "args",
+          "env"
+        ],
+        "properties": {
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "command": {
+            "type": "string"
+          },
+          "env": {
+            "type": "object",
+            "description": "Environment variables required to launch the MCP server.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "required": [
+          "subject",
+          "auth_type"
+        ],
+        "properties": {
+          "auth_type": {
+            "type": "string",
+            "description": "Authentication mechanism used: \"session\", \"service_account\", or \"oidc_jwt\"."
+          },
+          "session_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Session database ID — present for session tokens, absent for service account tokens."
+          },
+          "subject": {
+            "type": "string",
+            "description": "The authenticated principal's subject identifier (e.g. OIDC sub or service account name)."
+          }
+        }
+      },
+      "NodeMeshAgent": {
+        "type": "object",
+        "description": "A mesh agent assigned to a runtime node. Returned by\n`GET /api/runtime/nodes/{node_id}/agents`.\n\nMIRROR: handler (`routes/runtime.rs::list_node_agents`) builds JSON via\n`routes::work::row_to_agent` + domain join. Fields with open schemas\n(`profile`, `machine`, `runtime`, `labels`, `capabilities`) stay as\n`serde_json::Value` — their shape is runtime-class dependent.",
+        "required": [
+          "id",
+          "public_id",
+          "domain_id",
+          "runtime_kind",
+          "runtime_version",
+          "capabilities",
+          "labels",
+          "status",
+          "enrolled_at",
+          "discovered_capabilities"
+        ],
+        "properties": {
+          "agent_public_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The linked persistent agent identity, if set at enrollment."
+          },
+          "capabilities": {
+            "description": "List of capability strings (JSON array)."
+          },
+          "current_task_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discovered_capabilities": {
+            "description": "Capabilities discovered at runtime (JSON array)."
+          },
+          "domain_id": {
+            "type": "string"
+          },
+          "domain_kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Kind of the assigned domain (joined server-side)."
+          },
+          "domain_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human name of the assigned domain (joined server-side)."
+          },
+          "enrolled_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "Meshagent row UUID."
+          },
+          "labels": {
+            "description": "Scheduling/placement labels (JSON object)."
+          },
+          "last_heartbeat_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "machine": {
+            "description": "Machine descriptor blob (shape varies by runtime_kind)."
+          },
+          "node_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile": {
+            "description": "Runtime-class profile blob (shape varies by runtime_kind)."
+          },
+          "public_id": {
+            "type": "string",
+            "description": "Stable wire identifier (agent public_id or meshagent id as fallback)."
+          },
+          "runtime": {
+            "description": "Runtime config blob (shape varies by runtime_kind)."
+          },
+          "runtime_kind": {
+            "type": "string"
+          },
+          "runtime_node_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Agent status: `\"online\"`, `\"offline\"`, `\"busy\"`."
+          },
+          "supervision_mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Supervision mode: `\"task\"` or `\"persistent\"`."
+          }
+        }
+      },
+      "OnboardingAutomation": {
+        "type": "object",
+        "description": "Automation block.",
+        "required": [
+          "config_generator_script"
+        ],
+        "properties": {
+          "config_generator_script": {
+            "type": "string"
+          }
+        }
+      },
+      "OnboardingBootstrap": {
+        "type": "object",
+        "description": "Bootstrap instructions embedded in the onboarding manifest.",
+        "required": [
+          "step_1",
+          "step_2",
+          "remote_script",
+          "local_script"
+        ],
+        "properties": {
+          "local_script": {
+            "type": "string"
+          },
+          "remote_script": {
+            "type": "string"
+          },
+          "step_1": {
+            "type": "string"
+          },
+          "step_2": {
+            "type": "string"
+          }
+        }
+      },
+      "OnboardingEndpoints": {
+        "type": "object",
+        "description": "Endpoint URLs embedded in the onboarding manifest.",
+        "required": [
+          "health",
+          "openapi",
+          "explorer_tree",
+          "governance_active",
+          "mcp_tools",
+          "mcp_call",
+          "mcp_health",
+          "skills_snapshot_resolve",
+          "skills_sync_status",
+          "ui"
+        ],
+        "properties": {
+          "explorer_tree": {
+            "type": "string"
+          },
+          "governance_active": {
+            "type": "string"
+          },
+          "health": {
+            "type": "string"
+          },
+          "mcp_call": {
+            "type": "string"
+          },
+          "mcp_health": {
+            "type": "string"
+          },
+          "mcp_tools": {
+            "type": "string"
+          },
+          "openapi": {
+            "type": "string"
+          },
+          "skills_snapshot_resolve": {
+            "type": "string"
+          },
+          "skills_sync_status": {
+            "type": "string"
+          },
+          "ui": {
+            "type": "string"
+          }
+        }
+      },
+      "OnboardingManifest": {
+        "type": "object",
+        "description": "The onboarding manifest returned by `GET /api/agent-onboarding.json`.\n\nDescribes how to connect an agent runtime (edgeplaned) to this EdgePlane\ninstance. No auth required — the manifest itself contains no secrets.",
+        "required": [
+          "name",
+          "version",
+          "integration_contract_version",
+          "generated_for_base_url",
+          "endpoints",
+          "mcp_defaults",
+          "mcp_server",
+          "ep_serve_mcp_server",
+          "agent_configs",
+          "bootstrap",
+          "automation",
+          "notes"
+        ],
+        "properties": {
+          "agent_configs": {
+            "description": "Per-agent-runtime config snippets (keys: `\"claude_code\"`, `\"codex\"`, etc.)."
+          },
+          "automation": {
+            "$ref": "#/components/schemas/OnboardingAutomation"
+          },
+          "bootstrap": {
+            "$ref": "#/components/schemas/OnboardingBootstrap"
+          },
+          "endpoints": {
+            "$ref": "#/components/schemas/OnboardingEndpoints"
+          },
+          "ep_serve_mcp_server": {
+            "$ref": "#/components/schemas/McpServerConfig"
+          },
+          "generated_for_base_url": {
+            "type": "string"
+          },
+          "integration_contract_version": {
+            "type": "string"
+          },
+          "mcp_defaults": {
+            "$ref": "#/components/schemas/McpDefaults"
+          },
+          "mcp_server": {
+            "$ref": "#/components/schemas/McpServerConfig"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "PolicyActionRule": {
+        "type": "object",
+        "description": "Per-action rule — controls whether an action is enabled and whether it\nrequires an approval gate before execution.",
+        "required": [
+          "enabled",
+          "requires_approval"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the action is allowed at all."
+          },
+          "requires_approval": {
+            "type": "boolean",
+            "description": "Whether the action requires an approval workflow before proceeding."
+          }
+        }
+      },
+      "PolicyDoc": {
+        "type": "object",
+        "description": "Parsed governance policy document stored in the `policy_json` column.\n\nAll top-level sections are optional so that partial documents (e.g. the\nseeded default before all subsystems existed) still round-trip cleanly.",
+        "properties": {
+          "actions": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Per-action rules keyed by `\"<entity>.<verb>\"` (e.g. `\"domain.create\"`).",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PolicyActionRule"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "global": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PolicyGlobal",
+                "description": "Global flags that apply across all entity actions."
+              }
+            ]
+          },
+          "mcp": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PolicyMcp",
+                "description": "MCP-subsystem flags."
+              }
+            ]
+          },
+          "terminal": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PolicyTerminal",
+                "description": "Terminal-subsystem flags."
+              }
+            ]
+          }
+        }
+      },
+      "PolicyEvent": {
+        "type": "object",
+        "description": "A single governance policy audit-log event.",
+        "required": [
+          "id",
+          "version",
+          "event_type",
+          "actor_subject",
+          "detail",
+          "created_at"
+        ],
+        "properties": {
+          "actor_subject": {
+            "type": "string",
+            "description": "Subject (user or service) that triggered the event."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Timestamp of the event."
+          },
+          "detail": {
+            "description": "Arbitrary JSON detail payload (shape varies by event type)."
+          },
+          "event_type": {
+            "type": "string",
+            "description": "Event type string (e.g. `\"seeded\"`, `\"published\"`, `\"rollback\"`)."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Database row ID."
+          },
+          "policy_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "ID of the policy record this event refers to; `null` for system events."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Policy version at the time of the event."
+          }
+        }
+      },
+      "PolicyGlobal": {
+        "type": "object",
+        "description": "Global policy flags that apply across all actions.\n\nAll fields use `#[serde(default)]` so older policy documents that lack a\nfield deserialize without error (field defaults to `false`).",
+        "properties": {
+          "allow_create_without_approval": {
+            "type": "boolean"
+          },
+          "allow_delete": {
+            "type": "boolean"
+          },
+          "allow_publish": {
+            "type": "boolean"
+          },
+          "allow_update": {
+            "type": "boolean"
+          },
+          "require_approval_for_mutations": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PolicyMcp": {
+        "type": "object",
+        "description": "MCP-subsystem flags.",
+        "properties": {
+          "allow_mutation_tools": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PolicyTerminal": {
+        "type": "object",
+        "description": "Terminal-subsystem flags.",
+        "properties": {
+          "allow_create_actions": {
+            "type": "boolean"
+          },
+          "allow_publish_actions": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PostTurnRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/ai/sessions/{id}/turns`.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The user message to add as a new turn."
+          }
+        }
+      },
+      "RuntimeNode": {
+        "type": "object",
+        "description": "A registered runtime node. Returned by `GET /api/runtime/nodes`.\n\nMIRROR: handler (`routes/runtime.rs::list_nodes`) still builds JSON via\n`row_to_node`. Field set matches `row_to_node` exactly; JSON-embedded\nfields (`labels`, `capacity`, `capabilities`) stay as `serde_json::Value`\nbecause their schema is caller-defined.",
+        "required": [
+          "id",
+          "owner_subject",
+          "node_name",
+          "hostname",
+          "status",
+          "trust_tier",
+          "labels",
+          "capacity",
+          "capabilities",
+          "runtime_version",
+          "registered_at",
+          "updated_at"
+        ],
+        "properties": {
+          "capabilities": {
+            "description": "List of capability strings the node advertises (JSON array of strings)."
+          },
+          "capacity": {
+            "description": "Capacity declarations — CPU, memory, etc. (JSON object)."
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "labels": {
+            "description": "Free-form key/value labels (JSON object)."
+          },
+          "last_heartbeat_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "node_name": {
+            "type": "string"
+          },
+          "owner_subject": {
+            "type": "string"
+          },
+          "registered_at": {
+            "type": "string"
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Node lifecycle status: `\"registered\"`, `\"online\"`, `\"offline\"`, `\"cordoned\"`, `\"draining\"`."
+          },
+          "tailscale_fqdn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tailscale_ip": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trust_tier": {
+            "type": "string",
+            "description": "Trust tier: `\"untrusted\"`, `\"trusted\"`, `\"admin\"`."
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskAssignment": {
+        "type": "object",
+        "description": "A task-to-agent assignment record.",
+        "required": [
+          "id",
+          "task_id",
+          "agent_id",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "system",
+      "description": "Infrastructure endpoints"
+    },
+    {
+      "name": "auth",
+      "description": "Authentication and identity"
+    },
+    {
+      "name": "governance",
+      "description": "Policy lifecycle management"
+    },
+    {
+      "name": "agents",
+      "description": "Control-plane agent registry"
+    },
+    {
+      "name": "runtime",
+      "description": "Runtime node fleet management"
+    },
+    {
+      "name": "explorer",
+      "description": "Domain / mission / task explorer tree"
+    },
+    {
+      "name": "ai",
+      "description": "AI session management console"
+    }
+  ]
+}

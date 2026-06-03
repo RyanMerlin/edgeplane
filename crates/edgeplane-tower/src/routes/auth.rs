@@ -29,7 +29,7 @@ fn resolve_ttl(requested: Option<i64>) -> i64 {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_TTL_HOURS);
-    requested.unwrap_or(env_ttl).max(1).min(MAX_TTL_HOURS)
+    requested.unwrap_or(env_ttl).clamp(1, MAX_TTL_HOURS)
 }
 
 pub fn router() -> Router<Arc<AppState>> {
