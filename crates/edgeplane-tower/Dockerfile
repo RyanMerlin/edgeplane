@@ -1,8 +1,8 @@
 FROM node:24-slim AS web-builder
-WORKDIR /build/web2
-COPY web2/package.json web2/package-lock.json ./
+WORKDIR /build/web
+COPY web/package.json web/package-lock.json ./
 RUN npm ci
-COPY web2 ./
+COPY web ./
 RUN npm run build
 
 FROM rust:1.88-slim AS builder
@@ -63,7 +63,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 # Binary is at workspace target root, not inside the crate directory
 COPY --from=builder /build/target/release/edgeplane-tower /usr/local/bin/edgeplane-tower
-COPY --from=web-builder /build/web2/dist /usr/local/share/edgeplane-web
+COPY --from=web-builder /build/web/dist /usr/local/share/edgeplane-web
 
 EXPOSE 8008
 ENTRYPOINT ["edgeplane-tower"]

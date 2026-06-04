@@ -10,7 +10,7 @@
 //! proc macros. Run it as:
 //!
 //! ```sh
-//! cargo run -p edgeplane-tower --bin gen-openapi > web2/openapi.json
+//! cargo run -p edgeplane-tower --bin gen-openapi > web/openapi.json
 //! ```
 
 use edgeplane_tower::openapi::ApiDoc;
