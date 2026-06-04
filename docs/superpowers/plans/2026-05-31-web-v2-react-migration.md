@@ -1,5 +1,7 @@
 # EdgePlane Web v2 — SvelteKit → React Implementation Plan
 
+> **STATUS — SHIPPED 2026-06-03.** Phases 0–6 complete; the React 19 + Vite SPA is **live** at `ep.merlinlabs.cloud` (image `sha-2ae355c`, served from `web2/dist`). SvelteKit (`web/`) is retired from the build but **kept in-tree as the rollback** — Phase 6.4 (`git rm web/ && git mv web2 web`) is intentionally deferred until soak. Also landed at/after cutover: a `server.rs` Cache-Control split (`no-cache` HTML / `immutable` hashed assets — fixes the recurring "white page after deploy"), Node 24 across CI + Docker + local, the `web.yml` CI gate, the vitest GHSA-5xrq-8626-4rwp fix, and a `FLEET_PROFILES` de-conflation (the dashboard is now driven by the tower's registered agents, not a hardcoded Aria-specific list). **OPEN follow-up — federated zellij attach** (clicking a tab → live conversation): draft **PR #10** `feat/edgeplaned-federated-launch-overrides`; the dashboard is monitoring-only until it lands. See Phase 7.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development or superpowers:executing-plans to execute task-by-task. Steps use checkbox (`- [ ]`) syntax. This is a **full rewrite, keep v1 for reference, delete after validation** (owner decision 2026-05-31) — NOT an incremental strangler. Build all of `web2/`, test/debug against the live API, flip the Dockerfile, then delete `web/`.
 
 **Goal:** Rebuild the operator web UI as a production-quality, AI-purpose-built React SPA, served the same way the current SvelteKit app is (static behind the Rust tower's `EP_WEB_DIR`).
@@ -88,7 +90,7 @@ Backend (new/modified):
 
 ---
 
-## Phase 0 — Scaffolding + foundations (ends shippable: login + Governance screen render against live :8008)
+## Phase 0 — Scaffolding + foundations ✅ DONE (ends shippable: login + Governance screen render against live :8008)
 
 - [ ] **0.1 Scaffold web2/** — `npm create vite@latest web2 -- --template react-ts`; add deps from the reference stack; add `@tanstack/router-plugin`.
 - [ ] **0.2 Tailwind v4 + shadcn** — port `web/src/app.css` theme tokens verbatim into `web2/src/styles/app.css` (the `@theme` block + every CSS custom prop components reference: `--accent --surface --surface-2 --border --border-2 --ok --warn --err --muted --text --base --dim`); `shadcn init`; add `button input textarea card table tabs dialog popover command dropdown-menu badge scroll-area tooltip toast`.
@@ -103,7 +105,7 @@ Backend (new/modified):
 
 **Parallel backend workstream (rust subagent):** annotate the full consumed surface (agents, runtime/fleet, explorer, ai, onboarding, overview metrics, auth/oidc) so Phases 1–5 are pure frontend. Hand-type SSE/WS in `manual-types.ts`.
 
-## Phases 1–5 — Screen port (order: read-only → trees → SSE → terminal → AI)
+## Phases 1–5 — Screen port ✅ DONE (order: read-only → trees → SSE → terminal → AI)
 
 - [ ] **Phase 1 — Governance** (formalize 0.9) + parity checklist + Playwright happy path.
 - [ ] **Phase 2 — read-only:** `/agents` (fleet fan-out: `GET /runtime/nodes`, `/runtime/nodes/:id/agents` + `/agents/:id` detail; shadcn Table; StatusDot), `/agents/[id]` (type-safe param), `/explorer` (recursive tree + node-detail-on-click, lazy node fetch), `/onboarding` (manifest + copy/regenerate). Terminal panes in agents-detail/explorer deferred to Phase 4 (placeholders).
@@ -113,13 +115,19 @@ Backend (new/modified):
 
 Each screen: parity checklist (same fields/columns, refetch cadence, error/empty states, actions wired) + a Playwright happy path. Per the full-rewrite decision, screens don't each need to be the *served* app — validation happens against the live API with `EP_WEB_DIR=web2/dist`.
 
-## Phase 6 — Cutover (after all 9 screens validated)
+## Phase 6 — Cutover ✅ DONE 2026-06-03
 
-- [ ] **6.1** `.github/workflows/web.yml`: `npm ci && npm run build` on `web2/`; plus the codegen-drift gate (below). Closes the "no CI builds web" gap.
-- [ ] **6.2** Flip the tower Dockerfile web-builder stage: `COPY web2/package.json web2/package-lock.json` / `COPY web2 ./` / `npm run build`, and change line 60 to `COPY --from=web-builder /build/web2/dist /usr/local/share/edgeplane-web` (Vite emits `dist/`, not SvelteKit's `build/`). `server.rs` ServeDir + SPA-fallback unchanged (already serves `index.html` for client routes).
-- [ ] **6.3** Build the image, validate all 9 screens + login + SSE + terminal + AI against the live tower.
-- [ ] **6.4** Retire Svelte: `git rm -r web/ && git mv web2 web`; update Dockerfile/CI/justfile paths `web2`→`web` and `openapi.json`/`schema.gen.ts` script paths in the same commit.
-- [ ] **6.5 Rollback:** until the `git rm`, reverting the Dockerfile web-builder stage to `web/`+`web/build` restores the Svelte UI with no Rust rebuild. Keep `web/` through soak.
+- [x] **6.1** `.github/workflows/web.yml`: `npm ci && npm run build` on `web2/` + the codegen-drift gate. Closed the "no CI builds web" gap. Runs on **Node 24**.
+- [x] **6.2** Flipped the tower Dockerfile web-builder stage to build `web2/` (`node:24-slim`) and `COPY --from=web-builder /build/web2/dist /usr/local/share/edgeplane-web`. `server.rs` ServeDir + SPA-fallback unchanged **except** an added `web_cache_control` middleware (`no-cache` HTML / `immutable` hashed assets).
+- [x] **6.3** Built the image, validated render + assets + cache headers + OIDC redirect against the live tower (`sha-2ae355c`).
+- [ ] **6.4** Retire Svelte (`git rm -r web/ && git mv web2 web`) — **DEFERRED until soak.** `web/` is kept in-tree as the rollback; do this in a focused follow-up once the React UI has soaked clean.
+- [x] **6.5 Rollback:** INTACT — reverting the Dockerfile web-builder stage to `web/`+`web/build` restores the Svelte UI with no Rust rebuild. `web/` retained.
+
+## Phase 7 — Federated zellij attach (OPEN — draft PR #10)
+
+Make a dashboard tab open a **live ACP conversation**. Today tabs render the tower's registered agents but are **monitoring-only** — attach is not wired. This is an `edgeplaned` daemon feature, tracked on draft **PR #10** `feat/edgeplaned-federated-launch-overrides` (do NOT merge until the gap below closes). Design + safety are done — 4 impl rounds + 3 adversarial reviews; the federated reconcile is a verified **no-op for live sessions** and standalone is byte-identical (so deploying the daemon is safe), and signal-by-name is preserved via a supervisor alias.
+
+**Open blocker (found by enrolling against the live API):** the launch-override merge keys on the controlplane `name` field, but `GET /runtime/nodes/{id}/agents` returns `name=null` — the profile is the **middle** segment of `agent_public_id` (`<node>-<profile>-<hex>`), not a `-{profile}` suffix. The unit-test fixtures used `name="aria-engineer"`, which masked this. **Fix:** match the profile from the public_id's middle segment (or join the agent name into the node-agents response) **and add integration tests against the real response shape**. Then the (already-scoped) deploy: hot-swap `edgeplaned`, register the node, enroll the 6 as `<profile>`, set each agent's `metadata.node_id`, restart federated, verify attach end-to-end. Do this in a focused session with real integration testing — not against the live fleet at the tail of unrelated work.
 
 ## utoipa CI sync gate (codegen drift)
 

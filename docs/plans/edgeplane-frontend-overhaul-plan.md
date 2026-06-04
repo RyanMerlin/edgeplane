@@ -1,7 +1,7 @@
 # Edgeplane Frontend Overhaul — Implementation Plan
 
 **Date:** 2026-05-04  
-**Status:** Draft implementation plan  
+**Status:** SUPERSEDED 2026-06-03 — overtaken by the full React rewrite (shipped). See [`docs/superpowers/plans/2026-05-31-web-v2-react-migration.md`](../superpowers/plans/2026-05-31-web-v2-react-migration.md). Retained for historical context.  
 **Scope:** Refactor the current SvelteKit frontend from a monolithic tab-based page into a route-based, typed, testable, componentized application.
 
 ---
