@@ -85,27 +85,75 @@ pub type RunningAgents = Arc<Mutex<HashMap<String, RunningAgent>>>;
 /// - `to_spawn`: specs to spawn (in desired, not in running)
 /// - `to_restart`: specs whose stable fields changed (domain_id,
 ///   runtime_kind, supervision_mode). Returned in (old_id, new_spec) form.
+///
+/// ## Federated alias handling (`local_alias_id`)
+///
+/// When a federated (controlplane) spec carries a `local_alias_id`, the
+/// controlplane agent_id differs from the local fleet_import agent_id that
+/// is already running. For example: the running map has key `"engineer"` (the
+/// fleet_import agent_id) but the desired spec has `agent_id =
+/// "aria-engineer-708650f1"` and `local_alias_id = Some("engineer")`.
+///
+/// Without alias handling, diff_specs would see `"aria-engineer-708650f1"` as
+/// new (→ `to_spawn`) and `"engineer"` as orphaned (→ `to_remove`), tearing
+/// down the live PTY bridge and spawning a duplicate.
+///
+/// With alias handling:
+/// - When looking up a desired spec in `running`, also try the alias key.
+/// - When computing `to_remove`, exclude any running key that appears as a
+///   `local_alias_id` in the desired list.
 pub fn diff_specs(
     desired: &[AgentSpec],
     running: &HashMap<String, RunningAgent>,
 ) -> ReconcilePlan {
+    // Canonical id → spec lookup.
     let desired_by_id: HashMap<&str, &AgentSpec> =
         desired.iter().map(|s| (s.agent_id.as_str(), s)).collect();
+
+    // Build the set of local alias ids covered by the desired list so we can
+    // exclude them from to_remove.
+    let desired_alias_ids: HashSet<&str> = desired
+        .iter()
+        .filter_map(|s| s.local_alias_id.as_deref())
+        .collect();
+
     let running_ids: HashSet<&str> = running.keys().map(|s| s.as_str()).collect();
 
+    // A running agent should be removed when:
+    //   1. Its id is not in the desired spec list (by canonical id), AND
+    //   2. Its id is not an alias of any desired spec (i.e. not covered by a
+    //      federated spec that has local_alias_id == this running key).
     let to_remove: Vec<String> = running_ids
         .iter()
-        .filter(|id| !desired_by_id.contains_key(*id))
+        .filter(|id| !desired_by_id.contains_key(*id) && !desired_alias_ids.contains(*id))
         .map(|s| s.to_string())
         .collect();
 
     let mut to_spawn: Vec<AgentSpec> = Vec::new();
     let mut to_restart: Vec<AgentSpec> = Vec::new();
     for spec in desired {
-        match running.get(&spec.agent_id) {
+        // Look up by canonical id first, then by local_alias_id (for federated
+        // specs whose controlplane id differs from the already-running local id).
+        let matched_by_alias = running
+            .get(&spec.agent_id)
+            .is_none()
+            && spec.local_alias_id.is_some();
+        let running_agent = running
+            .get(&spec.agent_id)
+            .or_else(|| spec.local_alias_id.as_deref().and_then(|alias| running.get(alias)));
+
+        match running_agent {
             None => to_spawn.push(spec.clone()),
             Some(existing) => {
-                if !specs_match(&existing.spec, spec) {
+                // When matched via alias, skip the agent_id comparison
+                // (the controlplane id and the local fleet id are different
+                // by design — they refer to the same logical agent).
+                let materially_changed = if matched_by_alias {
+                    !specs_match_ignoring_id(&existing.spec, spec)
+                } else {
+                    !specs_match(&existing.spec, spec)
+                };
+                if materially_changed {
                     to_restart.push(spec.clone());
                 }
             }
@@ -124,6 +172,17 @@ pub fn diff_specs(
 pub fn specs_match(a: &AgentSpec, b: &AgentSpec) -> bool {
     a.agent_id == b.agent_id
         && a.domain_id == b.domain_id
+        && a.runtime_kind == b.runtime_kind
+        && a.session_mode == b.session_mode
+        && a.profile_path == b.profile_path
+}
+
+/// Same as `specs_match` but skips the `agent_id` comparison. Used when a
+/// federated spec was located in the running map via its `local_alias_id` —
+/// the two specs will always differ in `agent_id` (controlplane vs. local
+/// fleet key) but that alone is not a reason to restart.
+pub fn specs_match_ignoring_id(a: &AgentSpec, b: &AgentSpec) -> bool {
+    a.domain_id == b.domain_id
         && a.runtime_kind == b.runtime_kind
         && a.session_mode == b.session_mode
         && a.profile_path == b.profile_path
@@ -286,6 +345,8 @@ mod tests {
             profile_path: None,
             webhook_url: None,
             launch_overrides: Default::default(),
+            name: None,
+            local_alias_id: None,
         }
     }
 
@@ -394,6 +455,151 @@ mod tests {
         assert_eq!(plan.to_restart.len(), 1);
         assert_eq!(plan.to_restart[0].agent_id, "a-1");
     }
+
+    // ── federated alias tests ────────────────────────────────────────────────
+
+    /// Federated spec with local_alias_id set + matching running entry under
+    /// the alias key → should be a no-op (no spawn, no remove).
+    #[test]
+    fn diff_federated_alias_running_is_noop() {
+        // The local agent "engineer" is already running as a zellij_hosted agent.
+        let local_running = AgentSpec {
+            agent_id: "engineer".into(),
+            domain_id: "m-1".into(),
+            runtime_kind: "zellij_hosted".into(),
+            session_mode: SessionMode::Persistent,
+            capabilities: vec![],
+            profile_path: None,
+            webhook_url: None,
+            launch_overrides: crate::supervisor::SpawnOverrides {
+                zellij_session: Some("engineer".into()),
+                ..Default::default()
+            },
+            name: None,
+            local_alias_id: None,
+        };
+        let running = running_with(local_running);
+
+        // The controlplane wants "aria-engineer-abc12345" (same logical agent,
+        // but a different id) with local_alias_id pointing at the running key.
+        let mut cp_spec = AgentSpec {
+            agent_id: "aria-engineer-abc12345".into(),
+            domain_id: "m-1".into(),
+            runtime_kind: "zellij_hosted".into(),
+            session_mode: SessionMode::Persistent,
+            capabilities: vec![],
+            profile_path: None,
+            webhook_url: None,
+            launch_overrides: Default::default(),
+            name: Some("aria-engineer".into()),
+            local_alias_id: Some("engineer".into()),
+        };
+        cp_spec.launch_overrides.zellij_session = Some("aria-engineer".into());
+
+        let plan = diff_specs(&[cp_spec], &running);
+        assert!(
+            plan.is_noop(),
+            "federated spec aliased to a running local agent should be a no-op; \
+             got to_remove={:?} to_spawn={:?} to_restart={:?}",
+            plan.to_remove,
+            plan.to_spawn.iter().map(|s| &s.agent_id).collect::<Vec<_>>(),
+            plan.to_restart.iter().map(|s| &s.agent_id).collect::<Vec<_>>(),
+        );
+    }
+
+    /// Federated spec aliases a running local agent; the local key must NOT
+    /// appear in to_remove.
+    #[test]
+    fn diff_federated_alias_does_not_remove_local_key() {
+        // Local fleet-import "operator" running as zellij_hosted.
+        let local_running = AgentSpec {
+            agent_id: "operator".into(),
+            domain_id: "m-1".into(),
+            runtime_kind: "zellij_hosted".into(),
+            session_mode: SessionMode::Persistent,
+            capabilities: vec![],
+            profile_path: None,
+            webhook_url: None,
+            launch_overrides: crate::supervisor::SpawnOverrides {
+                zellij_session: Some("operator".into()),
+                ..Default::default()
+            },
+            name: None,
+            local_alias_id: None,
+        };
+        let running = running_with(local_running);
+
+        let cp_spec = AgentSpec {
+            agent_id: "aria-operator-deadbeef".into(),
+            domain_id: "m-1".into(),
+            runtime_kind: "zellij_hosted".into(),
+            session_mode: SessionMode::Persistent,
+            capabilities: vec![],
+            profile_path: None,
+            webhook_url: None,
+            launch_overrides: crate::supervisor::SpawnOverrides {
+                zellij_session: Some("aria-operator".into()),
+                ..Default::default()
+            },
+            name: Some("aria-operator".into()),
+            local_alias_id: Some("operator".into()),
+        };
+
+        let plan = diff_specs(&[cp_spec], &running);
+        assert!(
+            !plan.to_remove.contains(&"operator".to_string()),
+            "local alias key 'operator' must not appear in to_remove; got {:?}",
+            plan.to_remove
+        );
+        assert!(plan.to_spawn.is_empty(), "should not spawn a duplicate");
+    }
+
+    /// Without a local_alias_id, a new controlplane id with a running local
+    /// id gets the old (correct pre-fix) behaviour: the local id is removed
+    /// and the new controlplane spec is spawned.
+    #[test]
+    fn diff_no_alias_still_removes_local_and_spawns_cp() {
+        let local_running = AgentSpec {
+            agent_id: "engineer".into(),
+            domain_id: "m-1".into(),
+            runtime_kind: "zellij_hosted".into(),
+            session_mode: SessionMode::Persistent,
+            capabilities: vec![],
+            profile_path: None,
+            webhook_url: None,
+            launch_overrides: crate::supervisor::SpawnOverrides {
+                zellij_session: Some("engineer".into()),
+                ..Default::default()
+            },
+            name: None,
+            local_alias_id: None,
+        };
+        let running = running_with(local_running);
+
+        // Controlplane spec has a different id but NO alias.
+        let cp_spec = AgentSpec {
+            agent_id: "aria-engineer-abc12345".into(),
+            domain_id: "m-1".into(),
+            runtime_kind: "zellij_hosted".into(),
+            session_mode: SessionMode::Persistent,
+            capabilities: vec![],
+            profile_path: None,
+            webhook_url: None,
+            launch_overrides: Default::default(),
+            name: Some("aria-engineer".into()),
+            local_alias_id: None, // no alias
+        };
+
+        let plan = diff_specs(&[cp_spec], &running);
+        assert!(
+            plan.to_remove.contains(&"engineer".to_string()),
+            "without alias, local 'engineer' should be in to_remove"
+        );
+        assert_eq!(plan.to_spawn.len(), 1);
+        assert_eq!(plan.to_spawn[0].agent_id, "aria-engineer-abc12345");
+    }
+
+    // ── URL helper tests ─────────────────────────────────────────────────────
 
     #[test]
     fn ws_url_http_to_ws() {
