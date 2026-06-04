@@ -99,7 +99,7 @@ Then open:
 | Philosophy & vision | [EDGEPLANE_PHILOSOPHY.md](EDGEPLANE_PHILOSOPHY.md) |
 | API reference | `/api/docs` (Swagger UI) |
 | Agent install guide | [docs/guides/AGENT-INSTALL.md](docs/guides/AGENT-INSTALL.md) |
-| Web UI (React 19 + Vite) | [web2/README.md](web2/README.md) |
+| Web UI (React 19 + Vite) | [web/README.md](web/README.md) |
 | Persistent sessions | [docs/plans/edgeplaned-persistent-session-architecture.md](docs/plans/edgeplaned-persistent-session-architecture.md) |
 
 ## Running with Docker (Recommended)
@@ -130,7 +130,7 @@ set -a; source .env; set +a
 ./target/release/edgeplane-tower
 ```
 
-Frontend (React 19 + Vite, in `web2/`): `cd web2 && npm install && npm run dev` (Vite dev server on :5173, proxies `/api` → :8008). The legacy SvelteKit app in `web/` is retired from the build and kept only as a rollback.
+Frontend (React 19 + Vite, in `web/`): `cd web && npm install && npm run dev` (Vite dev server on :5173, proxies `/api` → :8008).
 
 ## Agent Integration
 

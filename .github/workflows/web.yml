@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: web2/package-lock.json
+          cache-dependency-path: web/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -39,30 +39,30 @@ jobs:
         run: cargo run -p edgeplane-tower --bin gen-openapi --quiet > /tmp/openapi.json
 
       - name: OpenAPI drift gate
-        run: git diff --no-index --exit-code /tmp/openapi.json web2/openapi.json
+        run: git diff --no-index --exit-code /tmp/openapi.json web/openapi.json
 
       # Gate 2: TS codegen drift — regen types from spec, fail if committed types are stale
       - name: Install web dependencies
         run: npm ci
-        working-directory: web2
+        working-directory: web
 
       - name: Regenerate TypeScript types from OpenAPI spec
         run: npm run gen:api
-        working-directory: web2
+        working-directory: web
 
       - name: TS codegen drift gate
         run: git diff --exit-code src/api/schema.gen.ts
-        working-directory: web2
+        working-directory: web
 
       # Build + lint + test
       - name: Lint
         run: npm run lint
-        working-directory: web2
+        working-directory: web
 
       - name: Test
         run: npm test
-        working-directory: web2
+        working-directory: web
 
       - name: Build
         run: npm run build
-        working-directory: web2
+        working-directory: web
