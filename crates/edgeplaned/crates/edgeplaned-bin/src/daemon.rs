@@ -259,6 +259,44 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
                 }
             }
         }
+
+        // Federated boot dedup (Gap 3 fix — double-attach prevention).
+        //
+        // After merge_federated_overrides, each controlplane spec (opaque id like
+        // `aria-engineer-<hash>`) has `local_alias_id = Some("engineer")` when it
+        // matched a local launch-context. The additive layer in resolve_agent_specs
+        // also appended a separate spec with agent_id="engineer" — the dedup check
+        // there used base_ids (controlplane ids) and didn't know the alias yet.
+        //
+        // Result: 12 specs → diff_specs against empty running → 12 to_spawn →
+        // two PTY bridges per session (one under the opaque id, one under "engineer").
+        //
+        // Fix: collect all local_alias_ids set by the merge, then remove any spec
+        // whose agent_id appears in that set. The controlplane spec (now carrying
+        // the merged zellij_session + local_alias_id) is kept; the additive-layer
+        // duplicate is dropped. 6 specs remain — one bridge per session.
+        //
+        // Gated on federated mode (cfg.node_id.is_some()) so standalone mode is
+        // byte-identical — additive-layer specs are still needed there.
+        {
+            // Collect owned Strings so the borrow on agent_specs ends before
+            // the mutable retain call.
+            let aliased_ids: std::collections::HashSet<String> = agent_specs
+                .iter()
+                .filter_map(|s| s.local_alias_id.clone())
+                .collect();
+            if !aliased_ids.is_empty() {
+                let before = agent_specs.len();
+                agent_specs.retain(|s| !aliased_ids.contains(&s.agent_id));
+                let dropped = before - agent_specs.len();
+                if dropped > 0 {
+                    tracing::info!(
+                        "federated boot dedup: dropped {dropped} additive-layer spec(s) \
+                         covered by controlplane aliases (aliases: {aliased_ids:?})"
+                    );
+                }
+            }
+        }
     }
 
     // Initial spawn through the same reconcile path the WS subscriber will
@@ -887,6 +925,23 @@ impl Spawner {
         for spec in &plan.to_spawn {
             if let Some(new) = self.spawn_one(spec).await {
                 running.insert(spec.agent_id.clone(), new);
+                // 3a. Register supervisor name alias so that `edgeplane agent
+                //     signal <short-name>` continues to work even though the
+                //     supervisor is now keyed by the controlplane opaque id.
+                //
+                //     Example: spec spawned as "aria-engineer-708650f1" with
+                //     local_alias_id="engineer" → register "engineer" →
+                //     "aria-engineer-708650f1" so signal("engineer", ...)
+                //     resolves to the live supervisor entry.
+                if let Some(ref alias) = spec.local_alias_id {
+                    self.supervisor
+                        .register_name_alias(alias.clone(), spec.agent_id.clone())
+                        .await;
+                    tracing::debug!(
+                        "supervisor alias registered: {alias} → {} (federated name resolution)",
+                        spec.agent_id
+                    );
+                }
             }
         }
         // 4. Register attach-registry aliases for federated specs that are

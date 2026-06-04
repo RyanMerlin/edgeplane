@@ -690,4 +690,184 @@ mod tests {
             "ws://localhost:8008/runtime/nodes/node-x/notify"
         );
     }
+
+    // ── Boot-flow dedup test ─────────────────────────────────────────────────
+
+    /// Simulates the full federated boot sequence that produces the double-attach
+    /// bug and verifies the Gap 3 dedup logic:
+    ///
+    ///   1. 6 controlplane specs (opaque ids, empty launch_overrides, no alias).
+    ///   2. 6 additive-layer specs (short ids, with zellij_session set).
+    ///      Total = 12 specs (the pre-fix input to diff_specs).
+    ///   3. merge_federated_overrides sets local_alias_id on the 6 CP specs.
+    ///   4. Boot dedup removes specs whose agent_id is in the aliased set.
+    ///      Total = 6 specs (the post-fix input).
+    ///   5. diff_specs against empty running → exactly 6 to_spawn.
+    ///   6. All to_spawn are the controlplane opaque ids (the attach ids).
+    ///   7. No duplicate agent_ids in to_spawn.
+    ///   8. Each to_spawn spec has local_alias_id set (for supervisor alias reg).
+    #[test]
+    fn federated_boot_dedup_yields_exactly_6_to_spawn_under_attach_ids() {
+        use crate::daemon::{AgentSpec, merge_federated_overrides};
+        use crate::local_registry::AgentLaunchContext;
+
+        let profile_names = ["operator", "engineer", "research", "merlinlabs", "work", "publisher"];
+
+        // Step 1: 6 controlplane specs (what fetch_node_agents returns).
+        let cp_specs: Vec<AgentSpec> = profile_names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| AgentSpec {
+                agent_id: format!("aria-{name}-{i:08x}"),
+                domain_id: "d-1".to_string(),
+                runtime_kind: "zellij_hosted".to_string(),
+                session_mode: SessionMode::Persistent,
+                capabilities: vec![],
+                profile_path: None,
+                webhook_url: None,
+                launch_overrides: Default::default(),
+                name: Some(format!("aria-{name}")),
+                local_alias_id: None,
+            })
+            .collect();
+
+        // Step 2: 6 additive-layer specs (what resolve_agent_specs appends).
+        // These have the short profile name as agent_id and zellij_session set.
+        let additive_specs: Vec<AgentSpec> = profile_names
+            .iter()
+            .map(|name| AgentSpec {
+                agent_id: name.to_string(),
+                domain_id: "d-1".to_string(),
+                runtime_kind: "zellij_hosted".to_string(),
+                session_mode: SessionMode::Persistent,
+                capabilities: vec![],
+                profile_path: None,
+                webhook_url: None,
+                launch_overrides: crate::supervisor::SpawnOverrides {
+                    zellij_session: Some(format!("aria-{name}")),
+                    ..Default::default()
+                },
+                name: None,
+                local_alias_id: None,
+            })
+            .collect();
+
+        // Combine: 12 specs, as produced by resolve_agent_specs in federated mode.
+        let mut agent_specs: Vec<AgentSpec> = cp_specs;
+        agent_specs.extend(additive_specs);
+        assert_eq!(agent_specs.len(), 12, "pre-fix: 12 specs before dedup");
+
+        // Step 3: run merge_federated_overrides (boot-time merge, Gap 2 fix).
+        let local_ctxs: Vec<AgentLaunchContext> = profile_names
+            .iter()
+            .map(|name| AgentLaunchContext {
+                source: "aria".to_string(),
+                agent_id: name.to_string(),
+                vault_folder: Some(name.to_string()),
+                state_dir_spec: None,
+                zellij_session: Some(format!("aria-{name}")),
+                systemd_service: Some(format!("aria-{name}.service")),
+                supervise_paused: false,
+            })
+            .collect();
+        merge_federated_overrides(&mut agent_specs, &local_ctxs);
+
+        // Step 4: boot dedup (Gap 3 fix) — collect aliased ids (owned Strings
+        // so the immutable borrow on agent_specs ends before the mutable
+        // retain call) and retain only specs whose agent_id is NOT aliased.
+        let aliased_ids: std::collections::HashSet<String> = agent_specs
+            .iter()
+            .filter_map(|s| s.local_alias_id.clone())
+            .collect();
+        agent_specs.retain(|s| !aliased_ids.contains(&s.agent_id));
+        assert_eq!(
+            agent_specs.len(),
+            6,
+            "post-dedup: exactly 6 specs (one per agent)"
+        );
+
+        // Step 5 + 6: diff against empty running → exactly 6 to_spawn.
+        let plan = diff_specs(&agent_specs, &HashMap::new());
+        assert_eq!(
+            plan.to_spawn.len(),
+            6,
+            "exactly 6 to_spawn after dedup; got {:?}",
+            plan.to_spawn.iter().map(|s| &s.agent_id).collect::<Vec<_>>()
+        );
+        assert!(plan.to_remove.is_empty(), "no agents to remove at boot");
+        assert!(plan.to_restart.is_empty(), "no agents to restart at boot");
+
+        // Step 6: all to_spawn are the controlplane opaque ids (attach ids).
+        for spec in &plan.to_spawn {
+            assert!(
+                spec.agent_id.starts_with("aria-"),
+                "to_spawn must be opaque controlplane id, got '{}'",
+                spec.agent_id
+            );
+        }
+
+        // Step 7: no duplicate agent_ids.
+        let ids: std::collections::HashSet<&str> =
+            plan.to_spawn.iter().map(|s| s.agent_id.as_str()).collect();
+        assert_eq!(
+            ids.len(),
+            plan.to_spawn.len(),
+            "no duplicate agent_ids in to_spawn"
+        );
+
+        // Step 8: every to_spawn spec has local_alias_id set (needed for
+        // supervisor alias registration so signal-by-name still works).
+        for spec in &plan.to_spawn {
+            assert!(
+                spec.local_alias_id.is_some(),
+                "to_spawn spec '{}' must carry local_alias_id for supervisor alias",
+                spec.agent_id
+            );
+        }
+    }
+
+    /// Steady-state no-op: after federated boot spawns 6 agents under opaque
+    /// ids, the next WS/poll cycle (also 6 opaque-id specs with aliases) must
+    /// yield a no-op diff — no re-spawn, no remove.
+    #[test]
+    fn federated_steady_state_is_noop_after_boot_spawn() {
+        use crate::daemon::AgentSpec;
+
+        let profile_names = ["operator", "engineer", "research", "merlinlabs", "work", "publisher"];
+
+        // Running map: 6 agents keyed by opaque id (the result of the boot spawn).
+        let mut running: HashMap<String, RunningAgent> = HashMap::new();
+        for (i, name) in profile_names.iter().enumerate() {
+            let opaque_id = format!("aria-{name}-{i:08x}");
+            let spec = AgentSpec {
+                agent_id: opaque_id.clone(),
+                domain_id: "d-1".to_string(),
+                runtime_kind: "zellij_hosted".to_string(),
+                session_mode: SessionMode::Persistent,
+                capabilities: vec![],
+                profile_path: None,
+                webhook_url: None,
+                launch_overrides: crate::supervisor::SpawnOverrides {
+                    zellij_session: Some(format!("aria-{name}")),
+                    ..Default::default()
+                },
+                name: Some(format!("aria-{name}")),
+                local_alias_id: Some(name.to_string()),
+            };
+            running.insert(opaque_id, RunningAgent { spec, handles: vec![] });
+        }
+
+        // Desired: same 6 opaque-id specs (what persist_and_resolve_specs returns
+        // on the WS/poll path after merge). Alias key == running key → no-op.
+        let desired: Vec<AgentSpec> = running.values().map(|ra| ra.spec.clone()).collect();
+
+        let plan = diff_specs(&desired, &running);
+        assert!(
+            plan.is_noop(),
+            "steady-state poll must be a no-op; got: remove={:?} spawn={:?} restart={:?}",
+            plan.to_remove,
+            plan.to_spawn.iter().map(|s| &s.agent_id).collect::<Vec<_>>(),
+            plan.to_restart.iter().map(|s| &s.agent_id).collect::<Vec<_>>(),
+        );
+    }
 }
