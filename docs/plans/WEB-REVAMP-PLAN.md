@@ -1,5 +1,7 @@
 # Web Frontend Revamp Plan
 
+> **SUPERSEDED 2026-06-03.** This early revamp plan (refactor-in-Svelte) was overtaken by the full React rewrite, which **shipped**. See [`docs/superpowers/plans/2026-05-31-web-v2-react-migration.md`](../superpowers/plans/2026-05-31-web-v2-react-migration.md) for the current state. Retained for historical context only.
+
 This document is the implementation plan for the current Edgeplane web frontend rewrite.
 It is intentionally operational: it focuses on what to build next, in what order, and what each step must prove before moving on.
 
