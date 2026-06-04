@@ -260,6 +260,12 @@ function RootLayout() {
     const grant = hashParams.get('oidc_grant') ?? params.get('oidc_grant');
 
     if (grant) {
+      // OIDC return: the session cookie is established by the exchange below,
+      // so probing GET /auth/me first would 401 (no session yet) and flash the
+      // login screen before the exchange resolves. Exchange only; a successful
+      // exchange already flips loggedIn+bootstrapped (loginWithCookieSession),
+      // so we go straight to the dashboard with no intermediate splash. Only
+      // fall back to a bootstrap probe if the exchange itself fails.
       api
         .post<{ subject?: string }>('/auth/oidc/exchange', { grant })
         .then((data) => {
@@ -280,7 +286,9 @@ function RootLayout() {
           const msg = err instanceof Error ? err.message : 'OIDC login failed';
           setToast(msg);
           setTimeout(() => setToast(null), 4000);
+          bootstrapRef.current();
         });
+      return;
     }
 
     bootstrapRef.current();
