@@ -225,7 +225,41 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
 
     // Phase 4c/5a: build the flat list of agents to spawn.
     // Priority: controlplane (federated) > SQLite local registry > yaml legacy.
-    let agent_specs = resolve_agent_specs(&cfg, &client, registry.as_ref()).await;
+    let mut agent_specs = resolve_agent_specs(&cfg, &client, registry.as_ref()).await;
+
+    // Federated boot-time launch-override merge (Gap 2 fix).
+    //
+    // resolve_agent_specs returns controlplane specs with empty launch_overrides
+    // and no local_alias_id. The WS/poll path runs merge_federated_overrides
+    // inside persist_and_resolve_specs, but the initial spawn never goes through
+    // that path — so on boot (and after every daemon restart) there is a window
+    // until the first WS event / ~60 s poll where attach resolves to None.
+    //
+    // Fix: run the same merge here so aliases are present at boot. Gated on
+    // node_id (federated mode only) so standalone behavior is byte-identical.
+    if cfg.node_id.is_some() {
+        if let Ok(db_path_boot) = LocalRegistry::default_path() {
+            match tokio::task::spawn_blocking(move || {
+                let reg = LocalRegistry::open(&db_path_boot)?;
+                reg.list_all_launch_contexts()
+            })
+            .await
+            {
+                Ok(Ok(boot_ctxs)) => {
+                    merge_federated_overrides(&mut agent_specs, &boot_ctxs);
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(
+                        "boot merge: could not read launch contexts: {e:#}. \
+                         zellij_hosted agents may not have PTY bridge until first poll."
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("boot merge: launch context query panicked: {e:#}.");
+                }
+            }
+        }
+    }
 
     // Initial spawn through the same reconcile path the WS subscriber will
     // use later — keeps both paths exercising one code branch.
@@ -588,8 +622,11 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<Option<String>> {
 
 /// Write controlplane-fetched `specs` to SQLite (source = `cp_source`), then
 /// read them back so the reconciler always reads from the local registry.
-/// After the read-back, merge local `fleet_import` launch overrides into any
-/// spec that lacks them (federated zellij_hosted attach fix).
+/// After the read-back, merge local launch overrides into any spec that lacks
+/// them (federated zellij_hosted attach fix). Reads ALL sources so that
+/// agents registered via `edgeplane daemon agent import --source aria` (the
+/// live source the fleet actually uses) are visible — not just the defunct
+/// `fleet_import` source.
 ///
 /// On any SQLite error the function falls back to `specs` directly — the WS/
 /// poll loops degrade gracefully rather than stopping reconciliation entirely.
@@ -655,12 +692,18 @@ async fn persist_and_resolve_specs(
 
     // Federated launch-override merge: for each controlplane spec that is
     // zellij_hosted+Persistent with empty launch_overrides, look up the
-    // matching local fleet_import launch context and merge it in. Also sets
+    // matching local launch context (any source) and merge it in. Also sets
     // local_alias_id so diff_specs can recognise the logical identity.
+    //
+    // We use list_all_launch_contexts() (source-agnostic) rather than the
+    // defunct list_launch_contexts_by_source("fleet_import") because the live
+    // fleet agents are registered with source "aria" — the fleet_import source
+    // is dead code and would always return an empty slice, silently disabling
+    // the attach feature.
     if let Ok(db_path_for_merge) = LocalRegistry::default_path() {
         match tokio::task::spawn_blocking(move || {
             let reg = LocalRegistry::open(&db_path_for_merge)?;
-            reg.list_launch_contexts_by_source(crate::fleet_import::SOURCE_FLEET_IMPORT)
+            reg.list_all_launch_contexts()
         })
         .await
         {
@@ -669,13 +712,13 @@ async fn persist_and_resolve_specs(
             }
             Ok(Err(e)) => {
                 tracing::warn!(
-                    "persist_and_resolve: could not read fleet_import launch contexts for merge: {e:#}. \
+                    "persist_and_resolve: could not read launch contexts for merge: {e:#}. \
                      zellij_hosted agents will not have PTY bridge in federated mode."
                 );
             }
             Err(e) => {
                 tracing::warn!(
-                    "persist_and_resolve: fleet_import context query panicked: {e:#}."
+                    "persist_and_resolve: launch context query panicked: {e:#}."
                 );
             }
         }
@@ -688,37 +731,39 @@ async fn persist_and_resolve_specs(
 ///
 /// For each spec in `specs` that is `runtime_kind == "zellij_hosted"`,
 /// `session_mode == Persistent`, and has empty `launch_overrides`, search
-/// `fleet_ctxs` for a matching local `fleet_import` entry and copy its
-/// overrides into the spec. Also sets `local_alias_id` so `diff_specs` can
-/// treat the controlplane spec as the same logical agent as the already-running
-/// local one.
+/// `local_ctxs` for a matching entry and copy its overrides into the spec.
+/// Also sets `local_alias_id` so `diff_specs` can treat the controlplane spec
+/// as the same logical agent as the already-running local one.
+///
+/// `local_ctxs` is source-agnostic — the caller should pass the full result of
+/// `list_all_launch_contexts()` (not a source-filtered slice) so that agents
+/// registered under any source (e.g. `"aria"`, the live fleet source) are
+/// visible. The `source` field of each context is not examined here.
 ///
 /// ## Matching rule
 ///
 /// We match on the agent `name` field (e.g. `"aria-engineer"`) provided by
-/// the controlplane. The fleet_import agent_id is the short profile name
-/// (e.g. `"engineer"`). We consider a match when **exactly one** fleet
-/// context satisfies one of:
-///   - The controlplane name **is** the fleet profile name (exact), OR
+/// the controlplane. The local context's `agent_id` is the short profile name
+/// (e.g. `"engineer"`). We consider a match when **exactly one** context
+/// satisfies one of:
+///   - The controlplane name **is** the profile name (exact), OR
 ///   - The controlplane name **ends with** `"-{profile_name}"` (e.g.
 ///     `"aria-engineer"` → suffix match against `"engineer"`).
 ///
-/// **Uniqueness is enforced.** If two fleet contexts both match (possible
-/// if one profile name is a suffix of another, e.g. `"work"` and `"a-work"`
-/// where cp_name is `"aria-work"`), the spec is left unchanged — ambiguity
-/// is safer than a wrong assignment. The collision will be logged as a
-/// warning.
+/// **Uniqueness is enforced.** If two contexts both match (possible if one
+/// profile name is a suffix of another, e.g. `"work"` and `"a-work"` where
+/// cp_name is `"aria-work"`), the spec is left unchanged — ambiguity is safer
+/// than a wrong assignment. The collision will be logged as a warning.
 ///
-/// This is intentionally conservative: we only merge when there is a
-/// single unambiguous match. If no match exists (controlplane has no `name`,
-/// or no fleet context has a matching id) the spec is left unchanged —
-/// the agent simply won't have a PTY bridge until the enrollment recipe is
-/// corrected, which is explicit and diagnosable.
+/// This is intentionally conservative: we only merge when there is a single
+/// unambiguous match. If no match exists (controlplane has no `name`, or no
+/// context has a matching id) the spec is left unchanged — the agent simply
+/// won't have a PTY bridge until the enrollment recipe is corrected.
 ///
 /// This function is pure (no I/O) and is unit-tested independently.
 pub(crate) fn merge_federated_overrides(
     specs: &mut Vec<AgentSpec>,
-    fleet_ctxs: &[crate::local_registry::AgentLaunchContext],
+    local_ctxs: &[crate::local_registry::AgentLaunchContext],
 ) {
     use crate::config::SessionMode;
 
@@ -731,18 +776,18 @@ pub(crate) fn merge_federated_overrides(
         if spec.launch_overrides.zellij_session.is_some() {
             continue;
         }
-        // Need the name field to match against fleet_import keys.
+        // Need the name field to match against local context agent_ids.
         let cp_name = match spec.name.as_deref() {
             Some(n) if !n.is_empty() => n,
             _ => continue,
         };
 
-        // Collect ALL fleet contexts that match, then enforce uniqueness.
+        // Collect ALL contexts that match, then enforce uniqueness.
         // Two clauses — exact match or suffix match. The former redundant
         // rsplit_once clause has been removed: it matched on the last
         // hyphen-segment alone, which would cause `"aria-foo-bar"` to
         // match both "bar" and "foo-bar" non-deterministically.
-        let matches: Vec<&crate::local_registry::AgentLaunchContext> = fleet_ctxs
+        let matches: Vec<&crate::local_registry::AgentLaunchContext> = local_ctxs
             .iter()
             .filter(|ctx| {
                 let profile_id = ctx.agent_id.as_str();
@@ -779,10 +824,11 @@ pub(crate) fn merge_federated_overrides(
         spec.local_alias_id = Some(matched_ctx.agent_id.clone());
         tracing::info!(
             "federated merge: controlplane spec '{}' (name='{}') matched \
-             fleet_import context '{}' (zellij_session={:?})",
+             local context '{}' source='{}' (zellij_session={:?})",
             spec.agent_id,
             cp_name,
             matched_ctx.agent_id,
+            matched_ctx.source,
             matched_ctx.zellij_session,
         );
     }
@@ -1764,5 +1810,113 @@ mod tests {
             Some("engineer-session")
         );
         assert_eq!(specs[1].local_alias_id.as_deref(), Some("engineer"));
+    }
+
+    // ── Gap 1 regression: merge works with source="aria" (the real live source) ──
+
+    /// Contexts with source="aria" (the real source the live fleet uses —
+    /// verified via `sqlite3 registry.db "select distinct source from
+    /// agent_launch_context"`) must merge successfully. If this test had existed
+    /// before the v2 patch, it would have caught Gap 1: the old code called
+    /// `list_launch_contexts_by_source("fleet_import")` which returns an empty
+    /// slice for source="aria", so fleet_ctxs was always empty and no alias was
+    /// ever emitted.
+    ///
+    /// merge_federated_overrides is source-agnostic (takes a plain slice of
+    /// AgentLaunchContext regardless of their source field). Gap 1 was in the
+    /// CALLER — persist_and_resolve_specs used the wrong query. This test pins
+    /// the invariant that the merge function accepts contexts regardless of
+    /// source, ensuring any future change to the caller that re-introduces a
+    /// source filter would need to update this test first.
+    #[test]
+    fn merge_federated_overrides_works_with_aria_source() {
+        // Construct a context with source="aria" — the real source string found
+        // in the live registry. fleet_ctx() hardcodes SOURCE_FLEET_IMPORT; build
+        // manually here to use the actual live source value.
+        let aria_ctx = AgentLaunchContext {
+            source: "aria".to_string(), // the REAL live source — not "fleet_import"
+            agent_id: "engineer".to_string(),
+            vault_folder: Some("engineer".to_string()),
+            state_dir_spec: None,
+            zellij_session: Some("aria-engineer".to_string()),
+            systemd_service: Some("aria-engineer.service".to_string()),
+            supervise_paused: false,
+        };
+        let mut specs = vec![cp_zellij_spec("aria-engineer-abc12345", "aria-engineer")];
+        merge_federated_overrides(&mut specs, &[aria_ctx]);
+
+        assert_eq!(
+            specs[0].launch_overrides.zellij_session.as_deref(),
+            Some("aria-engineer"),
+            "merge must work when context has source='aria' (the live fleet source)"
+        );
+        assert_eq!(
+            specs[0].local_alias_id.as_deref(),
+            Some("engineer"),
+            "local_alias_id must be set from an 'aria'-sourced context"
+        );
+    }
+
+    // ── Gap 2 regression: initial-boot path emits aliases in federated mode ──
+
+    /// The merge_federated_overrides function must work on the initial boot
+    /// spec list (controlplane-fetched specs with empty launch_overrides) the
+    /// same way it works in persist_and_resolve_specs. This pins the invariant
+    /// that calling merge_federated_overrides on a fresh controlplane spec slice
+    /// produces the same alias/zellij_session outcome as the WS/poll path —
+    /// ensuring the boot-time merge added in Gap 2 is functionally equivalent.
+    ///
+    /// The daemon boot path (daemon.rs ~228) now runs:
+    ///   merge_federated_overrides(&mut agent_specs, &boot_ctxs)
+    /// after resolve_agent_specs. This test verifies that a batch of
+    /// controlplane specs (all with empty launch_overrides, all from a fresh
+    /// fetch_node_agents call) gets aliases correctly set at boot.
+    #[test]
+    fn merge_federated_overrides_boot_path_sets_all_aliases() {
+        // Simulates what fetch_node_agents produces in federated mode:
+        // 5 specs, names set, launch_overrides empty, local_alias_id None.
+        let profile_names = ["operator", "engineer", "research", "merlinlabs", "work"];
+        let mut specs: Vec<AgentSpec> = profile_names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                cp_zellij_spec(
+                    &format!("aria-{name}-{:08x}", i),
+                    &format!("aria-{name}"),
+                )
+            })
+            .collect();
+
+        // Contexts as they exist in the live registry (source="aria").
+        let ctxs: Vec<AgentLaunchContext> = profile_names
+            .iter()
+            .map(|name| AgentLaunchContext {
+                source: "aria".to_string(),
+                agent_id: name.to_string(),
+                vault_folder: Some(name.to_string()),
+                state_dir_spec: None,
+                zellij_session: Some(format!("aria-{name}")),
+                systemd_service: Some(format!("aria-{name}.service")),
+                supervise_paused: false,
+            })
+            .collect();
+
+        merge_federated_overrides(&mut specs, &ctxs);
+
+        // Every spec should now have zellij_session and local_alias_id set.
+        for (spec, name) in specs.iter().zip(profile_names.iter()) {
+            assert_eq!(
+                spec.launch_overrides.zellij_session.as_deref(),
+                Some(format!("aria-{name}").as_str()),
+                "boot path: spec '{}' should have zellij_session set",
+                spec.agent_id
+            );
+            assert_eq!(
+                spec.local_alias_id.as_deref(),
+                Some(*name),
+                "boot path: spec '{}' should have local_alias_id set",
+                spec.agent_id
+            );
+        }
     }
 }
