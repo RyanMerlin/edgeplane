@@ -780,13 +780,19 @@ async fn persist_and_resolve_specs(
 ///
 /// ## Matching rule
 ///
-/// We match on the agent `name` field (e.g. `"aria-engineer"`) provided by
-/// the controlplane. The local context's `agent_id` is the short profile name
-/// (e.g. `"engineer"`). We consider a match when **exactly one** context
-/// satisfies one of:
-///   - The controlplane name **is** the profile name (exact), OR
-///   - The controlplane name **ends with** `"-{profile_name}"` (e.g.
-///     `"aria-engineer"` → suffix match against `"engineer"`).
+/// We match on a *key* derived from the controlplane spec. Preferred: the agent
+/// `name` field (e.g. `"aria-engineer"`). Live fleet agents come back from
+/// `GET /runtime/nodes/{id}/agents` with `name: null`, so when `name` is absent
+/// the key falls back to the profile embedded in the public_id via
+/// [`profile_from_public_id`] (e.g. `"aria-research-22e6cd17"` → `"research"`).
+/// The local context's `agent_id` is the short profile name (e.g. `"engineer"`).
+/// We consider a match when **exactly one** context satisfies one of:
+///   - The key **is** the profile name (exact), OR
+///   - The key **ends with** `"-{profile_name}"` (e.g. `"aria-engineer"` →
+///     suffix match against `"engineer"`) — **name-based keys only**. A profile
+///     recovered from a public_id is already bare and matches by exact equality
+///     only (the suffix clause is gated off for it), so a hyphenated derived
+///     profile like `"foo-bar"` can't wrongly suffix-match a lone `"bar"`.
 ///
 /// **Uniqueness is enforced.** If two contexts both match (possible if one
 /// profile name is a suffix of another, e.g. `"work"` and `"a-work"` where
@@ -814,10 +820,25 @@ pub(crate) fn merge_federated_overrides(
         if spec.launch_overrides.zellij_session.is_some() {
             continue;
         }
-        // Need the name field to match against local context agent_ids.
-        let cp_name = match spec.name.as_deref() {
-            Some(n) if !n.is_empty() => n,
-            _ => continue,
+        // Key to match against local context agent_ids (short profile names).
+        // Prefer the controlplane `name` (e.g. "aria-engineer"). Live fleet
+        // agents come back from GET /runtime/nodes/{id}/agents with `name: null`,
+        // so fall back to the profile embedded in the public_id (`agent_id`),
+        // shaped "<prefix>-<profile>-<hex>" (e.g. "aria-research-22e6cd17").
+        // Without this fallback, federated zellij agents never get a PTY bridge
+        // and web attach stays dormant (the bug Phase 7 closes).
+        // `allow_suffix` gates the suffix clause below to name-based keys only.
+        // A name like "aria-engineer" legitimately suffix-matches "engineer".
+        // A profile recovered from a public_id is already bare, so it must match
+        // by exact equality — otherwise a hyphenated derived profile ("foo-bar")
+        // would wrongly suffix-match an unrelated lone context ("bar"), silently
+        // merging the wrong PTY bridge.
+        let (cp_key, allow_suffix) = match spec.name.as_deref() {
+            Some(n) if !n.is_empty() => (n, true),
+            _ => match profile_from_public_id(&spec.agent_id) {
+                Some(profile) => (profile, false),
+                None => continue,
+            },
         };
 
         // Collect ALL contexts that match, then enforce uniqueness.
@@ -829,8 +850,9 @@ pub(crate) fn merge_federated_overrides(
             .iter()
             .filter(|ctx| {
                 let profile_id = ctx.agent_id.as_str();
-                cp_name == profile_id
-                    || cp_name.strip_suffix(&format!("-{profile_id}")).is_some()
+                cp_key == profile_id
+                    || (allow_suffix
+                        && cp_key.strip_suffix(&format!("-{profile_id}")).is_some())
             })
             .collect();
 
@@ -842,11 +864,11 @@ pub(crate) fn merge_federated_overrides(
                 // Safer to skip than to merge the wrong one.
                 let candidates: Vec<&str> = matches.iter().map(|c| c.agent_id.as_str()).collect();
                 tracing::warn!(
-                    "federated merge: ambiguous match for controlplane spec '{}' (name='{}'): \
+                    "federated merge: ambiguous match for controlplane spec '{}' (key='{}'): \
                      {} fleet contexts match ({:?}). Skipping merge — rename profiles to \
                      avoid suffix collisions.",
                     spec.agent_id,
-                    cp_name,
+                    cp_key,
                     matches.len(),
                     candidates,
                 );
@@ -861,15 +883,28 @@ pub(crate) fn merge_federated_overrides(
         };
         spec.local_alias_id = Some(matched_ctx.agent_id.clone());
         tracing::info!(
-            "federated merge: controlplane spec '{}' (name='{}') matched \
+            "federated merge: controlplane spec '{}' (key='{}') matched \
              local context '{}' source='{}' (zellij_session={:?})",
             spec.agent_id,
-            cp_name,
+            cp_key,
             matched_ctx.agent_id,
             matched_ctx.source,
             matched_ctx.zellij_session,
         );
     }
+}
+
+/// Extract the profile segment from a controlplane agent `public_id`.
+///
+/// Federated public_ids are shaped `<prefix>-<profile>-<hex>` (e.g.
+/// `"aria-research-22e6cd17"`). The profile is everything between the first and
+/// last `-`, so a hyphenated profile is preserved (`"aria-foo-bar-9f"` →
+/// `"foo-bar"`). Returns `None` when the id has fewer than three
+/// `-`-separated segments (no embedded profile to recover).
+fn profile_from_public_id(public_id: &str) -> Option<&str> {
+    let (_prefix, rest) = public_id.split_once('-')?;
+    let (profile, _hex) = rest.rsplit_once('-')?;
+    (!profile.is_empty()).then_some(profile)
 }
 
 // ── Phase 4d: per-agent spawner + reconcile-driven apply ─────────────────────
@@ -1742,9 +1777,12 @@ mod tests {
         assert!(specs[0].local_alias_id.is_none());
     }
 
-    /// Spec with no `name` field is skipped.
+    /// Spec with no `name` field falls back to the profile embedded in the
+    /// public_id ("aria-work-abc" → "work") and merges. This is the real
+    /// live-fleet shape: GET /runtime/nodes/{id}/agents returns name=null.
+    /// (Previously this asserted a skip — which was the Phase 7 bug.)
     #[test]
-    fn merge_federated_overrides_skips_spec_with_no_name() {
+    fn merge_federated_overrides_derives_profile_from_public_id_when_name_absent() {
         let mut specs = vec![AgentSpec {
             agent_id: "aria-work-abc".to_string(),
             domain_id: "m-1".to_string(),
@@ -1754,14 +1792,148 @@ mod tests {
             profile_path: None,
             webhook_url: None,
             launch_overrides: Default::default(),
-            name: None, // no name
+            name: None, // controlplane returned name=null
             local_alias_id: None,
         }];
         let ctxs = vec![fleet_ctx("work", "aria-work")];
         merge_federated_overrides(&mut specs, &ctxs);
 
+        assert_eq!(
+            specs[0].launch_overrides.zellij_session.as_deref(),
+            Some("aria-work"),
+            "name=null spec must still merge via public_id middle segment"
+        );
+        assert_eq!(specs[0].local_alias_id.as_deref(), Some("work"));
+    }
+
+    /// End-to-end against the real `GET /runtime/nodes/{id}/agents` shape:
+    /// `agent_spec_from_json` parses a record with `name: null` (profile lives
+    /// only in the public_id), then the merge wires the PTY bridge. This is the
+    /// exact integration the prior `name = "aria-engineer"` fixtures masked.
+    #[test]
+    fn agent_spec_from_json_name_null_merges_via_public_id() {
+        let row = serde_json::json!({
+            "public_id": "aria-research-22e6cd17",
+            "name": serde_json::Value::Null,
+            "domain_id": "m-1",
+            "runtime_kind": "zellij_hosted",
+            "supervision_mode": "persistent",
+        });
+        let spec = agent_spec_from_json(&row).expect("real node-agents record parses");
+        assert_eq!(spec.name, None, "controlplane returns name=null");
+        assert_eq!(spec.agent_id, "aria-research-22e6cd17");
+        assert_eq!(spec.session_mode, SessionMode::Persistent);
+
+        let mut specs = vec![spec];
+        let ctxs = vec![fleet_ctx("research", "aria-research")];
+        merge_federated_overrides(&mut specs, &ctxs);
+
+        assert_eq!(
+            specs[0].launch_overrides.zellij_session.as_deref(),
+            Some("aria-research")
+        );
+        assert_eq!(specs[0].local_alias_id.as_deref(), Some("research"));
+    }
+
+    /// name=null + a hyphenated profile: the middle segment ("foo-bar") is
+    /// recovered whole (split on first/last `-`) and matches the "foo-bar" ctx.
+    #[test]
+    fn merge_federated_overrides_public_id_preserves_hyphenated_profile() {
+        let mut spec = cp_zellij_spec("aria-foo-bar-9f3c", "unused");
+        spec.name = None; // force the public_id fallback
+        let mut specs = vec![spec];
+        let ctxs = vec![fleet_ctx("foo-bar", "aria-foo-bar")];
+        merge_federated_overrides(&mut specs, &ctxs);
+
+        assert_eq!(
+            specs[0].local_alias_id.as_deref(),
+            Some("foo-bar"),
+            "hyphenated profile recovered from public_id middle segment"
+        );
+    }
+
+    /// name=null + a public_id with fewer than three `-`-segments has no
+    /// recoverable profile and is skipped — and must not mis-match the prefix.
+    #[test]
+    fn merge_federated_overrides_no_name_unparseable_public_id_skips() {
+        for id in ["aria-onlyhex", "standalone"] {
+            let mut spec = cp_zellij_spec(id, "unused");
+            spec.name = None;
+            let mut specs = vec![spec];
+            // Includes a ctx named "aria" to catch a buggy parser that would
+            // return the first segment instead of None.
+            let ctxs = vec![fleet_ctx("aria", "z"), fleet_ctx("onlyhex", "z2")];
+            merge_federated_overrides(&mut specs, &ctxs);
+            assert!(
+                specs[0].launch_overrides.zellij_session.is_none(),
+                "public_id {id:?} has no recoverable profile; must not merge"
+            );
+            assert!(specs[0].local_alias_id.is_none());
+        }
+    }
+
+    /// name=null + a recoverable profile that matches no local context is
+    /// skipped (no PTY bridge until enrollment is corrected).
+    #[test]
+    fn merge_federated_overrides_no_name_public_id_no_ctx_match_skips() {
+        let mut spec = cp_zellij_spec("aria-ghost-abc", "unused");
+        spec.name = None;
+        let mut specs = vec![spec];
+        let ctxs = vec![fleet_ctx("engineer", "aria-engineer")];
+        merge_federated_overrides(&mut specs, &ctxs);
+
         assert!(specs[0].launch_overrides.zellij_session.is_none());
         assert!(specs[0].local_alias_id.is_none());
+    }
+
+    /// The public_id parser itself: prefix + hex stripped, middle is the profile.
+    #[test]
+    fn profile_from_public_id_extracts_middle_segment() {
+        assert_eq!(profile_from_public_id("aria-research-22e6cd17"), Some("research"));
+        assert_eq!(profile_from_public_id("aria-work-c5ff410a"), Some("work"));
+        assert_eq!(profile_from_public_id("aria-foo-bar-9f3c"), Some("foo-bar"));
+        assert_eq!(profile_from_public_id("aria-onlyhex"), None);
+        assert_eq!(profile_from_public_id("standalone"), None);
+        assert_eq!(profile_from_public_id(""), None);
+    }
+
+    /// Regression (review finding): a derived *hyphenated* profile key must not
+    /// suffix-match a shorter unrelated context. Derived key "foo-bar" with only
+    /// a lone "bar" context must NOT merge — the suffix clause is gated off for
+    /// public_id-derived keys (otherwise it would silently bridge the wrong PTY).
+    #[test]
+    fn merge_federated_overrides_derived_hyphenated_key_no_suffix_false_match() {
+        let mut spec = cp_zellij_spec("aria-foo-bar-9f3c", "unused");
+        spec.name = None; // force the derived key "foo-bar"
+        let mut specs = vec![spec];
+        let ctxs = vec![fleet_ctx("bar", "aria-bar")]; // lone, unrelated
+        merge_federated_overrides(&mut specs, &ctxs);
+
+        assert!(
+            specs[0].launch_overrides.zellij_session.is_none(),
+            "derived 'foo-bar' must not suffix-match lone 'bar'"
+        );
+        assert!(specs[0].local_alias_id.is_none());
+    }
+
+    /// `name`, when present, wins over the public_id-derived profile even when
+    /// the two would resolve to different contexts.
+    #[test]
+    fn merge_federated_overrides_name_takes_precedence_over_public_id() {
+        // name → "operator"; public_id middle segment → "research". Both exist.
+        let spec = cp_zellij_spec("aria-research-abc", "operator");
+        let mut specs = vec![spec];
+        let ctxs = vec![
+            fleet_ctx("operator", "aria-operator"),
+            fleet_ctx("research", "aria-research"),
+        ];
+        merge_federated_overrides(&mut specs, &ctxs);
+
+        assert_eq!(
+            specs[0].local_alias_id.as_deref(),
+            Some("operator"),
+            "controlplane name must take precedence over public_id-derived profile"
+        );
     }
 
     /// Spec that already has a zellij_session is not overwritten.
