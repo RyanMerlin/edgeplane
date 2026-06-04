@@ -697,10 +697,17 @@ async fn persist_and_resolve_specs(
 ///
 /// We match on the agent `name` field (e.g. `"aria-engineer"`) provided by
 /// the controlplane. The fleet_import agent_id is the short profile name
-/// (e.g. `"engineer"`). We consider a match when:
+/// (e.g. `"engineer"`). We consider a match when **exactly one** fleet
+/// context satisfies one of:
 ///   - The controlplane name **is** the fleet profile name (exact), OR
 ///   - The controlplane name **ends with** `"-{profile_name}"` (e.g.
-///     `"aria-engineer"` → strip `"aria-"` prefix → `"engineer"`).
+///     `"aria-engineer"` → suffix match against `"engineer"`).
+///
+/// **Uniqueness is enforced.** If two fleet contexts both match (possible
+/// if one profile name is a suffix of another, e.g. `"work"` and `"a-work"`
+/// where cp_name is `"aria-work"`), the spec is left unchanged — ambiguity
+/// is safer than a wrong assignment. The collision will be logged as a
+/// warning.
 ///
 /// This is intentionally conservative: we only merge when there is a
 /// single unambiguous match. If no match exists (controlplane has no `name`,
@@ -730,36 +737,54 @@ pub(crate) fn merge_federated_overrides(
             _ => continue,
         };
 
-        // Find the fleet_import context whose agent_id matches the
-        // controlplane name (exact or prefix-stripped).
-        let matched_ctx = fleet_ctxs.iter().find(|ctx| {
-            let profile_id = ctx.agent_id.as_str();
-            cp_name == profile_id
-                || cp_name
-                    .strip_suffix(&format!("-{profile_id}"))
-                    .is_some()
-                || cp_name
-                    .rsplit_once('-')
-                    .map(|(_, suffix)| suffix == profile_id)
-                    .unwrap_or(false)
-        });
+        // Collect ALL fleet contexts that match, then enforce uniqueness.
+        // Two clauses — exact match or suffix match. The former redundant
+        // rsplit_once clause has been removed: it matched on the last
+        // hyphen-segment alone, which would cause `"aria-foo-bar"` to
+        // match both "bar" and "foo-bar" non-deterministically.
+        let matches: Vec<&crate::local_registry::AgentLaunchContext> = fleet_ctxs
+            .iter()
+            .filter(|ctx| {
+                let profile_id = ctx.agent_id.as_str();
+                cp_name == profile_id
+                    || cp_name.strip_suffix(&format!("-{profile_id}")).is_some()
+            })
+            .collect();
 
-        if let Some(ctx) = matched_ctx {
-            spec.launch_overrides = crate::supervisor::SpawnOverrides {
-                vault_folder: ctx.vault_folder.clone(),
-                state_dir_spec: ctx.state_dir_spec.clone(),
-                zellij_session: ctx.zellij_session.clone(),
-            };
-            spec.local_alias_id = Some(ctx.agent_id.clone());
-            tracing::info!(
-                "federated merge: controlplane spec '{}' (name='{}') matched \
-                 fleet_import context '{}' (zellij_session={:?})",
-                spec.agent_id,
-                cp_name,
-                ctx.agent_id,
-                ctx.zellij_session,
-            );
-        }
+        let matched_ctx = match matches.len() {
+            0 => continue, // no match — leave spec unchanged
+            1 => matches[0],
+            _ => {
+                // Ambiguous — two or more fleet contexts match this name.
+                // Safer to skip than to merge the wrong one.
+                let candidates: Vec<&str> = matches.iter().map(|c| c.agent_id.as_str()).collect();
+                tracing::warn!(
+                    "federated merge: ambiguous match for controlplane spec '{}' (name='{}'): \
+                     {} fleet contexts match ({:?}). Skipping merge — rename profiles to \
+                     avoid suffix collisions.",
+                    spec.agent_id,
+                    cp_name,
+                    matches.len(),
+                    candidates,
+                );
+                continue;
+            }
+        };
+
+        spec.launch_overrides = crate::supervisor::SpawnOverrides {
+            vault_folder: matched_ctx.vault_folder.clone(),
+            state_dir_spec: matched_ctx.state_dir_spec.clone(),
+            zellij_session: matched_ctx.zellij_session.clone(),
+        };
+        spec.local_alias_id = Some(matched_ctx.agent_id.clone());
+        tracing::info!(
+            "federated merge: controlplane spec '{}' (name='{}') matched \
+             fleet_import context '{}' (zellij_session={:?})",
+            spec.agent_id,
+            cp_name,
+            matched_ctx.agent_id,
+            matched_ctx.zellij_session,
+        );
     }
 }
 
@@ -817,6 +842,23 @@ impl Spawner {
             if let Some(new) = self.spawn_one(spec).await {
                 running.insert(spec.agent_id.clone(), new);
             }
+        }
+        // 4. Register attach-registry aliases for federated specs that are
+        //    already running under a local fleet-import key. This enables
+        //    web attach via the controlplane public_id to reach the existing
+        //    PTY bridge without re-spawning or disturbing the live session.
+        //
+        //    Example: bridge registered under "engineer" → alias
+        //    "aria-engineer-708650f1" → "engineer" means the controlplane
+        //    attach path `wss /api/runtime/nodes/{node}/agents/{public_id}/attach`
+        //    resolves to the live bridge.
+        for (public_id, local_id) in &plan.alias_registrations {
+            self.attach_registry
+                .register_alias(public_id.clone(), local_id.clone())
+                .await;
+            tracing::debug!(
+                "attach alias registered: {public_id} → {local_id} (federated no-op bridge)"
+            );
         }
     }
 
@@ -1648,6 +1690,54 @@ mod tests {
 
         assert!(specs[0].launch_overrides.zellij_session.is_none());
         assert!(specs[0].local_alias_id.is_none());
+    }
+
+    /// Hyphenated profile name collision: a cp_name of "aria-foo-work" would
+    /// suffix-match both "work" and "foo-work". The merge must skip on
+    /// ambiguity and leave the spec unchanged — not non-deterministically
+    /// pick one of the two matches.
+    #[test]
+    fn merge_federated_overrides_hyphenated_profile_name_no_false_match() {
+        // Two fleet contexts: "work" and "foo-work".
+        // cp_name "aria-foo-work" suffix-matches both (ends with "-work" AND
+        // ends with "-foo-work").
+        let ctxs = vec![
+            fleet_ctx("work", "work-session"),
+            fleet_ctx("foo-work", "foo-work-session"),
+        ];
+        let mut specs = vec![cp_zellij_spec("aria-foo-work-abc", "aria-foo-work")];
+        merge_federated_overrides(&mut specs, &ctxs);
+
+        // Both contexts match → ambiguous → spec must be left unchanged.
+        assert!(
+            specs[0].launch_overrides.zellij_session.is_none(),
+            "ambiguous match must not set zellij_session (got {:?})",
+            specs[0].launch_overrides.zellij_session
+        );
+        assert!(
+            specs[0].local_alias_id.is_none(),
+            "ambiguous match must not set local_alias_id"
+        );
+    }
+
+    /// A profile name that is a plain hyphenated single match (e.g.
+    /// "foo-bar" in fleet, cp_name "aria-foo-bar") must still match when
+    /// there is no other context that would also match.
+    #[test]
+    fn merge_federated_overrides_hyphenated_profile_name_single_match() {
+        let ctxs = vec![fleet_ctx("foo-bar", "foo-bar-session")];
+        let mut specs = vec![cp_zellij_spec("aria-foo-bar-abc", "aria-foo-bar")];
+        merge_federated_overrides(&mut specs, &ctxs);
+
+        assert_eq!(
+            specs[0].launch_overrides.zellij_session.as_deref(),
+            Some("foo-bar-session"),
+            "unambiguous hyphenated profile name must match"
+        );
+        assert_eq!(
+            specs[0].local_alias_id.as_deref(),
+            Some("foo-bar")
+        );
     }
 
     /// Multiple fleet contexts: only the matching one is applied.

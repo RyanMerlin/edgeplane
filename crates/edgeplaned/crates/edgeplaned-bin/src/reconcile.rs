@@ -131,6 +131,7 @@ pub fn diff_specs(
 
     let mut to_spawn: Vec<AgentSpec> = Vec::new();
     let mut to_restart: Vec<AgentSpec> = Vec::new();
+    let mut alias_registrations: Vec<(String, String)> = Vec::new();
     for spec in desired {
         // Look up by canonical id first, then by local_alias_id (for federated
         // specs whose controlplane id differs from the already-running local id).
@@ -155,6 +156,15 @@ pub fn diff_specs(
                 };
                 if materially_changed {
                     to_restart.push(spec.clone());
+                } else if matched_by_alias {
+                    // The spec is a no-op (already running under the alias key)
+                    // but the controlplane public_id differs from the local
+                    // fleet key. Record the pair so the reconcile caller can
+                    // register an attach-registry alias, enabling web attach
+                    // for the public_id to reach the existing PTY bridge.
+                    if let Some(ref local_id) = spec.local_alias_id {
+                        alias_registrations.push((spec.agent_id.clone(), local_id.clone()));
+                    }
                 }
             }
         }
@@ -164,6 +174,7 @@ pub fn diff_specs(
         to_remove,
         to_spawn,
         to_restart,
+        alias_registrations,
     }
 }
 
@@ -193,6 +204,12 @@ pub struct ReconcilePlan {
     pub to_remove: Vec<String>,
     pub to_spawn: Vec<AgentSpec>,
     pub to_restart: Vec<AgentSpec>,
+    /// Pairs of `(public_id, local_alias_id)` for federated specs that were
+    /// recognised as already-running (matched via `local_alias_id`) and do
+    /// not need to be re-spawned. The reconcile caller uses these to register
+    /// attach-registry aliases so an incoming attach for `public_id` reaches
+    /// the PTY bridge registered under `local_alias_id`.
+    pub alias_registrations: Vec<(String, String)>,
 }
 
 impl ReconcilePlan {
@@ -552,6 +569,55 @@ mod tests {
             plan.to_remove
         );
         assert!(plan.to_spawn.is_empty(), "should not spawn a duplicate");
+    }
+
+    /// A federated spec that is a no-op (running under the alias key) should
+    /// record an alias_registration so the reconcile caller can wire the
+    /// attach registry alias — this is the attach-reachability fix.
+    #[test]
+    fn diff_federated_noop_emits_alias_registration() {
+        // Running: "engineer" (local fleet-import key).
+        let local_running = AgentSpec {
+            agent_id: "engineer".into(),
+            domain_id: "m-1".into(),
+            runtime_kind: "zellij_hosted".into(),
+            session_mode: SessionMode::Persistent,
+            capabilities: vec![],
+            profile_path: None,
+            webhook_url: None,
+            launch_overrides: crate::supervisor::SpawnOverrides {
+                zellij_session: Some("engineer".into()),
+                ..Default::default()
+            },
+            name: None,
+            local_alias_id: None,
+        };
+        let running = running_with(local_running);
+
+        // Desired: controlplane public_id with local_alias_id pointing at "engineer".
+        let cp_spec = AgentSpec {
+            agent_id: "aria-engineer-708650f1".into(),
+            domain_id: "m-1".into(),
+            runtime_kind: "zellij_hosted".into(),
+            session_mode: SessionMode::Persistent,
+            capabilities: vec![],
+            profile_path: None,
+            webhook_url: None,
+            launch_overrides: crate::supervisor::SpawnOverrides {
+                zellij_session: Some("engineer".into()),
+                ..Default::default()
+            },
+            name: Some("aria-engineer".into()),
+            local_alias_id: Some("engineer".into()),
+        };
+
+        let plan = diff_specs(&[cp_spec], &running);
+        assert!(plan.is_noop(), "should be a no-op for the running map");
+        assert_eq!(
+            plan.alias_registrations,
+            vec![("aria-engineer-708650f1".to_string(), "engineer".to_string())],
+            "must emit alias registration for attach-registry wiring"
+        );
     }
 
     /// Without a local_alias_id, a new controlplane id with a running local
