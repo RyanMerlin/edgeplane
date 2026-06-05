@@ -208,6 +208,21 @@ async fn test_node_notify_route_registered() {
     assert_ne!(status, 200, "unauthenticated request must not succeed");
 }
 
+#[tokio::test]
+async fn test_agent_attach_route_registered() {
+    // The browser attach proxy is owner-scoped via `Principal` + `require_node_owner`.
+    // An unauthenticated request must be rejected (not 200) but the route must exist.
+    let res = server()
+        .get("/api/runtime/nodes/test-node-id/agents/test-agent-id/attach")
+        .await;
+    let status = res.status_code().as_u16();
+    assert_ne!(
+        status, 404,
+        "/runtime/nodes/{{id}}/agents/{{id}}/attach should be registered"
+    );
+    assert_ne!(status, 200, "unauthenticated request must not succeed");
+}
+
 // Admin POST /work/tasks/{id}/dispatched — terminal-from-ready transition
 // for the triage routing path (replaces the 4-call temp-agent dance).
 #[tokio::test]

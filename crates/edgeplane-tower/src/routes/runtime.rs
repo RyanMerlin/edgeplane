@@ -2562,9 +2562,11 @@ async fn handle_pty_ws(socket: WebSocket, session_id: String, conn_id: String) {
 
 /// `GET /runtime/nodes/{node_id}/agents/{agent_id}/attach`
 ///
-/// Auth: bearer token in `Authorization` header. The token is checked
-/// the same way `Principal` extraction does — admin token or a valid user
-/// session.
+/// Auth: the caller must OWN the node (or be admin). The `Principal` extractor
+/// accepts a Bearer token AND the browser's same-origin `ep_session_token`
+/// cookie — so a real browser WebSocket, which cannot set an Authorization
+/// header, authenticates via its session cookie. `require_node_owner` then
+/// scopes the caller to the node owner (mirrors `node_notify_ws`).
 ///
 /// Behavior: resolve `node_id` → tailscale_fqdn/ip + per-node attach_secret
 /// from the runtimenode row, sign a short-lived HMAC token, dial the mesh
@@ -2574,18 +2576,13 @@ async fn agent_attach_proxy(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
     Path((node_id, agent_id)): Path<(String, String)>,
-    headers: axum::http::HeaderMap,
+    principal: Principal,
 ) -> impl IntoResponse {
-    // 1) Auth — Authorization header only (query-param path removed).
-    let token = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|s| s.to_string())
-        .unwrap_or_default();
-
-    if !verify_attach_caller_token(&state, &token).await {
-        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    // 1) AuthZ — caller must own this node (or be admin). Replaces the old
+    //    header-only check, which both rejected browsers (no Authorization
+    //    header on a WS upgrade) and never scoped the caller to the node owner.
+    if let Err(resp) = require_node_owner(&state, &principal, &node_id).await {
+        return resp;
     }
 
     // 2) Resolve node → reachable address + per-node attach secret.
@@ -2635,52 +2632,12 @@ async fn agent_attach_proxy(
     // 4) Upgrade caller, then dial mesh.
     ws.on_upgrade(move |browser_socket| async move {
         if let Err(e) = run_attach_proxy(browser_socket, mesh_url).await {
-            tracing::debug!("attach proxy session ended: {e:#}");
+            // debug → warn: a failed dial here is the exact silent-failure mode
+            // that masked the cluster→node egress gap. Never log `mesh_url` — it
+            // carries the signed attach token.
+            tracing::warn!(node_id = %node_id, agent_id = %agent_id, "agent_attach_proxy: proxy/dial failed: {e:#}");
         }
     })
-}
-
-async fn verify_attach_caller_token(state: &AppState, token: &str) -> bool {
-    if token.is_empty() {
-        return false;
-    }
-    // Node JWT fast path — verify in-process, then confirm JTI not revoked.
-    if token.matches('.').count() == 2 {
-        if let Ok(claims) = crate::jwt::verify_node_jwt(token, &state.jwt_decoding_key) {
-            let now = chrono::Utc::now().naive_utc();
-            return matches!(
-                sqlx::query("SELECT revoked FROM nodetoken WHERE jti=$1 AND expires_at > $2 AND revoked=false")
-                    .bind(&claims.jti)
-                    .bind(now)
-                    .fetch_optional(&state.db)
-                    .await,
-                Ok(Some(_))
-            );
-        }
-        return false;
-    }
-    // Look up either a user session or service-account token by hash.
-    let hash = hash_token_local(token);
-    let now = Utc::now().naive_utc();
-    let user_ok = sqlx::query("SELECT 1 FROM usersession WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > $2) LIMIT 1")
-        .bind(&hash)
-        .bind(now)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .is_some();
-    if user_ok {
-        return true;
-    }
-    sqlx::query("SELECT 1 FROM serviceaccounttoken WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > $2) LIMIT 1")
-        .bind(&hash)
-        .bind(now)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .is_some()
 }
 
 fn sign_attach_token(secret: &str, agent_id: &str, exp: i64) -> String {
