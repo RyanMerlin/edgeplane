@@ -1665,7 +1665,12 @@ async fn get_node_attach_secret(
     .await
     {
         Ok(Some(Some(secret))) if !secret.is_empty() => {
-            Json(serde_json::json!({"node_id": node_id, "attach_secret": secret}))
+            // Never cache a secret-bearing response — defense-in-depth against
+            // any intermediary/proxy that might otherwise store it.
+            (
+                [(header::CACHE_CONTROL, "no-store, private")],
+                Json(serde_json::json!({"node_id": node_id, "attach_secret": secret})),
+            )
                 .into_response()
         }
         Ok(_) => not_found("node has no attach_secret"),

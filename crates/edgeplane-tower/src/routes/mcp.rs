@@ -328,9 +328,15 @@ async fn dispatch(
             if name.is_empty() { return err_result("name is required"); }
             let description = str_arg(args, "description");
             let id = format!("m_{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..12]);
+            // Same NOT NULL coverage as create_mission: domain has no
+            // `owner_subject` column (ownership lives in `owners`, which carries
+            // a non-empty CHECK) and several NOT NULL no-default columns.
             match sqlx::query(
-                "INSERT INTO domain (id, name, description, status, owner_subject, created_at, updated_at) \
-                 VALUES ($1,$2,$3,'active',$4,$5,$5)"
+                "INSERT INTO domain \
+                 (id, name, description, owners, contributors, tags, visibility, status, \
+                  northstar_md, northstar_version, northstar_created_by, northstar_modified_by, \
+                  created_at, updated_at) \
+                 VALUES ($1,$2,$3,$4,'','','private','active','',0,$4,$4,$5,$5)"
             )
             .bind(&id).bind(&name).bind(&description).bind(&principal.subject).bind(now)
             .execute(&state.db).await
