@@ -479,6 +479,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/runtime/nodes/{node_id}/heartbeat", post(heartbeat_node))
         .route("/runtime/nodes/{node_id}/config", get(get_node_config))
         .route(
+            "/runtime/nodes/{node_id}/attach-secret",
+            get(get_node_attach_secret),
+        )
+        .route(
             "/runtime/nodes/{node_id}/install-bundle",
             get(get_node_install_bundle),
         )
@@ -1631,6 +1635,45 @@ async fn require_node_owner(
         return Err(StatusCode::FORBIDDEN.into_response());
     }
     Ok(owner)
+}
+
+/// `GET /runtime/nodes/{node_id}/attach-secret`
+///
+/// Returns the per-node `attach_secret` (minted at registration) so the
+/// node's daemon can validate the short-lived HMAC attach tokens the
+/// controlplane mints in `agent_attach_proxy`. Both sides must share the
+/// same secret or browser attach is rejected as "invalid token".
+///
+/// Owner/admin scoped via `require_node_owner`. The secret is deliberately
+/// excluded from list/get node responses — this dedicated endpoint is the
+/// only read path, used by edgeplaned at startup to self-heal when the
+/// secret never reached its local profile (e.g. a node registered
+/// out-of-band, before this sync path existed).
+async fn get_node_attach_secret(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(node_id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(resp) = require_node_owner(&state, &principal, &node_id).await {
+        return resp;
+    }
+    match sqlx::query_scalar::<_, Option<String>>(
+        "SELECT attach_secret FROM runtimenode WHERE id=$1",
+    )
+    .bind(&node_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(Some(secret))) if !secret.is_empty() => {
+            Json(serde_json::json!({"node_id": node_id, "attach_secret": secret}))
+                .into_response()
+        }
+        Ok(_) => not_found("node has no attach_secret"),
+        Err(e) => {
+            tracing::error!("get_node_attach_secret: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 /// Assign a new agent to this node in the requested domain. Mirrors

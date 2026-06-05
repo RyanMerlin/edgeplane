@@ -267,7 +267,7 @@ pub async fn watch_assignments_ws<F, Fut>(
     let mut backoff = WS_RECONNECT_MIN;
 
     loop {
-        let url = ws_url(&backend_url, &node_id);
+        let url = ws_url(&backend_url, &client.api_prefix, &node_id);
         match connect_and_pump(&url, &token).await {
             Ok(()) => {
                 // Clean disconnect — reset backoff, reconnect immediately.
@@ -292,7 +292,7 @@ pub async fn watch_assignments_ws<F, Fut>(
     }
 }
 
-fn ws_url(backend_url: &str, node_id: &str) -> String {
+fn ws_url(backend_url: &str, api_prefix: &str, node_id: &str) -> String {
     let scheme = if backend_url.starts_with("https") {
         "wss"
     } else {
@@ -302,7 +302,12 @@ fn ws_url(backend_url: &str, node_id: &str) -> String {
         .trim_start_matches("https://")
         .trim_start_matches("http://")
         .trim_end_matches('/');
-    format!("{scheme}://{host_and_path}/runtime/nodes/{node_id}/notify")
+    // The notify route is mounted under the same `api_prefix` as every other
+    // controlplane route (default `/api`). The GET/POST `BackendClient` already
+    // prepends this prefix; the WS URL must too or the daemon dials the wrong
+    // path and the subscription 404s (falling back to ~60s polling).
+    let prefix = api_prefix.trim_end_matches('/');
+    format!("{scheme}://{host_and_path}{prefix}/runtime/nodes/{node_id}/notify")
 }
 
 /// Connect to the WS endpoint, pump messages until the server closes or
@@ -670,24 +675,40 @@ mod tests {
     #[test]
     fn ws_url_http_to_ws() {
         assert_eq!(
-            ws_url("http://localhost:8008", "node-x"),
-            "ws://localhost:8008/runtime/nodes/node-x/notify"
+            ws_url("http://localhost:8008", "/api", "node-x"),
+            "ws://localhost:8008/api/runtime/nodes/node-x/notify"
         );
     }
 
     #[test]
     fn ws_url_https_to_wss() {
         assert_eq!(
-            ws_url("https://edgeplane.example.com", "node-x"),
-            "wss://edgeplane.example.com/runtime/nodes/node-x/notify"
+            ws_url("https://edgeplane.example.com", "/api", "node-x"),
+            "wss://edgeplane.example.com/api/runtime/nodes/node-x/notify"
         );
     }
 
     #[test]
     fn ws_url_strips_trailing_slash() {
         assert_eq!(
-            ws_url("http://localhost:8008/", "node-x"),
+            ws_url("http://localhost:8008/", "/api", "node-x"),
+            "ws://localhost:8008/api/runtime/nodes/node-x/notify"
+        );
+    }
+
+    #[test]
+    fn ws_url_empty_prefix_has_no_api_segment() {
+        assert_eq!(
+            ws_url("http://localhost:8008", "", "node-x"),
             "ws://localhost:8008/runtime/nodes/node-x/notify"
+        );
+    }
+
+    #[test]
+    fn ws_url_prefix_trailing_slash_normalized() {
+        assert_eq!(
+            ws_url("http://localhost:8008", "/api/", "node-x"),
+            "ws://localhost:8008/api/runtime/nodes/node-x/notify"
         );
     }
 

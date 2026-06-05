@@ -127,6 +127,44 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
             ),
     );
 
+    // Self-heal `attach_secret` (the browser-attach HMAC key).
+    //
+    // The controlplane signs short-lived attach tokens with the per-node
+    // `attach_secret` minted at registration; `attach_ws` validates them with
+    // the same secret. A node registered out-of-band — or before this sync
+    // path existed — can have an empty `attach_secret` in its local profile,
+    // which makes `attach_ws` default-deny and silently breaks browser attach.
+    // When federated (node_id set) and the local secret is empty, fetch it from
+    // the controlplane (owner-scoped) so the two sides match. Best-effort: on
+    // failure attach stays disabled until the next start; nothing else breaks.
+    let attach_secret_missing = cfg
+        .attach_secret
+        .as_deref()
+        .map(str::is_empty)
+        .unwrap_or(true);
+    if let Some(node_id) = cfg.node_id.clone().filter(|_| attach_secret_missing) {
+        let path = format!("/runtime/nodes/{node_id}/attach-secret");
+        match client.get::<serde_json::Value>(&path).await {
+            Ok(v) => match v.get("attach_secret").and_then(|s| s.as_str()) {
+                Some(secret) if !secret.is_empty() => {
+                    cfg.attach_secret = Some(secret.to_string());
+                    tracing::info!(
+                        "Fetched attach_secret from controlplane for node {node_id}; \
+                         browser attach enabled."
+                    );
+                }
+                _ => tracing::warn!(
+                    "controlplane returned no attach_secret for node {node_id}; \
+                     browser attach stays disabled."
+                ),
+            },
+            Err(e) => tracing::warn!(
+                "Could not fetch attach_secret for node {node_id}: {e:#}. \
+                 Browser attach stays disabled until next start."
+            ),
+        }
+    }
+
     // Bootstrap: idempotently provision `home-{hostname}` domain + `intake`
     // mission for per-node coordination. Runs after fleet_import (which
     // establishes the agent registry) and after the client is constructed.

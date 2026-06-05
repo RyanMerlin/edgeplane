@@ -188,6 +188,19 @@ async fn test_list_node_agents_route_registered() {
 }
 
 #[tokio::test]
+async fn test_attach_secret_route_registered() {
+    let res = server()
+        .get("/api/runtime/nodes/test-node-id/attach-secret")
+        .await;
+    let status = res.status_code().as_u16();
+    assert_ne!(
+        status, 404,
+        "/runtime/nodes/{{id}}/attach-secret should be registered"
+    );
+    assert_ne!(status, 200, "unauthenticated request must not leak the secret");
+}
+
+#[tokio::test]
 async fn test_node_notify_route_registered() {
     let res = server().get("/api/runtime/nodes/test-node-id/notify").await;
     let status = res.status_code().as_u16();
