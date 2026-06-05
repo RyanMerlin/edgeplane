@@ -6,6 +6,8 @@
 
 > **Architectural update — 2026-05-11:** PTY and xterm.js are dropped from this design. ACP (Agent Client Protocol, via `claude-code-acp`) is the only transport for persistent agent sessions. The web UI and TUI render structured ACP messages, not terminal output. See "Transport: ACP-only" below for the consolidated decision and the consequences for each gap.
 
+> **Status update — 2026-06-05 (browser attach, Gap 2):** The remote ACP relay is partially live and its foundation breaks are resolved. (1) The node→tower **notify carrier** was a stale-`edgeplaned` 404→poll regression — fixed by redeploying the daemon from `origin/main`. (2) Browser attach was **un-authenticatable** (the handler read the `Authorization` header only; a browser cannot set it on a WS — it sends the `ep_session_token` cookie) **and** not owner-scoped — both fixed by switching `agent_attach_proxy` to the `Principal` extractor + `require_node_owner` (PR #14). The remaining gap is the **tower→node dial**, which fails from the cluster (no tailnet egress); the transport decision is **ADR 0004 (Tailscale egress, not reverse-dial)** — implementation pending. The reverse-dial alternative was designed and red-teamed, then deferred to a future off-tailnet-node scenario.
+
 ---
 
 ## Vision
