@@ -6,6 +6,23 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-06-06
+
+### Added
+
+- **Zellij control-path plugin (`edgeplane-zrpc`) + daemon integration — dormant, feature-flagged.**
+  A WASM control plugin gives `ZellijHosted` agents focus-free inject/cancel, scrollback
+  reads, pane manifest, and pane-lifecycle events over Zellij pipes — replacing the
+  paste→300ms→Enter chain with a focus-race-free path. Gated by `EDGEPLANE_ZRPC_PLUGIN_PATH`
+  + `EDGEPLANE_ZRPC_SESSIONS` (both unset = no behavior change), so it ships dormant.
+  Notable details: the plugin is built as a **bin crate** so it exports `_start` (a
+  `cdylib` on `wasm32-wasip1` is a WASI reactor with no `_start`, which zellij 0.44.3
+  rejects at instantiation); idempotent install tooling writes the session's
+  `plugins{}`/`load_plugins{}` config (via the KDL parser, not string surgery) and a
+  pre-seeded `permissions.kdl` (raw-path key); a lifecycle event consumer reads the
+  `zrpc-events` pipe; and the request path reads-until-response then reaps the
+  `zellij pipe` child rather than hanging on it.
+
 ### Breaking changes
 
 - **`edgeplane launch` removed — `edgeplane run <runtime>` is the single agent launcher.**
