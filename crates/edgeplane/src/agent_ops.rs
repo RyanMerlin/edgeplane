@@ -214,8 +214,44 @@ pub async fn describe_local(agent_id: &str) -> Result<Option<Value>> {
 // ─── Remote dispatch (controlplane HTTP) ─────────────────────────────────
 
 async fn signal_remote(agent_id: &str, content: &str, client: &EdgeplaneClient) -> Result<()> {
-    // Forward to the existing edgeplane signal logic (which knows how to look up
-    // the sender identity and post to /agents/{sender}/message).
+    // Validate the recipient exists on the controlplane before spending a
+    // round-trip on sender registration. A typo or stale ID produces a
+    // cryptic 404 that names the *sender* public_id — not the bad recipient —
+    // so we fail early with an actionable message instead.
+    if let Err(e) = describe_remote(agent_id, client).await {
+        // Pull the local profile list for the suggestion string. Failures
+        // here are soft — we'd rather show an empty list than mask the
+        // real error.
+        let local_names: String = {
+            let agents = list_local().await.unwrap_or_default();
+            if agents.is_empty() {
+                "none".to_string()
+            } else {
+                agents
+                    .iter()
+                    .map(|a| {
+                        a.get("agent_id")
+                            .or_else(|| a.get("name"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("?")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        };
+        return Err(anyhow!(
+            "agent '{}' not found on the controlplane and is not a local profile \
+             (lookup error: {:#}). \
+             Local profiles: {}. \
+             To target a local agent, use its profile name (auto-resolves) or pass --local; \
+             for a controlplane agent pass its public_id.",
+            agent_id,
+            e,
+            local_names,
+        ));
+    }
+
+    // Recipient verified — proceed with sender registration and POST.
     let args = crate::signal::SignalArgs {
         agent_id: agent_id.to_string(),
         content: content.to_string(),
