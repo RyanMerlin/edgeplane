@@ -2591,9 +2591,11 @@ async fn handle_pty_ws(socket: WebSocket, session_id: String, conn_id: String) {
 
 /// `GET /runtime/nodes/{node_id}/agents/{agent_id}/attach`
 ///
-/// Auth: bearer token in `Authorization` header. The token is checked
-/// the same way `Principal` extraction does — admin token or a valid user
-/// session.
+/// Auth: the caller must OWN the node (or be admin). The `Principal` extractor
+/// accepts a Bearer token AND the browser's same-origin `ep_session_token`
+/// cookie — so a real browser WebSocket, which cannot set an Authorization
+/// header, authenticates via its session cookie. `require_node_owner` then
+/// scopes the caller to the node owner (mirrors `node_notify_ws`).
 ///
 /// Behavior: resolve `node_id` → tailscale_fqdn/ip + per-node attach_secret
 /// from the runtimenode row, sign a short-lived HMAC token, dial the mesh
@@ -2603,23 +2605,18 @@ async fn agent_attach_proxy(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
     Path((node_id, agent_id)): Path<(String, String)>,
-    headers: axum::http::HeaderMap,
+    principal: Principal,
 ) -> impl IntoResponse {
-    // 1) Auth — Authorization header only (query-param path removed).
-    let token = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|s| s.to_string())
-        .unwrap_or_default();
-
-    if !verify_attach_caller_token(&state, &token).await {
-        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    // 1) AuthZ — caller must own this node (or be admin). Replaces the old
+    //    header-only check, which both rejected browsers (no Authorization
+    //    header on a WS upgrade) and never scoped the caller to the node owner.
+    if let Err(resp) = require_node_owner(&state, &principal, &node_id).await {
+        return resp;
     }
 
     // 2) Resolve node → reachable address + per-node attach secret.
     let row = sqlx::query(
-        "SELECT tailscale_fqdn, tailscale_ip, attach_secret FROM runtimenode WHERE id = $1",
+        "SELECT node_name, tailscale_fqdn, tailscale_ip, attach_secret FROM runtimenode WHERE id = $1",
     )
     .bind(&node_id)
     .fetch_optional(&state.db)
@@ -2632,7 +2629,9 @@ async fn agent_attach_proxy(
     };
     let fqdn: Option<String> = row.try_get("tailscale_fqdn").ok();
     let ip: Option<String> = row.try_get("tailscale_ip").ok();
-    let host = match fqdn.filter(|s| !s.is_empty()).or(ip.filter(|s| !s.is_empty())) {
+    // The fqdn/ip presence is the attachability gate: a node that registered
+    // neither has no reachable address, so refuse before dialing.
+    let tailnet_host = match fqdn.filter(|s| !s.is_empty()).or(ip.filter(|s| !s.is_empty())) {
         Some(h) => h,
         None => {
             return (
@@ -2641,6 +2640,29 @@ async fn agent_attach_proxy(
             )
                 .into_response();
         }
+    };
+
+    // Transport (ADR 0004): in-cluster the tower has no tailnet route, so it
+    // cannot reach `tailnet_host` (the node's MagicDNS name / 100.x IP) directly.
+    // When EP_ATTACH_EGRESS_DOMAIN is set, dial the per-node Tailscale operator
+    // egress Service `<node_name>-attach.<domain>` instead; the egress proxy
+    // forwards over the tailnet. Unset (e.g. off-cluster dev) → dial the tailnet
+    // host directly, preserving prior behavior. The gate above still decides
+    // attachability; this only swaps the transport for attachable nodes.
+    let host = match std::env::var("EP_ATTACH_EGRESS_DOMAIN") {
+        Ok(domain) if !domain.trim().is_empty() => {
+            let node_name: String = row.try_get("node_name").unwrap_or_default();
+            let label = node_name.trim().to_ascii_lowercase();
+            if label.is_empty() {
+                tracing::warn!(node_id = %node_id, "agent_attach_proxy: EP_ATTACH_EGRESS_DOMAIN set but node_name is blank; dialing tailnet host directly");
+                tailnet_host
+            } else {
+                let egress = format!("{label}-attach.{}", domain.trim());
+                tracing::debug!(node_id = %node_id, egress = %egress, "agent_attach_proxy: routing attach via Tailscale egress Service");
+                egress
+            }
+        }
+        _ => tailnet_host,
     };
 
     // 3) Sign HMAC attach token with the per-node secret stored at registration.
@@ -2664,52 +2686,12 @@ async fn agent_attach_proxy(
     // 4) Upgrade caller, then dial mesh.
     ws.on_upgrade(move |browser_socket| async move {
         if let Err(e) = run_attach_proxy(browser_socket, mesh_url).await {
-            tracing::debug!("attach proxy session ended: {e:#}");
+            // debug → warn: a failed dial here is the exact silent-failure mode
+            // that masked the cluster→node egress gap. Never log `mesh_url` — it
+            // carries the signed attach token.
+            tracing::warn!(node_id = %node_id, agent_id = %agent_id, "agent_attach_proxy: proxy/dial failed: {e:#}");
         }
     })
-}
-
-async fn verify_attach_caller_token(state: &AppState, token: &str) -> bool {
-    if token.is_empty() {
-        return false;
-    }
-    // Node JWT fast path — verify in-process, then confirm JTI not revoked.
-    if token.matches('.').count() == 2 {
-        if let Ok(claims) = crate::jwt::verify_node_jwt(token, &state.jwt_decoding_key) {
-            let now = chrono::Utc::now().naive_utc();
-            return matches!(
-                sqlx::query("SELECT revoked FROM nodetoken WHERE jti=$1 AND expires_at > $2 AND revoked=false")
-                    .bind(&claims.jti)
-                    .bind(now)
-                    .fetch_optional(&state.db)
-                    .await,
-                Ok(Some(_))
-            );
-        }
-        return false;
-    }
-    // Look up either a user session or service-account token by hash.
-    let hash = hash_token_local(token);
-    let now = Utc::now().naive_utc();
-    let user_ok = sqlx::query("SELECT 1 FROM usersession WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > $2) LIMIT 1")
-        .bind(&hash)
-        .bind(now)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .is_some();
-    if user_ok {
-        return true;
-    }
-    sqlx::query("SELECT 1 FROM serviceaccounttoken WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > $2) LIMIT 1")
-        .bind(&hash)
-        .bind(now)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .is_some()
 }
 
 fn sign_attach_token(secret: &str, agent_id: &str, exp: i64) -> String {
