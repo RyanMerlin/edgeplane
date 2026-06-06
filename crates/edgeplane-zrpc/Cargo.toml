@@ -6,11 +6,23 @@ license = "Apache-2.0"
 publish = false
 description = "Zellij control plugin (WASM) for edgeplaned: focus-free inject/cancel, scrollback read, state classification, and pane-lifecycle events over Zellij pipes."
 
-[lib]
-crate-type = ["cdylib"]
+# Built as a BINARY, not a cdylib. zellij plugins must export `_start` (the WASI
+# *command* model); `register_plugin!` generates the `fn main()` entry for it,
+# and zellij's own default plugins are all bin crates. A `cdylib` on
+# wasm32-wasip1 compiles to a WASI *reactor* with no `_start`, which zellij
+# 0.44.3 rejects at instantiation ("could not find exported function"). Bin name
+# kept as `edgeplane_zrpc` so the artifact stays `edgeplane_zrpc.wasm`.
+[[bin]]
+name = "edgeplane_zrpc"
+path = "src/main.rs"
 
 [dependencies]
 # Pinned to the installed fleet server (0.44.3) so the plugin ABI matches the
 # running Zellij exactly. Do NOT bump without a coordinated fleet upgrade.
 zellij-tile = "0.44.3"
 edgeplane-zrpc-proto = { path = "../edgeplane-zrpc-proto" }
+
+# Standalone workspace: this plugin builds independently (own Cargo.lock,
+# wasm32-wasip1, excluded from the host workspace) so `cargo build` works from
+# any checkout, including git worktrees nested under the main repo.
+[workspace]
