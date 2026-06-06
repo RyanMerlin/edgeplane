@@ -33,7 +33,8 @@ use edgeplaned_core::types::{
 use tokio::sync::Mutex;
 
 use crate::shared::merge_capabilities;
-use crate::zellij_session::ZellijSession;
+use crate::zellij_plugin::{PluginRouting, ZellijPluginClient};
+use crate::zellij_session::{DEFAULT_PANE_ID, ZellijSession};
 
 /// Per-agent state cached at `launch()` and read at `signal()`.
 ///
@@ -49,6 +50,10 @@ pub struct ZellijHostedRuntime {
     capabilities: Vec<Capability>,
     version: String,
     sessions: Arc<Mutex<HashMap<String, AgentSession>>>,
+    /// Feature-flag routing for the plugin-backed control path. Empty (no
+    /// plugin path / no allowlisted sessions) means every signal takes the
+    /// legacy `zellij_session` paste/send-keys path.
+    routing: PluginRouting,
 }
 
 impl ZellijHostedRuntime {
@@ -57,6 +62,12 @@ impl ZellijHostedRuntime {
     }
 
     pub fn with_extra_capabilities(extra: Vec<Capability>) -> Self {
+        Self::with_capabilities_and_routing(extra, PluginRouting::from_env())
+    }
+
+    /// Construct with explicit routing — used by tests to stay hermetic
+    /// (no environment read).
+    pub fn with_capabilities_and_routing(extra: Vec<Capability>, routing: PluginRouting) -> Self {
         let builtins = vec![
             Capability::new("zellij_hosted"),
             Capability::new("interactive_attach"),
@@ -66,6 +77,29 @@ impl ZellijHostedRuntime {
             capabilities: merge_capabilities(builtins, extra),
             version: "zellij_hosted 0.1 (Phase 2)".into(),
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            routing,
+        }
+    }
+
+    /// Deliver a prompt to the agent's pane, choosing the plugin path when
+    /// routing is enabled for this session, else the legacy paste/Enter path.
+    /// Caller holds the per-agent serialization mutex.
+    async fn deliver_prompt(
+        &self,
+        zellij_session: &str,
+        session: &ZellijSession,
+        text: String,
+    ) -> Result<()> {
+        if self.routing.enabled_for(zellij_session) {
+            // Focus-free write; trailing CR submits (matches the legacy
+            // paste+Enter). Multi-line bracketed-paste semantics are tuned in
+            // live integration. Plugin must be pre-loaded via the session's
+            // Zellij config; we pipe to it by name.
+            ZellijPluginClient::new(zellij_session)
+                .inject(DEFAULT_PANE_ID, &format!("{text}\r"))
+                .await
+        } else {
+            session.send_prompt(&text)
         }
     }
 }
@@ -180,7 +214,9 @@ impl AgentRuntime for ZellijHostedRuntime {
 
         let session = ZellijSession::new(&zellij_session);
         match signal {
-            AgentSignal::UserInput { text } => session.send_prompt(&text),
+            AgentSignal::UserInput { text } => {
+                self.deliver_prompt(&zellij_session, &session, text).await
+            }
             AgentSignal::PeerMessage {
                 from_agent_id, body, ..
             } => {
@@ -189,12 +225,17 @@ impl AgentRuntime for ZellijHostedRuntime {
                     other => other.to_string(),
                 };
                 let formatted = format!("[from {from_agent_id}]: {body_text}");
-                session.send_prompt(&formatted)
+                self.deliver_prompt(&zellij_session, &session, formatted).await
             }
-            AgentSignal::Cancel => session.send_keys(
-                crate::zellij_session::DEFAULT_PANE_ID,
-                &["Ctrl c"],
-            ),
+            AgentSignal::Cancel => {
+                if self.routing.enabled_for(&zellij_session) {
+                    ZellijPluginClient::new(&zellij_session)
+                        .cancel(DEFAULT_PANE_ID)
+                        .await
+                } else {
+                    session.send_keys(DEFAULT_PANE_ID, &["Ctrl c"])
+                }
+            }
         }
     }
 

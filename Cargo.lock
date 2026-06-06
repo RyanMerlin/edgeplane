@@ -1568,6 +1568,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "edgeplane-zrpc-proto"
+version = "0.12.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "edgeplaned"
 version = "0.12.0"
 dependencies = [
@@ -1690,6 +1699,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dirs",
+ "edgeplane-zrpc-proto",
  "edgeplaned-acp",
  "edgeplaned-core",
  "futures",
