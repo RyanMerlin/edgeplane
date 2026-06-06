@@ -328,9 +328,15 @@ async fn dispatch(
             if name.is_empty() { return err_result("name is required"); }
             let description = str_arg(args, "description");
             let id = format!("m_{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..12]);
+            // Same NOT NULL coverage as create_mission: domain has no
+            // `owner_subject` column (ownership lives in `owners`, which carries
+            // a non-empty CHECK) and several NOT NULL no-default columns.
             match sqlx::query(
-                "INSERT INTO domain (id, name, description, status, owner_subject, created_at, updated_at) \
-                 VALUES ($1,$2,$3,'active',$4,$5,$5)"
+                "INSERT INTO domain \
+                 (id, name, description, owners, contributors, tags, visibility, status, \
+                  northstar_md, northstar_version, northstar_created_by, northstar_modified_by, \
+                  created_at, updated_at) \
+                 VALUES ($1,$2,$3,$4,'','','private','active','',0,$4,$4,$5,$5)"
             )
             .bind(&id).bind(&name).bind(&description).bind(&principal.subject).bind(now)
             .execute(&state.db).await
@@ -346,7 +352,7 @@ async fn dispatch(
                 "SELECT m.id, m.name, m.description, m.status, m.created_at, m.updated_at \
                  FROM domain m \
                  LEFT JOIN domainrolemembership mrm ON mrm.domain_id = m.id AND mrm.subject = $1 \
-                 WHERE m.owner_subject = $1 OR mrm.subject IS NOT NULL \
+                 WHERE m.owners ILIKE ('%' || $1 || '%') OR mrm.subject IS NOT NULL \
                  ORDER BY m.updated_at DESC LIMIT $2",
             )
             .bind(&principal.subject)
@@ -408,11 +414,21 @@ async fn dispatch(
             if domain_id.is_empty() || name.is_empty() { return err_result("domain_id and name are required"); }
             let description = str_arg(args, "description");
             let id = format!("k_{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..12]);
+            // `mission` has several NOT NULL columns with no DB default
+            // (owners, contributors, tags, workstream_md, workstream_version,
+            // workstream_created_by/modified_by). Populate them all — setting
+            // only `owners` would just move the NOT NULL violation to the next
+            // column. `owners` carries a non-empty CHECK, so it must be the
+            // creating principal; the rest take sensible empties.
             match sqlx::query(
-                "INSERT INTO mission (id, domain_id, name, description, status, created_at, updated_at) \
-                 VALUES ($1,$2,$3,$4,'active',$5,$5)"
+                "INSERT INTO mission \
+                 (id, domain_id, name, description, owners, contributors, tags, status, \
+                  workstream_md, workstream_version, workstream_created_by, workstream_modified_by, \
+                  created_at, updated_at) \
+                 VALUES ($1,$2,$3,$4,$5,'','','active','',0,$5,$5,$6,$6)"
             )
-            .bind(&id).bind(&domain_id).bind(&name).bind(&description).bind(now)
+            .bind(&id).bind(&domain_id).bind(&name).bind(&description)
+            .bind(&principal.subject).bind(now)
             .execute(&state.db).await
             {
                 Ok(_) => ok_result(json!({"id": id, "domain_id": domain_id, "name": name, "description": description, "status": "active"})),

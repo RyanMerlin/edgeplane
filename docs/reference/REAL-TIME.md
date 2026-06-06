@@ -53,5 +53,5 @@ If an operator needs faster-than-LLM loops, supply `--booster-wasm` with a Wasm 
 ## Operational guidance
 
 - Document how to launch the daemon alongside swarm-style workflows: run `edgeplane daemon --matrix-endpoint /events/stream --fanout-port 11234` on the planner host so scrapers or dashboards can read the local SSE feed.
-- Mention TLS/rate-limit prerequisites (the daemon may need `EP_ALLOW_INSECURE` for dev proxies), document `EP_SCHEMA_PACK_FILE` so boosters share the same schema pack, and remind operators to keep `EP_TOKEN` or OIDC tokens rotate-ready.
+- Mention TLS/rate-limit prerequisites (the daemon may need `EP_ALLOW_INSECURE` for dev proxies), document `EP_SCHEMA_PACK_FILE` so boosters share the same schema pack, and remind operators to keep `EP_AGENT_TOKEN` or OIDC sessions rotate-ready.
 - Tie this doc back to the `edgeplane` companion guide at [docs/MC-RUST.md](MC-RUST.md).

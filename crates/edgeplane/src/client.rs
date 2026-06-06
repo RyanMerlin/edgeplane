@@ -90,68 +90,79 @@ impl EdgeplaneClient {
         Ok(self.apply_auth(self.http.request(method, url)))
     }
 
+    /// Check a response's status and surface the server's error body on non-2xx,
+    /// matching the error shape used by [`MultiServerClient`] lower in this file.
+    async fn check_response(resp: reqwest::Response) -> Result<reqwest::Response> {
+        let status = resp.status();
+        if status.is_success() {
+            return Ok(resp);
+        }
+        let text = resp.text().await.unwrap_or_default();
+        Err(anyhow::anyhow!("HTTP {status}: {text}"))
+    }
+
     pub async fn get_json(&self, path: &str) -> Result<Value> {
-        let resp = self.request_builder(Method::GET, path)?;
-        let resp = resp
+        let resp = self
+            .request_builder(Method::GET, path)?
             .send()
             .await
-            .context("request failed")?
-            .error_for_status()
-            .context("unexpected status code")?;
-        resp.json::<Value>()
+            .context("request failed")?;
+        Self::check_response(resp)
+            .await?
+            .json::<Value>()
             .await
             .context("unable to parse json response")
     }
 
     pub async fn post_json(&self, path: &str, body: &Value) -> Result<Value> {
-        let resp = self.request_builder(Method::POST, path)?;
-        let resp = resp
+        let resp = self
+            .request_builder(Method::POST, path)?
             .json(body)
             .send()
             .await
-            .context("request failed")?
-            .error_for_status()
-            .context("unexpected status code")?;
-        resp.json::<Value>()
+            .context("request failed")?;
+        Self::check_response(resp)
+            .await?
+            .json::<Value>()
             .await
             .context("unable to parse json response")
     }
 
     pub async fn patch_json(&self, path: &str, body: &Value) -> Result<Value> {
-        let resp = self.request_builder(Method::PATCH, path)?;
-        let resp = resp
+        let resp = self
+            .request_builder(Method::PATCH, path)?
             .json(body)
             .send()
             .await
-            .context("request failed")?
-            .error_for_status()
-            .context("unexpected status code")?;
-        resp.json::<Value>()
+            .context("request failed")?;
+        Self::check_response(resp)
+            .await?
+            .json::<Value>()
             .await
             .context("unable to parse json response")
     }
 
     pub async fn put_json(&self, path: &str, body: &Value) -> Result<Value> {
-        let resp = self.request_builder(Method::PUT, path)?;
-        let resp = resp
+        let resp = self
+            .request_builder(Method::PUT, path)?
             .json(body)
             .send()
             .await
-            .context("request failed")?
-            .error_for_status()
-            .context("unexpected status code")?;
-        resp.json::<Value>()
+            .context("request failed")?;
+        Self::check_response(resp)
+            .await?
+            .json::<Value>()
             .await
             .context("unable to parse json response")
     }
 
     pub async fn delete(&self, path: &str) -> Result<()> {
-        self.request_builder(Method::DELETE, path)?
+        let resp = self
+            .request_builder(Method::DELETE, path)?
             .send()
             .await
-            .context("request failed")?
-            .error_for_status()
-            .context("unexpected status code")?;
+            .context("request failed")?;
+        Self::check_response(resp).await?;
         Ok(())
     }
 

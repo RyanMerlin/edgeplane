@@ -1,4 +1,4 @@
-FROM node:22-slim AS web-builder
+FROM node:24-slim AS web-builder
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -43,6 +43,13 @@ RUN for d in \
       echo 'fn main() {}' > $d/src/main.rs && \
       printf 'pub fn stub() {}\n' > $d/src/lib.rs; \
     done
+# edgeplane-tower declares a second [[bin]] (gen-openapi, src/bin/gen_openapi.rs),
+# used only for OpenAPI codegen in CI. The dependency-cache build below compiles
+# ALL of the crate's bins, so the stub stage must also stub this one or it fails
+# with "couldn't read src/bin/gen_openapi.rs". The real source replaces it at the
+# COPY below, so this stub only exists to satisfy the dep-caching build.
+RUN mkdir -p crates/edgeplane-tower/src/bin \
+    && echo 'fn main() {}' > crates/edgeplane-tower/src/bin/gen_openapi.rs
 RUN cargo build --release -p edgeplane-tower
 
 # Replace stub source with real edgeplane-tower source and rebuild
@@ -56,7 +63,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 # Binary is at workspace target root, not inside the crate directory
 COPY --from=builder /build/target/release/edgeplane-tower /usr/local/bin/edgeplane-tower
-COPY --from=web-builder /build/web/build /usr/local/share/edgeplane-web
+COPY --from=web-builder /build/web/dist /usr/local/share/edgeplane-web
 
 EXPOSE 8008
 ENTRYPOINT ["edgeplane-tower"]

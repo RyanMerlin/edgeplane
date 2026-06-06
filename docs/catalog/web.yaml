@@ -5,7 +5,7 @@ maturity: beta
 owners:
   - platform
 summary: >
-  SvelteKit 2 frontend at /ui/. Default experience is a chat-first AI console
+  React 19 + Vite SPA at /ui/ (migrated from SvelteKit 2 on 2026-06-03). Default experience is a chat-first AI console
   with a prompt composer. Domain/mission explorer, governance policy editor,
   and matrix dashboard are accessible as secondary views. Write tools create
   pending approval actions before execution.

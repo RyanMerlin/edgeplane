@@ -8,10 +8,10 @@
 # Requirements:
 #   - Backend running (EP_BASE_URL, default http://localhost:8008)
 #   - Python 3 on PATH
-#   - EP_TOKEN set or backend accepts unauthenticated requests
+#   - EP_AGENT_TOKEN set or backend accepts unauthenticated requests
 #
 # Usage:
-#   EP_BASE_URL=http://localhost:8008 EP_TOKEN=<token> ./scripts/demo-mesh.sh
+#   EP_BASE_URL=http://localhost:8008 EP_AGENT_TOKEN=<token> ./scripts/demo-mesh.sh
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ WORKER="${SCRIPT_DIR}/demo_workers/agent_worker.py"
 
 BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
 TIMEOUT="${DEMO_TIMEOUT:-90}"
-TOKEN="${EP_TOKEN:-}"
+TOKEN="${EP_AGENT_TOKEN:-}"
 
 cleanup_pids=()
 

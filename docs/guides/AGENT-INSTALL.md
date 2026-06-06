@@ -18,15 +18,15 @@ irm https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstra
 
 With a static token (simplest):
 ```bash
-export EP_TOKEN="<your-token>"
+export EP_AGENT_TOKEN="<your-token>"
 export EP_BASE_URL="https://your-edgeplane.example.com"
 ```
 
 Or create a session token (recommended — see [Session tokens](#session-tokens)):
 ```bash
 export EP_BASE_URL="https://your-edgeplane.example.com"
-EP_TOKEN="<your-token>" edgeplane auth login   # saves ~/.edgeplane/session.json
-# EP_TOKEN no longer needed in env after this
+EP_AGENT_TOKEN="<your-token>" edgeplane auth login   # saves ~/.edgeplane/session.json
+# EP_AGENT_TOKEN no longer needed in env after this
 ```
 
 **Step 3 — Launch your agent:**
@@ -61,7 +61,7 @@ For the driver-managed agents (gemini, openclaw, custom), `edgeplane run`:
 3. Validates auth against the Edgeplane API
 4. Fetches agent config from the onboarding manifest
 5. Writes config to an instance-local runtime home by default (token not embedded if using a session)
-6. Injects `EP_TOKEN` into the agent's process environment
+6. Injects `EP_AGENT_TOKEN` into the agent's process environment
 7. exec's the agent
 
 (claude, codex, and goose are native runtimes with their own profile-scoped
@@ -85,7 +85,7 @@ homes and `doctor`/`exec`/`status` actions; see `edgeplane run <runtime> --help`
 Session tokens are:
 - **Revocable** — `edgeplane auth logout` revokes server-side instantly
 - **Never written to agent config files** — injected into the agent process at exec time only
-- **Auto-loaded** — `edgeplane` reads `session.json` automatically when `EP_TOKEN` is not set
+- **Auto-loaded** — `edgeplane` reads `session.json` automatically when `EP_AGENT_TOKEN` is not set
 - **Expiring** — default 8h TTL, configurable with `--ttl-hours` (max 720h / 30 days)
 
 ### Login / logout / whoami
@@ -110,9 +110,9 @@ edgeplane auth logout --local-only        # clear local file only (no server cal
 export EP_BASE_URL="https://your-edgeplane.example.com"
 
 # One-time: bootstrap a session from a static token
-EP_TOKEN="<static-token>" edgeplane auth login
+EP_AGENT_TOKEN="<static-token>" edgeplane auth login
 
-# From now on — no EP_TOKEN needed in env
+# From now on — no EP_AGENT_TOKEN needed in env
 edgeplane run claude   # session loaded from ~/.edgeplane/session.json
 edgeplane run codex    # token injected into agent process at exec, not written to config
 edgeplane auth whoami          # verify identity
@@ -121,26 +121,26 @@ edgeplane auth logout          # revoke when done
 
 ### OIDC / short-lived JWTs
 
-When you authenticate via OIDC (Authentik, SSO), your `EP_TOKEN` is a short-lived JWT.
+When you authenticate via OIDC (Authentik, SSO), your `EP_AGENT_TOKEN` is a short-lived JWT.
 The recommended pattern is to exchange it for a session token immediately:
 
 ```bash
 # Exchange OIDC JWT for a longer-lived edgeplane session token
-EP_TOKEN="$(get-oidc-token)" edgeplane auth login --ttl-hours 8
+EP_AGENT_TOKEN="$(get-oidc-token)" edgeplane auth login --ttl-hours 8
 edgeplane run claude
 ```
 
 Or run Claude directly with an env token:
 
 ```bash
-export EP_TOKEN="$(get-oidc-token)"
+export EP_AGENT_TOKEN="$(get-oidc-token)"
 edgeplane run claude
 ```
 
 **Token embedding rules for driver agents (`edgeplane run` gemini/openclaw/custom):**
 - Session tokens (`mcs_*`) → never embedded, always injected at exec time
 - `--no-embed-token` flag → never embedded
-- `EP_TOKEN` absent → never embedded (auto-implied, notice printed)
+- `EP_AGENT_TOKEN` absent → never embedded (auto-implied, notice printed)
 - Static token present → embedded by default (can override with `--no-embed-token`)
 
 ---
@@ -165,7 +165,7 @@ cd crates/edgeplane && cargo build --release && cp target/release/edgeplane ~/.l
 
 ```bash
 export EP_BASE_URL="https://edgeplane.example.com"
-export EP_TOKEN="<your-token>"
+export EP_AGENT_TOKEN="<your-token>"
 ```
 
 ### 3) Install edgeplane (one-time per update)
@@ -199,7 +199,7 @@ Default shim-mode config (works for Claude Code, Gemini CLI, and others supporti
     "args": ["serve"],
     "env": {
       "EP_BASE_URL": "https://edgeplane.example.com",
-      "EP_TOKEN": "<your-token>"
+      "EP_AGENT_TOKEN": "<your-token>"
     }
   }
 }
@@ -213,7 +213,7 @@ command = "edgeplane"
 args = ["serve"]
 startup_timeout_sec = 45
 tool_timeout_sec = 60
-env = { EP_BASE_URL = "https://edgeplane.example.com", EP_TOKEN = "<your-token>" }
+env = { EP_BASE_URL = "https://edgeplane.example.com", EP_AGENT_TOKEN = "<your-token>" }
 ```
 
 Gemini CLI (`~/.gemini/settings.json`):
@@ -226,7 +226,7 @@ Gemini CLI (`~/.gemini/settings.json`):
       "args": ["serve"],
       "env": {
         "EP_BASE_URL": "https://edgeplane.example.com",
-        "EP_TOKEN": "<your-token>"
+        "EP_AGENT_TOKEN": "<your-token>"
       }
     }
   }
@@ -263,7 +263,7 @@ edgeplane data sync status --domain-id <domain-id> --mission-id <optional-missio
 
 | Auth type | How it works | Recommended for |
 |---|---|---|
-| Static `EP_TOKEN` | Shared secret, never expires | Local dev, CI |
+| Static `EP_AGENT_TOKEN` | Shared secret, never expires | Local dev, CI |
 | Session token (`mcs_*`) | DB-backed, revocable, expiring | Interactive use, OIDC users |
 | OIDC JWT | Short-lived, identity-bound | SSO/Authentik environments |
 

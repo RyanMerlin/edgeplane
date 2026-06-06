@@ -8,16 +8,16 @@
 #   - Backend running (EP_BASE_URL, default http://localhost:8008)
 #   - `edgeplane` and `goose` binaries on PATH
 #   - Goose reachable LiteLLM at EP_LITELLM_HOST (default http://litellm:4000)
-#   - EP_TOKEN set or backend accepts unauthenticated requests
+#   - EP_AGENT_TOKEN set or backend accepts unauthenticated requests
 #
 # Usage:
-#   EP_BASE_URL=http://localhost:8008 EP_TOKEN=<token> ./scripts/demo-mesh-goose.sh
+#   EP_BASE_URL=http://localhost:8008 EP_AGENT_TOKEN=<token> ./scripts/demo-mesh-goose.sh
 
 set -euo pipefail
 
 BASE_URL="${EP_BASE_URL:-http://localhost:8008}"
 TIMEOUT="${DEMO_TIMEOUT:-120}"
-TOKEN="${EP_TOKEN:-}"
+TOKEN="${EP_AGENT_TOKEN:-}"
 PROFILE="${EP_PROFILE:-default}"
 
 cleanup_pids=()
@@ -95,7 +95,7 @@ log "Initial state: A=$(task_status $A_ID)  B=$(task_status $B_ID)  C=$(task_sta
 log "Starting 3 Goose workers (edgeplane run goose --domain ${DOMAIN_ID})…"
 for i in 1 2 3; do
     EP_BASE_URL="$BASE_URL" \
-    EP_TOKEN="$TOKEN" \
+    EP_AGENT_TOKEN="$TOKEN" \
     edgeplane run goose --domain "$DOMAIN_ID" -p "$PROFILE" \
         > "/tmp/demo-goose-worker-${i}.log" 2>&1 &
     cleanup_pids+=($!)

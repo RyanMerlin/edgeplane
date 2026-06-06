@@ -188,10 +188,38 @@ async fn test_list_node_agents_route_registered() {
 }
 
 #[tokio::test]
+async fn test_attach_secret_route_registered() {
+    let res = server()
+        .get("/api/runtime/nodes/test-node-id/attach-secret")
+        .await;
+    let status = res.status_code().as_u16();
+    assert_ne!(
+        status, 404,
+        "/runtime/nodes/{{id}}/attach-secret should be registered"
+    );
+    assert_ne!(status, 200, "unauthenticated request must not leak the secret");
+}
+
+#[tokio::test]
 async fn test_node_notify_route_registered() {
     let res = server().get("/api/runtime/nodes/test-node-id/notify").await;
     let status = res.status_code().as_u16();
     assert_ne!(status, 404, "/runtime/nodes/{{id}}/notify should be registered");
+    assert_ne!(status, 200, "unauthenticated request must not succeed");
+}
+
+#[tokio::test]
+async fn test_agent_attach_route_registered() {
+    // The browser attach proxy is owner-scoped via `Principal` + `require_node_owner`.
+    // An unauthenticated request must be rejected (not 200) but the route must exist.
+    let res = server()
+        .get("/api/runtime/nodes/test-node-id/agents/test-agent-id/attach")
+        .await;
+    let status = res.status_code().as_u16();
+    assert_ne!(
+        status, 404,
+        "/runtime/nodes/{{id}}/agents/{{id}}/attach should be registered"
+    );
     assert_ne!(status, 200, "unauthenticated request must not succeed");
 }
 

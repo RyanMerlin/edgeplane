@@ -6,16 +6,16 @@
 //!
 //! ## Token embedding
 //!
-//! By default `edgeplane launch` embeds the `EP_TOKEN` value into the agent's config
+//! By default `edgeplane launch` embeds the `EP_AGENT_TOKEN` value into the agent's config
 //! file. This is convenient for static long-lived tokens.
 //!
 //! For OIDC / short-lived JWTs, use `--no-embed-token`: the token is omitted
-//! from the written config and the agent process inherits `EP_TOKEN` from the
+//! from the written config and the agent process inherits `EP_AGENT_TOKEN` from the
 //! shell environment at exec time. The MCP shim always prefers the env var over
 //! any embedded value, so the agent will pick up refreshed tokens automatically
 //! on every launch.
 //!
-//! Auto-detection: if `EP_TOKEN` / `config.token` is absent, `--no-embed-token`
+//! Auto-detection: if `EP_AGENT_TOKEN` / `config.token` is absent, `--no-embed-token`
 //! is implied and a notice is printed.
 
 use crate::{
@@ -88,7 +88,7 @@ trait AgentDriver {
     fn install_hint(&self) -> &str;
     /// Write rendered config to the agent's canonical location.
     ///
-    /// `embed_token`: when false, omit `EP_TOKEN` from the written config
+    /// `embed_token`: when false, omit `EP_AGENT_TOKEN` from the written config
     /// entirely; the agent process must inherit it from the environment.
     fn install_config(
         &self,
@@ -215,7 +215,7 @@ fn write_gemini_project_config(ep_entry: &serde_json::Value) -> Result<()> {
 ///
 /// Replaces `__BASE_URL__` and (if `embed_token`) `__TOKEN__` in the template,
 /// then returns the inner `mcpServers.edgeplane` object.  When
-/// `embed_token` is false the `EP_TOKEN` key is removed from the `env` map.
+/// `embed_token` is false the `EP_AGENT_TOKEN` key is removed from the `env` map.
 fn render_json_mcp_entry(
     tmpl: &str,
     tmpl_name: &str,
@@ -233,7 +233,7 @@ fn render_json_mcp_entry(
             .pointer_mut("/mcpServers/edgeplane/env")
             .and_then(|v| v.as_object_mut())
         {
-            env_obj.remove("EP_TOKEN");
+            env_obj.remove("EP_AGENT_TOKEN");
         }
     }
     full["mcpServers"]["edgeplane"].clone()
@@ -339,7 +339,7 @@ fn install_acp_config(
         config["ep_token"] = serde_json::json!(token);
     }
     // When not embedding, ep_token is intentionally absent; the ACP client
-    // must read EP_TOKEN from the process environment at runtime.
+    // must read EP_AGENT_TOKEN from the process environment at runtime.
     std::fs::write(&out, serde_json::to_string_pretty(&config)?)?;
     ep_ok!("ACP config written → {}", out.display());
     Ok(())
@@ -419,7 +419,7 @@ pub async fn run_driver_agent(
     // 2. (Daemon lifecycle removed — edgeplane serve connects directly to backend.)
 
     // 3. Auth: verify we have a valid session or static token; run interactive
-    //    login if neither is available.  Falls through immediately when EP_TOKEN
+    //    login if neither is available.  Falls through immediately when EP_AGENT_TOKEN
     //    is already set (static token path).
     let login_client_holder: Option<EdgeplaneClient> = if config.token.is_none() {
         if auth::load_saved_session(config.base_url.as_str()).is_none() {
@@ -457,7 +457,7 @@ pub async fn run_driver_agent(
         effective_client
             .get_json("/mcp/health")
             .await
-            .context("auth preflight failed — check EP_TOKEN and EP_BASE_URL")?;
+            .context("auth preflight failed — check EP_AGENT_TOKEN and EP_BASE_URL")?;
         ep_ok!("preflight passed");
         return Ok(());
     }
@@ -541,7 +541,7 @@ pub async fn run_driver_agent(
     mcp_connectivity_preflight(effective_client).await;
 
     // 8. Exec the agent (replaces the current process on Unix).
-    //    Always inject EP_TOKEN into the agent environment so the MCP shim can
+    //    Always inject EP_AGENT_TOKEN into the agent environment so the MCP shim can
     //    authenticate even when the token was NOT embedded in the config file.
     exec_agent(
         driver.as_ref(),
@@ -630,7 +630,7 @@ async fn mcp_connectivity_preflight(client: &EdgeplaneClient) {
     );
 }
 
-/// Determine whether to embed `EP_TOKEN` into the written agent config.
+/// Determine whether to embed `EP_AGENT_TOKEN` into the written agent config.
 ///
 /// Precedence (highest → lowest):
 ///   1. `--no-embed-token` flag → never embed
@@ -639,7 +639,7 @@ async fn mcp_connectivity_preflight(client: &EdgeplaneClient) {
 ///   4. Default → embed
 fn resolve_embed_token(no_embed_flag: bool, token: &str) -> bool {
     if no_embed_flag {
-        ep_info!("--no-embed-token: EP_TOKEN will NOT be written to agent config");
+        ep_info!("--no-embed-token: EP_AGENT_TOKEN will NOT be written to agent config");
         ep_info!("token will be injected into the agent process at exec time");
         return false;
     }
@@ -649,8 +649,8 @@ fn resolve_embed_token(no_embed_flag: bool, token: &str) -> bool {
         return false;
     }
     if token.is_empty() {
-        ep_warn!("EP_TOKEN is not set — implying --no-embed-token");
-        ep_warn!("ensure EP_TOKEN is present in the environment when the agent runs");
+        ep_warn!("EP_AGENT_TOKEN is not set — implying --no-embed-token");
+        ep_warn!("ensure EP_AGENT_TOKEN is present in the environment when the agent runs");
         return false;
     }
     true
@@ -1064,16 +1064,14 @@ fn exec_agent(
     let binary_name = driver.binary().to_string();
     let mut cmd = driver.command(extra_args, instance_mc_home);
 
-    // Always inject EP_TOKEN into the agent's process environment. This ensures
+    // Always inject EP_AGENT_TOKEN into the agent's process environment. This ensures
     // the MCP shim can authenticate regardless of whether the token was embedded
     // in the config file — covering session tokens, --no-embed-token, and the
-    // standard embedded-token path uniformly.
-    //
-    // EP_AGENT_TOKEN is an alias used by Claude Code native hooks (SessionStart,
-    // SessionEnd, PostToolUse). It is listed in `allowedEnvVars` in the hook
-    // config so Claude Code will forward it in HTTP hook Authorization headers.
+    // standard embedded-token path uniformly. EP_AGENT_TOKEN is also the env var
+    // Claude Code native hooks (SessionStart, SessionEnd, PostToolUse) read; it is
+    // listed in `allowedEnvVars` so Claude Code forwards it in HTTP hook
+    // Authorization headers.
     if !token.is_empty() {
-        cmd.env("EP_TOKEN", token);
         cmd.env("EP_AGENT_TOKEN", token);
     }
     cmd.env("HOME", agent_home);

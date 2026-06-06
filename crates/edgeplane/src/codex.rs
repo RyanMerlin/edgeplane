@@ -788,7 +788,7 @@ b = 2
     fn managed_block_contains_base_url_not_token() {
         let out = render_mc_managed_block("http://localhost:8008");
         assert!(out.contains("EP_BASE_URL"));
-        assert!(!out.contains("EP_TOKEN"));
+        assert!(!out.contains("EP_AGENT_TOKEN"));
     }
 
     #[test]

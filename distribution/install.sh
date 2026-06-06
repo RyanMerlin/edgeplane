@@ -21,7 +21,7 @@ Options:
   --token TOKEN          Edgeplane token (optional)
   --agent VALUE          codex|claude|gemini|both (default: both)
   --install-dir DIR      Output directory (default: ~/.edgeplane)
-  --no-embed-token       Omit EP_TOKEN from written configs (for OIDC / short-lived tokens)
+  --no-embed-token       Omit EP_AGENT_TOKEN from written configs (for OIDC / short-lived tokens)
   -h, --help             Show help
 USAGE
 }
@@ -127,7 +127,7 @@ write_env_file() {
   mkdir -p "$(dirname "$env_file")"
   cat > "$env_file" <<ENV
 export EP_BASE_URL="${effective_endpoint}"
-export EP_TOKEN="${TOKEN}"
+export EP_AGENT_TOKEN="${TOKEN}"
 ENV
   chmod 600 "$env_file" || true
   echo "$env_file"
@@ -149,7 +149,7 @@ render_templates() {
   if [[ "$NO_EMBED_TOKEN" -eq 1 || -z "$TOKEN" ]]; then
     embed_token=0
     if [[ -z "$TOKEN" && "$NO_EMBED_TOKEN" -eq 0 ]]; then
-      echo "note: EP_TOKEN is empty — omitting token from written configs (set EP_TOKEN at agent launch time)"
+      echo "note: EP_AGENT_TOKEN is empty — omitting token from written configs (set EP_AGENT_TOKEN at agent launch time)"
     fi
   fi
 
@@ -160,7 +160,7 @@ render_templates() {
 command = "edgeplane-mcp"
 startup_timeout_sec = 45
 tool_timeout_sec = 60
-env = { EP_BASE_URL = $endpoint_toml, EP_TOKEN = $token_toml }
+env = { EP_BASE_URL = $endpoint_toml, EP_AGENT_TOKEN = $token_toml }
 TOML
     else
       cat > "$config_dir/codex.mcp.toml" <<TOML
@@ -183,7 +183,7 @@ TOML
       "command": "edgeplane-mcp",
       "env": {
         "EP_BASE_URL": $endpoint_json,
-        "EP_TOKEN": $token_json
+        "EP_AGENT_TOKEN": $token_json
       }
     }
   }
@@ -215,7 +215,7 @@ JSON
       "command": "edgeplane-mcp",
       "env": {
         "EP_BASE_URL": $endpoint_json,
-        "EP_TOKEN": $token_json,
+        "EP_AGENT_TOKEN": $token_json,
         "EP_MCP_MODE": "shim",
         "EP_DAEMON_HOST": "127.0.0.1",
         "EP_DAEMON_PORT": "8765",
@@ -299,7 +299,7 @@ Next steps:
 
 Auth/connect guidance:
 - Default endpoint is localhost ($DEFAULT_LOCAL_ENDPOINT).
-- To use hosted Edgeplane, update EP_BASE_URL and EP_TOKEN in $env_file.
+- To use hosted Edgeplane, update EP_BASE_URL and EP_AGENT_TOKEN in $env_file.
 - Docs: $DOCS_URL
 NEXT
 }

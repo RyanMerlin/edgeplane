@@ -2,7 +2,8 @@
 ///
 /// Unix socket: `~/.edgeplane/mgmt.sock` (mode 0600, no auth)
 /// TCP socket:  `0.0.0.0:<EP_MESH_MGMT_PORT>` (default 7731)
-///              Requires AUTH handshake when `EP_TOKEN` env var is set.
+///              Requires AUTH handshake when a session token is loaded from the
+///              edgeplaned state file (profiles.<active>.auth.token).
 ///
 /// Both endpoints serve the same JSON-RPC 2.0 protocol (newline-delimited).
 use std::path::PathBuf;
@@ -25,7 +26,7 @@ use crate::supervisor::Supervisor;
 pub struct MgmtGateway {
     dispatcher: Arc<CapabilityDispatcher>,
     registry: Arc<PackRegistry>,
-    ep_token: Option<String>,
+    session_token: Option<String>,
     socket_path: PathBuf,
     tcp_port: u16,
     /// Local agent ops dependencies. Populated by `daemon::run` after the
@@ -59,7 +60,7 @@ pub struct AgentOpsHandle {
 
 impl MgmtGateway {
     pub fn new(dispatcher: Arc<CapabilityDispatcher>, registry: Arc<PackRegistry>) -> Self {
-        let ep_token = edgeplaned_core::paths::state_file_path()
+        let session_token = edgeplaned_core::paths::state_file_path()
             .parent()
             .and_then(|_| {
                 let content = std::fs::read_to_string(edgeplaned_core::paths::state_file_path()).ok()?;
@@ -77,7 +78,7 @@ impl MgmtGateway {
         MgmtGateway {
             dispatcher,
             registry,
-            ep_token,
+            session_token,
             socket_path,
             tcp_port,
             agent_ops: None,
@@ -155,6 +156,21 @@ impl MgmtGateway {
     async fn run_tcp(self: &Arc<Self>) -> Result<()> {
         use tokio::net::TcpListener;
 
+        // Fail closed: the TCP mgmt channel is the remote capability-dispatch
+        // path and authenticates via the session-token AUTH handshake. With no
+        // token configured the handshake is skipped, which would expose
+        // unauthenticated remote control to any host that can reach the port.
+        // Refuse to bind in that case; the local Unix socket (0600-gated)
+        // remains available.
+        if self.session_token.is_none() {
+            tracing::error!(
+                "mgmt TCP gateway not started: no session token configured \
+                 (would be unauthenticated). Authenticate (edgeplane auth login) to \
+                 enable the remote control channel; the local Unix socket is unaffected."
+            );
+            return Ok(());
+        }
+
         let addr = format!("0.0.0.0:{}", self.tcp_port);
         let listener = TcpListener::bind(&addr)
             .await
@@ -185,8 +201,8 @@ impl MgmtGateway {
         let (read_half, mut write_half) = stream.into_split();
         let mut reader = BufReader::new(read_half);
 
-        // AUTH handshake only when EP_TOKEN is configured.
-        if let Some(expected_token) = &self.ep_token {
+        // AUTH handshake only when a session token is configured.
+        if let Some(expected_token) = &self.session_token {
             let mut line = String::new();
             reader.read_line(&mut line).await?;
             let line = line.trim();
@@ -1276,7 +1292,7 @@ mod tests {
         MgmtGateway {
             dispatcher,
             registry,
-            ep_token: None,
+            session_token: None,
             socket_path,
             tcp_port,
             agent_ops: None,
@@ -1293,7 +1309,7 @@ mod tests {
         MgmtGateway {
             dispatcher,
             registry,
-            ep_token: Some(token.to_string()),
+            session_token: Some(token.to_string()),
             socket_path,
             tcp_port,
             agent_ops: None,
@@ -1682,5 +1698,49 @@ mod tests {
         );
 
         let _ = tokio::time::timeout(std::time::Duration::from_millis(500), server_task).await;
+    }
+
+    /// Security regression: `run_tcp` with no session token must return
+    /// promptly (fail closed) rather than binding a listener and blocking
+    /// in the accept loop. An unauthenticated TCP control channel must never
+    /// be served.
+    ///
+    /// Expected post-fix: `run_tcp` returns `Ok(())` immediately when
+    /// `session_token` is `None`. The `timeout` resolves to `Ok(Ok(()))`.
+    ///
+    /// Current behaviour (pre-fix): `run_tcp` binds and blocks forever in
+    /// the accept loop → the timeout elapses → the future resolves to `Err`
+    /// (timeout), causing this test to fail.
+    #[tokio::test]
+    async fn tcp_refuses_to_serve_without_token() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let sock = tmp.path().join("mgmt-no-token.sock");
+        let port = free_port();
+        // No token: session_token is None.
+        let gw = Arc::new(make_gateway_on(sock, port));
+
+        // run_tcp must return Ok(()) promptly — no blocking accept loop.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            gw.run_tcp(),
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "run_tcp should return before the 500ms timeout when no token is configured, \
+             but it timed out (likely still blocking in the accept loop)"
+        );
+        assert!(
+            result.unwrap().is_ok(),
+            "run_tcp should return Ok(()) when no token is configured"
+        );
+
+        // Confirm no listener was bound: a connect attempt should fail.
+        let connect_result = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}")).await;
+        assert!(
+            connect_result.is_err(),
+            "no TCP listener should have been bound when session_token is None"
+        );
     }
 }

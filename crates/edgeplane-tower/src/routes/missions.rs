@@ -105,7 +105,16 @@ async fn create_mission(
         Err(e) => { tracing::error!("create_mission fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
     };
     if !domain_writable(&principal, &owners, &contribs) { return StatusCode::FORBIDDEN.into_response(); }
-    if split_csv(&payload.owners).is_empty() {
+    // Mirror the domain handler: an empty owners defaults to the authenticated
+    // caller's subject (the Principal extractor guarantees one). Lets a service
+    // account (e.g. edgeplaned's intake-mission bootstrap) omit owners without a
+    // 422, instead of every caller having to echo its own subject.
+    let mission_owners = if payload.owners.trim().is_empty() {
+        principal.subject.clone()
+    } else {
+        payload.owners.clone()
+    };
+    if split_csv(&mission_owners).is_empty() {
         return (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({"detail": "owners must include at least one owner"}))).into_response();
     }
 
@@ -131,7 +140,7 @@ async fn create_mission(
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10,$10,$11,$11,$12,$12) RETURNING *"#
     )
     .bind(&id).bind(&domain_id).bind(&payload.name).bind(&payload.description)
-    .bind(&payload.owners).bind(&payload.contributors).bind(&payload.tags).bind(&payload.status)
+    .bind(&mission_owners).bind(&payload.contributors).bind(&payload.tags).bind(&payload.status)
     .bind(&payload.workstream_md)
     .bind(ws_created_by)
     .bind(ws_created_at)

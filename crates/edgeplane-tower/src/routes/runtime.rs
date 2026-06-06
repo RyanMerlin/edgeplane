@@ -479,6 +479,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/runtime/nodes/{node_id}/heartbeat", post(heartbeat_node))
         .route("/runtime/nodes/{node_id}/config", get(get_node_config))
         .route(
+            "/runtime/nodes/{node_id}/attach-secret",
+            get(get_node_attach_secret),
+        )
+        .route(
             "/runtime/nodes/{node_id}/install-bundle",
             get(get_node_install_bundle),
         )
@@ -530,8 +534,8 @@ pub fn router() -> Router<Arc<AppState>> {
             get(execution_session_pty),
         )
         // Mesh agent attach proxy: browser WS → controlplane → edgeplaned node WS.
-        // The browser uses ?ep_token=<bearer> for auth; controlplane signs a
-        // short-lived HMAC token to dial the mesh node.
+        // Auth via Authorization header; controlplane signs a short-lived HMAC
+        // token to dial the mesh node.
         .route(
             "/runtime/nodes/{node_id}/agents/{agent_id}/attach",
             get(agent_attach_proxy),
@@ -1633,6 +1637,50 @@ async fn require_node_owner(
     Ok(owner)
 }
 
+/// `GET /runtime/nodes/{node_id}/attach-secret`
+///
+/// Returns the per-node `attach_secret` (minted at registration) so the
+/// node's daemon can validate the short-lived HMAC attach tokens the
+/// controlplane mints in `agent_attach_proxy`. Both sides must share the
+/// same secret or browser attach is rejected as "invalid token".
+///
+/// Owner/admin scoped via `require_node_owner`. The secret is deliberately
+/// excluded from list/get node responses — this dedicated endpoint is the
+/// only read path, used by edgeplaned at startup to self-heal when the
+/// secret never reached its local profile (e.g. a node registered
+/// out-of-band, before this sync path existed).
+async fn get_node_attach_secret(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(node_id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(resp) = require_node_owner(&state, &principal, &node_id).await {
+        return resp;
+    }
+    match sqlx::query_scalar::<_, Option<String>>(
+        "SELECT attach_secret FROM runtimenode WHERE id=$1",
+    )
+    .bind(&node_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(Some(secret))) if !secret.is_empty() => {
+            // Never cache a secret-bearing response — defense-in-depth against
+            // any intermediary/proxy that might otherwise store it.
+            (
+                [(header::CACHE_CONTROL, "no-store, private")],
+                Json(serde_json::json!({"node_id": node_id, "attach_secret": secret})),
+            )
+                .into_response()
+        }
+        Ok(_) => not_found("node has no attach_secret"),
+        Err(e) => {
+            tracing::error!("get_node_attach_secret: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
 /// Assign a new agent to this node in the requested domain. Mirrors
 /// `enroll_agent` (which is domain-scoped); this variant is convenient for
 /// the controlplane / orchestrator to push assignments to a specific node.
@@ -1674,10 +1722,13 @@ async fn assign_node_agent(
         .as_ref()
         .and_then(|v| serde_json::to_string(v).ok());
 
-    // Derive the node's short name for the canonical agent name prefix.
-    // Format: `<node_short>-<agent_name>` → public_id `<node_short>-<agent_name>-<hex>`.
-    // `node_short` is the first DNS label of the Tailscale FQDN, or the
-    // raw node_name if it contains no dots (e.g. "excalibur").
+    // Derive the node's short name (first DNS label of the Tailscale FQDN, or
+    // the raw node_name if it has no dots, e.g. "excalibur"). This is recorded
+    // in the linked agent's `metadata.node_id` so the dashboard's Node column
+    // resolves — it is NOT prefixed onto the agent name. The agent name stays
+    // the canonical identity the runtime self-registers as (e.g. `aria-work`),
+    // and the node association is carried by the `runtime_node_id` column on
+    // the meshagent row below.
     let node_short: String = sqlx::query_scalar(
         "SELECT SPLIT_PART(COALESCE(tailscale_fqdn, node_name), '.', 1) FROM runtimenode WHERE id=$1",
     )
@@ -1689,12 +1740,38 @@ async fn assign_node_agent(
 
     let agent_public_id = match &body.agent_name {
         Some(n) if !n.trim().is_empty() => {
-            // Canonical name: <node_short>-<agent_name>
-            let canonical = format!("{node_short}-{}", n.trim());
-            match crate::routes::agents::upsert_agent_by_name(&state.db, &canonical, &caps_json)
+            // Link by the agent's own name — no node prefix (see comment above).
+            let canonical = n.trim();
+            match crate::routes::agents::upsert_agent_by_name(&state.db, canonical, &caps_json)
                 .await
             {
-                Ok(pid) => Some(pid),
+                Ok(pid) => {
+                    // Stamp this node onto the agent's metadata in a single
+                    // atomic statement so a concurrent self-registration can't
+                    // lose a write (best-effort — a failure here must not fail
+                    // enrollment). `metadata` is a nullable text column holding
+                    // a JSON object; cast through jsonb to merge `node_id`
+                    // without clobbering other keys.
+                    if let Err(e) = sqlx::query(
+                        "UPDATE agent \
+                         SET metadata = jsonb_set( \
+                                 COALESCE(NULLIF(metadata, '')::jsonb, '{}'::jsonb), \
+                                 '{node_id}', to_jsonb($2::text))::text, \
+                             updated_at = $3 \
+                         WHERE public_id = $1",
+                    )
+                    .bind(&pid)
+                    .bind(&node_short)
+                    .bind(now)
+                    .execute(&state.db)
+                    .await
+                    {
+                        tracing::warn!(
+                            "assign_node_agent: failed to stamp node_id metadata for {pid}: {e}"
+                        );
+                    }
+                    Some(pid)
+                }
                 Err(e) => {
                     tracing::error!("assign_node_agent agent link: {e}");
                     return (
@@ -2514,10 +2591,11 @@ async fn handle_pty_ws(socket: WebSocket, session_id: String, conn_id: String) {
 
 /// `GET /runtime/nodes/{node_id}/agents/{agent_id}/attach`
 ///
-/// Auth: bearer token in `Authorization` header **or** `?ep_token=` query
-/// param (browsers can't set headers on a WS upgrade). The token is checked
-/// the same way `Principal` extraction does — admin token or a valid user
-/// session.
+/// Auth: the caller must OWN the node (or be admin). The `Principal` extractor
+/// accepts a Bearer token AND the browser's same-origin `ep_session_token`
+/// cookie — so a real browser WebSocket, which cannot set an Authorization
+/// header, authenticates via its session cookie. `require_node_owner` then
+/// scopes the caller to the node owner (mirrors `node_notify_ws`).
 ///
 /// Behavior: resolve `node_id` → tailscale_fqdn/ip + per-node attach_secret
 /// from the runtimenode row, sign a short-lived HMAC token, dial the mesh
@@ -2527,25 +2605,18 @@ async fn agent_attach_proxy(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
     Path((node_id, agent_id)): Path<(String, String)>,
-    Query(params): Query<HashMap<String, String>>,
-    headers: axum::http::HeaderMap,
+    principal: Principal,
 ) -> impl IntoResponse {
-    // 1) Auth — accept either Authorization header or ep_token query.
-    let token = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|s| s.to_string())
-        .or_else(|| params.get("ep_token").cloned())
-        .unwrap_or_default();
-
-    if !verify_attach_caller_token(&state, &token).await {
-        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    // 1) AuthZ — caller must own this node (or be admin). Replaces the old
+    //    header-only check, which both rejected browsers (no Authorization
+    //    header on a WS upgrade) and never scoped the caller to the node owner.
+    if let Err(resp) = require_node_owner(&state, &principal, &node_id).await {
+        return resp;
     }
 
     // 2) Resolve node → reachable address + per-node attach secret.
     let row = sqlx::query(
-        "SELECT tailscale_fqdn, tailscale_ip, attach_secret FROM runtimenode WHERE id = $1",
+        "SELECT node_name, tailscale_fqdn, tailscale_ip, attach_secret FROM runtimenode WHERE id = $1",
     )
     .bind(&node_id)
     .fetch_optional(&state.db)
@@ -2558,7 +2629,9 @@ async fn agent_attach_proxy(
     };
     let fqdn: Option<String> = row.try_get("tailscale_fqdn").ok();
     let ip: Option<String> = row.try_get("tailscale_ip").ok();
-    let host = match fqdn.filter(|s| !s.is_empty()).or(ip.filter(|s| !s.is_empty())) {
+    // The fqdn/ip presence is the attachability gate: a node that registered
+    // neither has no reachable address, so refuse before dialing.
+    let tailnet_host = match fqdn.filter(|s| !s.is_empty()).or(ip.filter(|s| !s.is_empty())) {
         Some(h) => h,
         None => {
             return (
@@ -2567,6 +2640,29 @@ async fn agent_attach_proxy(
             )
                 .into_response();
         }
+    };
+
+    // Transport (ADR 0004): in-cluster the tower has no tailnet route, so it
+    // cannot reach `tailnet_host` (the node's MagicDNS name / 100.x IP) directly.
+    // When EP_ATTACH_EGRESS_DOMAIN is set, dial the per-node Tailscale operator
+    // egress Service `<node_name>-attach.<domain>` instead; the egress proxy
+    // forwards over the tailnet. Unset (e.g. off-cluster dev) → dial the tailnet
+    // host directly, preserving prior behavior. The gate above still decides
+    // attachability; this only swaps the transport for attachable nodes.
+    let host = match std::env::var("EP_ATTACH_EGRESS_DOMAIN") {
+        Ok(domain) if !domain.trim().is_empty() => {
+            let node_name: String = row.try_get("node_name").unwrap_or_default();
+            let label = node_name.trim().to_ascii_lowercase();
+            if label.is_empty() {
+                tracing::warn!(node_id = %node_id, "agent_attach_proxy: EP_ATTACH_EGRESS_DOMAIN set but node_name is blank; dialing tailnet host directly");
+                tailnet_host
+            } else {
+                let egress = format!("{label}-attach.{}", domain.trim());
+                tracing::debug!(node_id = %node_id, egress = %egress, "agent_attach_proxy: routing attach via Tailscale egress Service");
+                egress
+            }
+        }
+        _ => tailnet_host,
     };
 
     // 3) Sign HMAC attach token with the per-node secret stored at registration.
@@ -2590,52 +2686,12 @@ async fn agent_attach_proxy(
     // 4) Upgrade caller, then dial mesh.
     ws.on_upgrade(move |browser_socket| async move {
         if let Err(e) = run_attach_proxy(browser_socket, mesh_url).await {
-            tracing::debug!("attach proxy session ended: {e:#}");
+            // debug → warn: a failed dial here is the exact silent-failure mode
+            // that masked the cluster→node egress gap. Never log `mesh_url` — it
+            // carries the signed attach token.
+            tracing::warn!(node_id = %node_id, agent_id = %agent_id, "agent_attach_proxy: proxy/dial failed: {e:#}");
         }
     })
-}
-
-async fn verify_attach_caller_token(state: &AppState, token: &str) -> bool {
-    if token.is_empty() {
-        return false;
-    }
-    // Node JWT fast path — verify in-process, then confirm JTI not revoked.
-    if token.matches('.').count() == 2 {
-        if let Ok(claims) = crate::jwt::verify_node_jwt(token, &state.jwt_decoding_key) {
-            let now = chrono::Utc::now().naive_utc();
-            return matches!(
-                sqlx::query("SELECT revoked FROM nodetoken WHERE jti=$1 AND expires_at > $2 AND revoked=false")
-                    .bind(&claims.jti)
-                    .bind(now)
-                    .fetch_optional(&state.db)
-                    .await,
-                Ok(Some(_))
-            );
-        }
-        return false;
-    }
-    // Look up either a user session or service-account token by hash.
-    let hash = hash_token_local(token);
-    let now = Utc::now().naive_utc();
-    let user_ok = sqlx::query("SELECT 1 FROM usersession WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > $2) LIMIT 1")
-        .bind(&hash)
-        .bind(now)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .is_some();
-    if user_ok {
-        return true;
-    }
-    sqlx::query("SELECT 1 FROM serviceaccounttoken WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > $2) LIMIT 1")
-        .bind(&hash)
-        .bind(now)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .is_some()
 }
 
 fn sign_attach_token(secret: &str, agent_id: &str, exp: i64) -> String {

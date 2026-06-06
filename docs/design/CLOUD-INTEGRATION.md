@@ -30,7 +30,7 @@ This document captures the architecture blueprint discussed for deploying Edgepl
 - Mosquitto MQTT broker runs as StatefulSet with PVCs; optionally, Azure IoT Hub rules can be introduced later.
 
 ### Security & controls
-- Key Vault holds `EP_TOKEN`, `SLACK_BOT_TOKEN`, and object storage credentials; Azure AD service principals grant AKS workload identity limited scope.
+- Key Vault holds service-account tokens, `SLACK_BOT_TOKEN`, and object storage credentials; Azure AD service principals grant AKS workload identity limited scope.
 - Azure Policy enforces resource tags, private endpoint usage, and disk encryption; RBAC roles restrict terraform operators vs. runtime admin.
 
 ### Observability & ops

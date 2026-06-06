@@ -1,5 +1,6 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct UserSession {
@@ -57,10 +58,13 @@ pub struct SessionResponse {
     pub ttl_hours: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct MeResponse {
+    /// The authenticated principal's subject identifier (e.g. OIDC sub or service account name).
     pub subject: String,
+    /// Authentication mechanism used: "session", "service_account", or "oidc_jwt".
     pub auth_type: String,
+    /// Session database ID — present for session tokens, absent for service account tokens.
     pub session_id: Option<i32>,
 }
 

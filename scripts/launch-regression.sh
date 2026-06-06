@@ -20,7 +20,7 @@ export RUSTUP_HOME="${RUSTUP_HOME:-$ORIG_HOME/.rustup}"
 export HOME="$TEST_HOME"
 export EP_HOME="$TEST_EP_HOME"
 export EP_BASE_URL="${EP_BASE_URL:-http://127.0.0.1:8008}"
-export EP_TOKEN="${EP_TOKEN:-launch-regression-token}"
+export EP_AGENT_TOKEN="${EP_AGENT_TOKEN:-launch-regression-token}"
 
 # Stub binaries — exit 0 so edgeplane run completes without launching a real agent.
 for agent in codex claude gemini; do

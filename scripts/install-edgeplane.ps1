@@ -92,4 +92,4 @@ if ($userPath -notlike "*$InstallDir*") {
 & $targetExe --version
 Write-Host ""
 Write-Host "Launch an agent:"
-Write-Host "  `$env:EP_TOKEN='<token>'; `$env:EP_BASE_URL='https://your-edgeplane.example.com'; edgeplane launch codex"
+Write-Host "  `$env:EP_AGENT_TOKEN='mcs_sa_...'; `$env:EP_BASE_URL='https://your-edgeplane.example.com'; edgeplane auth login --non-interactive"

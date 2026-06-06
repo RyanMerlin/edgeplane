@@ -32,6 +32,12 @@ pub struct SupervisedAgent {
 
 pub struct Supervisor {
     agents: Mutex<HashMap<String, SupervisedAgent>>,
+    /// Alias map: short name (e.g. `"engineer"`) → canonical opaque id
+    /// (e.g. `"aria-engineer-708650f1"`). Used in federated mode so that
+    /// `edgeplane agent signal engineer` still reaches the agent that was
+    /// spawned under its controlplane public_id. Registered by the daemon
+    /// after spawning a spec that carries a `local_alias_id`.
+    name_aliases: Mutex<HashMap<String, String>>,
     work_dir: PathBuf,
     backend_url: String,
     token: String,
@@ -41,6 +47,7 @@ impl Supervisor {
     pub fn new(work_dir: PathBuf, backend_url: String, token: String) -> Self {
         Supervisor {
             agents: Mutex::new(HashMap::new()),
+            name_aliases: Mutex::new(HashMap::new()),
             work_dir,
             backend_url,
             token,
@@ -104,11 +111,41 @@ impl Supervisor {
         self.agents.lock().await.keys().cloned().collect()
     }
 
-    /// Borrow a supervised agent by id (clones the metadata for use outside the lock).
+    /// Register `alias` as an alternate lookup key resolving to `canonical`.
+    ///
+    /// Used in federated mode when an agent is spawned under its controlplane
+    /// `public_id` (e.g. `"aria-engineer-708650f1"`) but callers (CLI, cron
+    /// dispatcher) reference it by its short local profile name (e.g.
+    /// `"engineer"`). After registration, `with_agent("engineer")` resolves
+    /// the same as `with_agent("aria-engineer-708650f1")`.
+    pub async fn register_name_alias(&self, alias: String, canonical: String) {
+        self.name_aliases.lock().await.insert(alias, canonical);
+    }
+
+    /// Borrow a supervised agent by id, with name-alias fallback.
+    ///
+    /// Resolution order:
+    /// 1. Direct lookup by `agent_id`.
+    /// 2. Alias lookup: if `agent_id` matches a registered alias, resolve to
+    ///    the canonical id and look that up.
+    ///
+    /// Returns `None` when neither lookup succeeds. The closure `f` receives
+    /// a reference to the `SupervisedAgent` and its return value is
+    /// propagated, so callers clone only what they need outside the lock.
     pub async fn with_agent<F, T>(&self, agent_id: &str, f: F) -> Option<T>
     where
         F: FnOnce(&SupervisedAgent) -> T,
     {
-        self.agents.lock().await.get(agent_id).map(f)
+        // Resolve alias first (two separate lock acquisitions to avoid holding
+        // name_aliases lock while acquiring agents lock — deadlock-safe since
+        // no other code holds both simultaneously).
+        let resolved_id: String = {
+            let aliases = self.name_aliases.lock().await;
+            match aliases.get(agent_id) {
+                Some(canonical) => canonical.clone(),
+                None => agent_id.to_owned(),
+            }
+        };
+        self.agents.lock().await.get(&resolved_id).map(f)
     }
 }

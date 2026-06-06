@@ -26,7 +26,7 @@ cp target/release/edgeplane-tower ~/.local/bin/edgeplane-tower
 | Var | Meaning | Default |
 |-----|---------|---------|
 | `EP_BASE_URL` | Backend HTTP base URL | `http://localhost:8008` |
-| `EP_TOKEN` | Bearer token | unset |
+| `EP_AGENT_TOKEN` | Service-account or session bearer token; injected by `edgeplane launch` | unset |
 
 ## Command Surface
 
@@ -108,7 +108,7 @@ programmatically — human-readable output is not a stable interface.
 Headless work executor. Agents communicate via Unix socket.
 
 ```bash
-edgeplaned run --backend-url http://localhost:8008 --token $EP_TOKEN
+edgeplaned run --backend-url http://localhost:8008 --token $EP_AGENT_TOKEN
 edgeplaned version
 edgeplaned get-secret MY_API_KEY   # inside agent subprocess only
 ```

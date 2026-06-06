@@ -25,7 +25,7 @@ package of choice.
 ENV | meaning | default
 ----|---------|--------
 `EP_BASE_URL` | base URL for Edgeplane API | `http://localhost:8008`
-`EP_TOKEN` | bearer token for MCP endpoints | unset
+`EP_AGENT_TOKEN` | service-account or session token for MCP endpoints; passed by `edgeplane launch` to agents at exec time | unset
 `EP_AGENT_ID` | optional agent identity for governance/sync traces | unset
 `EP_TIMEOUT_SECS` | outbound timeout for HTTP calls | `10`
 `EP_ALLOW_INSECURE` | accept self-signed certs (daemon use) | `false`

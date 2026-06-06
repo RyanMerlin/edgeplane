@@ -1,4 +1,10 @@
-use axum::{Router, extract::State, http::StatusCode, middleware, response::IntoResponse};
+use axum::{
+    Router,
+    extract::{Request, State},
+    http::{HeaderValue, StatusCode, header},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+};
 use base64::Engine;
 use sqlx::PgPool;
 use std::{path::PathBuf, sync::Arc};
@@ -40,27 +46,67 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
     let authed = routes::build_router()
         .layer(middleware::from_fn_with_state(state.clone(), auth::require_auth));
 
-    // Serve the SvelteKit web UI at root (/) if EP_WEB_DIR points to the
+    // Serve the React/Vite web SPA at root (/) if EP_WEB_DIR points to the
     // build. SPA fallback via fallback_service handles client-side routing.
     // Falls back to proxy_fallback when the web build is absent (test builds,
-    // dev without a web build).
+    // dev without a web build). `web_cache_control` applies the
+    // immutable-asset / no-cache-HTML split (see fn docs).
     let web_dir = std::env::var("EP_WEB_DIR")
         .unwrap_or_else(|_| "/usr/local/share/edgeplane-web".to_string());
     let web_path = PathBuf::from(&web_dir);
-    let router = if web_path.is_dir() {
+    if web_path.is_dir() {
         let serve = ServeDir::new(&web_path)
             .not_found_service(ServeFile::new(web_path.join("index.html")));
         Router::new()
             .nest("/api", authed)
             .fallback_service(serve)
+            .layer(middleware::from_fn(web_cache_control))
             .with_state(state)
     } else {
         Router::new()
             .nest("/api", authed)
             .fallback(proxy_fallback)
             .with_state(state)
-    };
-    router
+    }
+}
+
+/// Apply Cache-Control to statically-served web responses.
+///
+/// Vite (and SvelteKit before it) emit content-hashed asset filenames under
+/// `/assets/` and `/_app/` (e.g. `/assets/index-CmfekmjZ.js`). The filename
+/// *is* the cache key, so those are safe to cache forever (`immutable`). The
+/// HTML entrypoint (`index.html`, and the SPA fallback) must NOT be cached
+/// without revalidation: it references the *current* build's hashed filenames,
+/// so a browser-cached stale `index.html` will request asset hashes that no
+/// longer exist after a redeploy → every CSS/JS request 404s → the page renders
+/// unstyled and never hydrates (dead buttons). `no-cache` forces the browser to
+/// revalidate the document on every load (cheap 304 when unchanged), which
+/// makes deploys self-healing instead of breaking ~half the time.
+///
+/// Without this, `tower_http::ServeDir` sets no Cache-Control at all and
+/// browsers fall back to heuristic caching of the HTML — the root cause of the
+/// intermittent "white page / dead OIDC button after deploy" failures.
+async fn web_cache_control(req: Request, next: Next) -> Response {
+    let path = req.uri().path().to_owned();
+    let mut resp = next.run(req).await;
+
+    let hashed = path.starts_with("/assets/") || path.starts_with("/_app/");
+    if hashed {
+        resp.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=31536000, immutable"),
+        );
+    } else if resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ct| ct.starts_with("text/html"))
+    {
+        resp.headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    }
+
+    resp
 }
 
 fn load_jwt_keys() -> (jsonwebtoken::EncodingKey, jsonwebtoken::DecodingKey) {

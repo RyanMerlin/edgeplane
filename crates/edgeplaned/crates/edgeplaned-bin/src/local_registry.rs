@@ -517,6 +517,10 @@ impl AgentRecord {
             // listing — into_spec only sees the agent row, not the joined
             // launch context.
             launch_overrides: crate::supervisor::SpawnOverrides::default(),
+            // name and local_alias_id are only populated for controlplane-
+            // originated specs and are not stored in the registry.
+            name: None,
+            local_alias_id: None,
         }
     }
 }
@@ -966,6 +970,8 @@ mod tests {
             profile_path: None,
             webhook_url: None,
             launch_overrides: Default::default(),
+            name: None,
+            local_alias_id: None,
         }
     }
 

@@ -1,33 +1,73 @@
-# Edgeplane Web UI (SvelteKit)
+# React + TypeScript + Vite
 
-The front-end lives in `web/`. It is a SvelteKit 2 application with an AI-first console landing experience plus secondary dashboard tabs (matrix telemetry, explorer, onboarding, governance).
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## Development
+Currently, two official plugins are available:
 
-```bash
-cd web
-npm install
-npm run dev -- --host 0.0.0.0 --port 5173
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+
+## React Compiler
+
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+
+## Expanding the ESLint configuration
+
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+
+```js
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+
+      // Remove tseslint.configs.recommended and replace with this
+      tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      tseslint.configs.stylisticTypeChecked,
+
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 ```
 
-`npm run dev` starts the SvelteKit dev server (default port 5173). The UI uses Edgeplane session tokens (`mcs_*`) stored in `localStorage`. Production sign-in uses backend OIDC browser flow (`/auth/oidc/start` -> callback -> `/auth/oidc/exchange`), while static token login remains available for testing.
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
 
-## Building for production
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
 
-```bash
-cd web
-npm run build
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 ```
-
-`npm run build` emits static files under `web/build`. The backend already serves `/ui/` from that build directory, so once you run this command the API automatically exposes the new UI (e.g., `http://localhost:8008/ui/`). Feel free to host the `build/` output with any static file server if you prefer.
-
-## Features
-
-- **AI Console (default)** — chat-first transcript + composer, natural-language planning, compact tool/event cards, and approval cards for write actions.
-- **Matrix timeline** — SSE-driven feed shows approvals, inbox events, and the rate-limit status described in [`docs/reference/REAL-TIME.md`](../docs/reference/REAL-TIME.md).
-- **Explorer panel** — domain/mission tree plus detail view, leveraging `/explorer/tree` and `/explorer/node/{type}/{id}`.
-- **Onboarding** — generate manifest endpoints, bootstrap commands, and config snippets for agent swarms and `edgeplane doctor`.
-- **Governance** — view active policy, inspect policy events, and refresh drafts without leaving the UI.
-
-Theme defaults to dark mode, with a top-right moon/sun toggle.
-See [`docs/reference/AI-CONSOLE.md`](../docs/reference/AI-CONSOLE.md) for event schema, planner settings, and API details.

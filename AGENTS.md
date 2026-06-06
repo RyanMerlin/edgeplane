@@ -78,7 +78,7 @@ echo '{"op":"get","session":"'$EP_SECRETS_SESSION'","name":"MY_API_KEY"}' \
 ## edgeplaned Daemon
 
 ```bash
-edgeplaned run --backend-url http://localhost:8008 --token $EP_TOKEN
+edgeplaned run --backend-url http://localhost:8008 --token $EP_AGENT_TOKEN
 edgeplaned version
 ```
 
