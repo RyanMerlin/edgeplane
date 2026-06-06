@@ -2587,7 +2587,7 @@ async fn agent_attach_proxy(
 
     // 2) Resolve node → reachable address + per-node attach secret.
     let row = sqlx::query(
-        "SELECT tailscale_fqdn, tailscale_ip, attach_secret FROM runtimenode WHERE id = $1",
+        "SELECT node_name, tailscale_fqdn, tailscale_ip, attach_secret FROM runtimenode WHERE id = $1",
     )
     .bind(&node_id)
     .fetch_optional(&state.db)
@@ -2600,7 +2600,9 @@ async fn agent_attach_proxy(
     };
     let fqdn: Option<String> = row.try_get("tailscale_fqdn").ok();
     let ip: Option<String> = row.try_get("tailscale_ip").ok();
-    let host = match fqdn.filter(|s| !s.is_empty()).or(ip.filter(|s| !s.is_empty())) {
+    // The fqdn/ip presence is the attachability gate: a node that registered
+    // neither has no reachable address, so refuse before dialing.
+    let tailnet_host = match fqdn.filter(|s| !s.is_empty()).or(ip.filter(|s| !s.is_empty())) {
         Some(h) => h,
         None => {
             return (
@@ -2609,6 +2611,29 @@ async fn agent_attach_proxy(
             )
                 .into_response();
         }
+    };
+
+    // Transport (ADR 0004): in-cluster the tower has no tailnet route, so it
+    // cannot reach `tailnet_host` (the node's MagicDNS name / 100.x IP) directly.
+    // When EP_ATTACH_EGRESS_DOMAIN is set, dial the per-node Tailscale operator
+    // egress Service `<node_name>-attach.<domain>` instead; the egress proxy
+    // forwards over the tailnet. Unset (e.g. off-cluster dev) → dial the tailnet
+    // host directly, preserving prior behavior. The gate above still decides
+    // attachability; this only swaps the transport for attachable nodes.
+    let host = match std::env::var("EP_ATTACH_EGRESS_DOMAIN") {
+        Ok(domain) if !domain.trim().is_empty() => {
+            let node_name: String = row.try_get("node_name").unwrap_or_default();
+            let label = node_name.trim().to_ascii_lowercase();
+            if label.is_empty() {
+                tracing::warn!(node_id = %node_id, "agent_attach_proxy: EP_ATTACH_EGRESS_DOMAIN set but node_name is blank; dialing tailnet host directly");
+                tailnet_host
+            } else {
+                let egress = format!("{label}-attach.{}", domain.trim());
+                tracing::debug!(node_id = %node_id, egress = %egress, "agent_attach_proxy: routing attach via Tailscale egress Service");
+                egress
+            }
+        }
+        _ => tailnet_host,
     };
 
     // 3) Sign HMAC attach token with the per-node secret stored at registration.
