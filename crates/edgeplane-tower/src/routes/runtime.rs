@@ -1722,10 +1722,13 @@ async fn assign_node_agent(
         .as_ref()
         .and_then(|v| serde_json::to_string(v).ok());
 
-    // Derive the node's short name for the canonical agent name prefix.
-    // Format: `<node_short>-<agent_name>` → public_id `<node_short>-<agent_name>-<hex>`.
-    // `node_short` is the first DNS label of the Tailscale FQDN, or the
-    // raw node_name if it contains no dots (e.g. "excalibur").
+    // Derive the node's short name (first DNS label of the Tailscale FQDN, or
+    // the raw node_name if it has no dots, e.g. "excalibur"). This is recorded
+    // in the linked agent's `metadata.node_id` so the dashboard's Node column
+    // resolves — it is NOT prefixed onto the agent name. The agent name stays
+    // the canonical identity the runtime self-registers as (e.g. `aria-work`),
+    // and the node association is carried by the `runtime_node_id` column on
+    // the meshagent row below.
     let node_short: String = sqlx::query_scalar(
         "SELECT SPLIT_PART(COALESCE(tailscale_fqdn, node_name), '.', 1) FROM runtimenode WHERE id=$1",
     )
@@ -1737,12 +1740,38 @@ async fn assign_node_agent(
 
     let agent_public_id = match &body.agent_name {
         Some(n) if !n.trim().is_empty() => {
-            // Canonical name: <node_short>-<agent_name>
-            let canonical = format!("{node_short}-{}", n.trim());
-            match crate::routes::agents::upsert_agent_by_name(&state.db, &canonical, &caps_json)
+            // Link by the agent's own name — no node prefix (see comment above).
+            let canonical = n.trim();
+            match crate::routes::agents::upsert_agent_by_name(&state.db, canonical, &caps_json)
                 .await
             {
-                Ok(pid) => Some(pid),
+                Ok(pid) => {
+                    // Stamp this node onto the agent's metadata in a single
+                    // atomic statement so a concurrent self-registration can't
+                    // lose a write (best-effort — a failure here must not fail
+                    // enrollment). `metadata` is a nullable text column holding
+                    // a JSON object; cast through jsonb to merge `node_id`
+                    // without clobbering other keys.
+                    if let Err(e) = sqlx::query(
+                        "UPDATE agent \
+                         SET metadata = jsonb_set( \
+                                 COALESCE(NULLIF(metadata, '')::jsonb, '{}'::jsonb), \
+                                 '{node_id}', to_jsonb($2::text))::text, \
+                             updated_at = $3 \
+                         WHERE public_id = $1",
+                    )
+                    .bind(&pid)
+                    .bind(&node_short)
+                    .bind(now)
+                    .execute(&state.db)
+                    .await
+                    {
+                        tracing::warn!(
+                            "assign_node_agent: failed to stamp node_id metadata for {pid}: {e}"
+                        );
+                    }
+                    Some(pid)
+                }
                 Err(e) => {
                     tracing::error!("assign_node_agent agent link: {e}");
                     return (

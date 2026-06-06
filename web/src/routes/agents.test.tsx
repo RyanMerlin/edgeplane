@@ -10,7 +10,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -190,6 +190,76 @@ describe('AgentsPage', () => {
 
     await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
     expect(screen.getByText('No agents registered')).toBeInTheDocument();
+  });
+
+  it('resolves Node + Runtime from mesh topology when agent metadata is empty', async () => {
+    const { apiClient, unwrap } = await import('@/api/client');
+    // Control-plane agent registered with EMPTY metadata (the live-fleet case).
+    const cpAgents = [
+      {
+        id: 3,
+        public_id: 'aria-work-aa11bb22',
+        name: 'aria-work',
+        status: 'offline',
+        capabilities: 'work',
+        metadata: '{}',
+        home_domain_id: 'dom-w',
+        current_domain_id: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-05-31T10:00:00Z',
+      },
+    ];
+    const nodes = [
+      { id: 'node-uuid-1', node_name: 'excalibur', hostname: 'excalibur', status: 'online' },
+    ];
+    // Mesh row links the same public_id to node-uuid-1, carrying runtime_kind.
+    const meshAgents = [
+      {
+        id: 'mesh-1',
+        public_id: 'aria-work-aa11bb22',
+        status: 'online',
+        runtime_kind: 'claude_acp',
+        capabilities: '[]',
+        domain_id: 'dom-w',
+        node_id: 'node-uuid-1',
+        runtime_node_id: 'node-uuid-1',
+        enrolled_at: '2026-05-31T00:00:00Z',
+        runtime_version: '0.12.0',
+        last_heartbeat_at: '2026-05-31T12:00:00Z',
+        discovered_capabilities: '[]',
+        labels: {},
+      },
+    ];
+    // Path-aware mock so cp/mesh queries resolve regardless of fire order.
+    (apiClient.GET as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === '/api/agents') return Promise.resolve(cpAgents);
+      if (path === '/api/runtime/nodes') return Promise.resolve(nodes);
+      if (path === '/api/runtime/nodes/{node_id}/agents') return Promise.resolve(meshAgents);
+      return Promise.resolve([]);
+    });
+    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
+
+    renderWith(<AgentsPage />, queryClient);
+
+    const row = await waitFor(() => screen.getByTestId('agent-row-aria-work-aa11bb22'));
+    // Node column resolves from topology (node_name), Runtime from runtime_kind.
+    expect(within(row).getByText('excalibur')).toBeInTheDocument();
+    expect(within(row).getByText('claude_acp')).toBeInTheDocument();
+  });
+
+  it('shows Node + Runtime from agent metadata when present', async () => {
+    const { apiClient, unwrap } = await import('@/api/client');
+    (apiClient.GET as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === '/api/agents') return Promise.resolve([sampleAgents[0]]);
+      return Promise.resolve([]); // no nodes / no mesh agents
+    });
+    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
+
+    renderWith(<AgentsPage />, queryClient);
+
+    const row = await waitFor(() => screen.getByTestId('agent-row-aria-operator-e8820c0d'));
+    expect(within(row).getByText('claude-code')).toBeInTheDocument(); // runtime
+    expect(within(row).getByText('excalibur')).toBeInTheDocument(); // node_id
   });
 });
 
