@@ -6,5 +6,6 @@ pub mod goose;
 pub mod shared;
 pub mod harness;
 pub mod zellij_hosted;
+pub mod zellij_install;
 pub mod zellij_plugin;
 pub mod zellij_session;

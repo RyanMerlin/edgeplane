@@ -23,6 +23,7 @@ uuid = { workspace = true }
 async-stream = "0.3"
 dirs = { workspace = true }
 which = { workspace = true }
+kdl = "4.7.1"
+tempfile = "3"
 
 [dev-dependencies]
-tempfile = "3"
