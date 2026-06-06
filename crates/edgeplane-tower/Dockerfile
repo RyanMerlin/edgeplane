@@ -24,11 +24,13 @@ COPY crates/edgeplaned/crates/edgeplaned-sandbox/Cargo.toml ./crates/edgeplaned/
 COPY crates/edgeplaned/crates/edgeplaned-secrets/Cargo.toml ./crates/edgeplaned/crates/edgeplaned-secrets/Cargo.toml
 COPY crates/edgeplaned/crates/edgeplaned-sync/Cargo.toml ./crates/edgeplaned/crates/edgeplaned-sync/Cargo.toml
 COPY crates/edgeplaned/crates/edgeplaned-work/Cargo.toml ./crates/edgeplaned/crates/edgeplaned-work/Cargo.toml
+COPY crates/edgeplane-zrpc-proto/Cargo.toml ./crates/edgeplane-zrpc-proto/Cargo.toml
 
 # Stub all workspace members so the resolver is satisfied, then cache edgeplane-tower deps
 RUN for d in \
       crates/edgeplane \
       crates/edgeplane-tower \
+      crates/edgeplane-zrpc-proto \
       crates/edgeplaned/crates/edgeplaned-bin \
       crates/edgeplaned/crates/edgeplaned-acp \
       crates/edgeplaned/crates/edgeplaned-core \
