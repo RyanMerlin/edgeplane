@@ -53,9 +53,14 @@ type MergedAgent = {
   updated_at?: string;
   /** runtime_kind from mesh layer */
   runtime_kind?: string;
+  /** Node this agent is enrolled on — node_name from the mesh topology layer */
+  node_name?: string | null;
   /** last_heartbeat_at from mesh layer */
   last_heartbeat_at?: string | null;
 };
+
+/** A mesh agent tagged with the node it was fetched from (per-node loop). */
+type MeshAgentWithNode = NodeMeshAgent & { node_name?: string | null };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -95,6 +100,22 @@ function metadataField(metadata: string | undefined, key: string): string {
   }
 }
 
+/**
+ * Resolve a display value preferring the agent's self-reported metadata, then
+ * falling back to a value derived from the live mesh topology. Either source
+ * may be absent (controlplane agents register with empty `{}` metadata; mesh
+ * rows exist only once an agent is enrolled on a node), so we coalesce both.
+ */
+function coalesceField(
+  metadata: string | undefined,
+  key: string,
+  fallback: string | null | undefined,
+): string {
+  const fromMeta = metadataField(metadata, key);
+  if (fromMeta !== '—') return fromMeta;
+  return fallback ?? '—';
+}
+
 function statusVariant(status: string): 'ok' | 'warn' | 'err' | 'default' {
   if (status === 'online' || status === 'active') return 'ok';
   if (status === 'busy') return 'warn';
@@ -122,7 +143,7 @@ function Tag({
 // ── Merge logic ────────────────────────────────────────────────────────────────
 
 /** Merge control-plane + mesh agents (same strategy as Svelte fleet page). */
-function mergeAgents(cpAgents: Agent[], meshAgents: NodeMeshAgent[]): MergedAgent[] {
+function mergeAgents(cpAgents: Agent[], meshAgents: MeshAgentWithNode[]): MergedAgent[] {
   const byId = new Map<string, MergedAgent>();
 
   for (const a of cpAgents) {
@@ -141,10 +162,12 @@ function mergeAgents(cpAgents: Agent[], meshAgents: NodeMeshAgent[]): MergedAgen
     const pid = a.public_id ?? a.agent_public_id ?? a.id;
     const existing = byId.get(pid);
     if (existing) {
-      // Mesh status wins; keep controlplane capabilities/metadata
+      // Mesh status wins; keep controlplane capabilities/metadata. The mesh
+      // layer is the source of truth for the live node + runtime_kind.
       existing.status = a.status;
       existing.source = 'both';
       existing.runtime_kind = a.runtime_kind;
+      existing.node_name = a.node_name;
       existing.last_heartbeat_at = a.last_heartbeat_at;
     } else {
       byId.set(pid, {
@@ -154,6 +177,7 @@ function mergeAgents(cpAgents: Agent[], meshAgents: NodeMeshAgent[]): MergedAgen
         capabilities: parseCapabilities(a.capabilities),
         source: 'mesh',
         runtime_kind: a.runtime_kind,
+        node_name: a.node_name,
         last_heartbeat_at: a.last_heartbeat_at,
         domain_name: a.domain_name,
       });
@@ -169,9 +193,9 @@ async function fetchCpAgents(): Promise<Agent[]> {
   return unwrap(apiClient.GET('/api/agents'));
 }
 
-async function fetchMeshAgents(): Promise<NodeMeshAgent[]> {
+async function fetchMeshAgents(): Promise<MeshAgentWithNode[]> {
   const nodes = await unwrap(apiClient.GET('/api/runtime/nodes'));
-  const allMesh: NodeMeshAgent[] = [];
+  const allMesh: MeshAgentWithNode[] = [];
   await Promise.all(
     nodes.map(async (node: RuntimeNode) => {
       const agents = await unwrap(
@@ -179,7 +203,11 @@ async function fetchMeshAgents(): Promise<NodeMeshAgent[]> {
           params: { path: { node_id: node.id } },
         }),
       ).catch(() => [] as NodeMeshAgent[]);
-      allMesh.push(...agents);
+      // Tag each mesh row with the node it was fetched from so the Node column
+      // resolves from live topology even when the agent's metadata is empty.
+      for (const a of agents) {
+        allMesh.push({ ...a, node_name: node.node_name });
+      }
     }),
   );
   return allMesh;
@@ -218,14 +246,10 @@ function AgentRow({
         {agent.capabilities || '—'}
       </td>
       <td style={{ fontSize: '10px', color: 'var(--dim)' }}>
-        {agent.source === 'controlplane' || agent.source === 'both'
-          ? metadataField(agent.metadata, 'runtime')
-          : (agent.runtime_kind ?? '—')}
+        {coalesceField(agent.metadata, 'runtime', agent.runtime_kind)}
       </td>
       <td style={{ fontSize: '10px', color: 'var(--dim)' }}>
-        {agent.source === 'controlplane' || agent.source === 'both'
-          ? metadataField(agent.metadata, 'node_id')
-          : '—'}
+        {coalesceField(agent.metadata, 'node_id', agent.node_name)}
       </td>
       <td style={{ fontSize: '10px', color: 'var(--muted)' }}>
         {agent.last_heartbeat_at
