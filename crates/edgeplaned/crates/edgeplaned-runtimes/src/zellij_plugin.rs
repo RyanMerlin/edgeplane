@@ -42,7 +42,6 @@ use std::collections::HashSet;
 use anyhow::{Result, bail};
 use edgeplane_zrpc_proto::{PluginEvent, Request, Response};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Child;
 use tokio::sync::mpsc;
 
 use crate::zellij_session::zellij_binary;
@@ -147,9 +146,10 @@ impl ZellijPluginClient {
     /// alive until the pipe is force-closed. Using `.output()` would wait for
     /// the child to exit, hanging indefinitely.
     ///
-    /// Instead we spawn the child with `Stdio::piped()` on stdout, read lines
-    /// until we see the correlated `Response`, kill the child, and return. A
-    /// 10-second [`REQUEST_TIMEOUT_SECS`] guards against plugin hangs.
+    /// Instead we spawn the child with `Stdio::piped()` on stdout, concurrently
+    /// drain stderr, read stdout lines until we see the correlated `Response`,
+    /// kill the child (SIGKILL + wait to reap it), and return. A 10-second
+    /// [`REQUEST_TIMEOUT_SECS`] guards against plugin hangs.
     async fn request(&self, req: Request) -> Result<Response> {
         use std::process::Stdio;
         use tokio::time::{Duration, timeout};
@@ -173,28 +173,49 @@ impl ZellijPluginClient {
             .take()
             .ok_or_else(|| anyhow::anyhow!("zellij pipe: no stdout handle"))?;
 
+        // H3 fix: drain stderr concurrently with stdout so a large stderr
+        // payload cannot deadlock the pipe buffer while we read stdout.
+        // The drain task owns the stderr handle and runs for the lifetime of
+        // the request; we collect its output via JoinHandle after the timeout.
+        let stderr_drain = child.stderr.take().map(|stderr| {
+            tokio::spawn(async move {
+                use tokio::io::AsyncReadExt;
+                let mut buf = String::new();
+                let mut stderr = stderr;
+                let _ = stderr.read_to_string(&mut buf).await;
+                buf
+            })
+        });
+
         let result = timeout(
             Duration::from_secs(REQUEST_TIMEOUT_SECS),
             read_until_response(stdout, &req.id),
         )
         .await;
 
-        // Kill the child regardless of outcome so we don't leave a zombie.
-        kill_child(&mut child).await;
+        // C1 fix: kill() = start_kill() + wait(). This sends SIGKILL AND reaps
+        // the process, preventing a zombie. The original start_kill()-only path
+        // left a <defunct> zellij process per request until daemon exit.
+        let _ = child.kill().await;
 
         match result {
             Ok(Ok(resp)) => Ok(resp),
             Ok(Err(e)) => Err(e),
             Err(_elapsed) => {
-                // Collect stderr for the error message (best-effort, no extra wait).
-                let stderr_hint = if let Some(mut se) = child.stderr.take() {
-                    let mut buf = String::new();
-                    use tokio::io::AsyncReadExt;
-                    let _ = se.read_to_string(&mut buf).await;
-                    if buf.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" stderr: {}", buf.trim())
+                // Collect stderr that the concurrent drain task already captured.
+                // Abort the task if still running (kill already sent to the process).
+                let stderr_hint = if let Some(handle) = stderr_drain {
+                    // Give the drain task a brief moment to flush after kill.
+                    match tokio::time::timeout(
+                        Duration::from_millis(200),
+                        handle,
+                    )
+                    .await
+                    {
+                        Ok(Ok(buf)) if !buf.is_empty() => {
+                            format!(" stderr: {}", buf.trim())
+                        }
+                        _ => String::new(),
                     }
                 } else {
                     String::new()
@@ -234,7 +255,7 @@ impl ZellijPluginClient {
 ///
 /// **Downstream wiring note:** wiring these events into agent-lifecycle /
 /// watchdog state (e.g. restarting an agent whose pane exited) is a
-/// deliberate follow-up. For now the consumer logs each event at INFO level
+/// deliberate follow-up. For now the consumer logs each event at DEBUG level
 /// and yields it on the channel; callers may add their own handling by reading
 /// from the receiver.
 ///
@@ -275,7 +296,12 @@ pub fn spawn_event_consumer(
         .take()
         .ok_or_else(|| anyhow::anyhow!("zellij event-pipe: no stdout handle"))?;
 
+    // M2 fix: use a bounded channel; drop-on-full instead of back-pressuring
+    // the live session. Events are advisory (lifecycle signals), so dropping
+    // a burst under load is preferable to stalling the zellij process.
     let (tx, rx) = mpsc::channel(64);
+    // Rate-limited dropped-event counter (one warn per N drops).
+    static DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
     let handle = tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
@@ -283,14 +309,30 @@ pub fn spawn_event_consumer(
             match lines.next_line().await {
                 Ok(Some(line)) => {
                     if let Some(ev) = parse_event_line(&line) {
-                        tracing::info!(
+                        // M1 fix: demote per-event log from INFO to DEBUG to
+                        // avoid an INFO firehose on busy sessions.
+                        tracing::debug!(
                             session = %session,
                             event = ?ev,
                             "zrpc plugin event"
                         );
-                        // A send error means the receiver was dropped; stop reading.
-                        if tx.send(ev).await.is_err() {
-                            break;
+                        // M2 fix: try_send — drop the event if the receiver
+                        // is slow rather than back-pressuring the pipe reader.
+                        if tx.try_send(ev).is_err() {
+                            let prev = DROPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            // Warn once per power-of-two drop boundary so we
+                            // notice sustained loss without spamming logs.
+                            if prev.count_ones() == 1 || prev == 0 {
+                                tracing::warn!(
+                                    session = %session,
+                                    total_dropped = prev + 1,
+                                    "zrpc event dropped (receiver full or closed)"
+                                );
+                            }
+                            // If the channel is closed (receiver dropped) stop reading.
+                            if tx.is_closed() {
+                                break;
+                            }
                         }
                     }
                 }
@@ -371,14 +413,6 @@ async fn read_until_response(
             }
         }
     }
-}
-
-/// Kill a child process, tolerating errors (the process may have already exited).
-async fn kill_child(child: &mut Child) {
-    // `start_kill` sends SIGKILL without waiting — appropriate here because we
-    // don't want to block the caller's async task waiting for the process to
-    // fully terminate. The OS reaps it after the `Child` is dropped.
-    let _ = child.start_kill();
 }
 
 /// Collapse an ok/err [`Response`] into `Result<()>`.
