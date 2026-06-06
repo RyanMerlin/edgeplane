@@ -1,6 +1,6 @@
 /// `edgeplane daemon` — edgeplaned daemon control and work-model commands.
 use crate::client::EdgeplaneClient;
-use crate::config::McConfig;
+use crate::config::EdgeplaneConfig;
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use futures_util::StreamExt;
@@ -417,7 +417,7 @@ pub struct DaemonUseArgs {
 pub async fn handle(
     cmd: DaemonCommand,
     client: &EdgeplaneClient,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     match cmd {
         DaemonCommand::Up(a) => handle_up(a, config).await,
@@ -448,7 +448,7 @@ fn _not_yet(cmd: &str) -> Result<()> {
 // Daemon lifecycle
 // ---------------------------------------------------------------------------
 
-async fn handle_up(args: DaemonUpArgs, config: &McConfig) -> Result<()> {
+async fn handle_up(args: DaemonUpArgs, config: &EdgeplaneConfig) -> Result<()> {
     // 1. Check if edgeplaned binary exists.
     let binary = which_mcd();
 
@@ -522,7 +522,7 @@ async fn handle_up(args: DaemonUpArgs, config: &McConfig) -> Result<()> {
 
 /// Register this host as a RuntimeNode if no node-state file exists.
 /// Best-effort — logs a warning but does not abort `edgeplane daemon up` on failure.
-async fn auto_register_node(config: &McConfig) {
+async fn auto_register_node(config: &EdgeplaneConfig) {
     use crate::runtime::{NodeState, load_node_state, persist_node_state};
 
     if matches!(load_node_state(), Ok(Some(_))) {
@@ -2401,7 +2401,7 @@ fn handle_profile_show(a: ProfileShowArgs) -> Result<()> {
     Ok(())
 }
 
-async fn handle_use(a: DaemonUseArgs, config: &McConfig) -> Result<()> {
+async fn handle_use(a: DaemonUseArgs, config: &EdgeplaneConfig) -> Result<()> {
     let mut state = read_state_v2();
 
     match &a.name {

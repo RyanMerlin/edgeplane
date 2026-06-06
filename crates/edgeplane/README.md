@@ -25,7 +25,7 @@ package of choice.
 ENV | meaning | default
 ----|---------|--------
 `EP_BASE_URL` | base URL for Edgeplane API | `http://localhost:8008`
-`EP_AGENT_TOKEN` | service-account or session token for MCP endpoints; passed by `edgeplane launch` to agents at exec time | unset
+`EP_AGENT_TOKEN` | service-account or session token for MCP endpoints; passed by `edgeplane run` to agents at exec time | unset
 `EP_AGENT_ID` | optional agent identity for governance/sync traces | unset
 `EP_TIMEOUT_SECS` | outbound timeout for HTTP calls | `10`
 `EP_ALLOW_INSECURE` | accept self-signed certs (daemon use) | `false`
@@ -144,7 +144,14 @@ edgeplane [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 ### Agent launch (unified)
 - `edgeplane run claude [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [--with-rtk] [-- ARGS...]` — unified Claude launch with profile runtime + optional mesh participation. `--with-rtk` is a soft flag: warns and continues if [rtk](https://github.com/merlinlabs/rtk) is not installed.
 - `edgeplane run codex [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [--with-rtk] [-- ARGS...]` — unified Codex launch.
-- `edgeplane run gemini [-p PROFILE] [--with-rtk] [-- ARGS...]` — unified Gemini launch.
+- `edgeplane run gemini [-p PROFILE] [-- ARGS...]` — Gemini launch.
+- `edgeplane run goose [-p PROFILE] [-- ARGS...]` — Goose launch (local models via LiteLLM).
+- `edgeplane run openclaw [-p PROFILE] [-- ARGS...]` — OpenClaw launch (ACP driver agent).
+- `edgeplane run custom [-p PROFILE] [-- ARGS...]` — custom ACP agent launch.
+
+`edgeplane run <runtime>` is the single entry point for every agent. (The
+legacy `edgeplane launch` command was removed; claude/codex/goose are native
+runtimes, gemini/openclaw/custom are driver agents — all under `run`.)
 
 ### Runtime diagnostics
 - `edgeplane run claude doctor [-p PROFILE] [--fix] [--json]` — inspect/repair Claude runtime readiness.

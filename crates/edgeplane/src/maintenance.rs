@@ -1,4 +1,4 @@
-use crate::{client::EdgeplaneClient, config::McConfig};
+use crate::{client::EdgeplaneClient, config::EdgeplaneConfig};
 use anyhow::Result;
 use clap::{Args, ValueEnum};
 use serde_json::{Value, json};
@@ -74,7 +74,7 @@ impl fmt::Display for BackupTarget {
 
 pub async fn run_doctor_command(
     client: &EdgeplaneClient,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     args: &DoctorArgs,
 ) -> Result<()> {
     run_doctor(client, config, args).await
@@ -84,11 +84,11 @@ pub async fn run_backup_command(client: &EdgeplaneClient, args: BackupArgs) -> R
     run_backup(client, args).await
 }
 
-pub fn run_profile_gc_command(config: &McConfig, args: ProfileGcArgs) -> Result<()> {
+pub fn run_profile_gc_command(config: &EdgeplaneConfig, args: ProfileGcArgs) -> Result<()> {
     run_profile_gc(config, args)
 }
 
-fn run_profile_gc(config: &McConfig, args: ProfileGcArgs) -> Result<()> {
+fn run_profile_gc(config: &EdgeplaneConfig, args: ProfileGcArgs) -> Result<()> {
     let summary = perform_profile_gc(args)?;
     print_json(&json!({
         "ok": true,
@@ -184,7 +184,7 @@ fn perform_profile_gc(args: ProfileGcArgs) -> Result<ProfileGcSummary> {
 
 async fn run_doctor(
     client: &EdgeplaneClient,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
     args: &DoctorArgs,
 ) -> Result<()> {
     let checks = vec![
@@ -456,7 +456,7 @@ fn tailscale_check_sync() -> DoctorCheck {
     }
 }
 
-fn perform_repairs(config: &McConfig) -> Vec<DoctorRepair> {
+fn perform_repairs(config: &EdgeplaneConfig) -> Vec<DoctorRepair> {
     // re-use helpers from config module
     let mut repairs = Vec::new();
     match crate::config::ensure_mc_dirs() {

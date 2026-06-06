@@ -90,10 +90,18 @@ where
     let hb_stop = Arc::clone(&stop_flag);
 
     let hb_thread = std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
+        let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .expect("heartbeat runtime");
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!(
+                    "edgeplane: heartbeat runtime failed to start ({e}); agent will not heartbeat"
+                );
+                return;
+            }
+        };
         rt.block_on(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(25)).await;
@@ -183,10 +191,18 @@ where
     let stop_flag = Arc::new(AtomicBool::new(false));
     let hb_stop = Arc::clone(&stop_flag);
     let hb_thread = std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
+        let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .expect("heartbeat runtime");
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!(
+                    "edgeplane: heartbeat runtime failed to start ({e}); agent will not heartbeat"
+                );
+                return;
+            }
+        };
         rt.block_on(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(25)).await;

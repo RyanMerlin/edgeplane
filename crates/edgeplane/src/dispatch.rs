@@ -1,4 +1,4 @@
-/// `McDispatch` — routes capability commands to the right backend.
+/// `EdgeplaneDispatch` — routes capability commands to the right backend.
 ///
 /// Route priority (highest to lowest):
 ///   1. `--host <node>` → Remote
@@ -23,7 +23,7 @@ pub enum RouteMode {
     Backend,
 }
 
-pub struct McDispatch {
+pub struct EdgeplaneDispatch {
     pub mode: RouteMode,
     session_token: Option<String>,
 }
@@ -85,10 +85,10 @@ fn load_file_config() -> FileConfig {
 }
 
 // ---------------------------------------------------------------------------
-// McDispatch
+// EdgeplaneDispatch
 // ---------------------------------------------------------------------------
 
-impl McDispatch {
+impl EdgeplaneDispatch {
     /// Build from environment + config file with optional CLI overrides.
     pub fn from_env(host: Option<String>, route_override: Option<String>) -> Self {
         let session_token = crate::config::load_session_token("");
@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn host_flag_forces_remote() {
-        let dispatch = McDispatch::from_env(Some("optiplex".to_string()), None);
+        let dispatch = EdgeplaneDispatch::from_env(Some("optiplex".to_string()), None);
         assert!(
             matches!(dispatch.mode, RouteMode::Remote { .. }),
             "expected Remote, got {:?}",
@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn host_with_port_parsed() {
-        let dispatch = McDispatch::from_env(Some("optiplex:7732".to_string()), None);
+        let dispatch = EdgeplaneDispatch::from_env(Some("optiplex:7732".to_string()), None);
         match &dispatch.mode {
             RouteMode::Remote { host, port } => {
                 assert_eq!(host, "optiplex");
@@ -400,7 +400,7 @@ mod tests {
             std::env::set_var("EP_MESH_SOCKET", &sock_path);
         }
 
-        let dispatch = McDispatch::from_env(None, None);
+        let dispatch = EdgeplaneDispatch::from_env(None, None);
         // In Auto mode, resolve_auto() should pick Local because the socket file exists.
         let resolved = dispatch.resolve_auto();
         assert_eq!(resolved, RouteMode::Local, "expected Local route");

@@ -5,7 +5,7 @@
 //!
 //! - Revocable server-side at any time
 //! - Never embedded in agent config files (edgeplane launch uses env injection)
-//! - Auto-loaded by McConfig from ~/.ep/session.json
+//! - Auto-loaded by EdgeplaneConfig from ~/.ep/session.json
 //! - Validated for expiry before use, with a clear renewal hint
 //!
 //! ## Interactive login flow

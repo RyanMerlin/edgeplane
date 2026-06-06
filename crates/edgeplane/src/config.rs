@@ -7,7 +7,7 @@ use url::Url;
 
 /// Runtime configuration derived from CLI flags and env vars.
 #[derive(Clone, Debug)]
-pub struct McConfig {
+pub struct EdgeplaneConfig {
     pub base_url: Url,
     pub token: Option<String>,
     pub timeout: Duration,
@@ -27,7 +27,7 @@ pub enum ConfigError {
     Timeout,
 }
 
-impl McConfig {
+impl EdgeplaneConfig {
     pub fn from_parts(
         base_url: &str,
         token: Option<String>,
@@ -141,6 +141,21 @@ pub fn save_config(cfg: &SavedConfig) -> std::io::Result<()> {
 
 pub fn ep_home_dir() -> PathBuf {
     expand_home_path(&env::var("EP_HOME").unwrap_or_else(|_| "~/.edgeplane".into()))
+}
+
+/// Resolve the command used to launch the running `edgeplane` binary, for
+/// embedding into an agent's MCP-server config (`command` field).
+///
+/// Order: the absolute path of the current executable, then `edgeplane` on
+/// PATH, then the bare name `edgeplane` (resolved by the agent at spawn time).
+/// Centralized here so claude/codex/gemini config writers stay consistent.
+pub fn resolve_ep_command() -> String {
+    env::current_exe()
+        .ok()
+        .filter(|p| p.is_file())
+        .or_else(|| which::which("edgeplane").ok())
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "edgeplane".to_string())
 }
 
 pub fn servers_file_path() -> PathBuf {

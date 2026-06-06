@@ -1,4 +1,4 @@
-use crate::{claude, codex, config::McConfig, gemini, goose};
+use crate::{claude, codex, config::EdgeplaneConfig, goose};
 use crate::client::EdgeplaneClient;
 use anyhow::{Result, bail};
 use clap::{Args, ValueEnum};
@@ -29,7 +29,7 @@ pub enum RunMode {
 
 #[derive(Args, Debug)]
 pub struct RunArgs {
-    /// Runtime to launch: claude, codex, gemini, goose.
+    /// Runtime to launch: claude, codex, gemini, goose, openclaw, custom.
     #[arg(value_name = "RUNTIME")]
     pub runtime: String,
 
@@ -86,7 +86,7 @@ pub struct RunArgs {
     pub passthrough: Vec<String>,
 }
 
-pub async fn run(args: RunArgs, client: &EdgeplaneClient, config: &McConfig) -> Result<()> {
+pub async fn run(args: RunArgs, client: &EdgeplaneClient, config: &EdgeplaneConfig) -> Result<()> {
     let profile = args.profile.unwrap_or_else(|| "default".to_string());
 
     match args.action {
@@ -129,7 +129,7 @@ async fn dispatch_launch(
     with_rtk: bool,
     passthrough: Vec<String>,
     client: &EdgeplaneClient,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     let use_solo = domain.is_some() || matches!(mode, RunMode::Solo);
 
@@ -221,12 +221,28 @@ async fn dispatch_launch(
     match runtime.as_str() {
         "claude" => claude::run_launch(profile, new, headless, with_rtk, passthrough, config).await,
         "codex" => codex::run_launch(profile, new, headless, with_rtk, passthrough, config).await,
-        "gemini" => gemini::run_gemini_compat(Some(profile), with_rtk, passthrough, client, config).await,
         "goose" => goose::run_launch(profile, new, headless, with_rtk, passthrough, config).await,
-        other => {
-            eprintln!("edgeplane: unknown runtime '{}'. Known: claude, codex, gemini, goose", other);
-            std::process::exit(1);
+        "gemini" | "openclaw" | "custom" => {
+            if new {
+                crate::ep_warn!("--new has no effect for {runtime} (no session resume)");
+            }
+            if with_rtk {
+                crate::ep_warn!("--with-rtk has no effect for {runtime} (RTK hooks are claude-only)");
+            }
+            crate::agent_harness::run_driver_agent(
+                runtime.as_str(),
+                Some(profile),
+                passthrough,
+                crate::agent_harness::DriverOpts::default(),
+                client,
+                config,
+            )
+            .await
         }
+        other => bail!(
+            "unknown runtime '{}'. Known: claude, codex, gemini, goose, openclaw, custom",
+            other
+        ),
     }
 }
 
@@ -236,12 +252,15 @@ async fn dispatch_doctor(
     fix: bool,
     json: bool,
     headless: bool,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     match runtime.as_str() {
         "claude" => claude::run_doctor(profile, fix, json, headless, config).await,
         "codex" => codex::run_doctor(profile, fix, json, headless, config).await,
-        "gemini" => bail!("gemini does not have a doctor command"),
+        "goose" => bail!("goose has no doctor command"),
+        "gemini" | "openclaw" | "custom" => {
+            bail!("`{}` is a driver-managed runtime and has no doctor command", runtime)
+        }
         other => bail!("unknown runtime '{}'", other),
     }
 }
@@ -250,13 +269,15 @@ async fn dispatch_exec(
     runtime: String,
     profile: String,
     passthrough: Vec<String>,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     match runtime.as_str() {
         "claude" => claude::run_exec(profile, passthrough, config).await,
         "codex" => codex::run_exec(profile, passthrough, config).await,
-        "gemini" => bail!("gemini does not have an exec command"),
         "goose" => goose::run_exec(profile, passthrough, config).await,
+        "gemini" | "openclaw" | "custom" => {
+            bail!("`{}` is a driver-managed runtime and has no exec command", runtime)
+        }
         other => bail!("unknown runtime '{}'", other),
     }
 }
@@ -265,19 +286,22 @@ async fn dispatch_status(
     runtime: String,
     profile: String,
     json: bool,
-    config: &McConfig,
+    config: &EdgeplaneConfig,
 ) -> Result<()> {
     match runtime.as_str() {
         "claude" => bail!(
             "claude does not have a status command; use `edgeplane run claude doctor` for diagnostics"
         ),
         "codex" => codex::run_status(profile, json, config).await,
-        "gemini" => bail!("gemini does not have a status command"),
+        "goose" => bail!("goose has no status command"),
+        "gemini" | "openclaw" | "custom" => {
+            bail!("`{}` is a driver-managed runtime and has no status command", runtime)
+        }
         other => bail!("unknown runtime '{}'", other),
     }
 }
 
-async fn dispatch_hook(runtime: String, event: String, config: &McConfig) -> Result<()> {
+async fn dispatch_hook(runtime: String, event: String, config: &EdgeplaneConfig) -> Result<()> {
     match runtime.as_str() {
         "claude" => claude::run_hook(event, config).await,
         other => bail!("hook is only supported for the claude runtime, got '{}'", other),

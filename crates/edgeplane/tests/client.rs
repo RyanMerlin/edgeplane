@@ -1,18 +1,18 @@
 use httpmock::Method::GET;
 use httpmock::MockServer;
 use edgeplane::client::EdgeplaneClient;
-use edgeplane::config::McConfig;
+use edgeplane::config::EdgeplaneConfig;
 use serde_json::json;
 
-fn build_config(base_url: &str) -> McConfig {
-    McConfig::from_parts(
+fn build_config(base_url: &str) -> EdgeplaneConfig {
+    EdgeplaneConfig::from_parts(
         base_url, None, None, None, None, 2, true, false, false, None,
     )
     .unwrap()
 }
 
-fn build_config_with_context(base_url: &str) -> McConfig {
-    McConfig::from_parts(
+fn build_config_with_context(base_url: &str) -> EdgeplaneConfig {
+    EdgeplaneConfig::from_parts(
         base_url,
         None,
         Some("agent-alpha".into()),
@@ -32,8 +32,8 @@ fn build_config_with_context_values(
     agent_id: &str,
     runtime_session_id: &str,
     profile_name: &str,
-) -> McConfig {
-    McConfig::from_parts(
+) -> EdgeplaneConfig {
+    EdgeplaneConfig::from_parts(
         base_url,
         None,
         Some(agent_id.to_string()),

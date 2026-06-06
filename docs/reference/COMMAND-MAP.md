@@ -22,7 +22,6 @@ This is the authoritative `edgeplane` CLI command hierarchy.
 - `edgeplane workspace`
 - `edgeplane ops`
 - `edgeplane daemon`
-- `edgeplane launch`
 - `edgeplane run`
 - `edgeplane init`
 - `edgeplane serve`
@@ -44,6 +43,9 @@ This is the authoritative `edgeplane` CLI command hierarchy.
 - `edgeplane run claude [-p <profile>] [--mission <id>] [--mode interactive|headless|solo] [-- args]` — launch Claude Code (profile runtime + mesh participation).
 - `edgeplane run codex [-p <profile>] [--mission <id>] [--mode interactive|headless|solo] [-- args]` — launch Codex CLI.
 - `edgeplane run gemini [-p <profile>] [-- args]` — launch Gemini CLI.
+- `edgeplane run goose [-p <profile>] [-- args]` — launch Goose (local models via LiteLLM).
+- `edgeplane run openclaw [-p <profile>] [-- args]` — launch OpenClaw (ACP driver agent).
+- `edgeplane run custom [-p <profile>] [-- args]` — launch a custom ACP agent.
 - `edgeplane run claude doctor [-p <profile>] [--fix] [--json]` — inspect/repair Claude runtime readiness.
 - `edgeplane run claude exec [-p <profile>] -- [args]` — raw Claude passthrough in prepared runtime.
 - `edgeplane run codex doctor [-p <profile>] [--fix] [--json]` — inspect/repair Codex runtime readiness.
@@ -163,7 +165,6 @@ Other agent surface:
 - `edgeplane workspace ...`
 - `edgeplane ops ...`
 - `edgeplane daemon ...`
-- `edgeplane launch ...`
 - `edgeplane init ...`
 - `edgeplane serve ...`
 - `edgeplane profile create <name>` — create empty profile shell on backend.
