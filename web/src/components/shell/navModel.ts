@@ -9,8 +9,8 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
   { heading: null, items: [{ to: '/', label: 'Dashboard' }] },
-  { heading: 'WHO', items: [{ to: '/agents', label: 'Agents' }] },
-  { heading: 'WHAT', items: [{ to: '/domains', label: 'Domains' }] },
+  { heading: null, items: [{ to: '/agents', label: 'Agents' }] },
+  { heading: null, items: [{ to: '/domains', label: 'Domains' }] },
   {
     heading: null,
     items: [
