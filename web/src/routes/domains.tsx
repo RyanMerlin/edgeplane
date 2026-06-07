@@ -91,7 +91,17 @@ function Tag({
 
 // ── Tree pane sub-components ──────────────────────────────────────────────────
 
-// Shared row button style — resets button appearance while keeping .row layout
+// Base button style — resets button appearance for .tnode rows
+const tnodeBtnBase: React.CSSProperties = {
+  width: '100%',
+  background: 'none',
+  border: 'none',
+  textAlign: 'left',
+  cursor: 'pointer',
+  font: 'inherit',
+};
+
+// Shared row button style — used in detail pane sub-components
 const rowBtnStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -118,28 +128,37 @@ function MissionRow({
   return (
     <button
       type="button"
-      className="row"
+      className={`tnode lvl1${selected ? ' active' : ''}`}
       style={{
-        ...rowBtnStyle,
-        paddingLeft: '22px',
-        background: selected ? 'var(--surface-active, rgba(255,255,255,0.05))' : 'transparent',
+        ...tnodeBtnBase,
+        background: selected ? 'var(--raised-2)' : undefined,
       }}
       onClick={onSelect}
       data-testid={`mission-row-${mission.id}`}
     >
-      <span className="dim">▸</span>
+      <span className="tw" style={{ color: 'var(--dim)', width: '12px' }}>
+        ▸
+      </span>
       <span
+        className="name"
         style={{
           flex: 1,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
-          fontSize: '11px',
         }}
       >
         {mission.name}
       </span>
-      <span className="dim" style={{ fontSize: '10px' }}>
+      <span
+        className="count"
+        style={{
+          marginLeft: 'auto',
+          fontSize: '11px',
+          color: 'var(--dim)',
+          fontFamily: 'var(--mono)',
+        }}
+      >
         {mission.task_count}t
       </span>
     </button>
@@ -163,21 +182,32 @@ function DomainRow({
     <>
       <button
         type="button"
-        className="row"
+        className={`tnode${selected ? ' active' : ''}`}
         style={{
-          ...rowBtnStyle,
-          background: selected ? 'var(--surface-active, rgba(255,255,255,0.05))' : undefined,
+          ...tnodeBtnBase,
+          background: selected ? 'var(--raised-2)' : undefined,
         }}
         onClick={onSelectDomain}
         data-testid={`domain-row-${domain.id}`}
       >
-        <span>{statusDot(domain.status)}</span>
+        <span className="tw" style={{ color: 'var(--dim)', width: '12px' }}>
+          ▾
+        </span>
         <span
+          className="name"
           style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
         >
           {domain.name}
         </span>
-        <span className="dim" style={{ fontSize: '11px' }}>
+        <span
+          className="count"
+          style={{
+            marginLeft: 'auto',
+            fontSize: '11px',
+            color: 'var(--dim)',
+            fontFamily: 'var(--mono)',
+          }}
+        >
           {domain.missions.length}m
         </span>
       </button>
@@ -372,7 +402,7 @@ function UnassignedMissions({
   return (
     <>
       <div
-        className="row"
+        className="tnode"
         style={{
           color: 'var(--dim)',
           fontSize: '10px',
@@ -518,13 +548,29 @@ export function ExplorerPage() {
         !treeQuery.isError &&
         (domains.length > 0 || unassigned.length > 0) && (
           <div className="pane-row" style={{ flex: 1, minHeight: 0 }}>
-            {/* Pane 1: Domains + missions tree */}
-            <div className="pane" style={{ width: '220px', flexShrink: 0 }}>
+            {/* Pane 1: Domains + missions tree (Linear density) */}
+            <div
+              className="pane"
+              style={{
+                width: '260px',
+                flexShrink: 0,
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
               <div className="pane-header">
                 <span className="pane-title">Domains</span>
                 <span className="dim">{filteredDomains.length}</span>
               </div>
-              <div className="pane-body" style={{ overflow: 'auto' }}>
+              <div
+                className="tree"
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: '4px 8px',
+                  fontSize: '13px',
+                }}
+              >
                 {filteredDomains.length > 0 ? (
                   filteredDomains.map((d) => (
                     <DomainRow
@@ -537,10 +583,11 @@ export function ExplorerPage() {
                     />
                   ))
                 ) : (
-                  <div className="row">
-                    <span className="muted" style={{ fontSize: '12px' }}>
-                      No domains yet.
-                    </span>
+                  <div
+                    className="tnode"
+                    style={{ color: 'var(--muted)', fontSize: '12px', cursor: 'default' }}
+                  >
+                    No domains yet.
                   </div>
                 )}
                 <UnassignedMissions
