@@ -1,17 +1,16 @@
 /**
- * Agent detail screen (/agents/$agentId) — unit tests.
+ * Agents routes unit tests.
  *
- * The agents list is now the "Agents" sub-view of the Fleet route; its tests
- * live in components/fleet/AgentsTable.test.tsx (presentation) and
- * lib/useMergedAgents.test.ts (merge logic). This file covers the detail route,
- * which is unchanged apart from its back-link now pointing at the Fleet (/).
+ * Covers:
+ *   - AgentDetailPage (/agents/$agentId): loading, data, 404, generic error states.
+ *   - AgentsIndexPage (/agents/): renders the table and navigates on row click.
  *
  * Mocking strategy: vi.mock('@/api/client') replaces the openapi-fetch
  * singleton with a controlled mock. No network calls.
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -43,7 +42,8 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
         {children}
       </a>
     ),
-    useNavigate: () => vi.fn(),
+    // useNavigate: vi.fn(() => vi.fn()) so tests can override the spy per-test.
+    useNavigate: vi.fn(() => vi.fn()),
   };
 });
 
@@ -64,9 +64,10 @@ vi.mock('@/stores/toast', () => ({
     selector({ show: mockShowToast }),
 }));
 
-// ── Import component AFTER mocks ──────────────────────────────────────────────
+// ── Import components AFTER mocks ─────────────────────────────────────────────
 
 import { AgentDetailPage } from './agents.$agentId';
+import { AgentsIndexPage } from './agents.index';
 
 // ── Sample fixtures ───────────────────────────────────────────────────────────
 
@@ -147,8 +148,11 @@ describe('AgentDetailPage', () => {
     // 'excalibur' appears in both the metadata table and the acp-node-id span
     expect(screen.getAllByText('excalibur').length).toBeGreaterThanOrEqual(1);
 
-    // Back link now returns to the Fleet dashboard
-    expect(screen.getByRole('link', { name: /← Fleet/ })).toBeInTheDocument();
+    // Back link is GONE — breadcrumbs in the shell header now handle up-nav
+    expect(screen.queryByRole('link', { name: /← Fleet/ })).not.toBeInTheDocument();
+
+    // Detail container is present with the correct data-testid
+    expect(screen.getByTestId('agent-detail')).toBeInTheDocument();
   });
 
   it('shows not-found affordance on 404 response', async () => {
@@ -177,5 +181,67 @@ describe('AgentDetailPage', () => {
 
     await waitFor(() => expect(screen.getByTestId('error-state')).toBeInTheDocument());
     expect(screen.getByText(/Failed to load agent/)).toBeInTheDocument();
+  });
+});
+
+// ── AgentsIndexPage tests ─────────────────────────────────────────────────────
+
+describe('AgentsIndexPage', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = makeQueryClient();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+  });
+
+  it('renders the agents table', async () => {
+    const { apiClient, unwrap } = await import('@/api/client');
+    const { useNavigate } = await import('@tanstack/react-router');
+
+    // CP agents endpoint returns our sample agent
+    (apiClient.GET as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [sampleAgent] });
+    // unwrap resolves arrays: first call = cp agents, second = nodes (empty), no per-node calls
+    (unwrap as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([sampleAgent]) // /api/agents
+      .mockResolvedValueOnce([]); // /api/runtime/nodes
+
+    const navigate = vi.fn();
+    (useNavigate as ReturnType<typeof vi.fn>).mockReturnValue(navigate);
+
+    renderWith(<AgentsIndexPage />, queryClient);
+
+    await waitFor(() => expect(screen.getByTestId('agents-table')).toBeInTheDocument());
+
+    // Row for our sample agent must be present
+    expect(screen.getByTestId('agent-row-aria-operator-e8820c0d')).toBeInTheDocument();
+  });
+
+  it('navigates to detail on row click', async () => {
+    const { unwrap } = await import('@/api/client');
+    const { useNavigate } = await import('@tanstack/react-router');
+
+    (unwrap as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([sampleAgent])
+      .mockResolvedValueOnce([]);
+
+    const navigate = vi.fn();
+    (useNavigate as ReturnType<typeof vi.fn>).mockReturnValue(navigate);
+
+    renderWith(<AgentsIndexPage />, queryClient);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-row-aria-operator-e8820c0d')).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId('agent-row-aria-operator-e8820c0d'));
+
+    expect(navigate).toHaveBeenCalledWith({
+      to: '/agents/$agentId',
+      params: { agentId: 'aria-operator-e8820c0d' },
+    });
   });
 });

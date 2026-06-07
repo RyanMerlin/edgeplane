@@ -21,7 +21,7 @@ import { ConversationView } from '@/components/conversation/ConversationView';
 import { useAcpConversation } from '@/lib/conversation/useAcpConversation';
 import { queryKeys } from '@/lib/queryKeys';
 import { useQuery } from '@tanstack/react-query';
-import { Link, createFileRoute } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
 
 // ── Generated schema types ─────────────────────────────────────────────────────
 
@@ -209,12 +209,13 @@ export function AgentDetailPage() {
   const nodeId = agent ? resolveNodeId(agent.metadata) : null;
 
   return (
-    <div className="gov-page">
+    <div
+      className="gov-page"
+      data-testid="agent-detail"
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}
+    >
       {/* Top bar */}
       <div className="gov-bar">
-        <Link to="/" className="ghost" style={{ fontSize: '11px', marginRight: '8px' }}>
-          ← Fleet
-        </Link>
         <span className="gov-title" style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>
           {agentId}
         </span>
