@@ -82,10 +82,6 @@ export function OnboardingPage() {
     <div className="onboard-page">
       {/* Top bar */}
       <div className="gov-bar">
-        <span className="gov-title">Onboarding</span>
-        <span className="muted" style={{ fontSize: '11px' }}>
-          Agent enrollment manifest
-        </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px', alignItems: 'center' }}>
           <button
             type="button"

@@ -491,7 +491,7 @@ export function FeedPage() {
           {/* Content */}
           <div id="content" data-testid="content-area">
             {/* Feed list */}
-            <div id="feed-list">
+            <div id="feed-list-wrap">
               <div id="feed-hdr">
                 <span>Time</span>
                 <span>Agent</span>
@@ -768,7 +768,7 @@ export function FeedPage() {
         }
 
         /* ── Feed list ────────────────────────────────────────────────────── */
-        #feed-list {
+        #feed-list-wrap {
           flex: 1;
           display: flex;
           flex-direction: column;

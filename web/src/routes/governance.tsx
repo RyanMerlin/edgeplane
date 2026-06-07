@@ -277,10 +277,6 @@ export function GovernancePage() {
     <div className="gov-page">
       {/* Top bar */}
       <div className="gov-bar">
-        <span className="gov-title">Governance</span>
-        <span className="muted" style={{ fontSize: '11px' }}>
-          Policy configuration and audit log
-        </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
           <button
             type="button"

@@ -362,7 +362,7 @@ function TaskDetail({ detail }: { detail: ExplorerNodeDetail }) {
       {t && (
         <dl className="policy-meta">
           <dt>Public ID</dt>
-          <dd style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--accent)' }}>
+          <dd style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: 'var(--accent)' }}>
             {t.public_id}
           </dd>
           <dt>Owner</dt>
@@ -505,9 +505,6 @@ export function ExplorerPage() {
     >
       {/* Top filter bar */}
       <div className="gov-bar">
-        <span className="gov-title" style={{ marginRight: '4px' }}>
-          Domains
-        </span>
         <input
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}

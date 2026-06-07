@@ -59,7 +59,7 @@ export function Sidebar() {
 
   const [showMenu, setShowMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [theme, setTheme] = useState('dark');
+  const [_theme, setTheme] = useState('dark');
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Theme init — read from localStorage on mount
@@ -249,6 +249,10 @@ export function Sidebar() {
               boxShadow: '0 8px 28px rgba(0,0,0,0.5)',
             }}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Escape') setShowMenu(false);
+            }}
           >
             {/* Subject line */}
             {userSubject && (

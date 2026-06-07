@@ -44,6 +44,7 @@
   --purple-border: #6e40c9;
   --purple-bg: rgba(180, 140, 255, 0.12);
   --mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  --font: "InterVariable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color-scheme: dark;
 }
 
@@ -104,7 +105,7 @@ body {
 body {
   background: var(--base);
   color: var(--text);
-  font-family: "InterVariable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font);
   font-size: 13px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
