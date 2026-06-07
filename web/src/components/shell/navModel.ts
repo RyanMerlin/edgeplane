@@ -1,11 +1,23 @@
-export interface NavItem { to: string; label: string; }
-export interface NavGroup { heading: string | null; items: NavItem[]; }
+export interface NavItem {
+  to: string;
+  label: string;
+}
+export interface NavGroup {
+  heading: string | null;
+  items: NavItem[];
+}
 
 export const NAV_GROUPS: NavGroup[] = [
   { heading: null, items: [{ to: '/', label: 'Dashboard' }] },
   { heading: 'WHO', items: [{ to: '/agents', label: 'Agents' }] },
   { heading: 'WHAT', items: [{ to: '/domains', label: 'Domains' }] },
-  { heading: null, items: [{ to: '/feed', label: 'Feed' }, { to: '/governance', label: 'Governance' }] },
+  {
+    heading: null,
+    items: [
+      { to: '/feed', label: 'Feed' },
+      { to: '/governance', label: 'Governance' },
+    ],
+  },
 ];
 
 /** Active when pathname equals the item ("/" exact) or is a path-boundary descendant. */

@@ -1,4 +1,7 @@
-export interface Crumb { label: string; to: string | undefined; }
+export interface Crumb {
+  label: string;
+  to: string | undefined;
+}
 
 const SECTION_LABEL: Record<string, string> = {
   '/': 'Dashboard',

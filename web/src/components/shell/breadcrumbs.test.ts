@@ -9,7 +9,9 @@ describe('buildCrumbs', () => {
     expect(buildCrumbs('/agents', {})).toEqual([{ label: 'Agents', to: undefined }]);
   });
   it('agent detail → Agents (link) › id (current)', () => {
-    expect(buildCrumbs('/agents/aria-operator-bb05ea7a', { agentId: 'aria-operator-bb05ea7a' })).toEqual([
+    expect(
+      buildCrumbs('/agents/aria-operator-bb05ea7a', { agentId: 'aria-operator-bb05ea7a' }),
+    ).toEqual([
       { label: 'Agents', to: '/agents' },
       { label: 'aria-operator-bb05ea7a', to: undefined },
     ]);
