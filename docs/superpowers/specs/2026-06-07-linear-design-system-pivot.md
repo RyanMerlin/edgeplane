@@ -27,16 +27,17 @@ Live-extracted from linear.app. The React app's `app.css` `:root` will be replac
 
 ```css
 :root[data-theme="dark"] {
-  /* backgrounds — warm-black, layered (no shadows; depth via steps) */
-  --base:#08090A; --frame:#101112; --surface:#121314; --card:#0F1011;
-  --raised:rgba(255,255,255,0.05); --input:rgba(255,255,255,0.02);
-  /* borders — opacity, not color */
-  --border:rgba(255,255,255,0.08); --border-subtle:rgba(255,255,255,0.05); --border-strong:#23252A;
-  /* text */
-  --text:#F7F8F8; --text-secondary:#D0D6E0; --muted:#8A8F98; --dim:#62666D;
-  /* brand (EdgePlane flare) + semantic */
-  --accent:#58a6ff; --accent-dim:rgba(88,166,255,0.15);
-  --ok:#55E68F; --warn:#E6B355; --err:#FF6670; --info:#5599E6;
+  /* warm-coherent neutrals — Linear's structure, warmed ~28° so rust harmonizes
+     (merlin-site's own lesson: rust on COOL neutrals clashed). Depth via steps, no shadows. */
+  --base:#0c0a09; --frame:#141210; --surface:#16130f; --card:#110e0c;
+  --raised:rgba(255,240,230,0.055); --raised-2:rgba(255,240,230,0.10); --input:rgba(255,240,230,0.025);
+  /* borders — warm white-alpha, opacity not color */
+  --border:rgba(255,238,224,0.09); --border-subtle:rgba(255,238,224,0.06); --border-strong:#2a2420;
+  /* text — warm off-white */
+  --text:#F2EDE6; --text-secondary:#D6CDC2; --muted:#9A8F84; --dim:#6E6459;
+  /* brand (EdgePlane flare = merlin-site rust orange) + semantic */
+  --accent:#e75b2a; --accent-dim:rgba(231,91,42,0.16); --accent-deep:#b8451e;
+  --ok:#57d08a; --warn:#E6B355; --err:#F2685C; --info:#4a9eda;
   /* type */
   --font:"InterVariable","Inter","SF Pro Display",-apple-system,sans-serif;
   --mono:"JetBrains Mono","SF Mono",ui-monospace,monospace; /* data only */
