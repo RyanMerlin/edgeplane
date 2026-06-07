@@ -15,6 +15,7 @@
  * NOTE: EventSource /api/events/stream shape is INFERRED from telemetry.ts.
  */
 
+import { RawEventList } from '@/components/events/RawEventList';
 import { useEventStream } from '@/lib/useEventStream';
 import type { MatrixEvent } from '@/stores/eventStream';
 import { createFileRoute } from '@tanstack/react-router';
@@ -29,6 +30,9 @@ export const Route = createFileRoute('/feed')({
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ChipFilter = 'all' | 'errors' | 'governance' | 'artifacts' | 'tasks' | 'heartbeat';
+
+/** Feed sub-view: the curated/filterable live timeline, or the raw event stream (absorbed Matrix). */
+type FeedView = 'live' | 'raw';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -259,8 +263,9 @@ function DetailPanel({ event }: { event: MatrixEvent | null }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function FeedPage() {
-  const { events, status, lastError, rateLimit } = useEventStream();
+  const { events, status, lastError, rateLimit, clearEvents } = useEventStream();
 
+  const [view, setView] = useState<FeedView>('live');
   const [filterText, setFilterText] = useState('');
   const [activeChip, setActiveChip] = useState<ChipFilter>('all');
   const [alertsOnly, setAlertsOnly] = useState(false);
@@ -329,234 +334,281 @@ export function FeedPage() {
   }
 
   return (
-    <div
-      className="feed-page"
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
-    >
-      {/* Filter bar */}
-      <div id="filterbar" data-testid="filterbar">
-        <div className={`fi${filterText.length > 0 ? ' focused' : ''}`}>
-          <span className="dim">/</span>
-          <input
-            type="text"
-            placeholder="filter events..."
-            value={filterText}
-            onChange={(e) => handleFilterChange(e.target.value)}
-            data-testid="filter-input"
+    <div className="feed-page">
+      {/* View toggle: curated live timeline vs raw event stream (absorbed Matrix) */}
+      <div
+        className="feed-view-bar"
+        role="tablist"
+        aria-label="Feed view"
+        data-testid="feed-view-toggle"
+      >
+        {/* Linear segmented control — active pill = --raised-2/--text, idle = --muted */}
+        <div className="seg-ctrl">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'live'}
+            className={`seg-btn${view === 'live' ? ' seg-active' : ''}`}
+            onClick={() => setView('live')}
+            data-testid="feed-view-live"
+          >
+            Live
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'raw'}
+            className={`seg-btn${view === 'raw' ? ' seg-active' : ''}`}
+            onClick={() => setView('raw')}
+            data-testid="feed-view-raw"
+          >
+            Raw
+          </button>
+        </div>
+      </div>
+
+      {view === 'raw' ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <RawEventList
+            events={events}
+            status={status}
+            lastError={lastError}
+            rateLimit={rateLimit}
+            clearEvents={clearEvents}
           />
         </div>
+      ) : (
+        <>
+          {/* Filter bar */}
+          <div id="filterbar" data-testid="filterbar">
+            <div className={`fi${filterText.length > 0 ? ' focused' : ''}`}>
+              <span className="dim">/</span>
+              <input
+                type="text"
+                placeholder="filter events..."
+                value={filterText}
+                onChange={(e) => handleFilterChange(e.target.value)}
+                data-testid="filter-input"
+              />
+            </div>
 
-        <span className="fsep">|</span>
+            <span className="fsep">|</span>
 
-        <ChipButton
-          label="All"
-          active={activeChip === 'all'}
-          onClick={() => handleChipClick('all')}
-          data-testid="chip-all"
-        />
-        <ChipButton
-          label="Errors"
-          active={activeChip === 'errors'}
-          variant="err"
-          onClick={() => handleChipClick('errors')}
-          data-testid="chip-errors"
-        />
-        <ChipButton
-          label="Governance"
-          active={activeChip === 'governance'}
-          variant="gov"
-          onClick={() => handleChipClick('governance')}
-          data-testid="chip-governance"
-        />
-        <ChipButton
-          label="Artifacts"
-          active={activeChip === 'artifacts'}
-          onClick={() => handleChipClick('artifacts')}
-          data-testid="chip-artifacts"
-        />
-        <ChipButton
-          label="Tasks"
-          active={activeChip === 'tasks'}
-          onClick={() => handleChipClick('tasks')}
-          data-testid="chip-tasks"
-        />
-        <ChipButton
-          label="Heartbeat"
-          active={activeChip === 'heartbeat'}
-          onClick={() => handleChipClick('heartbeat')}
-          data-testid="chip-heartbeat"
-        />
+            <ChipButton
+              label="All"
+              active={activeChip === 'all'}
+              onClick={() => handleChipClick('all')}
+              data-testid="chip-all"
+            />
+            <ChipButton
+              label="Errors"
+              active={activeChip === 'errors'}
+              variant="err"
+              onClick={() => handleChipClick('errors')}
+              data-testid="chip-errors"
+            />
+            <ChipButton
+              label="Governance"
+              active={activeChip === 'governance'}
+              variant="gov"
+              onClick={() => handleChipClick('governance')}
+              data-testid="chip-governance"
+            />
+            <ChipButton
+              label="Artifacts"
+              active={activeChip === 'artifacts'}
+              onClick={() => handleChipClick('artifacts')}
+              data-testid="chip-artifacts"
+            />
+            <ChipButton
+              label="Tasks"
+              active={activeChip === 'tasks'}
+              onClick={() => handleChipClick('tasks')}
+              data-testid="chip-tasks"
+            />
+            <ChipButton
+              label="Heartbeat"
+              active={activeChip === 'heartbeat'}
+              onClick={() => handleChipClick('heartbeat')}
+              data-testid="chip-heartbeat"
+            />
 
-        <span className="fsep">|</span>
+            <span className="fsep">|</span>
 
-        <button
-          type="button"
-          className={`fi alerts-toggle${alertsOnly ? ' active-warn' : ''}`}
-          onClick={() => setAlertsOnly((v) => !v)}
-          data-testid="alerts-toggle"
-        >
-          <span className={`alert-dot${alertsOnly ? ' on' : ''}`} />
-          <span>Alerts only</span>
-        </button>
+            <button
+              type="button"
+              className={`fi alerts-toggle${alertsOnly ? ' active-warn' : ''}`}
+              onClick={() => setAlertsOnly((v) => !v)}
+              data-testid="alerts-toggle"
+            >
+              <span className={`alert-dot${alertsOnly ? ' on' : ''}`} />
+              <span>Alerts only</span>
+            </button>
 
-        <div className="fr">
-          <span data-testid="event-count">{events.length} events</span>
-          <span className="dim">·</span>
-          <span className="ok" style={{ fontSize: '11px' }} data-testid="rate-counter">
-            rate {recentRate}/60
-          </span>
-          {rateLimit && (
-            <>
+            <div className="fr">
+              <span data-testid="event-count">{events.length} events</span>
               <span className="dim">·</span>
-              <span className="dim" style={{ fontSize: '11px' }}>
-                rl {rateLimit.remaining}/{rateLimit.limit}
+              <span className="ok" style={{ fontSize: '11px' }} data-testid="rate-counter">
+                rate {recentRate}/60
               </span>
-            </>
-          )}
-          {isLive ? (
-            <>
-              <span className="ok live" data-testid="status-live">
-                ●
-              </span>
-              <span className="ok" style={{ fontWeight: 700, fontSize: '11px' }}>
-                LIVE
-              </span>
-            </>
-          ) : (
-            <span className="dim" data-testid="status-offline">
-              ○ {status === 'reconnecting' ? 'reconnecting…' : 'offline'}
-            </span>
-          )}
-        </div>
-      </div>
+              {rateLimit && (
+                <>
+                  <span className="dim">·</span>
+                  <span className="dim" style={{ fontSize: '11px' }}>
+                    rl {rateLimit.remaining}/{rateLimit.limit}
+                  </span>
+                </>
+              )}
+              {isLive ? (
+                <>
+                  <span className="ok live" data-testid="status-live">
+                    ●
+                  </span>
+                  <span className="ok" style={{ fontWeight: 700, fontSize: '11px' }}>
+                    LIVE
+                  </span>
+                </>
+              ) : (
+                <span className="dim" data-testid="status-offline">
+                  ○ {status === 'reconnecting' ? 'reconnecting…' : 'offline'}
+                </span>
+              )}
+            </div>
+          </div>
 
-      {/* Error banner */}
-      {lastError && !isLive && (
-        <div
-          style={{ padding: '4px 12px', borderBottom: '1px solid var(--border)' }}
-          data-testid="error-banner"
-        >
-          <span className="error" style={{ fontSize: '11px' }}>
-            ✗ {lastError}
-          </span>
-        </div>
+          {/* Error banner */}
+          {lastError && !isLive && (
+            <div
+              style={{ padding: '4px 12px', borderBottom: '1px solid var(--border)' }}
+              data-testid="error-banner"
+            >
+              <span className="error" style={{ fontSize: '11px' }}>
+                ✗ {lastError}
+              </span>
+            </div>
+          )}
+
+          {/* Content */}
+          <div id="content" data-testid="content-area">
+            {/* Feed list */}
+            <div id="feed-list-wrap">
+              <div id="feed-hdr">
+                <span>Time</span>
+                <span>Agent</span>
+                <span>Context</span>
+                <span>Event</span>
+                <span>Detail</span>
+              </div>
+
+              <div id="feed" data-testid="feed-list">
+                {filteredEvents.length === 0 ? (
+                  <div className="feed-empty" data-testid="feed-empty">
+                    <span className="dim">
+                      {filterText || activeChip !== 'all'
+                        ? 'No matching events.'
+                        : 'Waiting for events…'}
+                    </span>
+                  </div>
+                ) : (
+                  filteredEvents.map((evt, i) => {
+                    const ac = alertClass(evt);
+                    const tc = typeClass(evt);
+                    const agent = agentOf(evt);
+                    const ctx = contextOf(evt);
+                    const summary = summaryOf(evt.payload);
+                    const label = eventType(evt);
+                    const isSelected = selectedIdx === i;
+
+                    return (
+                      <button
+                        type="button"
+                        key={`${evt.receivedAt}-${i}`}
+                        className={`f-row ${ac}${isSelected ? ' sel' : ''}`}
+                        onClick={() => handleRowClick(i)}
+                        data-testid="feed-row"
+                      >
+                        <span
+                          className={`f-time${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
+                        >
+                          {fmtTime(evt.receivedAt)}
+                        </span>
+                        <span
+                          className={`f-agent${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
+                        >
+                          {agent || '—'}
+                        </span>
+                        <span
+                          className={`f-ctx${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
+                        >
+                          {ctx || '—'}
+                        </span>
+                        <span className={`f-type ${tc}`}>{label || 'event'}</span>
+                        <span
+                          className={[
+                            'f-msg',
+                            ac === 'a-err' || ac === 'a-warn'
+                              ? ac === 'a-err'
+                                ? 'err'
+                                : 'warn'
+                              : '',
+                            label === 'task_finished' ? 'ok' : '',
+                            label === 'artifact' ? 'purple-txt' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                        >
+                          {summary}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Detail panel */}
+            <DetailPanel event={selectedEvent} />
+          </div>
+
+          {/* Status bar */}
+          <div className="feed-statusbar" data-testid="feed-statusbar">
+            <span className="muted">{events.length} events</span>
+            <span className="dim">·</span>
+            {errorCount > 0 ? (
+              <span className="err" data-testid="error-count">
+                {errorCount} error{errorCount === 1 ? '' : 's'}
+              </span>
+            ) : (
+              <span className="dim">0 errors</span>
+            )}
+            {govCount > 0 && (
+              <span className="warn" data-testid="gov-count">
+                {govCount} governance
+              </span>
+            )}
+            {warnCount > 0 && (
+              <span className="warn" data-testid="warn-count">
+                {warnCount} overlap
+              </span>
+            )}
+            <div className="feed-statusbar-right">
+              <span>/ filter</span>
+              <span className="dim">·</span>
+              <span>click row to inspect</span>
+              {isLive && (
+                <>
+                  <span className="dim">·</span>
+                  <span className="ok live">●</span>
+                  <span className="ok">LIVE</span>
+                </>
+              )}
+            </div>
+          </div>
+        </>
       )}
 
-      {/* Content */}
-      <div id="content" data-testid="content-area">
-        {/* Feed list */}
-        <div id="feed-list">
-          <div id="feed-hdr">
-            <span>Time</span>
-            <span>Agent</span>
-            <span>Context</span>
-            <span>Event</span>
-            <span>Detail</span>
-          </div>
-
-          <div id="feed" data-testid="feed-list">
-            {filteredEvents.length === 0 ? (
-              <div className="feed-empty" data-testid="feed-empty">
-                <span className="dim">
-                  {filterText || activeChip !== 'all'
-                    ? 'No matching events.'
-                    : 'Waiting for events…'}
-                </span>
-              </div>
-            ) : (
-              filteredEvents.map((evt, i) => {
-                const ac = alertClass(evt);
-                const tc = typeClass(evt);
-                const agent = agentOf(evt);
-                const ctx = contextOf(evt);
-                const summary = summaryOf(evt.payload);
-                const label = eventType(evt);
-                const isSelected = selectedIdx === i;
-
-                return (
-                  <button
-                    type="button"
-                    key={`${evt.receivedAt}-${i}`}
-                    className={`f-row ${ac}${isSelected ? ' sel' : ''}`}
-                    onClick={() => handleRowClick(i)}
-                    data-testid="feed-row"
-                  >
-                    <span
-                      className={`f-time${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
-                    >
-                      {fmtTime(evt.receivedAt)}
-                    </span>
-                    <span
-                      className={`f-agent${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
-                    >
-                      {agent || '—'}
-                    </span>
-                    <span
-                      className={`f-ctx${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
-                    >
-                      {ctx || '—'}
-                    </span>
-                    <span className={`f-type ${tc}`}>{label || 'event'}</span>
-                    <span
-                      className={[
-                        'f-msg',
-                        ac === 'a-err' || ac === 'a-warn' ? (ac === 'a-err' ? 'err' : 'warn') : '',
-                        label === 'task_finished' ? 'ok' : '',
-                        label === 'artifact' ? 'purple-txt' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                    >
-                      {summary}
-                    </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        {/* Detail panel */}
-        <DetailPanel event={selectedEvent} />
-      </div>
-
-      {/* Status bar */}
-      <div className="feed-statusbar" data-testid="feed-statusbar">
-        <span className="muted">{events.length} events</span>
-        <span className="dim">·</span>
-        {errorCount > 0 ? (
-          <span className="err" data-testid="error-count">
-            {errorCount} error{errorCount === 1 ? '' : 's'}
-          </span>
-        ) : (
-          <span className="dim">0 errors</span>
-        )}
-        {govCount > 0 && (
-          <span className="warn" data-testid="gov-count">
-            {govCount} governance
-          </span>
-        )}
-        {warnCount > 0 && (
-          <span className="warn" data-testid="warn-count">
-            {warnCount} overlap
-          </span>
-        )}
-        <div className="feed-statusbar-right">
-          <span>/ filter</span>
-          <span className="dim">·</span>
-          <span>click row to inspect</span>
-          {isLive && (
-            <>
-              <span className="dim">·</span>
-              <span className="ok live">●</span>
-              <span className="ok">LIVE</span>
-            </>
-          )}
-        </div>
-      </div>
-
       <style>{`
-        /* Feed page layout */
+        /* ── Feed page layout ─────────────────────────────────────────────── */
         .feed-page {
           display: flex;
           flex-direction: column;
@@ -564,6 +616,54 @@ export function FeedPage() {
           overflow: hidden;
         }
 
+        /* ── View toggle bar — Linear segmented control ───────────────────── */
+        .feed-view-bar {
+          height: 32px;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          padding: 0 12px;
+          background: var(--surface);
+          border-bottom: 1px solid var(--border);
+        }
+
+        /* Segmented control pill container */
+        .seg-ctrl {
+          display: inline-flex;
+          align-items: center;
+          background: var(--raised);
+          border: 1px solid var(--border);
+          border-radius: 9999px;
+          padding: 2px;
+          gap: 1px;
+        }
+
+        /* Idle segment */
+        .seg-btn {
+          height: 22px;
+          padding: 0 12px;
+          border-radius: 9999px;
+          border: none;
+          background: transparent;
+          color: var(--muted);
+          font-size: 12px;
+          font-weight: 510;
+          font-family: inherit;
+          cursor: pointer;
+          transition: background 0.1s ease, color 0.1s ease;
+        }
+        .seg-btn:hover {
+          color: var(--text-2);
+          background: var(--raised);
+        }
+
+        /* Active segment */
+        .seg-btn.seg-active {
+          background: var(--raised-2);
+          color: var(--text);
+        }
+
+        /* ── Filter bar ───────────────────────────────────────────────────── */
         #filterbar {
           height: 34px;
           flex-shrink: 0;
@@ -579,9 +679,9 @@ export function FeedPage() {
           display: flex;
           align-items: center;
           gap: 5px;
-          background: var(--base);
-          border: 1px solid var(--border-2);
-          border-radius: 3px;
+          background: var(--input);
+          border: 1px solid var(--border);
+          border-radius: 6px;
           padding: 2px 8px;
           font-size: 11px;
           color: var(--muted);
@@ -598,31 +698,57 @@ export function FeedPage() {
           padding: 0;
         }
         .fi input::placeholder { color: var(--dim); }
-        .fsep { color: var(--border); font-size: 14px; margin: 0 2px; }
+
+        .fsep { color: var(--border-subtle); font-size: 14px; margin: 0 2px; }
+
+        /* Chip filter buttons — use .btn base from app.css */
+        .chip {
+          height: 22px;
+          padding: 0 9px;
+          border-radius: 9999px;
+          border: 1px solid var(--border);
+          background: transparent;
+          color: var(--muted);
+          font-size: 11px;
+          font-weight: 510;
+          font-family: inherit;
+          cursor: pointer;
+          transition: background 0.1s ease, color 0.1s ease;
+        }
+        .chip:hover { background: var(--raised); color: var(--text-2); }
+        .chip.on { background: var(--raised-2); color: var(--text); border-color: var(--border-2); }
         .chip.on-err { border-color: var(--err-border); color: var(--err); background: var(--err-bg); }
         .chip.on-gov { border-color: var(--purple-border); color: var(--purple); background: var(--purple-bg); }
+
+        /* Alerts toggle */
         .alerts-toggle {
-          background: var(--base);
-          border: 1px solid var(--border-2);
-          border-radius: 3px;
-          padding: 2px 8px;
-          font-size: 11px;
-          color: var(--muted);
           display: flex;
           align-items: center;
           gap: 5px;
+          height: 22px;
+          padding: 0 9px;
+          border-radius: 9999px;
+          border: 1px solid var(--border);
+          background: transparent;
+          color: var(--muted);
+          font-size: 11px;
+          font-family: inherit;
           cursor: pointer;
+          transition: background 0.1s ease, color 0.1s ease;
         }
+        .alerts-toggle:hover { background: var(--raised); }
         .alerts-toggle.active-warn { border-color: var(--warn-border); color: var(--warn); background: var(--warn-bg); }
+
         .alert-dot {
-          width: 7px;
-          height: 7px;
+          width: 6px;
+          height: 6px;
           border-radius: 50%;
           background: var(--dim);
           display: inline-block;
           flex-shrink: 0;
         }
         .alert-dot.on { background: var(--warn); }
+
         .fr {
           margin-left: auto;
           display: flex;
@@ -633,7 +759,7 @@ export function FeedPage() {
           white-space: nowrap;
         }
 
-        /* Content area */
+        /* ── Content area ─────────────────────────────────────────────────── */
         #content {
           flex: 1;
           display: flex;
@@ -641,8 +767,8 @@ export function FeedPage() {
           min-height: 0;
         }
 
-        /* Feed list */
-        #feed-list {
+        /* ── Feed list ────────────────────────────────────────────────────── */
+        #feed-list-wrap {
           flex: 1;
           display: flex;
           flex-direction: column;
@@ -655,7 +781,7 @@ export function FeedPage() {
           gap: 0 6px;
           padding: 3px 12px;
           background: var(--surface);
-          border-bottom: 1px solid var(--border-2);
+          border-bottom: 1px solid var(--border-subtle);
           color: var(--dim);
           font-size: 10px;
           text-transform: uppercase;
@@ -667,29 +793,45 @@ export function FeedPage() {
           overflow-y: auto;
         }
         .feed-empty { padding: 24px 12px; font-size: 12px; }
+
+        /* Feed rows */
         .f-row {
           display: grid;
           grid-template-columns: 68px 140px 160px 120px 1fr;
           gap: 0 6px;
-          padding: 3px 12px;
-          border-bottom: 1px solid var(--border);
+          padding: 4px 12px;
+          border-bottom: 1px solid var(--border-subtle);
           align-items: baseline;
           cursor: pointer;
+          width: 100%;
+          text-align: left;
+          background: transparent;
+          border-radius: 0;
+          border-left: none;
+          border-top: none;
+          border-right: none;
+          height: auto;
         }
-        .f-row:hover { background: var(--surface); }
-        .f-row.sel { background: var(--surface-2); }
-        .f-row.a-err { border-left: 2px solid var(--err); background: #120a0a; }
-        .f-row.a-warn { border-left: 2px solid var(--warn); background: #110f00; }
-        .f-row.a-gov { border-left: 2px solid var(--purple); background: #0a0f1a; }
-        .f-row.sel.a-err  { background: #1f1010; }
-        .f-row.sel.a-warn { background: #1f1a0a; }
-        .f-row.sel.a-gov  { background: #141c30; }
-        .f-time  { color: var(--dim); font-size: 11px; }
+        .f-row:hover { background: var(--raised); }
+        .f-row.sel { background: var(--raised-2); }
+
+        /* Alert row accents — left border in status color */
+        .f-row.a-err { border-left: 2px solid var(--err); background: var(--err-bg); }
+        .f-row.a-warn { border-left: 2px solid var(--warn); background: var(--warn-bg); }
+        .f-row.a-gov { border-left: 2px solid var(--purple); background: var(--purple-bg); }
+        .f-row.sel.a-err  { background: var(--err-bg); opacity: 0.85; }
+        .f-row.sel.a-warn { background: var(--warn-bg); opacity: 0.85; }
+        .f-row.sel.a-gov  { background: var(--purple-bg); opacity: 0.85; }
+
+        /* Feed cell styles */
+        .f-time  { color: var(--dim); font-size: 11px; font-family: var(--mono); }
         .f-agent { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .f-ctx   { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .f-type  { font-size: 11px; font-weight: 600; white-space: nowrap; }
         .f-msg   { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .f-msg.purple-txt { color: var(--purple); }
+
+        /* Event type color classes */
         .ty-start  { color: var(--accent); }
         .ty-finish { color: var(--ok); }
         .ty-err    { color: var(--err); font-weight: 700; }
@@ -700,7 +842,7 @@ export function FeedPage() {
         .ty-done   { color: var(--ok); font-weight: 700; }
         .ty-warn   { color: var(--warn); font-weight: 700; }
 
-        /* Detail panel */
+        /* ── Detail panel ─────────────────────────────────────────────────── */
         #detail-panel {
           width: 380px;
           flex-shrink: 0;
@@ -730,7 +872,7 @@ export function FeedPage() {
           justify-content: center;
           font-size: 12px;
         }
-        .d-sep { border-top: 1px solid var(--border); margin: 8px 0 6px; }
+        .d-sep { border-top: 1px solid var(--border-subtle); margin: 8px 0 6px; }
         .d-sec {
           font-size: 10px;
           color: var(--dim);
@@ -740,11 +882,11 @@ export function FeedPage() {
         }
         .payload-block {
           background: var(--surface);
-          border: 1px solid var(--border-2);
+          border: 1px solid var(--border-subtle);
           padding: 7px 10px;
           font-size: 11px;
           line-height: 1.7;
-          font-family: inherit;
+          font-family: var(--mono);
           margin-bottom: 6px;
           white-space: pre-wrap;
           word-break: break-all;
@@ -754,7 +896,7 @@ export function FeedPage() {
         .pv-err { color: var(--err); }
         .ctx-log { font-size: 11px; color: var(--dim); line-height: 1.9; }
 
-        /* Status bar */
+        /* ── Status bar ───────────────────────────────────────────────────── */
         .feed-statusbar {
           height: 22px;
           flex-shrink: 0;

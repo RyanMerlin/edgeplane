@@ -198,23 +198,14 @@ function EventsFeed({ events }: { events: PolicyEvent[] }) {
   return (
     <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: '12px' }}>
       {events.map((ev) => (
-        <li
-          key={ev.id}
-          style={{
-            padding: '6px 0',
-            borderBottom: '1px solid var(--border, #2a2a2a)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '2px',
-          }}
-        >
+        <li key={ev.id} className="policy-event-row">
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <EventTypeTag type={ev.event_type} />
             <span className="dim" style={{ fontSize: '10px' }}>
               v{ev.version}
             </span>
           </div>
-          <span style={{ color: 'var(--text-muted, #888)', fontSize: '10px' }}>
+          <span className="policy-event-meta">
             {ev.actor_subject} · {fmtDate(ev.created_at)}
           </span>
         </li>
@@ -286,10 +277,6 @@ export function GovernancePage() {
     <div className="gov-page">
       {/* Top bar */}
       <div className="gov-bar">
-        <span className="gov-title">Governance</span>
-        <span className="muted" style={{ fontSize: '11px' }}>
-          Policy configuration and audit log
-        </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
           <button
             type="button"
@@ -413,13 +400,126 @@ export function GovernancePage() {
           </div>
         </div>
       )}
+      {/* ── Governance design-system styles ── */}
+      <style>{`
+        /* .gov-page, .gov-bar, .gov-title — now in app.css */
+        .gov-page {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          overflow: hidden;
+        }
+
+        /* ── Policy meta key-value list ──────────────────────────────────── */
+        .policy-meta {
+          display: grid;
+          grid-template-columns: max-content 1fr;
+          gap: 3px 12px;
+          margin: 0;
+          font-size: 12px;
+        }
+        .policy-meta dt {
+          color: var(--dim);
+          font-size: 11px;
+        }
+        .policy-meta dd {
+          margin: 0;
+          color: var(--text-2);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        /* ── Flag list ───────────────────────────────────────────────────── */
+        .flag-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+        }
+        .flag-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 3px 0;
+          font-size: 12px;
+          border-bottom: 1px solid var(--border-subtle);
+        }
+        .flag-key {
+          flex: 1;
+          color: var(--text-2);
+        }
+
+        /* ── Action rules table ──────────────────────────────────────────── */
+        .action-groups {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .action-group {
+          border: 1px solid var(--border-subtle);
+        }
+        .action-group-header {
+          padding: 4px 10px;
+          font-size: 10px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--dim);
+          background: var(--surface);
+          border-bottom: 1px solid var(--border-subtle);
+        }
+        .action-table {
+          width: 100%;
+          font-size: 12px;
+        }
+        .action-table td {
+          padding: 3px 10px;
+          border-bottom: 1px solid var(--border-subtle);
+        }
+        .action-table tr:last-child td { border-bottom: none; }
+        .action-name { color: var(--text-2); }
+
+        /* ── Policy events feed ──────────────────────────────────────────── */
+        .policy-event-row {
+          padding: 6px 0;
+          border-bottom: 1px solid var(--border-subtle);
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .policy-event-meta {
+          color: var(--muted);
+          font-size: 10px;
+        }
+
+        /* ── Empty state ─────────────────────────────────────────────────── */
+        .empty-state {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 40px 20px;
+        }
+        .empty-icon {
+          font-size: 32px;
+          color: var(--border-2);
+          line-height: 1;
+        }
+        .empty-title {
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-2);
+        }
+        .empty-body {
+          font-size: 12px;
+          color: var(--muted);
+          text-align: center;
+          max-width: 340px;
+          line-height: 1.6;
+        }
+      `}</style>
     </div>
   );
 }
-
-// ── CSS (scoped via inline style blocks in app.css — no CSS modules here) ─────
-// The Svelte version added scoped styles; we rely on the global app.css classes
-// already present (gov-page, gov-bar, pane, pane-header, pane-body, pane-row,
-// gov-title, policy-meta, flag-list, flag-row, flag-key, action-groups,
-// action-group, action-group-header, action-table, action-name, empty-state,
-// empty-icon, empty-title, empty-body). If any are absent they'll be no-ops.

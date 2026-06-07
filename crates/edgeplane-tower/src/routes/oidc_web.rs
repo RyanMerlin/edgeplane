@@ -1121,52 +1121,18 @@ async fn oidc_callback(
     // Sanitize the stored redirect_path before using it: it was already
     // sanitized on write, but re-validate here as defence-in-depth.
     let target = sanitize_redirect_path(&target);
-    let target_escaped = html_escape(&target);
-
-    // Show a brief confirmation page that sets the cookie, then redirects.
-    // Without this, the redirect to "/" is silent — Authentik SSO re-auths
-    // so fast the user never sees any confirmation that login worked.
-    let html = format!(r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Signed in — Edgeplane</title>
-  <meta http-equiv="refresh" content="2;url={target_escaped}">
-  <style>
-    *, *::before, *::after {{ box-sizing: border-box; }}
-    body {{
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0f172a; color: #e2e8f0;
-      display: flex; align-items: center; justify-content: center;
-      min-height: 100vh; margin: 0;
-    }}
-    .card {{
-      background: #1e293b; border-radius: 12px;
-      padding: 2.5rem 3rem; text-align: center; max-width: 420px; width: 90%;
-    }}
-    .check {{ font-size: 4rem; color: #22c55e; margin-bottom: 1rem; }}
-    h1 {{ color: #f1f5f9; font-size: 1.6rem; margin: 0 0 0.75rem; }}
-    p {{ color: #94a3b8; line-height: 1.6; margin: 0; }}
-    a {{ color: #60a5fa; }}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="check">&#10003;</div>
-    <h1>Signed in</h1>
-    <p>Redirecting to <a href="{target_escaped}">{target_escaped}</a>&hellip;</p>
-  </div>
-</body>
-</html>"#);
-
+    // Set the session cookie and redirect straight to the app — no interstitial.
+    // Previously this rendered a 2-second "Signed in ✓" confirmation page; that
+    // was removed as a login anti-pattern. After auth the user should land
+    // directly on the web UI (the target they were headed to), not wait on a
+    // success splash. The Set-Cookie rides on the 303 itself.
     (
-        StatusCode::OK,
+        StatusCode::SEE_OTHER,
         [
             (header::SET_COOKIE, cookie),
+            (header::LOCATION, target),
             (header::CACHE_CONTROL, "no-store, private".to_string()),
         ],
-        Html(html),
     )
         .into_response()
 }

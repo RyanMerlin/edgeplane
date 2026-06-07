@@ -79,16 +79,9 @@ export function OnboardingPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div
-      className="onboard-page"
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
-    >
+    <div className="onboard-page">
       {/* Top bar */}
       <div className="gov-bar">
-        <span className="gov-title">Onboarding</span>
-        <span className="muted" style={{ fontSize: '11px' }}>
-          Agent enrollment manifest
-        </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px', alignItems: 'center' }}>
           <button
             type="button"
@@ -124,7 +117,7 @@ export function OnboardingPage() {
 
       {/* Content */}
       {!manifestQuery.isLoading && !manifestQuery.isError && (
-        <div className="pane-row" style={{ flex: 1, minHeight: 0 }}>
+        <div className="pane-row" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {/* Left: configuration */}
           <div className="pane" style={{ width: '280px', flexShrink: 0 }}>
             <div className="pane-header">
@@ -210,6 +203,33 @@ export function OnboardingPage() {
           </div>
         </div>
       )}
+
+      {/* ── Onboarding design-system styles ── */}
+      <style>{`
+        /* .gov-bar, .gov-title, .pane-row, .pane, .pane-header, .pane-body in app.css */
+        .onboard-page {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          overflow: hidden;
+        }
+
+        /* Warm card input — full width with token bg */
+        .onboard-page input {
+          width: 100%;
+          background: var(--input);
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          color: var(--text);
+          font-family: inherit;
+          font-size: 12px;
+          padding: 5px 8px;
+        }
+        .onboard-page input:focus {
+          outline: none;
+          border-color: var(--accent);
+        }
+      `}</style>
     </div>
   );
 }

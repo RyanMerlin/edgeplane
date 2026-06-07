@@ -6,9 +6,13 @@
  *              numeric id; the API accepts both (per AgentIdent in the backend).
  *
  * 404 from the API is rendered as a distinct not-found affordance.
- * Back-link returns to /agents list.
+ * Up-navigation is via the shell breadcrumb (Agents › <id>), not an in-page link.
  *
- * ACP pane (Phase 4):
+ * Layout (C3 mockup conformance):
+ *   - id-strip: status dot, name, mono public_id, status tag, last-seen
+ *   - detail-body: detail-main (conversation, flex:1) + props rail (266px)
+ *
+ * ACP pane:
  *   - nodeId resolved from agent.metadata.node_id (JSON-parsed)
  *   - If no nodeId is resolvable, a "not attachable" state is shown instead of
  *     a broken WebSocket.
@@ -21,7 +25,7 @@ import { ConversationView } from '@/components/conversation/ConversationView';
 import { useAcpConversation } from '@/lib/conversation/useAcpConversation';
 import { queryKeys } from '@/lib/queryKeys';
 import { useQuery } from '@tanstack/react-query';
-import { Link, createFileRoute } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
 
 // ── Generated schema types ─────────────────────────────────────────────────────
 
@@ -35,9 +39,14 @@ export const Route = createFileRoute('/agents/$agentId')({
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function fmtDate(s: string | null | undefined): string {
+function fmtLastSeen(s: string | null | undefined): string {
   if (!s) return '—';
-  return new Date(s).toLocaleString();
+  const diff = Date.now() - new Date(s).getTime();
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.floor(mins / 60)}h ago`;
 }
 
 function statusVariant(status: string): 'ok' | 'warn' | 'err' | 'default' {
@@ -47,6 +56,13 @@ function statusVariant(status: string): 'ok' | 'warn' | 'err' | 'default' {
   return 'default';
 }
 
+function statusColor(variant: 'ok' | 'warn' | 'err' | 'default'): string {
+  if (variant === 'ok') return 'var(--ok)';
+  if (variant === 'warn') return 'var(--warn)';
+  if (variant === 'err') return 'var(--err)';
+  return 'var(--dim)';
+}
+
 function Tag({
   variant = 'default',
   children,
@@ -54,7 +70,25 @@ function Tag({
   variant?: 'ok' | 'warn' | 'err' | 'accent' | 'purple' | 'default';
   children: React.ReactNode;
 }) {
-  return <span className={`tag ${variant !== 'default' ? variant : ''}`}>{children}</span>;
+  const dotColor =
+    variant === 'ok'
+      ? 'var(--ok)'
+      : variant === 'warn'
+        ? 'var(--warn)'
+        : variant === 'err'
+          ? 'var(--err)'
+          : variant === 'accent'
+            ? 'var(--accent)'
+            : undefined;
+
+  return (
+    <span className={`tag ${variant !== 'default' ? variant : ''}`}>
+      {dotColor && (
+        <span className="dot" style={{ background: dotColor, width: '5px', height: '5px' }} />
+      )}
+      {children}
+    </span>
+  );
 }
 
 /** Parse the `metadata` JSON string into a display-friendly object. */
@@ -70,69 +104,6 @@ function parseMetadata(raw: string): Record<string, string> {
     // not valid JSON — treat as opaque string
   }
   return { raw };
-}
-
-// ── Sub-components ─────────────────────────────────────────────────────────────
-
-function AgentMetaDl({ agent }: { agent: Agent }) {
-  return (
-    <dl className="policy-meta">
-      <dt>Public ID</dt>
-      <dd style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--accent)' }}>
-        {agent.public_id}
-      </dd>
-
-      <dt>Name</dt>
-      <dd>{agent.name}</dd>
-
-      <dt>Status</dt>
-      <dd>
-        <Tag variant={statusVariant(agent.status)}>{agent.status}</Tag>
-      </dd>
-
-      <dt>Capabilities</dt>
-      <dd style={{ fontSize: '11px', color: 'var(--muted)' }}>{agent.capabilities || '—'}</dd>
-
-      <dt>Home Domain</dt>
-      <dd style={{ fontSize: '11px', color: 'var(--dim)' }}>{agent.home_domain_id ?? '—'}</dd>
-
-      <dt>Current Domain</dt>
-      <dd style={{ fontSize: '11px', color: 'var(--dim)' }}>{agent.current_domain_id ?? '—'}</dd>
-
-      <dt>Created</dt>
-      <dd>{fmtDate(agent.created_at)}</dd>
-
-      <dt>Updated</dt>
-      <dd>{fmtDate(agent.updated_at)}</dd>
-
-      <dt>Internal ID</dt>
-      <dd style={{ fontSize: '11px', color: 'var(--dim)' }}>{agent.id}</dd>
-    </dl>
-  );
-}
-
-function MetadataBlock({ metadata }: { metadata: string }) {
-  const parsed = parseMetadata(metadata);
-  const entries = Object.entries(parsed);
-  if (entries.length === 0) return null;
-
-  return (
-    <div style={{ marginTop: '12px' }}>
-      <p className="section-label">Runtime Metadata</p>
-      <table className="action-table">
-        <tbody>
-          {entries.map(([k, v]) => (
-            <tr key={k}>
-              <td className="dim" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
-                {k}
-              </td>
-              <td style={{ fontSize: '11px', wordBreak: 'break-all' }}>{v}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -163,6 +134,87 @@ function resolveNodeId(metadata: string | null | undefined): string | null {
     // malformed JSON — not attachable
   }
   return null;
+}
+
+// ── Properties rail ─────────────────────────────────────────────────────────
+
+function PropRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="prop">
+      <div className="k">{label}</div>
+      <div className="v">{children}</div>
+    </div>
+  );
+}
+
+function PropsRail({ agent, nodeId }: { agent: Agent; nodeId: string | null }) {
+  const meta = parseMetadata(agent.metadata ?? '{}');
+  const runtime = meta.runtime ?? '—';
+  const variant = statusVariant(agent.status);
+
+  return (
+    <aside
+      className="props"
+      style={{
+        width: '266px',
+        flexShrink: 0,
+        borderLeft: '1px solid var(--border-subtle)',
+        padding: '16px 16px 16px 20px',
+        overflowY: 'auto',
+      }}
+    >
+      <h4
+        style={{
+          margin: '0 0 14px',
+          fontSize: '11px',
+          fontWeight: 590,
+          color: 'var(--dim)',
+          letterSpacing: '0.02em',
+        }}
+      >
+        PROPERTIES
+      </h4>
+
+      <PropRow label="Status">
+        <Tag variant={variant}>{agent.status}</Tag>
+      </PropRow>
+
+      <PropRow label="Node">
+        {nodeId ? (
+          <span
+            style={{ fontFamily: 'var(--mono)', fontSize: '12px', color: 'var(--text-2)' }}
+            data-testid="acp-node-id"
+          >
+            {nodeId}
+          </span>
+        ) : (
+          <span style={{ color: 'var(--dim)', fontSize: '12px' }}>—</span>
+        )}
+      </PropRow>
+
+      <PropRow label="Runtime">
+        <span style={{ fontFamily: 'var(--mono)', fontSize: '12px' }}>{runtime}</span>
+      </PropRow>
+
+      <PropRow label="Capabilities">
+        {agent.capabilities ? (
+          <span style={{ fontSize: '13px', color: 'var(--text-2)' }}>{agent.capabilities}</span>
+        ) : (
+          <span style={{ color: 'var(--dim)', fontSize: '12px' }}>—</span>
+        )}
+      </PropRow>
+
+      <PropRow label="Home domain">
+        <span style={{ fontSize: '13px', color: 'var(--text-2)' }}>
+          {agent.home_domain_id ?? '—'}
+        </span>
+      </PropRow>
+
+      <PropRow label="Source">
+        <Tag variant="default">{agent.current_domain_id ? 'mesh' : 'cp'}</Tag>
+      </PropRow>
+    </aside>
+  );
 }
 
 // ── ACP pane — inner component so the hook only runs when nodeId is known ─────
@@ -207,23 +259,50 @@ export function AgentDetailPage() {
     (agentQuery.error as { status: number }).status === 404;
 
   const nodeId = agent ? resolveNodeId(agent.metadata) : null;
+  const variant = agent ? statusVariant(agent.status) : 'default';
 
   return (
-    <div className="gov-page">
-      {/* Top bar */}
-      <div className="gov-bar">
-        <Link to="/agents" className="ghost" style={{ fontSize: '11px', marginRight: '8px' }}>
-          ← Agents
-        </Link>
-        <span className="gov-title" style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>
-          {agentId}
+    <div
+      className="detail"
+      data-testid="agent-detail"
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}
+    >
+      {/* ── Identity strip ── */}
+      <div
+        className="id-strip"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '14px 18px',
+          borderBottom: '1px solid var(--border-subtle)',
+          flexShrink: 0,
+        }}
+      >
+        <span
+          className="dot"
+          style={{
+            background: agent ? statusColor(variant) : 'var(--dim)',
+            width: '7px',
+            height: '7px',
+          }}
+        />
+        <span className="name" style={{ fontSize: '15px', fontWeight: 590, color: 'var(--text)' }}>
+          {agent?.name ?? agentId}
         </span>
-        <span className="muted" style={{ fontSize: '11px' }}>
-          Agent detail
+        <span
+          className="pid"
+          style={{ fontFamily: 'var(--mono)', fontSize: '12px', color: 'var(--accent)' }}
+        >
+          {agent?.public_id ?? agentId}
+        </span>
+        {agent && <Tag variant={variant}>{agent.status}</Tag>}
+        <span style={{ marginLeft: 'auto', color: 'var(--dim)', fontSize: '11px' }}>
+          {agent ? fmtLastSeen(agent.updated_at) : ''}
         </span>
       </div>
 
-      {/* Loading */}
+      {/* ── Loading ── */}
       {agentQuery.isLoading && (
         <div style={{ padding: '12px' }}>
           <p className="muted" data-testid="loading-state">
@@ -232,7 +311,7 @@ export function AgentDetailPage() {
         </div>
       )}
 
-      {/* Not found */}
+      {/* ── Not found ── */}
       {is404 && (
         <div className="empty-state" data-testid="not-found-state">
           <div className="empty-icon">⊘</div>
@@ -243,7 +322,7 @@ export function AgentDetailPage() {
         </div>
       )}
 
-      {/* Generic error */}
+      {/* ── Generic error ── */}
       {agentQuery.isError && !is404 && (
         <div style={{ padding: '12px' }}>
           <p className="error" data-testid="error-state">
@@ -252,70 +331,33 @@ export function AgentDetailPage() {
         </div>
       )}
 
-      {/* Data */}
+      {/* ── Data: two-column body ── */}
       {agent && (
-        <div className="pane-row" style={{ flex: 1, minHeight: 0, display: 'flex', gap: '0' }}>
-          {/* Left pane: metadata */}
+        <div className="detail-body" style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+          {/* Left: conversation (detail-main) */}
           <div
-            className="pane"
-            style={{ width: '320px', flexShrink: 0, minWidth: 0, overflowY: 'auto' }}
-          >
-            <div className="pane-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="pane-title">{agent.name}</span>
-                <Tag variant={statusVariant(agent.status)}>{agent.status}</Tag>
-              </div>
-            </div>
-            <div className="pane-body" style={{ padding: '10px' }}>
-              <AgentMetaDl agent={agent} />
-              <MetadataBlock metadata={agent.metadata} />
-            </div>
-          </div>
-
-          {/* Right pane: ACP conversation or not-attachable affordance */}
-          <div
-            className="pane"
+            className="detail-main"
             style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}
           >
-            <div className="pane-header">
-              <span className="pane-title">Live conversation</span>
-              {nodeId && (
-                <span
-                  className="muted"
-                  style={{ fontSize: '10px', marginLeft: '8px' }}
-                  data-testid="acp-node-id"
-                >
-                  {nodeId}
-                </span>
-              )}
-            </div>
-            <div
-              className="pane-body"
-              style={{
-                flex: 1,
-                minHeight: 0,
-                padding: 0,
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              {nodeId ? (
-                <AcpPane nodeId={nodeId} agentId={agentId} />
-              ) : (
-                <div
-                  style={{ padding: '20px 12px', color: 'var(--muted)', fontSize: '12px' }}
-                  data-testid="not-attachable"
-                >
-                  <div style={{ fontWeight: 600, marginBottom: '4px' }}>Not attachable</div>
-                  <div>
-                    This agent does not have a <code>node_id</code> in its metadata. To enable the
-                    live conversation pane, register the agent with{' '}
-                    <code>{`metadata='{"node_id":"<node>"}'`}</code>.
-                  </div>
+            {nodeId ? (
+              <AcpPane nodeId={nodeId} agentId={agentId} />
+            ) : (
+              <div
+                style={{ padding: '20px 18px', color: 'var(--muted)', fontSize: '12px' }}
+                data-testid="not-attachable"
+              >
+                <div style={{ fontWeight: 600, marginBottom: '4px' }}>Not attachable</div>
+                <div>
+                  This agent does not have a <code>node_id</code> in its metadata. To enable the
+                  live conversation pane, register the agent with{' '}
+                  <code>{`metadata='{"node_id":"<node>"}'`}</code>.
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
+
+          {/* Right: properties rail */}
+          <PropsRail agent={agent} nodeId={nodeId} />
         </div>
       )}
     </div>

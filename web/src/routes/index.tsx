@@ -1,438 +1,312 @@
 /**
- * Fleet dashboard — Phase 4 landing page.
+ * Dashboard — landing page (/).
  *
- * Tabs are driven dynamically from registered agents returned by the tower.
- * No hardcoded fleet profile list — one tab per agent, label = agent.name as-is.
+ * Pivot between the two nav spines:
+ *   - Fleet card: online/total agent summary → links to /agents
+ *   - Work card: domain + mission count → links to /domains
+ *   - Recent activity: last ~8 SSE events (read-only)
  *
- * React changes vs. Svelte:
- *   - xterm terminal pane replaced with <ConversationView> via useAcpConversation
- *   - The Svelte "Terminal / Conversation" view toggle is dropped — ACP is the only pane
- *   - Only the active tab mounts AcpPane so at most ONE WebSocket is open at a time
- *
- * Agent data: mirrors agents.tsx merge strategy (cp agents + mesh agents, 30s refetch).
- * Fleet summary: online/total derived from the merged set — no extra backend endpoint needed.
+ * Data sources:
+ *   - useMergedAgents() — fleet agent list with status
+ *   - GET /api/explorer/tree — domain + mission counts
+ *   - useEventStream() — live event ring buffer
  */
 
 import { apiClient, unwrap } from '@/api/client';
 import type { components } from '@/api/schema.gen';
-import { ConversationView } from '@/components/conversation/ConversationView';
-import { useAcpConversation } from '@/lib/conversation/useAcpConversation';
 import { queryKeys } from '@/lib/queryKeys';
+import { useEventStream } from '@/lib/useEventStream';
+import { useMergedAgents } from '@/lib/useMergedAgents';
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { Link, createFileRoute } from '@tanstack/react-router';
 
 // ── Route ──────────────────────────────────────────────────────────────────────
 
 export const Route = createFileRoute('/')({
-  component: FleetDashboard,
+  component: Dashboard,
 });
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Types ──────────────────────────────────────────────────────────────────────
 
-type Agent = components['schemas']['Agent'];
-type NodeMeshAgent = components['schemas']['NodeMeshAgent'];
-type RuntimeNode = components['schemas']['RuntimeNode'];
-
-// ── Merged agent row (same shape as agents.tsx) ────────────────────────────────
-
-type MergedAgent = {
-  public_id: string;
-  name: string;
-  status: string;
-  metadata?: string;
-  updated_at?: string;
-  last_heartbeat_at?: string | null;
-};
+type ExplorerTreeResponse = components['schemas']['ExplorerTreeResponse'];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-/** Resolve the nodeId from the agent's metadata JSON string. */
-function resolveNodeId(metadata: string | null | undefined): string | null {
-  if (!metadata) return null;
-  try {
-    const parsed = JSON.parse(metadata);
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      typeof parsed.node_id === 'string' &&
-      parsed.node_id.length > 0
-    ) {
-      return parsed.node_id;
-    }
-  } catch {
-    // malformed JSON
-  }
-  return null;
-}
-
-function statusColor(status: string): string {
-  switch (status) {
-    case 'online':
-    case 'active':
-      return 'var(--ok)';
-    case 'working':
-    case 'busy':
-      return 'var(--warn)';
-    case 'error':
-      return 'var(--err)';
-    default:
-      return 'var(--muted)';
-  }
-}
-
-function fmtRelative(s: string | null | undefined): string {
-  if (!s) return '—';
-  const diffMs = Date.now() - new Date(s).getTime();
+function fmtRelative(ts: number): string {
+  const diffMs = Date.now() - ts;
   const diffSec = Math.floor(diffMs / 1000);
-  if (diffSec < 60) return `${diffSec}s ago`;
+  if (diffSec < 60) return `${diffSec}s`;
   const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffMin < 60) return `${diffMin}m`;
   const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  return new Date(s).toLocaleString();
+  if (diffHr < 24) return `${diffHr}h`;
+  return new Date(ts).toLocaleString();
 }
 
-// ── Query functions ────────────────────────────────────────────────────────────
-
-async function fetchCpAgents(): Promise<Agent[]> {
-  return unwrap(apiClient.GET('/api/agents'));
+/** Map event type string to a status dot color */
+function eventDotColor(type: string | undefined): string {
+  if (!type) return 'var(--dim)';
+  const t = type.toLowerCase();
+  if (t.includes('finish') || t.includes('complet') || t.includes('heartbeat'))
+    return 'var(--warn)';
+  if (t.includes('claim') || t.includes('creat') || t.includes('start')) return 'var(--accent)';
+  if (t.includes('ok') || t.includes('success') || t.includes('done')) return 'var(--ok)';
+  if (t.includes('fail') || t.includes('err') || t.includes('reject')) return 'var(--err)';
+  if (t.includes('govern') || t.includes('policy')) return 'var(--purple)';
+  return 'var(--dim)';
 }
 
-async function fetchMeshAgents(): Promise<NodeMeshAgent[]> {
-  const nodes = await unwrap(apiClient.GET('/api/runtime/nodes'));
-  const allMesh: NodeMeshAgent[] = [];
-  await Promise.all(
-    nodes.map(async (node: RuntimeNode) => {
-      const agents = await unwrap(
-        apiClient.GET('/api/runtime/nodes/{node_id}/agents', {
-          params: { path: { node_id: node.id } },
-        }),
-      ).catch(() => [] as NodeMeshAgent[]);
-      allMesh.push(...agents);
-    }),
-  );
-  return allMesh;
-}
+// ── Fleet card ─────────────────────────────────────────────────────────────────
 
-// ── Merge logic (same as agents.tsx) ──────────────────────────────────────────
+function FleetCard() {
+  const { agents, isLoading } = useMergedAgents();
 
-function mergeAgents(cpAgents: Agent[], meshAgents: NodeMeshAgent[]): MergedAgent[] {
-  const byId = new Map<string, MergedAgent>();
-
-  for (const a of cpAgents) {
-    byId.set(a.public_id, {
-      public_id: a.public_id,
-      name: a.name,
-      status: a.status,
-      metadata: a.metadata,
-      updated_at: a.updated_at,
-    });
-  }
-
-  for (const a of meshAgents) {
-    const pid = a.public_id ?? a.agent_public_id ?? a.id;
-    const existing = byId.get(pid);
-    if (existing) {
-      existing.status = a.status;
-      existing.last_heartbeat_at = a.last_heartbeat_at;
-    } else {
-      byId.set(pid, {
-        public_id: pid,
-        name: pid,
-        status: a.status,
-        last_heartbeat_at: a.last_heartbeat_at,
-      });
-    }
-  }
-
-  return Array.from(byId.values());
-}
-
-// ── Sub-components ─────────────────────────────────────────────────────────────
-
-/**
- * AcpPane — mounts useAcpConversation only when rendered.
- * Kept in a separate component so the hook lifecycle (and WebSocket) is tied
- * to mounting. The parent conditionally renders this only for the active tab,
- * ensuring at most ONE ACP WebSocket is open at a time.
- */
-function AcpPane({ nodeId, agentId }: { nodeId: string; agentId: string }) {
-  const { items, status, send, cancel } = useAcpConversation(nodeId, agentId);
-  return <ConversationView items={items} status={status} onSend={send} onCancel={cancel} />;
-}
-
-interface AgentPaneProps {
-  agent: MergedAgent;
-  isActive: boolean;
-}
-
-function AgentPane({ agent, isActive }: AgentPaneProps) {
-  const nodeId = resolveNodeId(agent.metadata);
-
-  // Derive last-seen from whichever timestamp is available
-  const lastSeen = agent.last_heartbeat_at ?? agent.updated_at;
+  const onlineCount = agents.filter((a) => a.status === 'online' || a.status === 'active').length;
+  const totalCount = agents.length;
 
   return (
     <div
-      style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-      data-testid={`agent-pane-${agent.public_id}`}
+      style={{
+        background: 'var(--card)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: '10px',
+        padding: '16px',
+      }}
     >
-      {/* Agent status header */}
-      <div
+      <h3
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '6px 10px',
-          background: 'var(--surface)',
-          borderBottom: '1px solid var(--border)',
-          flexShrink: 0,
+          margin: '0 0 10px',
           fontSize: '11px',
-          color: 'var(--muted)',
+          fontWeight: 590,
+          color: 'var(--dim)',
+          letterSpacing: '0.02em',
+          textTransform: 'uppercase',
         }}
-        data-testid={`agent-status-${agent.public_id}`}
       >
-        <span
-          aria-label={`status: ${agent.status}`}
-          style={{
-            width: '7px',
-            height: '7px',
-            borderRadius: '50%',
-            background: statusColor(agent.status),
-            flexShrink: 0,
-            display: 'inline-block',
-          }}
-        />
-        <span style={{ fontFamily: 'monospace', color: 'var(--text)', fontWeight: 600 }}>
-          {agent.name}
-        </span>
-        <span
-          className={`tag ${agent.status === 'online' || agent.status === 'active' ? 'ok' : ''}`}
-          data-testid={`agent-status-badge-${agent.public_id}`}
-        >
-          {agent.status}
-        </span>
-        {nodeId && (
-          <span
-            style={{ color: 'var(--dim)', fontSize: '10px' }}
-            data-testid={`agent-node-${agent.public_id}`}
-          >
-            {nodeId}
-          </span>
+        Fleet
+      </h3>
+      <div style={{ fontSize: '28px', fontWeight: 590, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+        {isLoading ? (
+          <span style={{ fontSize: '13px', color: 'var(--muted)' }}>Loading…</span>
+        ) : (
+          <>
+            <span data-testid="dash-fleet-online" style={{ color: 'var(--ok)' }}>
+              {onlineCount}
+            </span>
+            <span
+              style={{
+                fontSize: '14px',
+                fontWeight: 400,
+                color: 'var(--muted)',
+                marginLeft: '4px',
+              }}
+            >
+              / {totalCount} online
+            </span>
+          </>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: '10px' }}>{fmtRelative(lastSeen)}</span>
       </div>
-
-      {/* Conversation pane or fallback */}
-      <div style={{ flex: 1, minHeight: 0 }}>
-        {!nodeId && (
-          <div
-            style={{
-              padding: '24px 16px',
-              color: 'var(--muted)',
-              fontSize: '13px',
-              textAlign: 'center',
-            }}
-            data-testid={`agent-not-attachable-${agent.public_id}`}
-          >
-            <div style={{ fontWeight: 600, marginBottom: '4px' }}>Not attachable</div>
-            <div>
-              Agent <code>{agent.public_id}</code> has no <code>node_id</code> in its metadata.
-            </div>
-          </div>
-        )}
-        {nodeId && isActive && <AcpPane nodeId={nodeId} agentId={agent.public_id} />}
+      <div style={{ marginTop: '10px' }}>
+        <Link
+          to="/agents"
+          style={{ fontSize: '12.5px', color: 'var(--accent)', display: 'inline-block' }}
+        >
+          Agents →
+        </Link>
       </div>
     </div>
   );
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
+// ── Work card ──────────────────────────────────────────────────────────────────
 
-export function FleetDashboard() {
-  const [activeProfile, setActiveProfile] = useState<string | null>(null);
-
-  const cpQuery = useQuery({
-    queryKey: queryKeys.agents.list(),
-    queryFn: fetchCpAgents,
-    refetchInterval: 30_000,
+function WorkCard() {
+  const treeQuery = useQuery<ExplorerTreeResponse>({
+    queryKey: queryKeys.explorer.tree(),
+    queryFn: () => unwrap(apiClient.GET('/api/explorer/tree')),
+    refetchInterval: 60_000,
   });
 
-  const meshQuery = useQuery({
-    queryKey: [...queryKeys.agents.all, 'mesh'] as const,
-    queryFn: fetchMeshAgents,
-    refetchInterval: 30_000,
-  });
-
-  const agents: MergedAgent[] =
-    cpQuery.data !== undefined || meshQuery.data !== undefined
-      ? mergeAgents(cpQuery.data ?? [], meshQuery.data ?? [])
-      : [];
-
-  // Derive active agent id: explicit selection or first agent as default
-  const activeAgentId = activeProfile ?? (agents.length ? agents[0].public_id : null);
-
-  // Keyboard hotkeys: Ctrl/Meta+N switches to the Nth agent tab (1-indexed)
-  useEffect(() => {
-    function handleKeydown(e: KeyboardEvent) {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const num = Number.parseInt(e.key, 10);
-      if (num >= 1 && num <= agents.length) {
-        e.preventDefault();
-        setActiveProfile(agents[num - 1].public_id);
-      }
-    }
-    document.addEventListener('keydown', handleKeydown);
-    return () => document.removeEventListener('keydown', handleKeydown);
-  }, [agents]);
-
-  const isLoading = cpQuery.isLoading && meshQuery.isLoading;
-  const isError = cpQuery.isError && meshQuery.isError;
-
-  // Fleet summary counts — derived from merged agents, no extra endpoint needed
-  const onlineCount = agents.filter((a) => a.status === 'online' || a.status === 'active').length;
-  const totalCount = agents.length;
-
-  const activeAgent = agents.find((a) => a.public_id === activeAgentId) ?? null;
+  const domains = treeQuery.data?.domains ?? [];
+  const domainCount = domains.length;
+  const missionCount = domains.reduce((sum, d) => sum + d.missions.length, 0);
 
   return (
     <div
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}
-      data-testid="fleet-dashboard"
+      style={{
+        background: 'var(--card)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: '10px',
+        padding: '16px',
+      }}
     >
-      {/* Loading */}
-      {isLoading && (
-        <div style={{ padding: '12px' }}>
-          <p className="muted" data-testid="loading-state">
-            Loading fleet…
-          </p>
-        </div>
-      )}
-
-      {/* Error */}
-      {isError && (
-        <div style={{ padding: '12px' }}>
-          <p className="error" data-testid="error-state">
-            Failed to load fleet —{' '}
-            {(cpQuery.error as Error)?.message ??
-              (meshQuery.error as Error)?.message ??
-              'unknown error'}
-          </p>
-        </div>
-      )}
-
-      {/* Dashboard body — show once at least one query resolves */}
-      {!isLoading && !isError && (
-        <>
-          {/* Fleet summary bar */}
-          {agents.length > 0 && (
-            <div
+      <h3
+        style={{
+          margin: '0 0 10px',
+          fontSize: '11px',
+          fontWeight: 590,
+          color: 'var(--dim)',
+          letterSpacing: '0.02em',
+          textTransform: 'uppercase',
+        }}
+      >
+        Work
+      </h3>
+      <div style={{ fontSize: '28px', fontWeight: 590, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+        {treeQuery.isLoading ? (
+          <span style={{ fontSize: '13px', color: 'var(--muted)' }}>Loading…</span>
+        ) : (
+          <>
+            <span data-testid="dash-work-domains">{domainCount}</span>
+            <span
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                padding: '6px 10px',
-                background: 'var(--surface)',
-                borderBottom: '1px solid var(--border)',
-                flexShrink: 0,
-                fontSize: '11px',
+                fontSize: '14px',
+                fontWeight: 400,
                 color: 'var(--muted)',
+                marginLeft: '4px',
               }}
-              data-testid="fleet-summary"
             >
-              <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: '12px' }}>Fleet</span>
-              <span data-testid="fleet-online-count">
-                <span style={{ color: 'var(--ok)', fontWeight: 600 }}>{onlineCount}</span>
-                {' / '}
-                {totalCount} online
-              </span>
-            </div>
-          )}
+              {domainCount === 1 ? 'domain' : 'domains'}
+              {missionCount > 0 &&
+                ` · ${missionCount} ${missionCount === 1 ? 'mission' : 'missions'}`}
+            </span>
+          </>
+        )}
+      </div>
+      <div style={{ marginTop: '10px' }}>
+        <Link
+          to="/domains"
+          style={{ fontSize: '12.5px', color: 'var(--accent)', display: 'inline-block' }}
+        >
+          Domains →
+        </Link>
+      </div>
+    </div>
+  );
+}
 
-          {/* Agent tabs — one per registered agent, driven by the merged list */}
-          <div
-            style={{
-              display: 'flex',
-              gap: 0,
-              padding: '0 0.25rem',
-              borderBottom: '1px solid var(--border)',
-              flexShrink: 0,
-            }}
-            role="tablist"
-            aria-label="Fleet agents"
-            data-testid="profile-tabs"
+// ── Recent activity ────────────────────────────────────────────────────────────
+
+function ActivityStrip() {
+  const { events } = useEventStream();
+  const recent = events.slice(0, 8);
+
+  return (
+    <>
+      <div
+        style={{
+          fontSize: '11px',
+          fontWeight: 590,
+          color: 'var(--dim)',
+          letterSpacing: '0.02em',
+          textTransform: 'uppercase',
+          margin: '22px 0 8px',
+        }}
+      >
+        Recent Activity
+      </div>
+      <div
+        style={{
+          background: 'var(--card)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: '10px',
+          padding: '6px 16px',
+        }}
+      >
+        {recent.length === 0 ? (
+          <p
+            className="muted"
+            style={{ fontSize: '12px', margin: '8px 0' }}
+            data-testid="activity-empty"
           >
-            {agents.map((a, i) => {
-              const isActive = a.public_id === activeAgentId;
+            No recent events.
+          </p>
+        ) : (
+          <div data-testid="activity-list">
+            {recent.map((ev, i) => {
+              const evType = ev.type ?? ev.event ?? 'event';
+              const dotColor = eventDotColor(evType);
               return (
-                <button
-                  key={a.public_id}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  aria-controls={`panel-${a.public_id}`}
-                  id={`tab-${a.public_id}`}
-                  onClick={() => setActiveProfile(a.public_id)}
-                  title={`${a.name} (${a.status}) — Ctrl+${i + 1}`}
+                <div
+                  key={ev.id ?? i}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.4rem',
-                    padding: '0.5rem 0.75rem',
-                    background: 'none',
-                    border: 'none',
-                    borderBottom: isActive ? '2px solid var(--accent)' : '2px solid transparent',
-                    color: isActive ? 'var(--text)' : 'var(--muted)',
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    gap: '10px',
+                    padding: '7px 0',
+                    borderBottom: i < recent.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                     fontSize: '13px',
-                    cursor: 'pointer',
                   }}
-                  data-testid={`tab-${a.public_id}`}
                 >
+                  <span className="tag">
+                    <span
+                      className="dot"
+                      style={{ background: dotColor, width: '5px', height: '5px' }}
+                    />
+                    {evType}
+                  </span>
                   <span
-                    aria-hidden="true"
                     style={{
-                      width: '6px',
-                      height: '6px',
-                      borderRadius: '50%',
-                      background: statusColor(a.status),
-                      flexShrink: 0,
-                      display: 'inline-block',
+                      color: 'var(--muted)',
+                      fontSize: '13px',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                     }}
-                  />
-                  {a.name}
-                </button>
+                  >
+                    {ev.payload && typeof ev.payload === 'object'
+                      ? JSON.stringify(ev.payload).slice(0, 80)
+                      : ''}
+                  </span>
+                  <span
+                    style={{
+                      marginLeft: 'auto',
+                      color: 'var(--dim)',
+                      fontSize: '11px',
+                      fontFamily: 'var(--mono)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {fmtRelative(ev.receivedAt)}
+                  </span>
+                </div>
               );
             })}
           </div>
+        )}
+      </div>
+    </>
+  );
+}
 
-          {/* Empty state — no agents registered */}
-          {agents.length === 0 && (
-            <div className="empty-state" data-testid="empty-state">
-              <div className="empty-icon">⊙</div>
-              <div className="empty-title">No agents registered</div>
-              <div className="empty-body">
-                No agents have been registered yet. Start an agent with{' '}
-                <code>edgeplane agent register</code>.
-              </div>
-            </div>
-          )}
+// ── Main component ─────────────────────────────────────────────────────────────
 
-          {/* Active agent pane */}
-          {activeAgent && (
-            <div
-              role="tabpanel"
-              id={`panel-${activeAgent.public_id}`}
-              aria-labelledby={`tab-${activeAgent.public_id}`}
-              style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-              data-testid="active-profile-panel"
-            >
-              <AgentPane key={activeAgent.public_id} agent={activeAgent} isActive />
-            </div>
-          )}
-        </>
-      )}
+export function Dashboard() {
+  return (
+    <div
+      data-testid="dashboard"
+      style={{
+        padding: '20px 18px',
+        height: '100%',
+        overflowY: 'auto',
+        boxSizing: 'border-box',
+      }}
+    >
+      {/* Summary cards */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: '14px',
+        }}
+      >
+        <FleetCard />
+        <WorkCard />
+      </div>
+
+      {/* Recent activity */}
+      <ActivityStrip />
     </div>
   );
 }

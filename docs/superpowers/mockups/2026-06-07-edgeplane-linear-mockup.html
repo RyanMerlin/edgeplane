@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EdgePlane — Linear-anchored mockup</title>
+<link rel="preconnect" href="https://rsms.me/" />
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+<style>
+  /* ─── Linear-anchored token system + EdgePlane flare ─── */
+  :root {
+    /* warm-coherent neutrals — Linear's structure, warmed ~28° to harmonize with rust */
+    --base:#0c0a09; --frame:#141210; --surface:#16130f; --card:#110e0c;
+    --raised:rgba(255,240,230,0.055); --raised-2:rgba(255,240,230,0.10); --input:rgba(255,240,230,0.025);
+    --border:rgba(255,238,224,0.09); --border-subtle:rgba(255,238,224,0.06); --border-strong:#2a2420;
+    --text:#F2EDE6; --text-2:#D6CDC2; --muted:#9A8F84; --dim:#6E6459;
+    /* EdgePlane flare — rust orange (merlin-site #e75b2a) */
+    --accent:#e75b2a; --accent-dim:rgba(231,91,42,0.16); --accent-deep:#b8451e;
+    --ok:#57d08a; --warn:#E6B355; --err:#F2685C; --info:#4a9eda; --purple:#8B5CF6;
+    --font:"InterVariable","Inter","SF Pro Display",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    --mono:"JetBrains Mono","SF Mono",ui-monospace,monospace;
+    --sidebar:232px;
+  }
+  * { box-sizing:border-box; }
+  html,body { height:100%; margin:0; }
+  body {
+    background:var(--base); color:var(--text); font-family:var(--font); font-size:14px;
+    line-height:1.5; -webkit-font-smoothing:antialiased; font-feature-settings:"cv11","ss01";
+  }
+  a { color:inherit; text-decoration:none; }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb { background:var(--raised-2); border-radius:4px; }
+
+  /* ─── Shell ─── */
+  .shell { display:flex; height:100vh; overflow:hidden; }
+  .sidebar {
+    width:var(--sidebar); flex-shrink:0; display:flex; flex-direction:column;
+    padding:10px 8px 8px; border-right:1px solid var(--border); gap:2px;
+  }
+  .brand { display:flex; align-items:center; gap:8px; padding:4px 8px 10px; }
+  .brand .hex { color:var(--accent); font-size:16px; line-height:1; }
+  .brand .wordmark { font-size:13.5px; font-weight:590; color:var(--text); letter-spacing:-0.01em; }
+  .searchrow {
+    display:flex; align-items:center; gap:8px; height:30px; padding:0 8px; margin-bottom:8px;
+    background:var(--input); border:1px solid var(--border-subtle); border-radius:6px;
+    color:var(--dim); font-size:13px; cursor:text;
+  }
+  .searchrow .kbd { margin-left:auto; font-size:11px; color:var(--dim); font-family:var(--mono); }
+
+  .nav { display:flex; flex-direction:column; gap:1px; }
+  .nav-item {
+    display:flex; align-items:center; gap:9px; height:28px; padding:0 8px; border-radius:6px;
+    color:var(--text-2); font-size:13px; font-weight:510; cursor:pointer; user-select:none;
+  }
+  .nav-item .ico { width:15px; height:15px; flex-shrink:0; color:var(--dim); display:grid; place-items:center; }
+  .nav-item:hover { background:var(--raised); }
+  .nav-item.active { background:var(--raised-2); color:var(--text); }
+  .nav-item.active .ico { color:var(--text-2); }
+  .nav-sep { height:1px; background:var(--border-subtle); margin:8px 6px; }
+
+  .sidebar-foot { margin-top:auto; position:relative; }
+  .acct {
+    display:flex; align-items:center; gap:9px; height:34px; padding:0 8px; width:100%;
+    background:none; border:none; border-radius:6px; cursor:pointer; color:var(--text-2);
+    font-family:var(--font); font-size:13px; text-align:left;
+  }
+  .acct:hover { background:var(--raised); }
+  .avatar {
+    width:22px; height:22px; border-radius:5px; background:var(--accent-dim); color:var(--accent);
+    display:grid; place-items:center; font-size:11px; font-weight:590; flex-shrink:0;
+  }
+  .acct .who { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .acct .chev { margin-left:auto; color:var(--dim); font-size:11px; }
+
+  .menu {
+    position:absolute; bottom:42px; left:4px; right:4px; background:var(--frame);
+    border:1px solid var(--border); border-radius:8px; padding:4px; display:none; z-index:20;
+    box-shadow:0 8px 28px rgba(0,0,0,0.5);
+  }
+  .menu.open { display:block; }
+  .menu .subj { padding:6px 8px; font-size:11px; color:var(--dim); font-family:var(--mono);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border-bottom:1px solid var(--border-subtle); margin-bottom:4px; }
+  .menu-item { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:5px;
+    font-size:13px; color:var(--text-2); cursor:pointer; }
+  .menu-item:hover { background:var(--raised); }
+  .menu-item .chev { margin-left:auto; color:var(--dim); }
+  .submenu { margin:2px 0 2px 10px; padding-left:8px; border-left:1px solid var(--border-subtle); display:none; }
+  .submenu.open { display:block; }
+  .menu-item.danger { color:var(--err); }
+
+  /* ─── Content ─── */
+  .content { flex:1; min-width:0; display:flex; flex-direction:column; height:100%; }
+  .topbar {
+    height:44px; flex-shrink:0; display:flex; align-items:center; gap:10px; padding:0 18px;
+    border-bottom:1px solid var(--border-subtle);
+  }
+  .crumb { font-size:13px; color:var(--text-2); font-weight:510; }
+  .crumb .sep { color:var(--dim); margin:0 7px; }
+  .crumb .cur { color:var(--text); }
+  .crumb .link { color:var(--muted); cursor:pointer; }
+  .crumb .link:hover { color:var(--text-2); }
+  .topbar-actions { margin-left:auto; display:flex; gap:8px; }
+  .btn {
+    height:28px; padding:0 13px; border-radius:9999px; font-size:13px; font-weight:510; cursor:pointer;
+    border:1px solid var(--border); background:var(--raised); color:var(--text); font-family:var(--font);
+  }
+  .btn:hover { background:var(--raised-2); }
+  .btn.primary { background:#E5E5E6; color:#08090A; border-color:#E5E5E6; }
+  .btn.ghost { background:transparent; }
+
+  .body { flex:1; min-height:0; overflow:auto; padding:20px 18px; }
+  .screen { display:none; }
+  .screen.active { display:block; }
+
+  /* cards */
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+  .card { background:var(--card); border:1px solid var(--border-subtle); border-radius:10px; padding:16px; }
+  .card h3 { margin:0 0 10px; font-size:11px; font-weight:590; color:var(--dim); letter-spacing:0.02em; }
+  .stat { font-size:28px; font-weight:590; letter-spacing:-0.02em; }
+  .stat .sub { font-size:14px; font-weight:400; color:var(--muted); margin-left:4px; }
+  .card .link { display:inline-block; margin-top:10px; font-size:12.5px; color:var(--accent); cursor:pointer; }
+  .sectlabel { font-size:11px; font-weight:590; color:var(--dim); letter-spacing:0.02em; margin:22px 0 8px; }
+
+  /* dots + tags */
+  .dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; display:inline-block; }
+  .tag { display:inline-flex; align-items:center; gap:5px; height:20px; padding:0 8px; border-radius:2px;
+    background:var(--raised); color:var(--text-2); font-size:11px; font-weight:510; }
+  .tag .dot { width:5px; height:5px; }
+
+  /* table — Linear density */
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  thead th { text-align:left; padding:7px 12px; color:var(--dim); font-weight:510; font-size:11px;
+    border-bottom:1px solid var(--border-subtle); white-space:nowrap; }
+  tbody td { padding:9px 12px; border-bottom:1px solid var(--border-subtle); color:var(--text-2); }
+  tbody tr { cursor:pointer; }
+  tbody tr:hover { background:var(--raised); }
+  .mono { font-family:var(--mono); font-size:12px; }
+  .mono.acc { color:var(--accent); }
+  .cellname { color:var(--text); font-weight:510; }
+
+  /* recent activity */
+  .feed-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border-subtle); font-size:13px; }
+  .feed-row:last-child { border-bottom:none; }
+  .feed-row .t { margin-left:auto; color:var(--dim); font-size:11px; font-family:var(--mono); }
+
+  /* agent detail */
+  .detail { display:flex; flex-direction:column; height:100%; }
+  .id-strip { display:flex; align-items:center; gap:10px; padding:14px 0 14px; border-bottom:1px solid var(--border-subtle); }
+  .id-strip .name { font-size:15px; font-weight:590; color:var(--text); }
+  .id-strip .pid { font-family:var(--mono); font-size:12px; color:var(--accent); }
+  .convo { flex:1; min-height:0; display:flex; flex-direction:column; gap:0; padding-top:6px; }
+  .msgs { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; gap:16px; padding:16px 2px; }
+  .msg { display:flex; gap:12px; max-width:760px; }
+  .msg .who { width:26px; height:26px; border-radius:6px; flex-shrink:0; display:grid; place-items:center; font-size:11px; font-weight:590; }
+  .msg.user .who { background:var(--raised-2); color:var(--text-2); }
+  .msg.agent .who { background:var(--accent-dim); color:var(--accent); }
+  .msg .bubble .role { font-size:12px; font-weight:590; color:var(--text-2); margin-bottom:3px; }
+  .msg .bubble .text { font-size:14px; color:var(--text); font-weight:300; }
+  .msg .bubble .text.dim { color:var(--muted); }
+  .composer { flex-shrink:0; display:flex; align-items:flex-end; gap:8px; padding:10px; margin-top:6px;
+    background:var(--input); border:1px solid var(--border); border-radius:10px; }
+  .composer textarea { flex:1; background:none; border:none; outline:none; color:var(--text); resize:none;
+    font-family:var(--font); font-size:14px; height:24px; }
+  .composer .send { width:28px; height:28px; border-radius:8px; background:var(--accent); color:#08090A;
+    border:none; cursor:pointer; display:grid; place-items:center; font-weight:700; }
+
+  /* domains tree */
+  .tree { font-size:13px; }
+  .tnode { display:flex; align-items:center; gap:8px; height:30px; padding:0 8px; border-radius:6px; cursor:pointer; color:var(--text-2); }
+  .tnode:hover { background:var(--raised); }
+  .tnode .tw { color:var(--dim); width:12px; }
+  .tnode.lvl1 { padding-left:26px; }
+  .tnode.lvl2 { padding-left:46px; color:var(--muted); }
+  .tnode .count { margin-left:auto; font-size:11px; color:var(--dim); font-family:var(--mono); }
+  .tnode .name { color:var(--text); font-weight:510; }
+  .tnode.lvl1 .name, .tnode.lvl2 .name { font-weight:400; color:inherit; }
+
+  /* ── v2 polish: hierarchy, depth, motion ── */
+  body {
+    background:
+      radial-gradient(1100px 520px at 12% -8%, rgba(231,91,42,0.055), transparent 58%),
+      radial-gradient(900px 480px at 100% 0%, rgba(74,158,218,0.028), transparent 55%),
+      var(--base);
+  }
+  .nav-item, .btn, tbody tr, .tnode, .acct, .menu-item, .crumb .link, .cmdk-item { transition:background .12s ease, color .12s ease; }
+  .nav-item.active .ico { color:var(--accent); }   /* active section icon = rust → where-am-I pops */
+  .searchrow { cursor:pointer; }
+  .searchrow:hover { border-color:var(--border); color:var(--muted); }
+
+  /* detail: conversation + right properties rail (Linear issue layout, EdgePlane entities) */
+  .detail-body { flex:1; min-height:0; display:flex; }
+  .detail-main { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .props { width:266px; flex-shrink:0; border-left:1px solid var(--border-subtle); padding:16px 16px 16px 20px; overflow:auto; }
+  .props h4 { margin:0 0 14px; font-size:11px; font-weight:590; color:var(--dim); letter-spacing:0.02em; }
+  .prop { margin-bottom:14px; }
+  .prop .k { font-size:11px; font-weight:510; color:var(--dim); margin-bottom:3px; }
+  .prop .v { font-size:13px; color:var(--text-2); }
+  .prop .v.mono { font-family:var(--mono); font-size:12px; color:var(--accent); }
+  .caps { display:flex; flex-wrap:wrap; gap:5px; }
+
+  /* ⌘K command palette */
+  .cmdk-backdrop { position:fixed; inset:0; background:rgba(8,6,5,0.55); backdrop-filter:blur(2px);
+    display:none; align-items:flex-start; justify-content:center; z-index:100; }
+  .cmdk-backdrop.open { display:flex; }
+  .cmdk { width:min(640px,92vw); margin-top:12vh; background:var(--frame); border:1px solid var(--border);
+    border-radius:12px; overflow:hidden; box-shadow:0 24px 64px rgba(0,0,0,0.6); }
+  .cmdk-input { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--border-subtle); }
+  .cmdk-input .hex { color:var(--accent); font-size:15px; }
+  .cmdk-input input { flex:1; background:none; border:none; outline:none; color:var(--text); font-family:var(--font); font-size:15px; }
+  .cmdk-list { max-height:344px; overflow:auto; padding:6px; }
+  .cmdk-sec { font-size:10px; font-weight:590; color:var(--dim); letter-spacing:0.04em; padding:8px 8px 4px; }
+  .cmdk-item { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:6px; font-size:13.5px; color:var(--text-2); cursor:pointer; }
+  .cmdk-item .i { width:16px; color:var(--dim); text-align:center; }
+  .cmdk-item .hint { margin-left:auto; font-size:11px; color:var(--dim); font-family:var(--mono); }
+  .cmdk-item.active { background:var(--raised); color:var(--text); }
+  .cmdk-item.active .i { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- ─── Sidebar ─── -->
+  <aside class="sidebar">
+    <div class="brand"><span class="hex">⬡</span><span class="wordmark">EdgePlane</span></div>
+    <div class="searchrow" id="cmdkOpen">Search… <span class="kbd">⌘K</span></div>
+    <nav class="nav" id="nav">
+      <div class="nav-item active" data-target="dashboard"><span class="ico">◇</span>Dashboard</div>
+      <div class="nav-item" data-target="agents"><span class="ico">◉</span>Agents</div>
+      <div class="nav-item" data-target="domains"><span class="ico">▤</span>Domains</div>
+      <div class="nav-sep"></div>
+      <div class="nav-item" data-target="feed"><span class="ico">≋</span>Feed</div>
+      <div class="nav-item" data-target="governance"><span class="ico">⚖</span>Governance</div>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="menu" id="menu">
+        <div class="subj">73c5a571f3b7…e8e54020</div>
+        <div class="menu-item" id="settingsItem">⚙ Settings <span class="chev">›</span></div>
+        <div class="submenu" id="settingsSub">
+          <div class="menu-item">Onboarding</div>
+          <div class="menu-item">Preferences</div>
+        </div>
+        <div class="menu-item">☾ Theme</div>
+        <div class="menu-item danger">Logout</div>
+      </div>
+      <button class="acct" id="acctBtn">
+        <span class="avatar">⬡</span><span class="who">Account</span><span class="chev">⌄</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ─── Content ─── -->
+  <main class="content">
+    <div class="topbar">
+      <div class="crumb" id="crumb"><span class="cur">Dashboard</span></div>
+      <div class="topbar-actions" id="actions"></div>
+    </div>
+    <div class="body">
+
+      <!-- Dashboard -->
+      <section class="screen active" data-screen="dashboard">
+        <div class="grid2">
+          <div class="card">
+            <h3>FLEET</h3>
+            <div class="stat"><span style="color:var(--ok)">6</span><span class="sub">/ 7 online</span></div>
+            <div class="link" data-go="agents">Agents →</div>
+          </div>
+          <div class="card">
+            <h3>WORK</h3>
+            <div class="stat">3<span class="sub">domains · 11 missions</span></div>
+            <div class="link" data-go="domains">Domains →</div>
+          </div>
+        </div>
+        <div class="sectlabel">RECENT ACTIVITY</div>
+        <div class="card" style="padding:6px 16px;">
+          <div class="feed-row"><span class="tag"><span class="dot" style="background:var(--accent)"></span>task_claimed</span><span style="color:var(--muted)">aria-research claimed “backfill warehouse”</span><span class="t">12s</span></div>
+          <div class="feed-row"><span class="tag"><span class="dot" style="background:var(--ok)"></span>task_finished</span><span style="color:var(--muted)">aria-engineer finished “web nav pass 1”</span><span class="t">3m</span></div>
+          <div class="feed-row"><span class="tag"><span class="dot" style="background:var(--purple)"></span>governance</span><span style="color:var(--muted)">policy reload — no-delete enforced</span><span class="t">9m</span></div>
+          <div class="feed-row"><span class="tag"><span class="dot" style="background:var(--warn)"></span>heartbeat</span><span style="color:var(--muted)">aria-operator · excalibur</span><span class="t">14m</span></div>
+        </div>
+      </section>
+
+      <!-- Agents -->
+      <section class="screen" data-screen="agents">
+        <table>
+          <thead><tr><th>Status</th><th>Name</th><th>Public ID</th><th>Node</th><th>Last seen</th><th>Source</th></tr></thead>
+          <tbody id="agentRows"></tbody>
+        </table>
+      </section>
+
+      <!-- Agent detail -->
+      <section class="screen" data-screen="detail">
+        <div class="detail">
+          <div class="id-strip">
+            <span class="dot" style="background:var(--ok)"></span>
+            <span class="name">aria-operator</span>
+            <span class="pid">aria-operator-bb05ea7a</span>
+            <span class="tag" style="margin-left:6px"><span class="dot" style="background:var(--ok)"></span>online</span>
+            <span style="margin-left:auto;color:var(--dim);font-size:11px">last seen 8s ago</span>
+          </div>
+          <div class="detail-body">
+            <div class="detail-main">
+              <div class="convo">
+                <div class="msgs">
+                  <div class="msg user"><div class="who">RM</div><div class="bubble"><div class="role">Merlin</div><div class="text">what's the status of the warehouse backfill?</div></div></div>
+                  <div class="msg agent"><div class="who">⬡</div><div class="bubble"><div class="role">aria-operator</div><div class="text">Research is mid-backfill — P4–P9 of the rebuild remain on <span class="mono">feat/invest-warehouse</span>. Last commit 4432193. Want me to have it report ETA?</div></div></div>
+                  <div class="msg user"><div class="who">RM</div><div class="bubble"><div class="role">Merlin</div><div class="text">yes, and flag if anything's blocked</div></div></div>
+                  <div class="msg agent"><div class="who">⬡</div><div class="bubble"><div class="role">aria-operator</div><div class="text dim">Signaling aria-research…</div></div></div>
+                </div>
+                <div class="composer">
+                  <textarea placeholder="Message aria-operator — Enter to send, Shift+Enter for newline"></textarea>
+                  <button class="send">↑</button>
+                </div>
+              </div>
+            </div>
+            <aside class="props">
+              <h4>PROPERTIES</h4>
+              <div class="prop"><div class="k">Status</div><div class="v"><span class="tag"><span class="dot" style="background:var(--ok)"></span>online</span></div></div>
+              <div class="prop"><div class="k">Node</div><div class="v mono" style="color:var(--text-2)">excalibur</div></div>
+              <div class="prop"><div class="k">Runtime</div><div class="v">claude_acp · 0.13.0</div></div>
+              <div class="prop"><div class="k">Capabilities</div><div class="v caps"><span class="tag">fleet-management</span><span class="tag">code-editing</span><span class="tag">self-improve</span></div></div>
+              <div class="prop"><div class="k">Home domain</div><div class="v">Homelab</div></div>
+              <div class="prop"><div class="k">Source</div><div class="v"><span class="tag">both</span></div></div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <!-- Domains -->
+      <section class="screen" data-screen="domains">
+        <div class="tree card" style="padding:8px;">
+          <div class="tnode"><span class="tw">▾</span><span class="name">Apollo</span><span class="count">4 missions</span></div>
+          <div class="tnode lvl1"><span class="tw">▾</span><span class="name">Warehouse rebuild</span><span class="count">9 tasks</span></div>
+          <div class="tnode lvl2"><span class="dot" style="background:var(--ok)"></span><span class="name">P3 · DuckDB schema</span><span class="count">done</span></div>
+          <div class="tnode lvl2"><span class="dot" style="background:var(--accent)"></span><span class="name">P4 · position ingest</span><span class="count">in_progress</span></div>
+          <div class="tnode lvl2"><span class="dot" style="background:var(--dim)"></span><span class="name">P5 · backfill cron</span><span class="count">proposed</span></div>
+          <div class="tnode lvl1"><span class="tw">▸</span><span class="name">Briefing pipeline</span><span class="count">3 tasks</span></div>
+          <div class="tnode"><span class="tw">▸</span><span class="name">Mercury</span><span class="count">5 missions</span></div>
+          <div class="tnode"><span class="tw">▸</span><span class="name">Homelab</span><span class="count">2 missions</span></div>
+        </div>
+      </section>
+
+      <!-- Feed / Governance placeholders -->
+      <section class="screen" data-screen="feed"><div class="card"><h3>FEED</h3><div style="color:var(--muted)">Live event stream (Live | Raw toggle) — styled in the full build.</div></div></section>
+      <section class="screen" data-screen="governance"><div class="card"><h3>GOVERNANCE</h3><div style="color:var(--muted)">Active policy + reload + audit events — styled in the full build.</div></div></section>
+
+    </div>
+  </main>
+</div>
+
+<!-- ⌘K command palette -->
+<div class="cmdk-backdrop" id="cmdk">
+  <div class="cmdk" role="dialog" aria-label="Command palette">
+    <div class="cmdk-input"><span class="hex">⬡</span><input id="cmdkInput" placeholder="Search or jump to…" autocomplete="off" /></div>
+    <div class="cmdk-list" id="cmdkList"></div>
+  </div>
+</div>
+
+<script>
+  const AGENTS = [
+    ["ok","aria-operator","aria-operator-bb05ea7a","excalibur","8s","both"],
+    ["ok","aria-engineer","aria-engineer-0fd11ef0","excalibur","4s","both"],
+    ["ok","aria-research","aria-research-22e6cd17","excalibur","11s","both"],
+    ["ok","aria-merlinlabs","aria-merlinlabs-7dbce9c8","excalibur","30s","both"],
+    ["ok","aria-work","aria-work-c5ff410a","excalibur","1m","both"],
+    ["ok","aria-publisher","aria-publisher-2f3a398a","excalibur","2m","both"],
+    ["err","excalibur-edgeplane-signal","…-b8e28e27","—","6h","cp"],
+  ];
+  const colorFor = s => s==="ok"?"var(--ok)":s==="err"?"var(--err)":"var(--dim)";
+  document.getElementById("agentRows").innerHTML = AGENTS.map(a=>`
+    <tr data-go="detail">
+      <td><span class="tag"><span class="dot" style="background:${colorFor(a[0])}"></span>${a[0]==="ok"?"online":"offline"}</span></td>
+      <td class="cellname">${a[1]}</td>
+      <td class="mono acc">${a[2]}</td>
+      <td class="mono" style="color:var(--dim)">${a[3]}</td>
+      <td style="color:var(--muted)">${a[4]} ago</td>
+      <td><span class="tag">${a[5]}</span></td>
+    </tr>`).join("");
+
+  const CRUMBS = {
+    dashboard:'<span class="cur">Dashboard</span>',
+    agents:'<span class="cur">Agents</span>',
+    detail:'<span class="link" data-go="agents">Agents</span><span class="sep">›</span><span class="cur">aria-operator-bb05ea7a</span>',
+    domains:'<span class="cur">Domains</span>',
+    feed:'<span class="cur">Feed</span>',
+    governance:'<span class="cur">Governance</span>',
+  };
+  const ACTIONS = {
+    agents:'<button class="btn ghost">Filter</button><button class="btn primary">Register agent</button>',
+    domains:'<button class="btn primary">New domain</button>',
+  };
+  function show(target){
+    document.querySelectorAll(".screen").forEach(s=>s.classList.toggle("active", s.dataset.screen===target));
+    document.querySelectorAll(".nav-item").forEach(n=>{
+      const navTarget = n.dataset.target;
+      n.classList.toggle("active", navTarget===target || (target==="detail" && navTarget==="agents"));
+    });
+    document.getElementById("crumb").innerHTML = CRUMBS[target] || "";
+    document.getElementById("actions").innerHTML = ACTIONS[target] || "";
+  }
+  document.addEventListener("click", e=>{
+    const nav = e.target.closest(".nav-item"); if(nav){ show(nav.dataset.target); return; }
+    const go = e.target.closest("[data-go]"); if(go){ show(go.dataset.go); return; }
+  });
+  // account menu + settings submenu
+  const menu=document.getElementById("menu"), sub=document.getElementById("settingsSub");
+  document.getElementById("acctBtn").addEventListener("click", e=>{ e.stopPropagation(); menu.classList.toggle("open"); });
+  document.getElementById("settingsItem").addEventListener("click", e=>{ e.stopPropagation(); sub.classList.toggle("open"); });
+  document.addEventListener("click", ()=>{ menu.classList.remove("open"); sub.classList.remove("open"); });
+  menu.addEventListener("click", e=>e.stopPropagation());
+
+  // ⌘K command palette
+  const CMDS = [
+    ["nav","Go to Dashboard","dashboard","◇"],
+    ["nav","Go to Agents","agents","◉"],
+    ["nav","Go to Domains","domains","▤"],
+    ["nav","Go to Feed","feed","≋"],
+    ["nav","Go to Governance","governance","⚖"],
+    ["agent","aria-operator","detail","⬡"],
+    ["agent","aria-research","detail","⬡"],
+    ["agent","aria-engineer","detail","⬡"],
+    ["action","Register agent","agents","+"],
+    ["action","New domain","domains","+"],
+  ];
+  const cmdk=document.getElementById("cmdk"), cmdkInput=document.getElementById("cmdkInput"), cmdkList=document.getElementById("cmdkList");
+  let cmdkActive=0, cmdkFiltered=CMDS;
+  function renderCmdk(){
+    const q=cmdkInput.value.toLowerCase();
+    cmdkFiltered=CMDS.filter(c=>c[1].toLowerCase().includes(q));
+    if(cmdkActive>=cmdkFiltered.length) cmdkActive=Math.max(0,cmdkFiltered.length-1);
+    let html="", lastSec="";
+    cmdkFiltered.forEach((c,i)=>{
+      const sec={nav:"Navigate",agent:"Agents",action:"Actions"}[c[0]];
+      if(sec!==lastSec){ html+=`<div class="cmdk-sec">${sec}</div>`; lastSec=sec; }
+      html+=`<div class="cmdk-item${i===cmdkActive?' active':''}" data-go="${c[2]}"><span class="i">${c[3]}</span>${c[1]}<span class="hint">↵</span></div>`;
+    });
+    cmdkList.innerHTML=html||'<div class="cmdk-sec">No matches</div>';
+  }
+  function openCmdk(){ cmdk.classList.add("open"); cmdkInput.value=""; cmdkActive=0; renderCmdk(); setTimeout(()=>cmdkInput.focus(),0); }
+  function closeCmdk(){ cmdk.classList.remove("open"); }
+  document.getElementById("cmdkOpen").addEventListener("click", openCmdk);
+  document.addEventListener("keydown", e=>{
+    if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){ e.preventDefault(); cmdk.classList.contains("open")?closeCmdk():openCmdk(); return; }
+    if(!cmdk.classList.contains("open")) return;
+    if(e.key==="Escape"){ closeCmdk(); }
+    else if(e.key==="ArrowDown"){ e.preventDefault(); cmdkActive=Math.min(cmdkActive+1,cmdkFiltered.length-1); renderCmdk(); }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); cmdkActive=Math.max(cmdkActive-1,0); renderCmdk(); }
+    else if(e.key==="Enter"){ const c=cmdkFiltered[cmdkActive]; if(c){ show(c[2]); closeCmdk(); } }
+  });
+  cmdkInput.addEventListener("input", ()=>{ cmdkActive=0; renderCmdk(); });
+  cmdk.addEventListener("click", e=>{
+    if(e.target===cmdk){ closeCmdk(); return; }
+    const it=e.target.closest(".cmdk-item"); if(it){ show(it.dataset.go); closeCmdk(); }
+  });
+</script>
+</body>
+</html>
