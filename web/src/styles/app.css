@@ -1,7 +1,7 @@
-/* ─── Design system v1 ──────────────────────────────────────────────────── */
+/* ─── Design system v2 ──────────────────────────────────────────────────── */
 /* Color tokens, layout shell, flat component primitives.                    */
-/* Hard rules: no glass-morphism, no pills (max 3px buttons / 2px tags),    */
-/* monospace-only font stack, viewport-locked layout.                        */
+/* Inter Variable UI font + monospace (--mono) for machine data.             */
+/* Linear pill buttons (9999px radius), square tags (2px), warm rust tokens. */
 
 @import "tailwindcss";
 
@@ -9,63 +9,82 @@
 
 :root,
 :root[data-theme="dark"] {
-  --base: #0d1117;
-  --surface: #161b22;
-  --surface-2: #1c2938;
-  --border: #21262d;
-  --border-2: #30363d;
-  --muted: #8b949e;
-  --dim: #484f58;
-  --text: #e6edf3;
-  --accent: #58a6ff;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --err: #f85149;
-  --purple: #bc8cff;
-
-  /* semantic-color border variants for action buttons */
-  --ok-border: #238636;
-  --ok-bg: #0d2b1a;
-  --warn-border: #9e6a03;
-  --warn-bg: #1a1500;
-  --err-border: #da3633;
-  --err-bg: #1a0f0f;
-  --accent-border: #1f6feb;
-  --accent-bg: #0d1f3c;
+  --base: #0c0a09;
+  --frame: #141210;
+  --surface: #16130f;
+  --surface-2: #1c1813;
+  --card: #110e0c;
+  --raised: rgba(255, 240, 230, 0.055);
+  --raised-2: rgba(255, 240, 230, 0.1);
+  --input: rgba(255, 240, 230, 0.025);
+  --border: rgba(255, 238, 224, 0.09);
+  --border-2: rgba(255, 238, 224, 0.14);
+  --border-subtle: rgba(255, 238, 224, 0.06);
+  --border-strong: #2a2420;
+  --text: #f2ede6;
+  --text-2: #d6cdc2;
+  --muted: #9a8f84;
+  --dim: #6e6459;
+  --accent: #e75b2a;
+  --accent-dim: rgba(231, 91, 42, 0.16);
+  --accent-deep: #b8451e;
+  --ok: #57d08a;
+  --warn: #e6b355;
+  --err: #f2685c;
+  --info: #4a9eda;
+  --purple: #b48cff;
+  --accent-border: #b8451e;
+  --accent-bg: rgba(231, 91, 42, 0.14);
+  --ok-border: #2f8f5b;
+  --ok-bg: rgba(87, 208, 138, 0.12);
+  --warn-border: #9e7a2a;
+  --warn-bg: rgba(230, 179, 85, 0.12);
+  --err-border: #c4493f;
+  --err-bg: rgba(242, 104, 92, 0.12);
   --purple-border: #6e40c9;
-  --purple-bg: #1a1030;
-
+  --purple-bg: rgba(180, 140, 255, 0.12);
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
   color-scheme: dark;
 }
 
 /* ─── Color tokens — light ─────────────────────────────────────────────── */
 
 :root[data-theme="light"] {
-  --base: #ffffff;
-  --surface: #f6f8fa;
-  --surface-2: #dde8f5;
-  --border: #d0d7de;
-  --border-2: #afb8c1;
-  --muted: #57606a;
-  --dim: #8c959f;
-  --text: #24292f;
-  --accent: #0969da;
-  --ok: #1a7f37;
+  --base: #faf8f5;
+  --frame: #f4f1ec;
+  --surface: #fffdfa;
+  --surface-2: #f0ece5;
+  --card: #fbf9f5;
+  --raised: rgba(40, 28, 20, 0.05);
+  --raised-2: rgba(40, 28, 20, 0.09);
+  --input: rgba(40, 28, 20, 0.02);
+  --border: rgba(40, 28, 20, 0.14);
+  --border-2: rgba(40, 28, 20, 0.2);
+  --border-subtle: rgba(40, 28, 20, 0.09);
+  --border-strong: #d8cfc4;
+  --text: #1f1a16;
+  --text-2: #3c352e;
+  --muted: #6e6459;
+  --dim: #9a8f84;
+  --accent: #c2410c;
+  --accent-dim: rgba(194, 65, 12, 0.12);
+  --accent-deep: #9a3412;
+  --ok: #1f9d57;
   --warn: #9a6700;
-  --err: #cf222e;
-  --purple: #8250df;
-
-  --ok-border: #2da44e;
-  --ok-bg: #dafbe1;
-  --warn-border: #bf8700;
-  --warn-bg: #fff8c5;
-  --err-border: #ff818266;
-  --err-bg: #ffebe9;
-  --accent-border: #54aeff66;
-  --accent-bg: #ddf4ff;
-  --purple-border: #d2a8ff;
-  --purple-bg: #fbefff;
-
+  --err: #cf3b3b;
+  --info: #2563eb;
+  --purple: #7c3aed;
+  --accent-border: #9a3412;
+  --accent-bg: rgba(194, 65, 12, 0.1);
+  --ok-border: #1a7f47;
+  --ok-bg: rgba(31, 157, 87, 0.1);
+  --warn-border: #7a5200;
+  --warn-bg: rgba(154, 103, 0, 0.1);
+  --err-border: #b22a2a;
+  --err-bg: rgba(207, 59, 59, 0.1);
+  --purple-border: #6d28d9;
+  --purple-bg: rgba(124, 58, 237, 0.1);
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
   color-scheme: light;
 }
 
@@ -85,10 +104,11 @@ body {
 body {
   background: var(--base);
   color: var(--text);
-  font-family: "JetBrains Mono", "Cascadia Code", "Fira Code", "SF Mono", ui-monospace, monospace;
+  font-family: "InterVariable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 13px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
 }
 
 /* ─── Layout shell ──────────────────────────────────────────────────────── */
@@ -98,21 +118,27 @@ body {
 /* redesign (left sidebar replaced the top nav).                              */
 
 /* ─── Buttons ────────────────────────────────────────────────────────────  */
-/* max border-radius: 3px — no pills                                          */
+/* Linear pill style — 9999px radius, height 28-32px, weight 510             */
 
 button {
-  border-radius: 3px;
+  border-radius: 9999px;
   border: 1px solid var(--border-2);
-  padding: 3px 10px;
+  height: 28px;
+  padding: 0 13px;
   cursor: pointer;
-  color: var(--muted);
-  background: var(--surface);
+  color: var(--text);
+  background: var(--raised);
   font-family: inherit;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 13px;
+  font-weight: 510;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 button:hover {
-  border-color: var(--muted);
+  background: var(--raised-2);
   color: var(--text);
 }
 button:disabled {
@@ -120,22 +146,46 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* .btn family — pill buttons matching the mockup's Linear style */
+.btn {
+  height: 28px;
+  padding: 0 13px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 510;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--raised);
+  color: var(--text);
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.btn:hover {
+  background: var(--raised-2);
+}
+.btn.primary,
 button.primary {
-  border-color: var(--ok-border);
-  color: var(--ok);
-  background: var(--ok-bg);
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
+.btn.primary:hover,
 button.primary:hover {
-  border-color: var(--ok);
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
 }
-
+.btn.ghost,
 button.ghost {
-  border-color: var(--border-2);
-  color: var(--muted);
   background: transparent;
+  border-color: var(--border);
+  color: var(--text-2);
 }
+.btn.ghost:hover,
 button.ghost:hover {
-  border-color: var(--muted);
+  background: var(--raised);
   color: var(--text);
 }
 
@@ -155,9 +205,10 @@ button.btn-danger {
 }
 
 button.icon-btn {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   padding: 0;
+  border-radius: 9999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -168,13 +219,13 @@ button.icon-btn {
 textarea,
 input,
 select {
-  border-radius: 3px;
-  border: 1px solid var(--border-2);
-  background: var(--base);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--input);
   color: var(--text);
   padding: 4px 8px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 textarea:focus,
@@ -189,46 +240,59 @@ textarea {
 }
 
 /* ─── Tags / status indicators ───────────────────────────────────────────── */
-/* max border-radius: 2px — rectangular tags only                             */
+/* Square tags — border-radius: 2px; optional leading .dot                    */
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
 
 .tag {
   display: inline-flex;
   align-items: center;
-  padding: 1px 5px;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
   border-radius: 2px;
   font-size: 11px;
-  border: 1px solid;
+  font-weight: 510;
+  background: var(--raised);
+  color: var(--text-2);
   font-family: inherit;
+  border: none;
 }
 .tag.ok {
   color: var(--ok);
-  border-color: var(--ok-border);
+  border: 1px solid var(--ok-border);
   background: var(--ok-bg);
 }
 .tag.warn {
   color: var(--warn);
-  border-color: var(--warn-border);
+  border: 1px solid var(--warn-border);
   background: var(--warn-bg);
 }
 .tag.err {
   color: var(--err);
-  border-color: var(--err-border);
+  border: 1px solid var(--err-border);
   background: var(--err-bg);
 }
 .tag.accent {
   color: var(--accent);
-  border-color: var(--accent-border);
+  border: 1px solid var(--accent-border);
   background: var(--accent-bg);
 }
 .tag.purple {
   color: var(--purple);
-  border-color: var(--purple-border);
+  border: 1px solid var(--purple-border);
   background: var(--purple-bg);
 }
 .tag.dim {
   color: var(--muted);
-  border-color: var(--border-2);
-  background: var(--surface);
+  border: 1px solid var(--border-2);
+  background: var(--raised);
 }
 
 /* inline status dot — use ●/○/⟳/✓/✗/▲ character directly */
@@ -377,15 +441,19 @@ pre {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: inherit;
+  font-family: var(--mono);
   font-size: 12px;
   line-height: 1.45;
 }
 
 code {
-  font-family: inherit;
+  font-family: var(--mono);
   font-size: 12px;
   color: var(--accent);
+}
+
+.mono {
+  font-family: var(--mono);
 }
 
 /* ─── Misc utilities ─────────────────────────────────────────────────────── */
