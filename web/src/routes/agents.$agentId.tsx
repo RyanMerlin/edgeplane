@@ -258,7 +258,10 @@ export function AgentDetailPage() {
     'status' in agentQuery.error &&
     (agentQuery.error as { status: number }).status === 404;
 
-  const nodeId = agent ? resolveNodeId(agent.metadata) : null;
+  // For display: hostname from metadata (human-readable).
+  const displayNodeId = agent ? resolveNodeId(agent.metadata) : null;
+  // For ACP attach: runtime node UUID + agent public_id (what the attach proxy + edgeplaned expect).
+  const attachNodeId = agent?.runtime_node_id ?? null;
   const variant = agent ? statusVariant(agent.status) : 'default';
 
   return (
@@ -339,8 +342,8 @@ export function AgentDetailPage() {
             className="detail-main"
             style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}
           >
-            {nodeId ? (
-              <AcpPane nodeId={nodeId} agentId={agentId} />
+            {attachNodeId && agent ? (
+              <AcpPane nodeId={attachNodeId} agentId={agent.public_id} />
             ) : (
               <div
                 style={{ padding: '20px 18px', color: 'var(--muted)', fontSize: '12px' }}
@@ -348,16 +351,16 @@ export function AgentDetailPage() {
               >
                 <div style={{ fontWeight: 600, marginBottom: '4px' }}>Not attachable</div>
                 <div>
-                  This agent does not have a <code>node_id</code> in its metadata. To enable the
-                  live conversation pane, register the agent with{' '}
-                  <code>{`metadata='{"node_id":"<node>"}'`}</code>.
+                  This agent is not enrolled under a runtime node. Live conversation requires the
+                  agent to be enrolled via the runtime API (edgeplaned registers the ACP session
+                  automatically on startup).
                 </div>
               </div>
             )}
           </div>
 
           {/* Right: properties rail */}
-          <PropsRail agent={agent} nodeId={nodeId} />
+          <PropsRail agent={agent} nodeId={displayNodeId} />
         </div>
       )}
     </div>

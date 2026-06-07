@@ -32,6 +32,11 @@ pub struct Agent {
     /// Extracted from `metadata.node_id` (joined server-side, not a DB column).
     #[serde(skip_deserializing, default)]
     pub node_id: Option<String>,
+    /// UUID of the `runtimenode` this agent is enrolled under, if any.
+    /// When present together with `public_id`, the browser can dial the
+    /// ACP attach proxy at `/api/runtime/nodes/{runtime_node_id}/agents/{public_id}/attach`.
+    #[serde(skip_deserializing, default)]
+    pub runtime_node_id: Option<String>,
     #[schema(value_type = String)]
     pub created_at: NaiveDateTime,
     #[schema(value_type = String)]

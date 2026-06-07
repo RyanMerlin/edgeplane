@@ -50,6 +50,7 @@ fn row_to_agent(row: &sqlx::postgres::PgRow) -> Agent {
         domain_name: row.try_get("domain_name").unwrap_or(None),
         runtime,
         node_id,
+        runtime_node_id: row.try_get("runtime_node_id").unwrap_or(None),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -340,7 +341,10 @@ async fn get_agent(
         Err(resp) => return resp,
     };
     match sqlx::query(
-        "SELECT a.*, m.name AS domain_name \
+        "SELECT a.*, m.name AS domain_name, \
+               (SELECT ma.runtime_node_id FROM meshagent ma \
+                WHERE ma.agent_public_id = a.public_id AND ma.runtime_node_id IS NOT NULL \
+                ORDER BY ma.enrolled_at DESC LIMIT 1) AS runtime_node_id \
          FROM agent a LEFT JOIN domain m ON m.id = a.current_domain_id \
          WHERE a.id=$1"
     ).bind(agent_id).fetch_optional(&state.db).await {

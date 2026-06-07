@@ -149,7 +149,7 @@ export const useEventStreamStore = create<EventStreamState>((set, get) => ({
 
     let source: EventSource;
     try {
-      source = new EventSource('/api/events/stream', { withCredentials: true });
+      source = new EventSource('/api/sse', { withCredentials: true });
     } catch (err) {
       set({
         status: 'closed',
