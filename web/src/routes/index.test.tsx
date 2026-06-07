@@ -1,23 +1,14 @@
 /**
  * Fleet dashboard (/) — unit tests.
  *
+ * The Fleet route hosts two sub-views toggled in-page: the Agents table
+ * (default) and the per-agent Conversations console. Tests that exercise the
+ * conversation console switch into it via showConsole() first.
+ *
  * Mocking strategy:
  *   - vi.mock('@/api/client') — controls apiClient.GET / unwrap
  *   - vi.mock('@/lib/conversation/useAcpConversation') — no real WebSocket
  *   - vi.mock('@tanstack/react-router') — no router context required
- *
- * Test surface:
- *   - Tabs render one-per-agent from the merged agent list (generic names AND aria-* names)
- *   - Tab label = agent.name as-is (no stripping)
- *   - No placeholder / disabled "not registered" tabs
- *   - Empty state when zero agents
- *   - Clicking a tab changes the active agent
- *   - Ctrl+N hotkey switches active tab by index
- *   - Not-attachable fallback (agent has no node_id in metadata)
- *   - ConversationView rendered for active, attachable agent
- *   - useAcpConversation called with correct nodeId + agentId
- *   - Loading / error states
- *   - Fleet summary counts
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -35,7 +26,7 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
       ...opts,
       id: _path,
     }),
-    useNavigate: () => vi.fn(),
+    useNavigate: vi.fn(() => vi.fn()),
   };
 });
 
@@ -107,8 +98,8 @@ const sampleCpAgents = [
     public_id: 'analytics-agent-77',
     name: 'analytics-agent-77',
     status: 'online',
-    capabilities: 'reporting',
     // no node_id in metadata — "not attachable" case
+    capabilities: 'reporting',
     metadata: JSON.stringify({ runtime: 'claude-code' }),
     home_domain_id: 'dom-ghi',
     current_domain_id: null,
@@ -130,6 +121,23 @@ function makeQueryClient() {
       mutations: { retry: false },
     },
   });
+}
+
+/** Mock both queries with the standard sample-cp-agents / no-mesh response. */
+async function mockSampleAgents() {
+  const { apiClient, unwrap } = await import('@/api/client');
+  (apiClient.GET as ReturnType<typeof vi.fn>)
+    .mockResolvedValueOnce(sampleCpAgents)
+    .mockResolvedValueOnce([])
+    .mockResolvedValue([]);
+  (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
+}
+
+/** Switch from the default Agents-table view into the Conversations console. */
+async function showConsole() {
+  await waitFor(() => expect(screen.getByTestId('fleet-view-toggle')).toBeInTheDocument());
+  fireEvent.click(screen.getByTestId('fleet-view-console'));
+  await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -155,7 +163,7 @@ describe('FleetDashboard', () => {
     queryClient.clear();
   });
 
-  // ── Loading state ─────────────────────────────────────────────────────────
+  // ── Loading / error states ──────────────────────────────────────────────────
 
   it('shows loading state while both queries are pending', async () => {
     const { apiClient } = await import('@/api/client');
@@ -165,8 +173,6 @@ describe('FleetDashboard', () => {
 
     expect(screen.getByTestId('loading-state')).toBeInTheDocument();
   });
-
-  // ── Error state ───────────────────────────────────────────────────────────
 
   it('shows error state when both queries fail', async () => {
     const { apiClient, unwrap } = await import('@/api/client');
@@ -179,64 +185,79 @@ describe('FleetDashboard', () => {
     expect(screen.getByText(/Failed to load fleet/)).toBeInTheDocument();
   });
 
-  // ── Tab render — one per agent, label = name as-is ────────────────────────
+  // ── Default view + toggle ─────────────────────────────────────────────────
 
-  it('renders exactly one tab per registered agent', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
+  it('defaults to the Agents table view and exposes a Conversations|Agents toggle', async () => {
+    await mockSampleAgents();
+    renderWith(<FleetDashboard />, queryClient);
+
+    await waitFor(() => expect(screen.getByTestId('fleet-view-toggle')).toBeInTheDocument());
+    expect(screen.getByTestId('agents-table')).toBeInTheDocument();
+    expect(screen.getByTestId('fleet-view-table')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('clicking an agent row navigates to its detail route', async () => {
+    const navigate = vi.fn();
+    const router = await import('@tanstack/react-router');
+    (router.useNavigate as ReturnType<typeof vi.fn>).mockReturnValue(navigate);
+    await mockSampleAgents();
 
     renderWith(<FleetDashboard />, queryClient);
 
-    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('agents-table')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('agent-row-aria-engineer-f1a2b3c4'));
 
-    // Tabs keyed by public_id
+    expect(navigate).toHaveBeenCalledWith({
+      to: '/agents/$agentId',
+      params: { agentId: 'aria-engineer-f1a2b3c4' },
+    });
+  });
+
+  it('switching to the Conversations view shows per-agent tabs instead of the table', async () => {
+    await mockSampleAgents();
+    renderWith(<FleetDashboard />, queryClient);
+
+    await waitFor(() => expect(screen.getByTestId('agents-table')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('fleet-view-console'));
+
+    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
+    expect(screen.queryByTestId('agents-table')).not.toBeInTheDocument();
+  });
+
+  // ── Conversations console — tab render ────────────────────────────────────
+
+  it('renders exactly one tab per registered agent', async () => {
+    await mockSampleAgents();
+    renderWith(<FleetDashboard />, queryClient);
+    await showConsole();
+
     for (const agent of sampleCpAgents) {
       expect(screen.getByTestId(`tab-${agent.public_id}`)).toBeInTheDocument();
     }
 
-    // Exactly 3 agent tabs — no extras, no placeholders. Scope to the agent
-    // tablist; the Fleet Conversations|Agents view toggle is a separate tablist.
+    // Exactly 3 agent tabs — scope to the agent tablist; the view toggle is separate.
     const tabs = within(screen.getByTestId('profile-tabs')).getAllByRole('tab');
     expect(tabs).toHaveLength(3);
   });
 
   it('tab labels show agent name as-is (no stripping)', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
+    await mockSampleAgents();
     renderWith(<FleetDashboard />, queryClient);
+    await showConsole();
 
-    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
-
-    // aria-* name should show the full name, not a stripped version
     expect(screen.getByTestId('tab-aria-engineer-f1a2b3c4')).toHaveTextContent(
       'aria-engineer-f1a2b3c4',
     );
-    // Generic name shown verbatim
     expect(screen.getByTestId('tab-worker-bot-99')).toHaveTextContent('worker-bot-99');
   });
 
-  it('no tabs are disabled — no "not registered" placeholder tabs', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
+  it('no agent tabs are disabled — no "not registered" placeholders', async () => {
+    await mockSampleAgents();
     renderWith(<FleetDashboard />, queryClient);
+    await showConsole();
 
-    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
-
-    const tabs = screen.getAllByRole('tab');
+    const tabs = within(screen.getByTestId('profile-tabs')).getAllByRole('tab');
     for (const tab of tabs) {
       expect(tab).not.toBeDisabled();
     }
@@ -247,8 +268,8 @@ describe('FleetDashboard', () => {
   it('shows empty state when no agents are registered', async () => {
     const { apiClient, unwrap } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce([]) // no cp agents
-      .mockResolvedValueOnce([]) // no runtime nodes
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValue([]);
     (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
 
@@ -258,21 +279,13 @@ describe('FleetDashboard', () => {
     expect(screen.getByText(/No agents registered/)).toBeInTheDocument();
   });
 
-  // ── Tab switching via click ───────────────────────────────────────────────
+  // ── Conversations console — tab switching ─────────────────────────────────
 
   it('clicking a different tab changes the active agent', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
+    await mockSampleAgents();
     renderWith(<FleetDashboard />, queryClient);
+    await showConsole();
 
-    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
-
-    // First agent is default active; click the second
     fireEvent.click(screen.getByTestId('tab-worker-bot-99'));
 
     await waitFor(() =>
@@ -284,19 +297,10 @@ describe('FleetDashboard', () => {
     );
   });
 
-  // ── Tab switching via keyboard hotkey ─────────────────────────────────────
-
   it('Ctrl+2 hotkey switches to the second agent (index 1)', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
+    await mockSampleAgents();
     renderWith(<FleetDashboard />, queryClient);
-
-    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
+    await showConsole();
 
     fireEvent.keyDown(document, { key: '2', ctrlKey: true });
 
@@ -306,18 +310,10 @@ describe('FleetDashboard', () => {
   });
 
   it('Ctrl+1 hotkey switches to the first agent (index 0)', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
+    await mockSampleAgents();
     renderWith(<FleetDashboard />, queryClient);
+    await showConsole();
 
-    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
-
-    // Switch to second agent first, then back via hotkey
     fireEvent.click(screen.getByTestId('tab-worker-bot-99'));
     await waitFor(() =>
       expect(screen.getByTestId('tab-worker-bot-99')).toHaveAttribute('aria-selected', 'true'),
@@ -336,16 +332,9 @@ describe('FleetDashboard', () => {
   // ── Not-attachable fallback ───────────────────────────────────────────────
 
   it('shows not-attachable fallback when the active agent has no node_id', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
+    await mockSampleAgents();
     renderWith(<FleetDashboard />, queryClient);
-
-    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
+    await showConsole();
 
     // analytics-agent-77 has no node_id in metadata
     fireEvent.click(screen.getByTestId('tab-analytics-agent-77'));
@@ -358,33 +347,22 @@ describe('FleetDashboard', () => {
   // ── ConversationView rendered for active, attachable agent ────────────────
 
   it('renders ConversationView for the active agent with a valid node_id', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
+    await mockSampleAgents();
     renderWith(<FleetDashboard />, queryClient);
+    await showConsole();
 
     // First agent (aria-engineer-f1a2b3c4) is active by default and has node_id=excalibur
     await waitFor(() => expect(screen.getByTestId('conversation-view')).toBeInTheDocument());
   });
 
   it('calls useAcpConversation with the correct nodeId and agentId', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
     const { useAcpConversation } = await import('@/lib/conversation/useAcpConversation');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
+    await mockSampleAgents();
     renderWith(<FleetDashboard />, queryClient);
+    await showConsole();
 
     await waitFor(() => expect(useAcpConversation as ReturnType<typeof vi.fn>).toHaveBeenCalled());
 
-    // Should be called with the first agent's nodeId and public_id
     expect(useAcpConversation as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
       'excalibur',
       'aria-engineer-f1a2b3c4',
@@ -394,13 +372,7 @@ describe('FleetDashboard', () => {
   // ── Fleet summary ─────────────────────────────────────────────────────────
 
   it('shows fleet online/total summary when agents are loaded', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents) // aria-engineer=online, worker-bot=offline, analytics=online
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
+    await mockSampleAgents();
     renderWith(<FleetDashboard />, queryClient);
 
     await waitFor(() => expect(screen.getByTestId('fleet-summary')).toBeInTheDocument());
@@ -411,17 +383,12 @@ describe('FleetDashboard', () => {
     expect(countEl).toHaveTextContent('3');
   });
 
-  // ── Status badge ──────────────────────────────────────────────────────────
+  // ── Status badge / node id (console pane header) ──────────────────────────
 
   it('shows per-agent status badge in the pane header', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
+    await mockSampleAgents();
     renderWith(<FleetDashboard />, queryClient);
+    await showConsole();
 
     await waitFor(() =>
       expect(screen.getByTestId('agent-status-badge-aria-engineer-f1a2b3c4')).toBeInTheDocument(),
@@ -432,53 +399,13 @@ describe('FleetDashboard', () => {
   });
 
   it('shows node id in the agent pane header when present', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
+    await mockSampleAgents();
     renderWith(<FleetDashboard />, queryClient);
+    await showConsole();
 
     await waitFor(() =>
       expect(screen.getByTestId('agent-node-aria-engineer-f1a2b3c4')).toBeInTheDocument(),
     );
     expect(screen.getByTestId('agent-node-aria-engineer-f1a2b3c4')).toHaveTextContent('excalibur');
-  });
-
-  // ── View toggle (Conversations | Agents) ──────────────────────────────────
-
-  it('defaults to the Conversations view and exposes a Conversations|Agents toggle', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
-    renderWith(<FleetDashboard />, queryClient);
-
-    await waitFor(() => expect(screen.getByTestId('fleet-view-toggle')).toBeInTheDocument());
-    expect(screen.getByTestId('profile-tabs')).toBeInTheDocument();
-    expect(screen.getByTestId('fleet-view-console')).toHaveAttribute('aria-selected', 'true');
-  });
-
-  it('switching to the Agents view shows the agents table instead of conversation tabs', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleCpAgents)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
-    renderWith(<FleetDashboard />, queryClient);
-
-    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
-
-    fireEvent.click(screen.getByTestId('fleet-view-table'));
-
-    await waitFor(() => expect(screen.getByTestId('agents-table')).toBeInTheDocument());
-    expect(screen.queryByTestId('profile-tabs')).not.toBeInTheDocument();
   });
 });

@@ -331,7 +331,7 @@ function ViewToggle({ view, onChange }: { view: FleetView; onChange: (v: FleetVi
 
 export function FleetDashboard() {
   const { agents, isLoading, isError, error } = useMergedAgents();
-  const [view, setView] = useState<FleetView>('console');
+  const [view, setView] = useState<FleetView>('table');
   const navigate = useNavigate();
 
   // Fleet summary counts — derived from merged agents, no extra endpoint needed
