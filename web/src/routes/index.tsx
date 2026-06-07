@@ -35,50 +35,25 @@ type ExplorerTreeResponse = components['schemas']['ExplorerTreeResponse'];
 function fmtRelative(ts: number): string {
   const diffMs = Date.now() - ts;
   const diffSec = Math.floor(diffMs / 1000);
-  if (diffSec < 60) return `${diffSec}s ago`;
+  if (diffSec < 60) return `${diffSec}s`;
   const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffMin < 60) return `${diffMin}m`;
   const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffHr < 24) return `${diffHr}h`;
   return new Date(ts).toLocaleString();
 }
 
-// ── Card shell ─────────────────────────────────────────────────────────────────
-
-function Card({
-  heading,
-  children,
-}: {
-  heading: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: '6px',
-        padding: '14px 16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        minWidth: 0,
-      }}
-    >
-      <div
-        style={{
-          fontSize: '11px',
-          fontWeight: 700,
-          color: 'var(--muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-        }}
-      >
-        {heading}
-      </div>
-      {children}
-    </div>
-  );
+/** Map event type string to a status dot color */
+function eventDotColor(type: string | undefined): string {
+  if (!type) return 'var(--dim)';
+  const t = type.toLowerCase();
+  if (t.includes('finish') || t.includes('complet') || t.includes('heartbeat'))
+    return 'var(--warn)';
+  if (t.includes('claim') || t.includes('creat') || t.includes('start')) return 'var(--accent)';
+  if (t.includes('ok') || t.includes('success') || t.includes('done')) return 'var(--ok)';
+  if (t.includes('fail') || t.includes('err') || t.includes('reject')) return 'var(--err)';
+  if (t.includes('govern') || t.includes('policy')) return 'var(--purple)';
+  return 'var(--dim)';
 }
 
 // ── Fleet card ─────────────────────────────────────────────────────────────────
@@ -90,37 +65,56 @@ function FleetCard() {
   const totalCount = agents.length;
 
   return (
-    <Card heading="Fleet">
-      <div style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'monospace', lineHeight: 1.2 }}>
+    <div
+      style={{
+        background: 'var(--card)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: '10px',
+        padding: '16px',
+      }}
+    >
+      <h3
+        style={{
+          margin: '0 0 10px',
+          fontSize: '11px',
+          fontWeight: 590,
+          color: 'var(--dim)',
+          letterSpacing: '0.02em',
+          textTransform: 'uppercase',
+        }}
+      >
+        Fleet
+      </h3>
+      <div style={{ fontSize: '28px', fontWeight: 590, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
         {isLoading ? (
-          <span className="muted" style={{ fontSize: '13px' }}>
-            Loading…
-          </span>
+          <span style={{ fontSize: '13px', color: 'var(--muted)' }}>Loading…</span>
         ) : (
           <>
             <span data-testid="dash-fleet-online" style={{ color: 'var(--ok)' }}>
               {onlineCount}
             </span>
-            <span style={{ color: 'var(--muted)', fontSize: '14px', fontWeight: 400 }}>
-              {' / '}
-              {totalCount} online
+            <span
+              style={{
+                fontSize: '14px',
+                fontWeight: 400,
+                color: 'var(--muted)',
+                marginLeft: '4px',
+              }}
+            >
+              / {totalCount} online
             </span>
           </>
         )}
       </div>
-      <div style={{ marginTop: '4px' }}>
+      <div style={{ marginTop: '10px' }}>
         <Link
           to="/agents"
-          style={{
-            fontSize: '12px',
-            color: 'var(--accent)',
-            textDecoration: 'none',
-          }}
+          style={{ fontSize: '12.5px', color: 'var(--accent)', display: 'inline-block' }}
         >
           Agents →
         </Link>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -138,43 +132,56 @@ function WorkCard() {
   const missionCount = domains.reduce((sum, d) => sum + d.missions.length, 0);
 
   return (
-    <Card heading="Work">
-      <div style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'monospace', lineHeight: 1.2 }}>
+    <div
+      style={{
+        background: 'var(--card)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: '10px',
+        padding: '16px',
+      }}
+    >
+      <h3
+        style={{
+          margin: '0 0 10px',
+          fontSize: '11px',
+          fontWeight: 590,
+          color: 'var(--dim)',
+          letterSpacing: '0.02em',
+          textTransform: 'uppercase',
+        }}
+      >
+        Work
+      </h3>
+      <div style={{ fontSize: '28px', fontWeight: 590, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
         {treeQuery.isLoading ? (
-          <span className="muted" style={{ fontSize: '13px' }}>
-            Loading…
-          </span>
+          <span style={{ fontSize: '13px', color: 'var(--muted)' }}>Loading…</span>
         ) : (
           <>
-            <span data-testid="dash-work-domains" style={{ color: 'var(--text)' }}>
-              {domainCount}
-            </span>
-            <span style={{ color: 'var(--muted)', fontSize: '14px', fontWeight: 400 }}>
-              {' '}
+            <span data-testid="dash-work-domains">{domainCount}</span>
+            <span
+              style={{
+                fontSize: '14px',
+                fontWeight: 400,
+                color: 'var(--muted)',
+                marginLeft: '4px',
+              }}
+            >
               {domainCount === 1 ? 'domain' : 'domains'}
-              {missionCount > 0 && (
-                <>
-                  {', '}
-                  {missionCount} {missionCount === 1 ? 'mission' : 'missions'}
-                </>
-              )}
+              {missionCount > 0 &&
+                ` · ${missionCount} ${missionCount === 1 ? 'mission' : 'missions'}`}
             </span>
           </>
         )}
       </div>
-      <div style={{ marginTop: '4px' }}>
+      <div style={{ marginTop: '10px' }}>
         <Link
           to="/domains"
-          style={{
-            fontSize: '12px',
-            color: 'var(--accent)',
-            textDecoration: 'none',
-          }}
+          style={{ fontSize: '12.5px', color: 'var(--accent)', display: 'inline-block' }}
         >
           Domains →
         </Link>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -185,47 +192,91 @@ function ActivityStrip() {
   const recent = events.slice(0, 8);
 
   return (
-    <Card heading="Recent activity">
-      {recent.length === 0 ? (
-        <p className="muted" style={{ fontSize: '12px', margin: 0 }} data-testid="activity-empty">
-          No recent events.
-        </p>
-      ) : (
-        <ul
-          style={{
-            listStyle: 'none',
-            margin: 0,
-            padding: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '4px',
-          }}
-          data-testid="activity-list"
-        >
-          {recent.map((ev, i) => (
-            <li
-              key={ev.id ?? i}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '12px',
-              }}
-            >
-              <span
-                className="tag"
-                style={{ fontFamily: 'monospace', fontSize: '11px', flexShrink: 0 }}
-              >
-                {ev.type ?? ev.event ?? 'event'}
-              </span>
-              <span className="dim" style={{ fontSize: '11px', marginLeft: 'auto', flexShrink: 0 }}>
-                {fmtRelative(ev.receivedAt)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
+    <>
+      <div
+        style={{
+          fontSize: '11px',
+          fontWeight: 590,
+          color: 'var(--dim)',
+          letterSpacing: '0.02em',
+          textTransform: 'uppercase',
+          margin: '22px 0 8px',
+        }}
+      >
+        Recent Activity
+      </div>
+      <div
+        style={{
+          background: 'var(--card)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: '10px',
+          padding: '6px 16px',
+        }}
+      >
+        {recent.length === 0 ? (
+          <p
+            className="muted"
+            style={{ fontSize: '12px', margin: '8px 0' }}
+            data-testid="activity-empty"
+          >
+            No recent events.
+          </p>
+        ) : (
+          <div data-testid="activity-list">
+            {recent.map((ev, i) => {
+              const evType = ev.type ?? ev.event ?? 'event';
+              const dotColor = eventDotColor(evType);
+              return (
+                <div
+                  key={ev.id ?? i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '7px 0',
+                    borderBottom: i < recent.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                    fontSize: '13px',
+                  }}
+                >
+                  <span className="tag">
+                    <span
+                      className="dot"
+                      style={{ background: dotColor, width: '5px', height: '5px' }}
+                    />
+                    {evType}
+                  </span>
+                  <span
+                    style={{
+                      color: 'var(--muted)',
+                      fontSize: '13px',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {ev.payload && typeof ev.payload === 'object'
+                      ? JSON.stringify(ev.payload).slice(0, 80)
+                      : ''}
+                  </span>
+                  <span
+                    style={{
+                      marginLeft: 'auto',
+                      color: 'var(--dim)',
+                      fontSize: '11px',
+                      fontFamily: 'var(--mono)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {fmtRelative(ev.receivedAt)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -236,21 +287,18 @@ export function Dashboard() {
     <div
       data-testid="dashboard"
       style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '16px',
-        padding: '20px',
+        padding: '20px 18px',
         height: '100%',
         overflowY: 'auto',
         boxSizing: 'border-box',
       }}
     >
-      {/* Top row: Fleet + Work side by side */}
+      {/* Summary cards */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: '16px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: '14px',
         }}
       >
         <FleetCard />

@@ -6,6 +6,9 @@
  * agent list + loading/error state are passed in (see lib/useMergedAgents.ts),
  * and row clicks are delegated to the caller (which navigates to the detail
  * route /agents/$agentId).
+ *
+ * Columns (Linear density, mockup-aligned):
+ *   Status | Name | Public ID | Node | Runtime | Last seen | Source
  */
 
 import type { MergedAgent } from '@/lib/useMergedAgents';
@@ -64,21 +67,11 @@ function statusVariant(status: string): 'ok' | 'warn' | 'err' | 'default' {
   return 'default';
 }
 
-function sourceVariant(source: MergedAgent['source']): string {
-  if (source === 'both') return 'ok';
-  if (source === 'mesh') return 'accent';
-  return '';
-}
-
-// Inline tag — mirrors app.css `.tag` classes from governance.tsx
-function Tag({
-  variant = 'default',
-  children,
-}: {
-  variant?: 'ok' | 'warn' | 'err' | 'accent' | 'purple' | 'default';
-  children: React.ReactNode;
-}) {
-  return <span className={`tag ${variant !== 'default' ? variant : ''}`}>{children}</span>;
+function statusDotColor(variant: 'ok' | 'warn' | 'err' | 'default'): string {
+  if (variant === 'ok') return 'var(--ok)';
+  if (variant === 'warn') return 'var(--warn)';
+  if (variant === 'err') return 'var(--err)';
+  return 'var(--dim)';
 }
 
 // ── Row ────────────────────────────────────────────────────────────────────────
@@ -91,45 +84,110 @@ function AgentRow({
   onClick: () => void;
 }) {
   const sv = statusVariant(agent.status);
-  const srcClass = sourceVariant(agent.source);
+  const dotColor = statusDotColor(sv);
+
+  const node = coalesceField(agent.metadata, 'node_id', agent.node_name);
+  const runtime = coalesceField(agent.metadata, 'runtime', agent.runtime_kind);
+  const lastSeen = agent.last_heartbeat_at
+    ? fmtRelative(agent.last_heartbeat_at)
+    : fmtRelative(agent.updated_at);
 
   return (
     <tr
-      style={{ cursor: 'pointer' }}
+      style={{ cursor: 'pointer', transition: 'background 0.12s ease' }}
       onClick={onClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onClick();
       }}
       tabIndex={0}
       data-testid={`agent-row-${agent.public_id}`}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)';
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLTableRowElement).style.background = '';
+      }}
     >
-      <td>
-        <Tag variant={sv}>{agent.status}</Tag>
+      {/* Status — square tag with leading dot */}
+      <td style={{ padding: '9px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <span className="tag">
+          <span className="dot" style={{ background: dotColor, width: '5px', height: '5px' }} />
+          {agent.status}
+        </span>
       </td>
-      <td style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--accent)' }}>
-        {agent.public_id}
+
+      {/* Name */}
+      <td
+        className="cellname"
+        style={{
+          padding: '9px 12px',
+          borderBottom: '1px solid var(--border-subtle)',
+          color: 'var(--text)',
+          fontWeight: 510,
+        }}
+      >
+        {agent.name}
       </td>
-      <td>{agent.name}</td>
-      <td className="caps" style={{ fontSize: '11px', color: 'var(--muted)' }}>
-        {agent.capabilities || '—'}
+
+      {/* Public ID — mono accent */}
+      <td
+        style={{
+          padding: '9px 12px',
+          borderBottom: '1px solid var(--border-subtle)',
+        }}
+      >
+        <span className="mono" style={{ color: 'var(--accent)', fontSize: '12px' }}>
+          {agent.public_id}
+        </span>
       </td>
-      <td style={{ fontSize: '10px', color: 'var(--dim)' }}>
-        {coalesceField(agent.metadata, 'runtime', agent.runtime_kind)}
+
+      {/* Node — mono dim */}
+      <td
+        style={{
+          padding: '9px 12px',
+          borderBottom: '1px solid var(--border-subtle)',
+        }}
+      >
+        <span className="mono" style={{ color: 'var(--dim)', fontSize: '12px' }}>
+          {node}
+        </span>
       </td>
-      <td style={{ fontSize: '10px', color: 'var(--dim)' }}>
-        {coalesceField(agent.metadata, 'node_id', agent.node_name)}
+
+      {/* Runtime — mono dim (kept for test assertions on runtime field) */}
+      <td
+        style={{
+          padding: '9px 12px',
+          borderBottom: '1px solid var(--border-subtle)',
+        }}
+      >
+        <span className="mono" style={{ color: 'var(--dim)', fontSize: '12px' }}>
+          {runtime}
+        </span>
       </td>
-      <td style={{ fontSize: '10px', color: 'var(--muted)' }}>
-        {agent.last_heartbeat_at
-          ? fmtRelative(agent.last_heartbeat_at)
-          : fmtRelative(agent.updated_at)}
+
+      {/* Last seen — muted */}
+      <td
+        style={{
+          padding: '9px 12px',
+          borderBottom: '1px solid var(--border-subtle)',
+          color: 'var(--muted)',
+          fontSize: '13px',
+        }}
+      >
+        {lastSeen}
       </td>
-      <td>
-        <span className={srcClass ? `tag ${srcClass}` : 'tag'}>{agent.source}</span>
+
+      {/* Source — plain tag */}
+      <td style={{ padding: '9px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <span className="tag">{agent.source}</span>
       </td>
     </tr>
   );
 }
+
+// ── Column headers ─────────────────────────────────────────────────────────────
+
+const COLUMNS = ['Status', 'Name', 'Public ID', 'Node', 'Runtime', 'Last Seen', 'Source'] as const;
 
 // ── Table ────────────────────────────────────────────────────────────────────
 
@@ -182,33 +240,22 @@ export function AgentsTable({ agents, isLoading, isError, error, onRowClick }: A
   return (
     <div style={{ flex: 1, overflow: 'auto' }}>
       <table
-        style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}
+        style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}
         data-testid="agents-table"
       >
         <thead>
           <tr>
-            {[
-              'Status',
-              'Public ID',
-              'Name',
-              'Capabilities',
-              'Runtime',
-              'Node',
-              'Last Seen',
-              'Source',
-            ].map((col) => (
+            {COLUMNS.map((col) => (
               <th
                 key={col}
                 style={{
                   textAlign: 'left',
-                  padding: '4px 10px',
-                  borderBottom: '1px solid var(--border)',
+                  padding: '7px 12px',
+                  borderBottom: '1px solid var(--border-subtle)',
                   color: 'var(--dim)',
-                  fontWeight: 400,
-                  fontSize: '10px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  background: 'var(--surface)',
+                  fontWeight: 510,
+                  fontSize: '11px',
+                  background: 'transparent',
                   whiteSpace: 'nowrap',
                 }}
               >
