@@ -287,14 +287,17 @@ export function RawEventList({
       </div>
 
       <style>{`
+        /* ── Raw event list layout ────────────────────────────────────────── */
         .matrix-page {
           display: flex;
           flex-direction: column;
           height: 100%;
           overflow: hidden;
         }
+
+        /* Toolbar strip — same density as other pane-header bars */
         .matrix-bar {
-          height: 36px;
+          height: 32px;
           flex-shrink: 0;
           display: flex;
           align-items: center;
@@ -303,6 +306,8 @@ export function RawEventList({
           background: var(--surface);
           border-bottom: 1px solid var(--border);
         }
+
+        /* Scrollable list */
         .matrix-list {
           flex: 1;
           overflow-y: auto;
@@ -315,20 +320,25 @@ export function RawEventList({
           height: 100%;
           min-height: 80px;
         }
+
+        /* Event rows */
         .event-row {
           display: grid;
           grid-template-columns: 72px 140px 1fr 2fr auto;
           gap: 8px;
           align-items: center;
           padding: 4px 10px;
-          border-bottom: 1px solid var(--border);
+          border-bottom: 1px solid var(--border-subtle);
           font-size: 12px;
         }
-        .event-row:hover { background: var(--surface-2); }
+        .event-row:hover { background: var(--raised); }
+
+        /* Timestamp — mono tabular */
         .event-time {
           font-size: 10px;
           color: var(--dim);
           white-space: nowrap;
+          font-family: var(--mono);
           font-variant-numeric: tabular-nums;
         }
         .event-label { display: flex; align-items: center; gap: 4px; }
@@ -336,8 +346,8 @@ export function RawEventList({
         .event-summary-col { overflow: hidden; display: flex; align-items: center; }
         .event-detail-col  { display: flex; align-items: center; }
 
-        /* Type color backgrounds */
-        .event-row.type-error { background: rgba(var(--err-rgb, 200 50 50) / 0.05); }
+        /* Error-type row accent — token-based, no hardcoded color */
+        .event-row.type-error { background: var(--err-bg); }
       `}</style>
     </div>
   );

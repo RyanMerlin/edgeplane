@@ -334,10 +334,7 @@ export function FeedPage() {
   }
 
   return (
-    <div
-      className="feed-page"
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
-    >
+    <div className="feed-page">
       {/* View toggle: curated live timeline vs raw event stream (absorbed Matrix) */}
       <div
         className="feed-view-bar"
@@ -345,26 +342,29 @@ export function FeedPage() {
         aria-label="Feed view"
         data-testid="feed-view-toggle"
       >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === 'live'}
-          className={`fvbtn${view === 'live' ? ' on' : ''}`}
-          onClick={() => setView('live')}
-          data-testid="feed-view-live"
-        >
-          Live
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === 'raw'}
-          className={`fvbtn${view === 'raw' ? ' on' : ''}`}
-          onClick={() => setView('raw')}
-          data-testid="feed-view-raw"
-        >
-          Raw
-        </button>
+        {/* Linear segmented control — active pill = --raised-2/--text, idle = --muted */}
+        <div className="seg-ctrl">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'live'}
+            className={`seg-btn${view === 'live' ? ' seg-active' : ''}`}
+            onClick={() => setView('live')}
+            data-testid="feed-view-live"
+          >
+            Live
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'raw'}
+            className={`seg-btn${view === 'raw' ? ' seg-active' : ''}`}
+            onClick={() => setView('raw')}
+            data-testid="feed-view-raw"
+          >
+            Raw
+          </button>
+        </div>
       </div>
 
       {view === 'raw' ? (
@@ -608,7 +608,7 @@ export function FeedPage() {
       )}
 
       <style>{`
-        /* Feed page layout */
+        /* ── Feed page layout ─────────────────────────────────────────────── */
         .feed-page {
           display: flex;
           flex-direction: column;
@@ -616,32 +616,54 @@ export function FeedPage() {
           overflow: hidden;
         }
 
-        /* View toggle bar (Live | Raw) */
+        /* ── View toggle bar — Linear segmented control ───────────────────── */
         .feed-view-bar {
-          height: 30px;
+          height: 32px;
           flex-shrink: 0;
           display: flex;
           align-items: center;
-          gap: 4px;
           padding: 0 12px;
           background: var(--surface);
           border-bottom: 1px solid var(--border);
         }
-        .fvbtn {
-          padding: 2px 10px;
-          font-size: 11px;
-          border-radius: 3px;
-          border: 1px solid var(--border-2);
-          background: var(--base);
-          color: var(--muted);
-          cursor: pointer;
-        }
-        .fvbtn.on {
-          border-color: var(--accent);
-          background: var(--accent);
-          color: var(--base);
+
+        /* Segmented control pill container */
+        .seg-ctrl {
+          display: inline-flex;
+          align-items: center;
+          background: var(--raised);
+          border: 1px solid var(--border);
+          border-radius: 9999px;
+          padding: 2px;
+          gap: 1px;
         }
 
+        /* Idle segment */
+        .seg-btn {
+          height: 22px;
+          padding: 0 12px;
+          border-radius: 9999px;
+          border: none;
+          background: transparent;
+          color: var(--muted);
+          font-size: 12px;
+          font-weight: 510;
+          font-family: inherit;
+          cursor: pointer;
+          transition: background 0.1s ease, color 0.1s ease;
+        }
+        .seg-btn:hover {
+          color: var(--text-2);
+          background: var(--raised);
+        }
+
+        /* Active segment */
+        .seg-btn.seg-active {
+          background: var(--raised-2);
+          color: var(--text);
+        }
+
+        /* ── Filter bar ───────────────────────────────────────────────────── */
         #filterbar {
           height: 34px;
           flex-shrink: 0;
@@ -657,9 +679,9 @@ export function FeedPage() {
           display: flex;
           align-items: center;
           gap: 5px;
-          background: var(--base);
-          border: 1px solid var(--border-2);
-          border-radius: 3px;
+          background: var(--input);
+          border: 1px solid var(--border);
+          border-radius: 6px;
           padding: 2px 8px;
           font-size: 11px;
           color: var(--muted);
@@ -676,31 +698,57 @@ export function FeedPage() {
           padding: 0;
         }
         .fi input::placeholder { color: var(--dim); }
-        .fsep { color: var(--border); font-size: 14px; margin: 0 2px; }
+
+        .fsep { color: var(--border-subtle); font-size: 14px; margin: 0 2px; }
+
+        /* Chip filter buttons — use .btn base from app.css */
+        .chip {
+          height: 22px;
+          padding: 0 9px;
+          border-radius: 9999px;
+          border: 1px solid var(--border);
+          background: transparent;
+          color: var(--muted);
+          font-size: 11px;
+          font-weight: 510;
+          font-family: inherit;
+          cursor: pointer;
+          transition: background 0.1s ease, color 0.1s ease;
+        }
+        .chip:hover { background: var(--raised); color: var(--text-2); }
+        .chip.on { background: var(--raised-2); color: var(--text); border-color: var(--border-2); }
         .chip.on-err { border-color: var(--err-border); color: var(--err); background: var(--err-bg); }
         .chip.on-gov { border-color: var(--purple-border); color: var(--purple); background: var(--purple-bg); }
+
+        /* Alerts toggle */
         .alerts-toggle {
-          background: var(--base);
-          border: 1px solid var(--border-2);
-          border-radius: 3px;
-          padding: 2px 8px;
-          font-size: 11px;
-          color: var(--muted);
           display: flex;
           align-items: center;
           gap: 5px;
+          height: 22px;
+          padding: 0 9px;
+          border-radius: 9999px;
+          border: 1px solid var(--border);
+          background: transparent;
+          color: var(--muted);
+          font-size: 11px;
+          font-family: inherit;
           cursor: pointer;
+          transition: background 0.1s ease, color 0.1s ease;
         }
+        .alerts-toggle:hover { background: var(--raised); }
         .alerts-toggle.active-warn { border-color: var(--warn-border); color: var(--warn); background: var(--warn-bg); }
+
         .alert-dot {
-          width: 7px;
-          height: 7px;
+          width: 6px;
+          height: 6px;
           border-radius: 50%;
           background: var(--dim);
           display: inline-block;
           flex-shrink: 0;
         }
         .alert-dot.on { background: var(--warn); }
+
         .fr {
           margin-left: auto;
           display: flex;
@@ -711,7 +759,7 @@ export function FeedPage() {
           white-space: nowrap;
         }
 
-        /* Content area */
+        /* ── Content area ─────────────────────────────────────────────────── */
         #content {
           flex: 1;
           display: flex;
@@ -719,7 +767,7 @@ export function FeedPage() {
           min-height: 0;
         }
 
-        /* Feed list */
+        /* ── Feed list ────────────────────────────────────────────────────── */
         #feed-list {
           flex: 1;
           display: flex;
@@ -733,7 +781,7 @@ export function FeedPage() {
           gap: 0 6px;
           padding: 3px 12px;
           background: var(--surface);
-          border-bottom: 1px solid var(--border-2);
+          border-bottom: 1px solid var(--border-subtle);
           color: var(--dim);
           font-size: 10px;
           text-transform: uppercase;
@@ -745,29 +793,45 @@ export function FeedPage() {
           overflow-y: auto;
         }
         .feed-empty { padding: 24px 12px; font-size: 12px; }
+
+        /* Feed rows */
         .f-row {
           display: grid;
           grid-template-columns: 68px 140px 160px 120px 1fr;
           gap: 0 6px;
-          padding: 3px 12px;
-          border-bottom: 1px solid var(--border);
+          padding: 4px 12px;
+          border-bottom: 1px solid var(--border-subtle);
           align-items: baseline;
           cursor: pointer;
+          width: 100%;
+          text-align: left;
+          background: transparent;
+          border-radius: 0;
+          border-left: none;
+          border-top: none;
+          border-right: none;
+          height: auto;
         }
-        .f-row:hover { background: var(--surface); }
-        .f-row.sel { background: var(--surface-2); }
-        .f-row.a-err { border-left: 2px solid var(--err); background: #120a0a; }
-        .f-row.a-warn { border-left: 2px solid var(--warn); background: #110f00; }
-        .f-row.a-gov { border-left: 2px solid var(--purple); background: #0a0f1a; }
-        .f-row.sel.a-err  { background: #1f1010; }
-        .f-row.sel.a-warn { background: #1f1a0a; }
-        .f-row.sel.a-gov  { background: #141c30; }
-        .f-time  { color: var(--dim); font-size: 11px; }
+        .f-row:hover { background: var(--raised); }
+        .f-row.sel { background: var(--raised-2); }
+
+        /* Alert row accents — left border in status color */
+        .f-row.a-err { border-left: 2px solid var(--err); background: var(--err-bg); }
+        .f-row.a-warn { border-left: 2px solid var(--warn); background: var(--warn-bg); }
+        .f-row.a-gov { border-left: 2px solid var(--purple); background: var(--purple-bg); }
+        .f-row.sel.a-err  { background: var(--err-bg); opacity: 0.85; }
+        .f-row.sel.a-warn { background: var(--warn-bg); opacity: 0.85; }
+        .f-row.sel.a-gov  { background: var(--purple-bg); opacity: 0.85; }
+
+        /* Feed cell styles */
+        .f-time  { color: var(--dim); font-size: 11px; font-family: var(--mono); }
         .f-agent { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .f-ctx   { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .f-type  { font-size: 11px; font-weight: 600; white-space: nowrap; }
         .f-msg   { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .f-msg.purple-txt { color: var(--purple); }
+
+        /* Event type color classes */
         .ty-start  { color: var(--accent); }
         .ty-finish { color: var(--ok); }
         .ty-err    { color: var(--err); font-weight: 700; }
@@ -778,7 +842,7 @@ export function FeedPage() {
         .ty-done   { color: var(--ok); font-weight: 700; }
         .ty-warn   { color: var(--warn); font-weight: 700; }
 
-        /* Detail panel */
+        /* ── Detail panel ─────────────────────────────────────────────────── */
         #detail-panel {
           width: 380px;
           flex-shrink: 0;
@@ -808,7 +872,7 @@ export function FeedPage() {
           justify-content: center;
           font-size: 12px;
         }
-        .d-sep { border-top: 1px solid var(--border); margin: 8px 0 6px; }
+        .d-sep { border-top: 1px solid var(--border-subtle); margin: 8px 0 6px; }
         .d-sec {
           font-size: 10px;
           color: var(--dim);
@@ -818,11 +882,11 @@ export function FeedPage() {
         }
         .payload-block {
           background: var(--surface);
-          border: 1px solid var(--border-2);
+          border: 1px solid var(--border-subtle);
           padding: 7px 10px;
           font-size: 11px;
           line-height: 1.7;
-          font-family: inherit;
+          font-family: var(--mono);
           margin-bottom: 6px;
           white-space: pre-wrap;
           word-break: break-all;
@@ -832,7 +896,7 @@ export function FeedPage() {
         .pv-err { color: var(--err); }
         .ctx-log { font-size: 11px; color: var(--dim); line-height: 1.9; }
 
-        /* Status bar */
+        /* ── Status bar ───────────────────────────────────────────────────── */
         .feed-statusbar {
           height: 22px;
           flex-shrink: 0;
