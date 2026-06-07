@@ -1,9 +1,10 @@
+import { AppShell } from '@/components/shell/AppShell';
 import { api } from '@/lib/api/http';
 import { useAuthStore } from '@/stores/auth';
 import { useToastStore } from '@/stores/toast';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Link, Outlet, createRootRoute, useNavigate, useRouter } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Outlet, createRootRoute, useRouter } from '@tanstack/react-router';
+import { useEffect, useRef, useState } from 'react';
 
 // ── QueryClient singleton ─────────────────────────────────────────────────────
 
@@ -17,149 +18,7 @@ export const Route = createRootRoute({
   component: RootLayout,
 });
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function initials(subject: string | null): string {
-  if (!subject) return 'U';
-  const atIdx = subject.indexOf('@');
-  const local = atIdx > 0 ? subject.slice(0, atIdx) : subject;
-  const parts = local.split(/[._\-\s]+/).filter(Boolean);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-  return local.slice(0, 2).toUpperCase();
-}
-
-function applyTheme(next: string) {
-  if (typeof document !== 'undefined') {
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem('edgeplane:theme', next);
-  }
-}
-
 // ── Components ────────────────────────────────────────────────────────────────
-
-function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
-  return (
-    <Link
-      to={to}
-      className="nav-tab"
-      activeProps={{ className: 'nav-tab active' }}
-      activeOptions={{ exact: to === '/' }}
-    >
-      {children}
-    </Link>
-  );
-}
-
-function TopBar({
-  theme,
-  onToggleTheme,
-  userSubject,
-  onLogout,
-}: {
-  theme: string;
-  onToggleTheme: () => void;
-  userSubject: string | null;
-  onLogout: () => Promise<void>;
-}) {
-  const [showMenu, setShowMenu] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (showMenu && menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowMenu(false);
-      }
-    }
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
-  }, [showMenu]);
-
-  return (
-    <div className="topbar">
-      <span className="topbar-logo">EdgePlane</span>
-
-      <NavLink to="/">Fleet</NavLink>
-      <NavLink to="/ai">Console</NavLink>
-      <NavLink to="/explorer">Explorer</NavLink>
-      <NavLink to="/feed">Feed</NavLink>
-      <NavLink to="/governance">Governance</NavLink>
-
-      <div className="topbar-right">
-        <button
-          type="button"
-          className="icon-btn ghost"
-          onClick={onToggleTheme}
-          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
-        >
-          {theme === 'dark' ? '☀' : '☾'}
-        </button>
-
-        <div className="avatar-menu" ref={menuRef}>
-          <button
-            type="button"
-            className="avatar"
-            onClick={() => setShowMenu((v) => !v)}
-            title={userSubject ?? 'User menu'}
-            aria-haspopup="true"
-            aria-expanded={showMenu}
-          >
-            {initials(userSubject)}
-          </button>
-          {showMenu && (
-            <div className="avatar-dropdown" role="menu">
-              {userSubject && <div className="avatar-subject">{userSubject}</div>}
-              <button type="button" role="menuitem" onClick={() => setShowMenu(false)}>
-                Profile
-              </button>
-              <button type="button" role="menuitem" onClick={() => setShowMenu(false)}>
-                Settings
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="menu-onboarding"
-                onClick={() => {
-                  setShowMenu(false);
-                  navigate({ to: '/onboarding' });
-                }}
-              >
-                Onboarding
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="logout-item"
-                onClick={async () => {
-                  setShowMenu(false);
-                  await onLogout();
-                }}
-              >
-                Logout
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatusBar() {
-  return (
-    <div className="statusbar">
-      <div className="statusbar-left">
-        <span className="ok">●</span>
-        <span>Connected</span>
-      </div>
-      <div className="statusbar-right">
-        <span>EdgePlane</span>
-      </div>
-    </div>
-  );
-}
 
 function LoginScreen() {
   const startOidcLogin = useAuthStore((s) => s.startOidcLogin);
@@ -226,13 +85,10 @@ function LoginScreen() {
 function RootLayout() {
   const loggedIn = useAuthStore((s) => s.loggedIn);
   const bootstrapped = useAuthStore((s) => s.bootstrapped);
-  const userSubject = useAuthStore((s) => s.userSubject);
   const bootstrap = useAuthStore((s) => s.bootstrap);
   const loginWithCookieSession = useAuthStore((s) => s.loginWithCookieSession);
-  const logout = useAuthStore((s) => s.logout);
   const setUserSubject = useAuthStore((s) => s.setUserSubject);
 
-  const [theme, setTheme] = useState('dark');
   const [toast, setToast] = useState<string | null>(null);
   const storeToast = useToastStore((s) => s.message);
 
@@ -245,22 +101,6 @@ function RootLayout() {
   bootstrapRef.current = bootstrap;
   loginRef.current = loginWithCookieSession;
   setSubjectRef.current = setUserSubject;
-
-  // ── Theme init ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const saved = localStorage.getItem('edgeplane:theme');
-    const initial = saved === 'light' ? 'light' : 'dark';
-    setTheme(initial);
-    applyTheme(initial);
-  }, []);
-
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      applyTheme(next);
-      return next;
-    });
-  }, []);
 
   // ── OIDC grant exchange + bootstrap ──────────────────────────────────────
   useEffect(() => {
@@ -316,18 +156,9 @@ function RootLayout() {
           </div>
         </div>
       ) : loggedIn ? (
-        <div className="app-shell">
-          <TopBar
-            theme={theme}
-            onToggleTheme={toggleTheme}
-            userSubject={userSubject}
-            onLogout={logout}
-          />
-          <div className="app-content">
-            <Outlet />
-          </div>
-          <StatusBar />
-        </div>
+        <AppShell>
+          <Outlet />
+        </AppShell>
       ) : (
         <LoginScreen />
       )}
