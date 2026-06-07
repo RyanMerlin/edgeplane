@@ -174,6 +174,46 @@
   .tnode .count { margin-left:auto; font-size:11px; color:var(--dim); font-family:var(--mono); }
   .tnode .name { color:var(--text); font-weight:510; }
   .tnode.lvl1 .name, .tnode.lvl2 .name { font-weight:400; color:inherit; }
+
+  /* ── v2 polish: hierarchy, depth, motion ── */
+  body {
+    background:
+      radial-gradient(1100px 520px at 12% -8%, rgba(231,91,42,0.055), transparent 58%),
+      radial-gradient(900px 480px at 100% 0%, rgba(74,158,218,0.028), transparent 55%),
+      var(--base);
+  }
+  .nav-item, .btn, tbody tr, .tnode, .acct, .menu-item, .crumb .link, .cmdk-item { transition:background .12s ease, color .12s ease; }
+  .nav-item.active .ico { color:var(--accent); }   /* active section icon = rust → where-am-I pops */
+  .searchrow { cursor:pointer; }
+  .searchrow:hover { border-color:var(--border); color:var(--muted); }
+
+  /* detail: conversation + right properties rail (Linear issue layout, EdgePlane entities) */
+  .detail-body { flex:1; min-height:0; display:flex; }
+  .detail-main { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .props { width:266px; flex-shrink:0; border-left:1px solid var(--border-subtle); padding:16px 16px 16px 20px; overflow:auto; }
+  .props h4 { margin:0 0 14px; font-size:11px; font-weight:590; color:var(--dim); letter-spacing:0.02em; }
+  .prop { margin-bottom:14px; }
+  .prop .k { font-size:11px; font-weight:510; color:var(--dim); margin-bottom:3px; }
+  .prop .v { font-size:13px; color:var(--text-2); }
+  .prop .v.mono { font-family:var(--mono); font-size:12px; color:var(--accent); }
+  .caps { display:flex; flex-wrap:wrap; gap:5px; }
+
+  /* ⌘K command palette */
+  .cmdk-backdrop { position:fixed; inset:0; background:rgba(8,6,5,0.55); backdrop-filter:blur(2px);
+    display:none; align-items:flex-start; justify-content:center; z-index:100; }
+  .cmdk-backdrop.open { display:flex; }
+  .cmdk { width:min(640px,92vw); margin-top:12vh; background:var(--frame); border:1px solid var(--border);
+    border-radius:12px; overflow:hidden; box-shadow:0 24px 64px rgba(0,0,0,0.6); }
+  .cmdk-input { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--border-subtle); }
+  .cmdk-input .hex { color:var(--accent); font-size:15px; }
+  .cmdk-input input { flex:1; background:none; border:none; outline:none; color:var(--text); font-family:var(--font); font-size:15px; }
+  .cmdk-list { max-height:344px; overflow:auto; padding:6px; }
+  .cmdk-sec { font-size:10px; font-weight:590; color:var(--dim); letter-spacing:0.04em; padding:8px 8px 4px; }
+  .cmdk-item { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:6px; font-size:13.5px; color:var(--text-2); cursor:pointer; }
+  .cmdk-item .i { width:16px; color:var(--dim); text-align:center; }
+  .cmdk-item .hint { margin-left:auto; font-size:11px; color:var(--dim); font-family:var(--mono); }
+  .cmdk-item.active { background:var(--raised); color:var(--text); }
+  .cmdk-item.active .i { color:var(--accent); }
 </style>
 </head>
 <body>
@@ -181,7 +221,7 @@
   <!-- ─── Sidebar ─── -->
   <aside class="sidebar">
     <div class="brand"><span class="hex">⬡</span><span class="wordmark">EdgePlane</span></div>
-    <div class="searchrow">Search… <span class="kbd">⌘K</span></div>
+    <div class="searchrow" id="cmdkOpen">Search… <span class="kbd">⌘K</span></div>
     <nav class="nav" id="nav">
       <div class="nav-item active" data-target="dashboard"><span class="ico">◇</span>Dashboard</div>
       <div class="nav-item" data-target="agents"><span class="ico">◉</span>Agents</div>
@@ -254,20 +294,32 @@
             <span class="name">aria-operator</span>
             <span class="pid">aria-operator-bb05ea7a</span>
             <span class="tag" style="margin-left:6px"><span class="dot" style="background:var(--ok)"></span>online</span>
-            <span style="color:var(--dim);font-size:11px;font-family:var(--mono)">excalibur</span>
             <span style="margin-left:auto;color:var(--dim);font-size:11px">last seen 8s ago</span>
           </div>
-          <div class="convo">
-            <div class="msgs">
-              <div class="msg user"><div class="who">RM</div><div class="bubble"><div class="role">Merlin</div><div class="text">what's the status of the warehouse backfill?</div></div></div>
-              <div class="msg agent"><div class="who">⬡</div><div class="bubble"><div class="role">aria-operator</div><div class="text">Research is mid-backfill — P4–P9 of the rebuild remain on <span class="mono">feat/invest-warehouse</span>. Last commit 4432193. Want me to have it report ETA?</div></div></div>
-              <div class="msg user"><div class="who">RM</div><div class="bubble"><div class="role">Merlin</div><div class="text">yes, and flag if anything's blocked</div></div></div>
-              <div class="msg agent"><div class="who">⬡</div><div class="bubble"><div class="role">aria-operator</div><div class="text dim">Signaling aria-research…</div></div></div>
+          <div class="detail-body">
+            <div class="detail-main">
+              <div class="convo">
+                <div class="msgs">
+                  <div class="msg user"><div class="who">RM</div><div class="bubble"><div class="role">Merlin</div><div class="text">what's the status of the warehouse backfill?</div></div></div>
+                  <div class="msg agent"><div class="who">⬡</div><div class="bubble"><div class="role">aria-operator</div><div class="text">Research is mid-backfill — P4–P9 of the rebuild remain on <span class="mono">feat/invest-warehouse</span>. Last commit 4432193. Want me to have it report ETA?</div></div></div>
+                  <div class="msg user"><div class="who">RM</div><div class="bubble"><div class="role">Merlin</div><div class="text">yes, and flag if anything's blocked</div></div></div>
+                  <div class="msg agent"><div class="who">⬡</div><div class="bubble"><div class="role">aria-operator</div><div class="text dim">Signaling aria-research…</div></div></div>
+                </div>
+                <div class="composer">
+                  <textarea placeholder="Message aria-operator — Enter to send, Shift+Enter for newline"></textarea>
+                  <button class="send">↑</button>
+                </div>
+              </div>
             </div>
-            <div class="composer">
-              <textarea placeholder="Message aria-operator — Enter to send, Shift+Enter for newline"></textarea>
-              <button class="send">↑</button>
-            </div>
+            <aside class="props">
+              <h4>PROPERTIES</h4>
+              <div class="prop"><div class="k">Status</div><div class="v"><span class="tag"><span class="dot" style="background:var(--ok)"></span>online</span></div></div>
+              <div class="prop"><div class="k">Node</div><div class="v mono" style="color:var(--text-2)">excalibur</div></div>
+              <div class="prop"><div class="k">Runtime</div><div class="v">claude_acp · 0.13.0</div></div>
+              <div class="prop"><div class="k">Capabilities</div><div class="v caps"><span class="tag">fleet-management</span><span class="tag">code-editing</span><span class="tag">self-improve</span></div></div>
+              <div class="prop"><div class="k">Home domain</div><div class="v">Homelab</div></div>
+              <div class="prop"><div class="k">Source</div><div class="v"><span class="tag">both</span></div></div>
+            </aside>
           </div>
         </div>
       </section>
@@ -292,6 +344,14 @@
 
     </div>
   </main>
+</div>
+
+<!-- ⌘K command palette -->
+<div class="cmdk-backdrop" id="cmdk">
+  <div class="cmdk" role="dialog" aria-label="Command palette">
+    <div class="cmdk-input"><span class="hex">⬡</span><input id="cmdkInput" placeholder="Search or jump to…" autocomplete="off" /></div>
+    <div class="cmdk-list" id="cmdkList"></div>
+  </div>
 </div>
 
 <script>
@@ -346,6 +406,50 @@
   document.getElementById("settingsItem").addEventListener("click", e=>{ e.stopPropagation(); sub.classList.toggle("open"); });
   document.addEventListener("click", ()=>{ menu.classList.remove("open"); sub.classList.remove("open"); });
   menu.addEventListener("click", e=>e.stopPropagation());
+
+  // ⌘K command palette
+  const CMDS = [
+    ["nav","Go to Dashboard","dashboard","◇"],
+    ["nav","Go to Agents","agents","◉"],
+    ["nav","Go to Domains","domains","▤"],
+    ["nav","Go to Feed","feed","≋"],
+    ["nav","Go to Governance","governance","⚖"],
+    ["agent","aria-operator","detail","⬡"],
+    ["agent","aria-research","detail","⬡"],
+    ["agent","aria-engineer","detail","⬡"],
+    ["action","Register agent","agents","+"],
+    ["action","New domain","domains","+"],
+  ];
+  const cmdk=document.getElementById("cmdk"), cmdkInput=document.getElementById("cmdkInput"), cmdkList=document.getElementById("cmdkList");
+  let cmdkActive=0, cmdkFiltered=CMDS;
+  function renderCmdk(){
+    const q=cmdkInput.value.toLowerCase();
+    cmdkFiltered=CMDS.filter(c=>c[1].toLowerCase().includes(q));
+    if(cmdkActive>=cmdkFiltered.length) cmdkActive=Math.max(0,cmdkFiltered.length-1);
+    let html="", lastSec="";
+    cmdkFiltered.forEach((c,i)=>{
+      const sec={nav:"Navigate",agent:"Agents",action:"Actions"}[c[0]];
+      if(sec!==lastSec){ html+=`<div class="cmdk-sec">${sec}</div>`; lastSec=sec; }
+      html+=`<div class="cmdk-item${i===cmdkActive?' active':''}" data-go="${c[2]}"><span class="i">${c[3]}</span>${c[1]}<span class="hint">↵</span></div>`;
+    });
+    cmdkList.innerHTML=html||'<div class="cmdk-sec">No matches</div>';
+  }
+  function openCmdk(){ cmdk.classList.add("open"); cmdkInput.value=""; cmdkActive=0; renderCmdk(); setTimeout(()=>cmdkInput.focus(),0); }
+  function closeCmdk(){ cmdk.classList.remove("open"); }
+  document.getElementById("cmdkOpen").addEventListener("click", openCmdk);
+  document.addEventListener("keydown", e=>{
+    if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){ e.preventDefault(); cmdk.classList.contains("open")?closeCmdk():openCmdk(); return; }
+    if(!cmdk.classList.contains("open")) return;
+    if(e.key==="Escape"){ closeCmdk(); }
+    else if(e.key==="ArrowDown"){ e.preventDefault(); cmdkActive=Math.min(cmdkActive+1,cmdkFiltered.length-1); renderCmdk(); }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); cmdkActive=Math.max(cmdkActive-1,0); renderCmdk(); }
+    else if(e.key==="Enter"){ const c=cmdkFiltered[cmdkActive]; if(c){ show(c[2]); closeCmdk(); } }
+  });
+  cmdkInput.addEventListener("input", ()=>{ cmdkActive=0; renderCmdk(); });
+  cmdk.addEventListener("click", e=>{
+    if(e.target===cmdk){ closeCmdk(); return; }
+    const it=e.target.closest(".cmdk-item"); if(it){ show(it.dataset.go); closeCmdk(); }
+  });
 </script>
 </body>
 </html>
