@@ -11,6 +11,9 @@ interface AuthState {
    *  we don't flash the login screen before auth state is known. */
   bootstrapped: boolean;
   userSubject: string | null;
+  /** Email from OIDC login, present for browser PKCE sessions only. Used for
+   *  avatar initials (e.g. "ryan.merlin@…" → "RM"). Null for CLI/SA flows. */
+  userEmail: string | null;
   bootstrap: () => Promise<void>;
   loginWithCookieSession: () => void;
   logout: () => Promise<void>;
@@ -22,6 +25,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   loggedIn: false,
   bootstrapped: false,
   userSubject: null,
+  userEmail: null,
 
   setUserSubject: (subject) => set({ userSubject: subject }),
 
@@ -31,14 +35,19 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const res = await fetch('/api/auth/me', { credentials: 'include' });
       if (res.ok) {
-        const data = (await res.json()) as { subject?: string };
-        set({ loggedIn: true, userSubject: data.subject ?? null, bootstrapped: true });
+        const data = (await res.json()) as { subject?: string; email?: string | null };
+        set({
+          loggedIn: true,
+          userSubject: data.subject ?? null,
+          userEmail: data.email ?? null,
+          bootstrapped: true,
+        });
         return;
       }
     } catch {
       // Ignore — keep logged out.
     }
-    set({ loggedIn: false, userSubject: null, bootstrapped: true });
+    set({ loggedIn: false, userSubject: null, userEmail: null, bootstrapped: true });
   },
 
   logout: async () => {
@@ -50,7 +59,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch {
       // Local logout still proceeds.
     }
-    set({ loggedIn: false, userSubject: null });
+    set({ loggedIn: false, userSubject: null, userEmail: null });
   },
 
   startOidcLogin: (redirect = typeof window !== 'undefined' ? window.location.href : '/') => {

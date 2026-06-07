@@ -149,11 +149,24 @@ async fn revoke_session(
     StatusCode::NO_CONTENT.into_response()
 }
 
-async fn whoami(principal: Principal) -> impl IntoResponse {
+async fn whoami(State(state): State<Arc<AppState>>, principal: Principal) -> impl IntoResponse {
+    let email: Option<String> = match principal.session_id {
+        Some(sid) => sqlx::query_scalar::<_, Option<String>>(
+            "SELECT email FROM usersession WHERE id = $1",
+        )
+        .bind(sid)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .flatten(),
+        None => None,
+    };
     Json(MeResponse {
         subject: principal.subject,
         auth_type: principal.auth_type,
         session_id: principal.session_id,
+        email,
     })
 }
 

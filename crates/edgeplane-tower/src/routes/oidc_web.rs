@@ -204,6 +204,7 @@ async fn fetch_discovery(issuer: &str) -> Result<serde_json::Value, String> {
 async fn issue_session_token(
     db: &PgPool,
     subject: &str,
+    email: Option<&str>,
     user_agent: &str,
     ttl_hours: i64,
 ) -> Result<(String, i32, chrono::NaiveDateTime), sqlx::Error> {
@@ -215,10 +216,11 @@ async fn issue_session_token(
 
     let session_id = sqlx::query_scalar::<_, i32>(
         "INSERT INTO usersession \
-         (subject, token_hash, token_prefix, expires_at, created_at, last_used_at, user_agent, revoked, capability_scope) \
-         VALUES ($1,$2,$3,$4,$5,$5,$6,false,'') RETURNING id",
+         (subject, email, token_hash, token_prefix, expires_at, created_at, last_used_at, user_agent, revoked, capability_scope) \
+         VALUES ($1,$2,$3,$4,$5,$6,$6,$7,false,'') RETURNING id",
     )
     .bind(subject)
+    .bind(email)
     .bind(&token_hash)
     .bind(&token_prefix)
     .bind(expires_at)
@@ -559,7 +561,7 @@ async fn device_token(
 
     // Issue a session token.
     let (token, _session_id, expires_at) =
-        match issue_session_token(&state.db, &subject, &ua, cfg.session_ttl_hours).await {
+        match issue_session_token(&state.db, &subject, None, &ua, cfg.session_ttl_hours).await {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("device_token: issue_session: {e}");
@@ -1101,7 +1103,7 @@ async fn oidc_callback(
         .to_string();
 
     let (token, _session_id, token_expires_at) =
-        match issue_session_token(&state.db, &subject, &ua, cfg.session_ttl_hours).await {
+        match issue_session_token(&state.db, &subject, (!email.is_empty()).then_some(email.as_str()), &ua, cfg.session_ttl_hours).await {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("oidc_callback: issue_session: {e}");
@@ -1281,7 +1283,7 @@ async fn exchange_grant(
         .unwrap_or(cfg.session_ttl_hours);
 
     let (token, _session_id, expires_at) =
-        match issue_session_token(&state.db, &subject, &ua, ttl).await {
+        match issue_session_token(&state.db, &subject, None, &ua, ttl).await {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("exchange_grant: issue_session: {e}");

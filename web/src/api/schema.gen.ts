@@ -728,6 +728,11 @@ export interface components {
             /** @description Authentication mechanism used: "session", "service_account", or "oidc_jwt". */
             auth_type: string;
             /**
+             * @description Email address captured at OIDC login — present for browser PKCE sessions, absent
+             *     for CLI/device/service-account flows. Intended for avatar initials in the web UI.
+             */
+            email?: string | null;
+            /**
              * Format: int32
              * @description Session database ID — present for session tokens, absent for service account tokens.
              */
