@@ -45,7 +45,7 @@ vi.mock('@/stores/toast', () => ({
 
 // ── Import AFTER mocks ────────────────────────────────────────────────────────
 
-import { ExplorerPage } from './explorer';
+import { ExplorerPage } from './domains';
 
 // ── Sample fixtures ───────────────────────────────────────────────────────────
 
