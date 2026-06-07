@@ -55,6 +55,7 @@ const NAV_ICON: Record<string, string> = {
 export function Sidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const userSubject = useAuthStore((s) => s.userSubject);
+  const userEmail = useAuthStore((s) => s.userEmail);
   const logout = useAuthStore((s) => s.logout);
 
   const [showMenu, setShowMenu] = useState(false);
@@ -90,7 +91,7 @@ export function Sidebar() {
     });
   };
 
-  const label = avatarLabel(userSubject);
+  const label = avatarLabel(userEmail ?? userSubject);
 
   return (
     <nav

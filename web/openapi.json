@@ -1943,6 +1943,13 @@
             "type": "string",
             "description": "Authentication mechanism used: \"session\", \"service_account\", or \"oidc_jwt\"."
           },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Email address captured at OIDC login — present for browser PKCE sessions, absent\nfor CLI/device/service-account flows. Intended for avatar initials in the web UI."
+          },
           "session_id": {
             "type": [
               "integer",

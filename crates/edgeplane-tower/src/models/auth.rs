@@ -66,6 +66,9 @@ pub struct MeResponse {
     pub auth_type: String,
     /// Session database ID — present for session tokens, absent for service account tokens.
     pub session_id: Option<i32>,
+    /// Email address captured at OIDC login — present for browser PKCE sessions, absent
+    /// for CLI/device/service-account flows. Intended for avatar initials in the web UI.
+    pub email: Option<String>,
 }
 
 #[derive(Deserialize)]

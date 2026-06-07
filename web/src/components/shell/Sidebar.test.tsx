@@ -28,8 +28,17 @@ vi.mock('@tanstack/react-router', () => ({
 const logoutSpy = vi.fn();
 vi.mock('@/stores/auth', () => ({
   useAuthStore: (
-    selector: (s: { userSubject: string | null; logout: () => Promise<void> }) => unknown,
-  ) => selector({ userSubject: '73c5a571f3b774a535810a3835f3b8fa', logout: logoutSpy }),
+    selector: (s: {
+      userSubject: string | null;
+      userEmail: string | null;
+      logout: () => Promise<void>;
+    }) => unknown,
+  ) =>
+    selector({
+      userSubject: '73c5a571f3b774a535810a3835f3b8fa',
+      userEmail: null,
+      logout: logoutSpy,
+    }),
 }));
 
 vi.mock('@/stores/toast', () => ({
