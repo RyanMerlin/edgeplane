@@ -1,16 +1,17 @@
 /**
- * Agents screens — unit tests.
+ * Agent detail screen (/agents/$agentId) — unit tests.
+ *
+ * The agents list is now the "Agents" sub-view of the Fleet route; its tests
+ * live in components/fleet/AgentsTable.test.tsx (presentation) and
+ * lib/useMergedAgents.test.ts (merge logic). This file covers the detail route,
+ * which is unchanged apart from its back-link now pointing at the Fleet (/).
  *
  * Mocking strategy: vi.mock('@/api/client') replaces the openapi-fetch
- * singleton with a controlled mock (same pattern as governance.test.tsx).
- * No network calls; each test controls what `apiClient.GET` returns.
- *
- * AgentsPage: tests list render, loading, error, empty states.
- * AgentDetailPage: tests detail render, loading, 404 not-found.
+ * singleton with a controlled mock. No network calls.
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -56,48 +57,31 @@ vi.mock('@/api/client', () => ({
   unwrap: vi.fn((p: unknown) => Promise.resolve(p)),
 }));
 
-// Mock toast store (not used by agents pages but imported transitively)
+// Mock toast store (imported transitively by the conversation pane)
 const mockShowToast = vi.fn();
 vi.mock('@/stores/toast', () => ({
   useToastStore: (selector: (s: { show: typeof mockShowToast }) => unknown) =>
     selector({ show: mockShowToast }),
 }));
 
-// ── Import components AFTER mocks ─────────────────────────────────────────────
+// ── Import component AFTER mocks ──────────────────────────────────────────────
 
-import { AgentsPage } from './agents';
 import { AgentDetailPage } from './agents.$agentId';
 
 // ── Sample fixtures ───────────────────────────────────────────────────────────
 
-const sampleAgents = [
-  {
-    id: 1,
-    public_id: 'aria-operator-e8820c0d',
-    name: 'aria-operator',
-    status: 'online',
-    capabilities: 'fleet-management,code-editing',
-    metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'excalibur' }),
-    home_domain_id: 'dom-abc',
-    current_domain_id: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-05-31T10:00:00Z',
-  },
-  {
-    id: 2,
-    public_id: 'aria-research-f1a2b3c4',
-    name: 'aria-research',
-    status: 'offline',
-    capabilities: 'research,analysis',
-    metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'excalibur' }),
-    home_domain_id: 'dom-def',
-    current_domain_id: null,
-    created_at: '2026-01-02T00:00:00Z',
-    updated_at: '2026-05-31T09:00:00Z',
-  },
-];
-
-const sampleAgent = sampleAgents[0];
+const sampleAgent = {
+  id: 1,
+  public_id: 'aria-operator-e8820c0d',
+  name: 'aria-operator',
+  status: 'online',
+  capabilities: 'fleet-management,code-editing',
+  metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'excalibur' }),
+  home_domain_id: 'dom-abc',
+  current_domain_id: null,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-05-31T10:00:00Z',
+};
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
@@ -113,155 +97,6 @@ function makeQueryClient() {
     },
   });
 }
-
-// ── AgentsPage tests ──────────────────────────────────────────────────────────
-
-describe('AgentsPage', () => {
-  let queryClient: QueryClient;
-
-  beforeEach(() => {
-    queryClient = makeQueryClient();
-    vi.clearAllMocks();
-  });
-
-  afterEach(() => {
-    queryClient.clear();
-  });
-
-  it('shows loading state while both queries are pending', async () => {
-    const { apiClient } = await import('@/api/client');
-    // Never-resolving promises keep queries in loading state
-    (apiClient.GET as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
-
-    renderWith(<AgentsPage />, queryClient);
-
-    expect(screen.getByTestId('loading-state')).toBeInTheDocument();
-  });
-
-  it('renders agent rows from a sample Agent[]', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    // unwrap passes through whatever GET returns
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(sampleAgents) // GET /api/agents → cp list
-      .mockResolvedValueOnce([]) // GET /api/runtime/nodes → empty node list
-      .mockResolvedValue([]); // fallback for any further GET calls
-
-    // unwrap is identity in the mock; stub it to return the value directly
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
-    renderWith(<AgentsPage />, queryClient);
-
-    await waitFor(() => expect(screen.getByTestId('agents-table')).toBeInTheDocument());
-
-    // Both agent names should be in the table
-    expect(screen.getByText('aria-operator')).toBeInTheDocument();
-    expect(screen.getByText('aria-research')).toBeInTheDocument();
-
-    // Status badges
-    expect(screen.getByText('online')).toBeInTheDocument();
-    expect(screen.getByText('offline')).toBeInTheDocument();
-
-    // Both rows exist
-    expect(screen.getByTestId('agent-row-aria-operator-e8820c0d')).toBeInTheDocument();
-    expect(screen.getByTestId('agent-row-aria-research-f1a2b3c4')).toBeInTheDocument();
-  });
-
-  it('shows error state when both queries fail', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (unwrap as ReturnType<typeof vi.fn>).mockRejectedValue(
-      Object.assign(new Error('Unauthorized'), { status: 401 }),
-    );
-    (apiClient.GET as ReturnType<typeof vi.fn>).mockRejectedValue(
-      Object.assign(new Error('Unauthorized'), { status: 401 }),
-    );
-
-    renderWith(<AgentsPage />, queryClient);
-
-    await waitFor(() => expect(screen.getByTestId('error-state')).toBeInTheDocument());
-    expect(screen.getByText(/Failed to load agents/)).toBeInTheDocument();
-  });
-
-  it('shows empty state when both queries resolve with empty data', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-
-    renderWith(<AgentsPage />, queryClient);
-
-    await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
-    expect(screen.getByText('No agents registered')).toBeInTheDocument();
-  });
-
-  it('resolves Node + Runtime from mesh topology when agent metadata is empty', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    // Control-plane agent registered with EMPTY metadata (the live-fleet case).
-    const cpAgents = [
-      {
-        id: 3,
-        public_id: 'aria-work-aa11bb22',
-        name: 'aria-work',
-        status: 'offline',
-        capabilities: 'work',
-        metadata: '{}',
-        home_domain_id: 'dom-w',
-        current_domain_id: null,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-05-31T10:00:00Z',
-      },
-    ];
-    const nodes = [
-      { id: 'node-uuid-1', node_name: 'excalibur', hostname: 'excalibur', status: 'online' },
-    ];
-    // Mesh row links the same public_id to node-uuid-1, carrying runtime_kind.
-    const meshAgents = [
-      {
-        id: 'mesh-1',
-        public_id: 'aria-work-aa11bb22',
-        status: 'online',
-        runtime_kind: 'claude_acp',
-        capabilities: '[]',
-        domain_id: 'dom-w',
-        node_id: 'node-uuid-1',
-        runtime_node_id: 'node-uuid-1',
-        enrolled_at: '2026-05-31T00:00:00Z',
-        runtime_version: '0.12.0',
-        last_heartbeat_at: '2026-05-31T12:00:00Z',
-        discovered_capabilities: '[]',
-        labels: {},
-      },
-    ];
-    // Path-aware mock so cp/mesh queries resolve regardless of fire order.
-    (apiClient.GET as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
-      if (path === '/api/agents') return Promise.resolve(cpAgents);
-      if (path === '/api/runtime/nodes') return Promise.resolve(nodes);
-      if (path === '/api/runtime/nodes/{node_id}/agents') return Promise.resolve(meshAgents);
-      return Promise.resolve([]);
-    });
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
-    renderWith(<AgentsPage />, queryClient);
-
-    const row = await waitFor(() => screen.getByTestId('agent-row-aria-work-aa11bb22'));
-    // Node column resolves from topology (node_name), Runtime from runtime_kind.
-    expect(within(row).getByText('excalibur')).toBeInTheDocument();
-    expect(within(row).getByText('claude_acp')).toBeInTheDocument();
-  });
-
-  it('shows Node + Runtime from agent metadata when present', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
-      if (path === '/api/agents') return Promise.resolve([sampleAgents[0]]);
-      return Promise.resolve([]); // no nodes / no mesh agents
-    });
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
-    renderWith(<AgentsPage />, queryClient);
-
-    const row = await waitFor(() => screen.getByTestId('agent-row-aria-operator-e8820c0d'));
-    expect(within(row).getByText('claude-code')).toBeInTheDocument(); // runtime
-    expect(within(row).getByText('excalibur')).toBeInTheDocument(); // node_id
-  });
-});
 
 // ── AgentDetailPage tests ─────────────────────────────────────────────────────
 
@@ -312,8 +147,8 @@ describe('AgentDetailPage', () => {
     // 'excalibur' appears in both the metadata table and the acp-node-id span
     expect(screen.getAllByText('excalibur').length).toBeGreaterThanOrEqual(1);
 
-    // Back link to agents list
-    expect(screen.getByRole('link', { name: /← Agents/ })).toBeInTheDocument();
+    // Back link now returns to the Fleet dashboard
+    expect(screen.getByRole('link', { name: /← Fleet/ })).toBeInTheDocument();
   });
 
   it('shows not-found affordance on 404 response', async () => {

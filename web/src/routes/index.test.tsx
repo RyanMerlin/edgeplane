@@ -21,7 +21,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,6 +35,7 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
       ...opts,
       id: _path,
     }),
+    useNavigate: () => vi.fn(),
   };
 });
 
@@ -197,8 +198,9 @@ describe('FleetDashboard', () => {
       expect(screen.getByTestId(`tab-${agent.public_id}`)).toBeInTheDocument();
     }
 
-    // Exactly 3 tabs — no extras, no placeholders
-    const tabs = screen.getAllByRole('tab');
+    // Exactly 3 agent tabs — no extras, no placeholders. Scope to the agent
+    // tablist; the Fleet Conversations|Agents view toggle is a separate tablist.
+    const tabs = within(screen.getByTestId('profile-tabs')).getAllByRole('tab');
     expect(tabs).toHaveLength(3);
   });
 
@@ -443,5 +445,40 @@ describe('FleetDashboard', () => {
       expect(screen.getByTestId('agent-node-aria-engineer-f1a2b3c4')).toBeInTheDocument(),
     );
     expect(screen.getByTestId('agent-node-aria-engineer-f1a2b3c4')).toHaveTextContent('excalibur');
+  });
+
+  // ── View toggle (Conversations | Agents) ──────────────────────────────────
+
+  it('defaults to the Conversations view and exposes a Conversations|Agents toggle', async () => {
+    const { apiClient, unwrap } = await import('@/api/client');
+    (apiClient.GET as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(sampleCpAgents)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([]);
+    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
+
+    renderWith(<FleetDashboard />, queryClient);
+
+    await waitFor(() => expect(screen.getByTestId('fleet-view-toggle')).toBeInTheDocument());
+    expect(screen.getByTestId('profile-tabs')).toBeInTheDocument();
+    expect(screen.getByTestId('fleet-view-console')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('switching to the Agents view shows the agents table instead of conversation tabs', async () => {
+    const { apiClient, unwrap } = await import('@/api/client');
+    (apiClient.GET as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(sampleCpAgents)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([]);
+    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
+
+    renderWith(<FleetDashboard />, queryClient);
+
+    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('fleet-view-table'));
+
+    await waitFor(() => expect(screen.getByTestId('agents-table')).toBeInTheDocument());
+    expect(screen.queryByTestId('profile-tabs')).not.toBeInTheDocument();
   });
 });

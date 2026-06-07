@@ -124,6 +124,24 @@ describe('FeedPage', () => {
     expect(rows).toHaveLength(sampleEvents.length);
   });
 
+  // ── Live | Raw view toggle (absorbed Matrix) ──────────────────────────────
+
+  it('defaults to the Live view with the curated filterbar', () => {
+    render(<FeedPage />);
+    expect(screen.getByTestId('feed-view-toggle')).toBeInTheDocument();
+    expect(screen.getByTestId('filterbar')).toBeInTheDocument();
+    expect(screen.getByTestId('feed-view-live')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('switching to Raw shows the raw event list from the same stream', () => {
+    render(<FeedPage />);
+    fireEvent.click(screen.getByTestId('feed-view-raw'));
+    expect(screen.getByTestId('raw-event-list')).toBeInTheDocument();
+    expect(screen.getAllByTestId('matrix-row')).toHaveLength(sampleEvents.length);
+    // curated filterbar is not rendered in the raw view
+    expect(screen.queryByTestId('filterbar')).not.toBeInTheDocument();
+  });
+
   it('shows empty state when no events', () => {
     seedStore({ events: [] });
     render(<FeedPage />);

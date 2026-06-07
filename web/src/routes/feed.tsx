@@ -15,6 +15,7 @@
  * NOTE: EventSource /api/events/stream shape is INFERRED from telemetry.ts.
  */
 
+import { RawEventList } from '@/components/events/RawEventList';
 import { useEventStream } from '@/lib/useEventStream';
 import type { MatrixEvent } from '@/stores/eventStream';
 import { createFileRoute } from '@tanstack/react-router';
@@ -29,6 +30,9 @@ export const Route = createFileRoute('/feed')({
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ChipFilter = 'all' | 'errors' | 'governance' | 'artifacts' | 'tasks' | 'heartbeat';
+
+/** Feed sub-view: the curated/filterable live timeline, or the raw event stream (absorbed Matrix). */
+type FeedView = 'live' | 'raw';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -259,8 +263,9 @@ function DetailPanel({ event }: { event: MatrixEvent | null }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function FeedPage() {
-  const { events, status, lastError, rateLimit } = useEventStream();
+  const { events, status, lastError, rateLimit, clearEvents } = useEventStream();
 
+  const [view, setView] = useState<FeedView>('live');
   const [filterText, setFilterText] = useState('');
   const [activeChip, setActiveChip] = useState<ChipFilter>('all');
   const [alertsOnly, setAlertsOnly] = useState(false);
@@ -333,227 +338,274 @@ export function FeedPage() {
       className="feed-page"
       style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
     >
-      {/* Filter bar */}
-      <div id="filterbar" data-testid="filterbar">
-        <div className={`fi${filterText.length > 0 ? ' focused' : ''}`}>
-          <span className="dim">/</span>
-          <input
-            type="text"
-            placeholder="filter events..."
-            value={filterText}
-            onChange={(e) => handleFilterChange(e.target.value)}
-            data-testid="filter-input"
-          />
-        </div>
-
-        <span className="fsep">|</span>
-
-        <ChipButton
-          label="All"
-          active={activeChip === 'all'}
-          onClick={() => handleChipClick('all')}
-          data-testid="chip-all"
-        />
-        <ChipButton
-          label="Errors"
-          active={activeChip === 'errors'}
-          variant="err"
-          onClick={() => handleChipClick('errors')}
-          data-testid="chip-errors"
-        />
-        <ChipButton
-          label="Governance"
-          active={activeChip === 'governance'}
-          variant="gov"
-          onClick={() => handleChipClick('governance')}
-          data-testid="chip-governance"
-        />
-        <ChipButton
-          label="Artifacts"
-          active={activeChip === 'artifacts'}
-          onClick={() => handleChipClick('artifacts')}
-          data-testid="chip-artifacts"
-        />
-        <ChipButton
-          label="Tasks"
-          active={activeChip === 'tasks'}
-          onClick={() => handleChipClick('tasks')}
-          data-testid="chip-tasks"
-        />
-        <ChipButton
-          label="Heartbeat"
-          active={activeChip === 'heartbeat'}
-          onClick={() => handleChipClick('heartbeat')}
-          data-testid="chip-heartbeat"
-        />
-
-        <span className="fsep">|</span>
-
+      {/* View toggle: curated live timeline vs raw event stream (absorbed Matrix) */}
+      <div
+        className="feed-view-bar"
+        role="tablist"
+        aria-label="Feed view"
+        data-testid="feed-view-toggle"
+      >
         <button
           type="button"
-          className={`fi alerts-toggle${alertsOnly ? ' active-warn' : ''}`}
-          onClick={() => setAlertsOnly((v) => !v)}
-          data-testid="alerts-toggle"
+          role="tab"
+          aria-selected={view === 'live'}
+          className={`fvbtn${view === 'live' ? ' on' : ''}`}
+          onClick={() => setView('live')}
+          data-testid="feed-view-live"
         >
-          <span className={`alert-dot${alertsOnly ? ' on' : ''}`} />
-          <span>Alerts only</span>
+          Live
         </button>
-
-        <div className="fr">
-          <span data-testid="event-count">{events.length} events</span>
-          <span className="dim">·</span>
-          <span className="ok" style={{ fontSize: '11px' }} data-testid="rate-counter">
-            rate {recentRate}/60
-          </span>
-          {rateLimit && (
-            <>
-              <span className="dim">·</span>
-              <span className="dim" style={{ fontSize: '11px' }}>
-                rl {rateLimit.remaining}/{rateLimit.limit}
-              </span>
-            </>
-          )}
-          {isLive ? (
-            <>
-              <span className="ok live" data-testid="status-live">
-                ●
-              </span>
-              <span className="ok" style={{ fontWeight: 700, fontSize: '11px' }}>
-                LIVE
-              </span>
-            </>
-          ) : (
-            <span className="dim" data-testid="status-offline">
-              ○ {status === 'reconnecting' ? 'reconnecting…' : 'offline'}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Error banner */}
-      {lastError && !isLive && (
-        <div
-          style={{ padding: '4px 12px', borderBottom: '1px solid var(--border)' }}
-          data-testid="error-banner"
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'raw'}
+          className={`fvbtn${view === 'raw' ? ' on' : ''}`}
+          onClick={() => setView('raw')}
+          data-testid="feed-view-raw"
         >
-          <span className="error" style={{ fontSize: '11px' }}>
-            ✗ {lastError}
-          </span>
-        </div>
-      )}
-
-      {/* Content */}
-      <div id="content" data-testid="content-area">
-        {/* Feed list */}
-        <div id="feed-list">
-          <div id="feed-hdr">
-            <span>Time</span>
-            <span>Agent</span>
-            <span>Context</span>
-            <span>Event</span>
-            <span>Detail</span>
-          </div>
-
-          <div id="feed" data-testid="feed-list">
-            {filteredEvents.length === 0 ? (
-              <div className="feed-empty" data-testid="feed-empty">
-                <span className="dim">
-                  {filterText || activeChip !== 'all'
-                    ? 'No matching events.'
-                    : 'Waiting for events…'}
-                </span>
-              </div>
-            ) : (
-              filteredEvents.map((evt, i) => {
-                const ac = alertClass(evt);
-                const tc = typeClass(evt);
-                const agent = agentOf(evt);
-                const ctx = contextOf(evt);
-                const summary = summaryOf(evt.payload);
-                const label = eventType(evt);
-                const isSelected = selectedIdx === i;
-
-                return (
-                  <button
-                    type="button"
-                    key={`${evt.receivedAt}-${i}`}
-                    className={`f-row ${ac}${isSelected ? ' sel' : ''}`}
-                    onClick={() => handleRowClick(i)}
-                    data-testid="feed-row"
-                  >
-                    <span
-                      className={`f-time${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
-                    >
-                      {fmtTime(evt.receivedAt)}
-                    </span>
-                    <span
-                      className={`f-agent${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
-                    >
-                      {agent || '—'}
-                    </span>
-                    <span
-                      className={`f-ctx${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
-                    >
-                      {ctx || '—'}
-                    </span>
-                    <span className={`f-type ${tc}`}>{label || 'event'}</span>
-                    <span
-                      className={[
-                        'f-msg',
-                        ac === 'a-err' || ac === 'a-warn' ? (ac === 'a-err' ? 'err' : 'warn') : '',
-                        label === 'task_finished' ? 'ok' : '',
-                        label === 'artifact' ? 'purple-txt' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                    >
-                      {summary}
-                    </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        {/* Detail panel */}
-        <DetailPanel event={selectedEvent} />
+          Raw
+        </button>
       </div>
 
-      {/* Status bar */}
-      <div className="feed-statusbar" data-testid="feed-statusbar">
-        <span className="muted">{events.length} events</span>
-        <span className="dim">·</span>
-        {errorCount > 0 ? (
-          <span className="err" data-testid="error-count">
-            {errorCount} error{errorCount === 1 ? '' : 's'}
-          </span>
-        ) : (
-          <span className="dim">0 errors</span>
-        )}
-        {govCount > 0 && (
-          <span className="warn" data-testid="gov-count">
-            {govCount} governance
-          </span>
-        )}
-        {warnCount > 0 && (
-          <span className="warn" data-testid="warn-count">
-            {warnCount} overlap
-          </span>
-        )}
-        <div className="feed-statusbar-right">
-          <span>/ filter</span>
-          <span className="dim">·</span>
-          <span>click row to inspect</span>
-          {isLive && (
-            <>
+      {view === 'raw' ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <RawEventList
+            events={events}
+            status={status}
+            lastError={lastError}
+            rateLimit={rateLimit}
+            clearEvents={clearEvents}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Filter bar */}
+          <div id="filterbar" data-testid="filterbar">
+            <div className={`fi${filterText.length > 0 ? ' focused' : ''}`}>
+              <span className="dim">/</span>
+              <input
+                type="text"
+                placeholder="filter events..."
+                value={filterText}
+                onChange={(e) => handleFilterChange(e.target.value)}
+                data-testid="filter-input"
+              />
+            </div>
+
+            <span className="fsep">|</span>
+
+            <ChipButton
+              label="All"
+              active={activeChip === 'all'}
+              onClick={() => handleChipClick('all')}
+              data-testid="chip-all"
+            />
+            <ChipButton
+              label="Errors"
+              active={activeChip === 'errors'}
+              variant="err"
+              onClick={() => handleChipClick('errors')}
+              data-testid="chip-errors"
+            />
+            <ChipButton
+              label="Governance"
+              active={activeChip === 'governance'}
+              variant="gov"
+              onClick={() => handleChipClick('governance')}
+              data-testid="chip-governance"
+            />
+            <ChipButton
+              label="Artifacts"
+              active={activeChip === 'artifacts'}
+              onClick={() => handleChipClick('artifacts')}
+              data-testid="chip-artifacts"
+            />
+            <ChipButton
+              label="Tasks"
+              active={activeChip === 'tasks'}
+              onClick={() => handleChipClick('tasks')}
+              data-testid="chip-tasks"
+            />
+            <ChipButton
+              label="Heartbeat"
+              active={activeChip === 'heartbeat'}
+              onClick={() => handleChipClick('heartbeat')}
+              data-testid="chip-heartbeat"
+            />
+
+            <span className="fsep">|</span>
+
+            <button
+              type="button"
+              className={`fi alerts-toggle${alertsOnly ? ' active-warn' : ''}`}
+              onClick={() => setAlertsOnly((v) => !v)}
+              data-testid="alerts-toggle"
+            >
+              <span className={`alert-dot${alertsOnly ? ' on' : ''}`} />
+              <span>Alerts only</span>
+            </button>
+
+            <div className="fr">
+              <span data-testid="event-count">{events.length} events</span>
               <span className="dim">·</span>
-              <span className="ok live">●</span>
-              <span className="ok">LIVE</span>
-            </>
+              <span className="ok" style={{ fontSize: '11px' }} data-testid="rate-counter">
+                rate {recentRate}/60
+              </span>
+              {rateLimit && (
+                <>
+                  <span className="dim">·</span>
+                  <span className="dim" style={{ fontSize: '11px' }}>
+                    rl {rateLimit.remaining}/{rateLimit.limit}
+                  </span>
+                </>
+              )}
+              {isLive ? (
+                <>
+                  <span className="ok live" data-testid="status-live">
+                    ●
+                  </span>
+                  <span className="ok" style={{ fontWeight: 700, fontSize: '11px' }}>
+                    LIVE
+                  </span>
+                </>
+              ) : (
+                <span className="dim" data-testid="status-offline">
+                  ○ {status === 'reconnecting' ? 'reconnecting…' : 'offline'}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Error banner */}
+          {lastError && !isLive && (
+            <div
+              style={{ padding: '4px 12px', borderBottom: '1px solid var(--border)' }}
+              data-testid="error-banner"
+            >
+              <span className="error" style={{ fontSize: '11px' }}>
+                ✗ {lastError}
+              </span>
+            </div>
           )}
-        </div>
-      </div>
+
+          {/* Content */}
+          <div id="content" data-testid="content-area">
+            {/* Feed list */}
+            <div id="feed-list">
+              <div id="feed-hdr">
+                <span>Time</span>
+                <span>Agent</span>
+                <span>Context</span>
+                <span>Event</span>
+                <span>Detail</span>
+              </div>
+
+              <div id="feed" data-testid="feed-list">
+                {filteredEvents.length === 0 ? (
+                  <div className="feed-empty" data-testid="feed-empty">
+                    <span className="dim">
+                      {filterText || activeChip !== 'all'
+                        ? 'No matching events.'
+                        : 'Waiting for events…'}
+                    </span>
+                  </div>
+                ) : (
+                  filteredEvents.map((evt, i) => {
+                    const ac = alertClass(evt);
+                    const tc = typeClass(evt);
+                    const agent = agentOf(evt);
+                    const ctx = contextOf(evt);
+                    const summary = summaryOf(evt.payload);
+                    const label = eventType(evt);
+                    const isSelected = selectedIdx === i;
+
+                    return (
+                      <button
+                        type="button"
+                        key={`${evt.receivedAt}-${i}`}
+                        className={`f-row ${ac}${isSelected ? ' sel' : ''}`}
+                        onClick={() => handleRowClick(i)}
+                        data-testid="feed-row"
+                      >
+                        <span
+                          className={`f-time${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
+                        >
+                          {fmtTime(evt.receivedAt)}
+                        </span>
+                        <span
+                          className={`f-agent${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
+                        >
+                          {agent || '—'}
+                        </span>
+                        <span
+                          className={`f-ctx${ac === 'a-err' ? ' err' : ac === 'a-warn' ? ' warn' : ''}`}
+                        >
+                          {ctx || '—'}
+                        </span>
+                        <span className={`f-type ${tc}`}>{label || 'event'}</span>
+                        <span
+                          className={[
+                            'f-msg',
+                            ac === 'a-err' || ac === 'a-warn'
+                              ? ac === 'a-err'
+                                ? 'err'
+                                : 'warn'
+                              : '',
+                            label === 'task_finished' ? 'ok' : '',
+                            label === 'artifact' ? 'purple-txt' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                        >
+                          {summary}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Detail panel */}
+            <DetailPanel event={selectedEvent} />
+          </div>
+
+          {/* Status bar */}
+          <div className="feed-statusbar" data-testid="feed-statusbar">
+            <span className="muted">{events.length} events</span>
+            <span className="dim">·</span>
+            {errorCount > 0 ? (
+              <span className="err" data-testid="error-count">
+                {errorCount} error{errorCount === 1 ? '' : 's'}
+              </span>
+            ) : (
+              <span className="dim">0 errors</span>
+            )}
+            {govCount > 0 && (
+              <span className="warn" data-testid="gov-count">
+                {govCount} governance
+              </span>
+            )}
+            {warnCount > 0 && (
+              <span className="warn" data-testid="warn-count">
+                {warnCount} overlap
+              </span>
+            )}
+            <div className="feed-statusbar-right">
+              <span>/ filter</span>
+              <span className="dim">·</span>
+              <span>click row to inspect</span>
+              {isLive && (
+                <>
+                  <span className="dim">·</span>
+                  <span className="ok live">●</span>
+                  <span className="ok">LIVE</span>
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       <style>{`
         /* Feed page layout */
@@ -562,6 +614,32 @@ export function FeedPage() {
           flex-direction: column;
           height: 100%;
           overflow: hidden;
+        }
+
+        /* View toggle bar (Live | Raw) */
+        .feed-view-bar {
+          height: 30px;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 0 12px;
+          background: var(--surface);
+          border-bottom: 1px solid var(--border);
+        }
+        .fvbtn {
+          padding: 2px 10px;
+          font-size: 11px;
+          border-radius: 3px;
+          border: 1px solid var(--border-2);
+          background: var(--base);
+          color: var(--muted);
+          cursor: pointer;
+        }
+        .fvbtn.on {
+          border-color: var(--accent);
+          background: var(--accent);
+          color: var(--base);
         }
 
         #filterbar {

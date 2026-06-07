@@ -6,7 +6,7 @@
  *              numeric id; the API accepts both (per AgentIdent in the backend).
  *
  * 404 from the API is rendered as a distinct not-found affordance.
- * Back-link returns to /agents list.
+ * Back-link returns to the Fleet dashboard (/).
  *
  * ACP pane (Phase 4):
  *   - nodeId resolved from agent.metadata.node_id (JSON-parsed)
@@ -212,8 +212,8 @@ export function AgentDetailPage() {
     <div className="gov-page">
       {/* Top bar */}
       <div className="gov-bar">
-        <Link to="/agents" className="ghost" style={{ fontSize: '11px', marginRight: '8px' }}>
-          ← Agents
+        <Link to="/" className="ghost" style={{ fontSize: '11px', marginRight: '8px' }}>
+          ← Fleet
         </Link>
         <span className="gov-title" style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>
           {agentId}

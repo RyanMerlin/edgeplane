@@ -2,7 +2,7 @@ import { api } from '@/lib/api/http';
 import { useAuthStore } from '@/stores/auth';
 import { useToastStore } from '@/stores/toast';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Link, Outlet, createRootRoute, useRouter } from '@tanstack/react-router';
+import { Link, Outlet, createRootRoute, useNavigate, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // ── QueryClient singleton ─────────────────────────────────────────────────────
@@ -65,6 +65,7 @@ function TopBar({
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -80,14 +81,11 @@ function TopBar({
     <div className="topbar">
       <span className="topbar-logo">EdgePlane</span>
 
-      <NavLink to="/">Overview</NavLink>
+      <NavLink to="/">Fleet</NavLink>
       <NavLink to="/ai">Console</NavLink>
-      <NavLink to="/agents">Agents</NavLink>
       <NavLink to="/explorer">Explorer</NavLink>
       <NavLink to="/feed">Feed</NavLink>
-      <NavLink to="/matrix">Matrix</NavLink>
       <NavLink to="/governance">Governance</NavLink>
-      <NavLink to="/onboarding">Onboarding</NavLink>
 
       <div className="topbar-right">
         <button
@@ -118,6 +116,17 @@ function TopBar({
               </button>
               <button type="button" role="menuitem" onClick={() => setShowMenu(false)}>
                 Settings
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="menu-onboarding"
+                onClick={() => {
+                  setShowMenu(false);
+                  navigate({ to: '/onboarding' });
+                }}
+              >
+                Onboarding
               </button>
               <button
                 type="button"
