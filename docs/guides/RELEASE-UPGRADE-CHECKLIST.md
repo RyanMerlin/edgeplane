@@ -4,6 +4,28 @@
 
 Use this checklist for each release that includes schema, auth, or deployment changes.
 
+## Cutting the Release (build + publish)
+
+edgeplane / edgeplaned / edgeplane-tower ship in lockstep off a single git tag.
+
+1. **Bump the version:** `scripts/set-version.sh <X.Y.Z>` (updates `/VERSION` + the root
+   `Cargo.toml` `[workspace.package]` version), then `cargo metadata` to sync `Cargo.lock`.
+   Add a `## [X.Y.Z]` section to `CHANGELOG.md`.
+2. **PR → `main`, merge once green.** Commits need a `Signed-off-by` (DCO check), and
+   `version-sync` asserts `/VERSION` == the `Cargo.toml` workspace version.
+3. **Tag the merged commit `vX.Y.Z` (annotated) and push it.** The tag push fires:
+   - `release-edgeplane.yml` → CLI + daemon binaries, the GitHub Release, and the
+     `latest.json` self-update manifest.
+   - `build-image.yml` → the `ghcr.io/ryanmerlin/edgeplane:X.Y.Z` tower image.
+
+> **Watch the tower image / workspace drift.** `build-image.yml` runs only on main-push and
+> tags, **not on PRs**. A new `[workspace]` member that isn't added to
+> `crates/edgeplane-tower/Dockerfile` (it `COPY`s + stubs each member individually) therefore
+> passes PR CI but breaks the tower image *after* merge / on the release tag — this is what sank
+> the v0.13.0 image (`edgeplane-zrpc-proto`; fixed in v0.13.1). The `tower-dockerfile-guard` CI
+> job (`scripts/check-tower-dockerfile.sh`) now enforces member parity on every PR, so this
+> fails fast before merge.
+
 ## Pre-Release
 
 1. Confirm migration state:
