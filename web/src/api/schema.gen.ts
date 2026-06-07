@@ -354,13 +354,6 @@ export interface components {
              *     Used by edgeplaned, CLI, TUI, and dashboard for all external references.
              */
             public_id: string;
-            /**
-             * @description UUID of the `runtimenode` this agent is enrolled under, if any.
-             *     When present, the ACP attach endpoint is available at
-             *     `/api/runtime/nodes/{runtime_node_id}/agents/{public_id}/attach`.
-             *     Server-side computed — not a DB column on the `agent` table.
-             */
-            runtime_node_id?: string | null;
             /** @description Lifecycle status: `"online"`, `"offline"`, `"busy"`, `"archived"`, etc. */
             status: string;
             updated_at: string;

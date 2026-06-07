@@ -29,7 +29,12 @@ import { createFileRoute } from '@tanstack/react-router';
 
 // ── Generated schema types ─────────────────────────────────────────────────────
 
-type Agent = components['schemas']['Agent'];
+// `runtime_node_id` is server-side computed (skip_deserializing in Rust) so
+// utoipa omits it from the OpenAPI schema. Extend locally — same pattern as
+// domain_name / node_id / runtime on Agent.
+type Agent = components['schemas']['Agent'] & {
+  runtime_node_id?: string | null;
+};
 
 // ── Route ──────────────────────────────────────────────────────────────────────
 
