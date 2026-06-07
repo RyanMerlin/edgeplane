@@ -6,7 +6,19 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
 
 ## [Unreleased]
 
-## [0.13.0] — 2026-06-06
+## [0.13.1] — 2026-06-07
+
+### Fixed
+
+- **Tower image for v0.13.0 never published — `edgeplane-zrpc-proto` was missing from the Dockerfile.**
+  #17 added `edgeplane-zrpc-proto` as a workspace member but not to
+  `crates/edgeplane-tower/Dockerfile`, which COPYs + stubs each member individually, so
+  `cargo build -p edgeplane-tower` failed to load the workspace ("failed to load manifest for
+  workspace member edgeplane-zrpc-proto"). The v0.13.0 CLI/daemon binaries + GitHub Release
+  published fine (built directly, not via the tower Dockerfile), but the
+  `ghcr.io/ryanmerlin/edgeplane:0.13.0` image build failed. The missing COPY + stub entry was
+  fixed on main in #21; this patch release rolls that fix into a tagged build so the tower image
+  publishes. No functional changes vs 0.13.0.
 
 ### Added
 
