@@ -14,17 +14,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header
           style={{
             flexShrink: 0,
-            height: 36,
+            height: 44,
             display: 'flex',
             alignItems: 'center',
-            padding: '0 14px',
-            borderBottom: '1px solid var(--border)',
-            background: 'var(--surface)',
+            padding: '0 18px',
+            borderBottom: '1px solid var(--border-subtle)',
           }}
         >
           <Breadcrumbs />
         </header>
-        <main style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>{children}</main>
+        <main style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '20px 18px' }}>
+          {children}
+        </main>
       </div>
     </div>
   );
