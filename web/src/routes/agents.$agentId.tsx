@@ -6,7 +6,7 @@
  *              numeric id; the API accepts both (per AgentIdent in the backend).
  *
  * 404 from the API is rendered as a distinct not-found affordance.
- * Back-link returns to the Fleet dashboard (/).
+ * Up-navigation is via the shell breadcrumb (Agents › <id>), not an in-page link.
  *
  * ACP pane (Phase 4):
  *   - nodeId resolved from agent.metadata.node_id (JSON-parsed)
