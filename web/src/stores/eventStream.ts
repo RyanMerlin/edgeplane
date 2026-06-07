@@ -171,11 +171,10 @@ export const useEventStreamStore = create<EventStreamState>((set, get) => ({
       });
     };
 
-    // The generic `onmessage` handler fires for unnamed events (event: message
-    // or no event field). We use it to handle the rate-limit field only,
-    // mirroring telemetry.ts which registers BOTH onmessage and addEventListener
-    // ('message'). For named events (e.g. `event: task_claimed`) only the
-    // addEventListener path fires.
+    // The global SSE feed emits named events only: `event: progress` for
+    // meshprogressevent rows and `event: ping` for 30s heartbeats. The generic
+    // onmessage handler fires only for unnamed / `event: message` events —
+    // kept here as a fallback for rate-limit probes on any unnamed frames.
     source.onmessage = (msg: MessageEvent<string>) => {
       _messagesReceived++;
       try {
@@ -192,13 +191,16 @@ export const useEventStreamStore = create<EventStreamState>((set, get) => ({
       }
     };
 
-    // Named 'message' listener appends to the ring buffer.
-    source.addEventListener('message', (msg: MessageEvent<string>) => {
+    // Named 'progress' listener appends meshprogressevent rows to the ring buffer.
+    source.addEventListener('progress', (msg: MessageEvent<string>) => {
       _messagesReceived++;
       try {
         const parsed = JSON.parse(msg.data) as Record<string, unknown>;
         const event: MatrixEvent = {
           ...(parsed as Omit<MatrixEvent, 'receivedAt'>),
+          // Backend uses `event_type` (not `type`); normalize so chip filters and
+          // typeClass() in feed.tsx see the correct value via MatrixEvent.type.
+          type: (parsed.event_type as string | undefined) ?? (parsed.type as string | undefined),
           receivedAt: Date.now(),
           payload: (parsed.payload ?? parsed) as unknown,
         };
@@ -219,6 +221,12 @@ export const useEventStreamStore = create<EventStreamState>((set, get) => ({
       } catch {
         // Ignore malformed events.
       }
+    });
+
+    // 'ping' heartbeat (every 30s) — updates messagesReceived so the backoff
+    // base stays at BACKOFF_INITIAL_MS rather than the slower first-connect value.
+    source.addEventListener('ping', () => {
+      _messagesReceived++;
     });
 
     source.onerror = () => {

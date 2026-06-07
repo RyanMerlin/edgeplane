@@ -63,9 +63,9 @@ class FakeEventSource {
     this.onopen?.();
   }
 
-  triggerMessage(data: unknown, eventType = 'message') {
+  triggerMessage(data: unknown, eventType = 'progress') {
     const payload = JSON.stringify(data);
-    // Both onmessage and 'message' listener fire (matching telemetry.ts)
+    // onmessage fires for unnamed/rate-limit frames; named listeners handle progress.
     this.onmessage?.({ data: payload });
     for (const h of this._listeners.get(eventType) ?? []) {
       h({ data: payload });
@@ -451,6 +451,26 @@ describe('eventStream store', () => {
       expect(evt.agent_id).toBe('a-123');
       expect(evt.mission_id).toBe('m-456');
       expect(evt.domain_id).toBe('d-789');
+    });
+
+    it('normalizes backend event_type to type (progress event shape)', () => {
+      getStore().connect();
+      const src = FakeEventSource.instances[0];
+      src.triggerOpen();
+
+      // Backend sends `event_type`, not `type` — normalize at the listener boundary.
+      src.triggerMessage({
+        event_type: 'step_started',
+        agent_id: 'aria-engineer-0fd11ef0',
+        task_id: 'task-uuid-123',
+        seq: 0,
+        summary: 'Task claimed by agent',
+        occurred_at: '2026-06-07T17:00:00',
+      });
+
+      const evt: MatrixEvent = getStore().events[0];
+      expect(evt.type).toBe('step_started');
+      expect(evt.agent_id).toBe('aria-engineer-0fd11ef0');
     });
   });
 });
