@@ -1,6 +1,6 @@
+import { useAuthStore } from '@/stores/auth';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { useAuthStore } from '@/stores/auth';
 import { NAV_GROUPS, isNavItemActive } from './navModel';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -109,8 +109,8 @@ export function Sidebar() {
 
       {/* Nav groups */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-        {NAV_GROUPS.map((group, gi) => (
-          <div key={gi}>
+        {NAV_GROUPS.map((group) => (
+          <div key={group.heading ?? group.items[0]?.to ?? 'root'}>
             {group.heading && (
               <div
                 style={{

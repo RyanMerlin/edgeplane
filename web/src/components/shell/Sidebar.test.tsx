@@ -3,7 +3,7 @@ import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 // Mock router
-let mockPathname = '/agents/aria-operator-bb05ea7a';
+const mockPathname = '/agents/aria-operator-bb05ea7a';
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     to,
@@ -27,8 +27,9 @@ vi.mock('@tanstack/react-router', () => ({
 
 const logoutSpy = vi.fn();
 vi.mock('@/stores/auth', () => ({
-  useAuthStore: (selector: (s: { userSubject: string | null; logout: () => Promise<void> }) => unknown) =>
-    selector({ userSubject: '73c5a571f3b774a535810a3835f3b8fa', logout: logoutSpy }),
+  useAuthStore: (
+    selector: (s: { userSubject: string | null; logout: () => Promise<void> }) => unknown,
+  ) => selector({ userSubject: '73c5a571f3b774a535810a3835f3b8fa', logout: logoutSpy }),
 }));
 
 vi.mock('@/stores/toast', () => ({
