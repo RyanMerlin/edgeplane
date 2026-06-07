@@ -1,18 +1,19 @@
 /**
- * Fleet dashboard (/) — unit tests.
+ * Dashboard (/) — unit tests.
  *
- * The Fleet route hosts two sub-views toggled in-page: the Agents table
- * (default) and the per-agent Conversations console. Tests that exercise the
- * conversation console switch into it via showConsole() first.
+ * The Dashboard landing page shows three regions:
+ *   - Fleet card: online/total agent count + link to /agents
+ *   - Work card: domain/mission count + link to /domains
+ *   - Recent activity: last ~8 events from the SSE stream (or empty state)
  *
  * Mocking strategy:
  *   - vi.mock('@/api/client') — controls apiClient.GET / unwrap
- *   - vi.mock('@/lib/conversation/useAcpConversation') — no real WebSocket
+ *   - vi.mock('@/lib/useEventStream') — no real EventSource in jsdom
  *   - vi.mock('@tanstack/react-router') — no router context required
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -26,7 +27,14 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
       ...opts,
       id: _path,
     }),
-    useNavigate: vi.fn(() => vi.fn()),
+    Link: ({
+      to,
+      children,
+    }: {
+      to: string;
+      children: React.ReactNode;
+      [key: string]: unknown;
+    }) => <a href={to}>{children}</a>,
   };
 });
 
@@ -39,35 +47,44 @@ vi.mock('@/api/client', () => ({
   unwrap: vi.fn((p: unknown) => Promise.resolve(p)),
 }));
 
-// Mock the conversation hook so no WebSocket opens in tests.
-vi.mock('@/lib/conversation/useAcpConversation', () => ({
-  useAcpConversation: vi.fn().mockReturnValue({
-    items: [],
-    status: 'connecting',
-    send: vi.fn(),
-    cancel: vi.fn(),
-  }),
-}));
+// Mock useEventStream — fixture events for the activity strip
+const fixtureEvents = [
+  {
+    id: 'ev-1',
+    type: 'task.created',
+    event: 'task.created',
+    payload: {},
+    receivedAt: Date.now() - 60_000,
+  },
+  {
+    id: 'ev-2',
+    type: 'agent.heartbeat',
+    event: 'agent.heartbeat',
+    payload: {},
+    receivedAt: Date.now() - 30_000,
+  },
+];
 
-// Mock ConversationView to keep tests focused on the dashboard shell
-vi.mock('@/components/conversation/ConversationView', () => ({
-  ConversationView: ({
-    status,
-  }: {
-    status: string;
-    items: unknown[];
-    onSend: (t: string) => void;
-    onCancel: () => void;
-  }) => <div data-testid="conversation-view">conversation:{status}</div>,
+vi.mock('@/lib/useEventStream', () => ({
+  useEventStream: vi.fn(() => ({
+    events: fixtureEvents,
+    status: 'open',
+    isLive: true,
+    lastError: null,
+    rateLimit: null,
+    reconnectCount: 0,
+    reconnectDelay: 0,
+    messagesReceived: 2,
+    clearEvents: vi.fn(),
+  })),
 }));
 
 // ── Component import (after mocks) ────────────────────────────────────────────
 
-import { FleetDashboard } from './index';
+import { Dashboard } from './index';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-// Intentionally mix a generic name with an aria-* name to prove both are shown as-is.
 const sampleCpAgents = [
   {
     id: 1,
@@ -85,7 +102,7 @@ const sampleCpAgents = [
     id: 2,
     public_id: 'worker-bot-99',
     name: 'worker-bot-99',
-    status: 'offline',
+    status: 'online',
     capabilities: 'batch-processing',
     metadata: JSON.stringify({ runtime: 'custom', node_id: 'kai' }),
     home_domain_id: 'dom-def',
@@ -97,8 +114,7 @@ const sampleCpAgents = [
     id: 3,
     public_id: 'analytics-agent-77',
     name: 'analytics-agent-77',
-    status: 'online',
-    // no node_id in metadata — "not attachable" case
+    status: 'offline',
     capabilities: 'reporting',
     metadata: JSON.stringify({ runtime: 'claude-code' }),
     home_domain_id: 'dom-ghi',
@@ -107,6 +123,58 @@ const sampleCpAgents = [
     updated_at: '2026-05-31T08:00:00Z',
   },
 ];
+
+// Matches the real ExplorerTreeResponse shape from schema.gen.ts
+// domains[].missions[] = ExplorerMissionNode[]
+const sampleTree = {
+  domain_count: 1,
+  mission_count: 2,
+  task_count: 5,
+  generated_at: '2026-06-07T10:00:00Z',
+  domains: [
+    {
+      id: 'd1',
+      name: 'Apollo',
+      description: 'Primary domain',
+      status: 'active',
+      owners: 'aria-operator',
+      tags: null,
+      visibility: 'public',
+      mission_count: 2,
+      task_count: 5,
+      missions: [
+        {
+          id: 'm1',
+          name: 'Mission Alpha',
+          description: 'First mission',
+          domain_id: 'd1',
+          status: 'in_progress',
+          owners: 'aria-operator',
+          tags: null,
+          task_count: 3,
+          task_status_counts: {},
+          recent_tasks: [],
+          updated_at: '2026-06-07T09:00:00Z',
+        },
+        {
+          id: 'm2',
+          name: 'Mission Beta',
+          description: 'Second mission',
+          domain_id: 'd1',
+          status: 'proposed',
+          owners: 'aria-operator',
+          tags: null,
+          task_count: 2,
+          task_status_counts: {},
+          recent_tasks: [],
+          updated_at: '2026-06-07T08:00:00Z',
+        },
+      ],
+      updated_at: '2026-06-07T09:00:00Z',
+    },
+  ],
+  unassigned_missions: [],
+};
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
@@ -123,39 +191,42 @@ function makeQueryClient() {
   });
 }
 
-/** Mock both queries with the standard sample-cp-agents / no-mesh response. */
-async function mockSampleAgents() {
+/**
+ * Set up the three queries that Dashboard triggers:
+ *   1. GET /api/agents → sampleCpAgents (3 agents: 2 online, 1 offline)
+ *   2. GET /api/runtime/nodes → [] (no mesh nodes)
+ *   3. GET /api/explorer/tree → sampleTree (1 domain, 2 missions)
+ */
+async function mockFullData() {
   const { apiClient, unwrap } = await import('@/api/client');
   (apiClient.GET as ReturnType<typeof vi.fn>)
-    .mockResolvedValueOnce(sampleCpAgents)
-    .mockResolvedValueOnce([])
-    .mockResolvedValue([]);
+    .mockResolvedValueOnce(sampleCpAgents) // /api/agents
+    .mockResolvedValueOnce([]) // /api/runtime/nodes
+    .mockResolvedValueOnce(sampleTree); // /api/explorer/tree
   (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-}
-
-/** Switch from the default Agents-table view into the Conversations console. */
-async function showConsole() {
-  await waitFor(() => expect(screen.getByTestId('fleet-view-toggle')).toBeInTheDocument());
-  fireEvent.click(screen.getByTestId('fleet-view-console'));
-  await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('FleetDashboard', () => {
+describe('Dashboard', () => {
   let queryClient: QueryClient;
 
   beforeEach(async () => {
     queryClient = makeQueryClient();
     vi.clearAllMocks();
 
-    // Re-apply default return value after clearAllMocks
-    const { useAcpConversation } = await import('@/lib/conversation/useAcpConversation');
-    (useAcpConversation as ReturnType<typeof vi.fn>).mockReturnValue({
-      items: [],
-      status: 'connecting',
-      send: vi.fn(),
-      cancel: vi.fn(),
+    // Re-apply useEventStream default after clearAllMocks
+    const { useEventStream } = await import('@/lib/useEventStream');
+    (useEventStream as ReturnType<typeof vi.fn>).mockReturnValue({
+      events: fixtureEvents,
+      status: 'open',
+      isLive: true,
+      lastError: null,
+      rateLimit: null,
+      reconnectCount: 0,
+      reconnectDelay: 0,
+      messagesReceived: 2,
+      clearEvents: vi.fn(),
     });
   });
 
@@ -163,249 +234,89 @@ describe('FleetDashboard', () => {
     queryClient.clear();
   });
 
-  // ── Loading / error states ──────────────────────────────────────────────────
+  // ── Structure ─────────────────────────────────────────────────────────────
 
-  it('shows loading state while both queries are pending', async () => {
-    const { apiClient } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
+  it('renders the dashboard container', async () => {
+    await mockFullData();
+    renderWith(<Dashboard />, queryClient);
 
-    renderWith(<FleetDashboard />, queryClient);
-
-    expect(screen.getByTestId('loading-state')).toBeInTheDocument();
+    // Dashboard testid is present immediately (before queries resolve)
+    expect(screen.getByTestId('dashboard')).toBeInTheDocument();
   });
 
-  it('shows error state when both queries fail', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (unwrap as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network error'));
-    (apiClient.GET as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network error'));
+  // ── Fleet card ────────────────────────────────────────────────────────────
 
-    renderWith(<FleetDashboard />, queryClient);
+  it('shows fleet online count (2 of 3 agents online)', async () => {
+    await mockFullData();
+    renderWith(<Dashboard />, queryClient);
 
-    await waitFor(() => expect(screen.getByTestId('error-state')).toBeInTheDocument());
-    expect(screen.getByText(/Failed to load fleet/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('dash-fleet-online')).toBeInTheDocument());
+    expect(screen.getByTestId('dash-fleet-online')).toHaveTextContent('2');
   });
 
-  // ── Default view + toggle ─────────────────────────────────────────────────
+  it('renders a link to /agents in the Fleet card', async () => {
+    await mockFullData();
+    renderWith(<Dashboard />, queryClient);
 
-  it('defaults to the Agents table view and exposes a Conversations|Agents toggle', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
 
-    await waitFor(() => expect(screen.getByTestId('fleet-view-toggle')).toBeInTheDocument());
-    expect(screen.getByTestId('agents-table')).toBeInTheDocument();
-    expect(screen.getByTestId('fleet-view-table')).toHaveAttribute('aria-selected', 'true');
+    const agentsLink = screen.getByRole('link', { name: /agents/i });
+    expect(agentsLink).toBeInTheDocument();
+    expect(agentsLink).toHaveAttribute('href', '/agents');
   });
 
-  it('clicking an agent row navigates to its detail route', async () => {
-    const navigate = vi.fn();
-    const router = await import('@tanstack/react-router');
-    (router.useNavigate as ReturnType<typeof vi.fn>).mockReturnValue(navigate);
-    await mockSampleAgents();
+  // ── Work card ─────────────────────────────────────────────────────────────
 
-    renderWith(<FleetDashboard />, queryClient);
+  it('renders a link to /domains in the Work card', async () => {
+    await mockFullData();
+    renderWith(<Dashboard />, queryClient);
 
-    await waitFor(() => expect(screen.getByTestId('agents-table')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('agent-row-aria-engineer-f1a2b3c4'));
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
 
-    expect(navigate).toHaveBeenCalledWith({
-      to: '/agents/$agentId',
-      params: { agentId: 'aria-engineer-f1a2b3c4' },
+    const domainsLink = screen.getByRole('link', { name: /domains/i });
+    expect(domainsLink).toBeInTheDocument();
+    expect(domainsLink).toHaveAttribute('href', '/domains');
+  });
+
+  it('shows domain count in the Work card', async () => {
+    await mockFullData();
+    renderWith(<Dashboard />, queryClient);
+
+    await waitFor(() => expect(screen.getByTestId('dash-work-domains')).toBeInTheDocument());
+    // 1 domain in fixture
+    expect(screen.getByTestId('dash-work-domains')).toHaveTextContent('1');
+  });
+
+  // ── Recent activity ───────────────────────────────────────────────────────
+
+  it('renders fixture events in the recent activity strip', async () => {
+    await mockFullData();
+    renderWith(<Dashboard />, queryClient);
+
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+
+    expect(screen.getByText(/task\.created/i)).toBeInTheDocument();
+    expect(screen.getByText(/agent\.heartbeat/i)).toBeInTheDocument();
+  });
+
+  it('shows empty state when there are no events', async () => {
+    const { useEventStream } = await import('@/lib/useEventStream');
+    (useEventStream as ReturnType<typeof vi.fn>).mockReturnValue({
+      events: [],
+      status: 'open',
+      isLive: true,
+      lastError: null,
+      rateLimit: null,
+      reconnectCount: 0,
+      reconnectDelay: 0,
+      messagesReceived: 0,
+      clearEvents: vi.fn(),
     });
-  });
 
-  it('switching to the Conversations view shows per-agent tabs instead of the table', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
+    await mockFullData();
+    renderWith(<Dashboard />, queryClient);
 
-    await waitFor(() => expect(screen.getByTestId('agents-table')).toBeInTheDocument());
-
-    fireEvent.click(screen.getByTestId('fleet-view-console'));
-
-    await waitFor(() => expect(screen.getByTestId('profile-tabs')).toBeInTheDocument());
-    expect(screen.queryByTestId('agents-table')).not.toBeInTheDocument();
-  });
-
-  // ── Conversations console — tab render ────────────────────────────────────
-
-  it('renders exactly one tab per registered agent', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-    await showConsole();
-
-    for (const agent of sampleCpAgents) {
-      expect(screen.getByTestId(`tab-${agent.public_id}`)).toBeInTheDocument();
-    }
-
-    // Exactly 3 agent tabs — scope to the agent tablist; the view toggle is separate.
-    const tabs = within(screen.getByTestId('profile-tabs')).getAllByRole('tab');
-    expect(tabs).toHaveLength(3);
-  });
-
-  it('tab labels show agent name as-is (no stripping)', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-    await showConsole();
-
-    expect(screen.getByTestId('tab-aria-engineer-f1a2b3c4')).toHaveTextContent(
-      'aria-engineer-f1a2b3c4',
-    );
-    expect(screen.getByTestId('tab-worker-bot-99')).toHaveTextContent('worker-bot-99');
-  });
-
-  it('no agent tabs are disabled — no "not registered" placeholders', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-    await showConsole();
-
-    const tabs = within(screen.getByTestId('profile-tabs')).getAllByRole('tab');
-    for (const tab of tabs) {
-      expect(tab).not.toBeDisabled();
-    }
-  });
-
-  // ── Empty state ───────────────────────────────────────────────────────────
-
-  it('shows empty state when no agents are registered', async () => {
-    const { apiClient, unwrap } = await import('@/api/client');
-    (apiClient.GET as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
-    (unwrap as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => Promise.resolve(p));
-
-    renderWith(<FleetDashboard />, queryClient);
-
-    await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
-    expect(screen.getByText(/No agents registered/)).toBeInTheDocument();
-  });
-
-  // ── Conversations console — tab switching ─────────────────────────────────
-
-  it('clicking a different tab changes the active agent', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-    await showConsole();
-
-    fireEvent.click(screen.getByTestId('tab-worker-bot-99'));
-
-    await waitFor(() =>
-      expect(screen.getByTestId('tab-worker-bot-99')).toHaveAttribute('aria-selected', 'true'),
-    );
-    expect(screen.getByTestId('tab-aria-engineer-f1a2b3c4')).toHaveAttribute(
-      'aria-selected',
-      'false',
-    );
-  });
-
-  it('Ctrl+2 hotkey switches to the second agent (index 1)', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-    await showConsole();
-
-    fireEvent.keyDown(document, { key: '2', ctrlKey: true });
-
-    await waitFor(() =>
-      expect(screen.getByTestId('tab-worker-bot-99')).toHaveAttribute('aria-selected', 'true'),
-    );
-  });
-
-  it('Ctrl+1 hotkey switches to the first agent (index 0)', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-    await showConsole();
-
-    fireEvent.click(screen.getByTestId('tab-worker-bot-99'));
-    await waitFor(() =>
-      expect(screen.getByTestId('tab-worker-bot-99')).toHaveAttribute('aria-selected', 'true'),
-    );
-
-    fireEvent.keyDown(document, { key: '1', ctrlKey: true });
-
-    await waitFor(() =>
-      expect(screen.getByTestId('tab-aria-engineer-f1a2b3c4')).toHaveAttribute(
-        'aria-selected',
-        'true',
-      ),
-    );
-  });
-
-  // ── Not-attachable fallback ───────────────────────────────────────────────
-
-  it('shows not-attachable fallback when the active agent has no node_id', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-    await showConsole();
-
-    // analytics-agent-77 has no node_id in metadata
-    fireEvent.click(screen.getByTestId('tab-analytics-agent-77'));
-
-    await waitFor(() =>
-      expect(screen.getByTestId('agent-not-attachable-analytics-agent-77')).toBeInTheDocument(),
-    );
-  });
-
-  // ── ConversationView rendered for active, attachable agent ────────────────
-
-  it('renders ConversationView for the active agent with a valid node_id', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-    await showConsole();
-
-    // First agent (aria-engineer-f1a2b3c4) is active by default and has node_id=excalibur
-    await waitFor(() => expect(screen.getByTestId('conversation-view')).toBeInTheDocument());
-  });
-
-  it('calls useAcpConversation with the correct nodeId and agentId', async () => {
-    const { useAcpConversation } = await import('@/lib/conversation/useAcpConversation');
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-    await showConsole();
-
-    await waitFor(() => expect(useAcpConversation as ReturnType<typeof vi.fn>).toHaveBeenCalled());
-
-    expect(useAcpConversation as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
-      'excalibur',
-      'aria-engineer-f1a2b3c4',
-    );
-  });
-
-  // ── Fleet summary ─────────────────────────────────────────────────────────
-
-  it('shows fleet online/total summary when agents are loaded', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-
-    await waitFor(() => expect(screen.getByTestId('fleet-summary')).toBeInTheDocument());
-
-    // 2 online (aria-engineer + analytics-agent), 3 total
-    const countEl = screen.getByTestId('fleet-online-count');
-    expect(countEl).toHaveTextContent('2');
-    expect(countEl).toHaveTextContent('3');
-  });
-
-  // ── Status badge / node id (console pane header) ──────────────────────────
-
-  it('shows per-agent status badge in the pane header', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-    await showConsole();
-
-    await waitFor(() =>
-      expect(screen.getByTestId('agent-status-badge-aria-engineer-f1a2b3c4')).toBeInTheDocument(),
-    );
-    expect(screen.getByTestId('agent-status-badge-aria-engineer-f1a2b3c4')).toHaveTextContent(
-      'online',
-    );
-  });
-
-  it('shows node id in the agent pane header when present', async () => {
-    await mockSampleAgents();
-    renderWith(<FleetDashboard />, queryClient);
-    await showConsole();
-
-    await waitFor(() =>
-      expect(screen.getByTestId('agent-node-aria-engineer-f1a2b3c4')).toBeInTheDocument(),
-    );
-    expect(screen.getByTestId('agent-node-aria-engineer-f1a2b3c4')).toHaveTextContent('excalibur');
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+    expect(screen.getByTestId('activity-empty')).toBeInTheDocument();
   });
 });

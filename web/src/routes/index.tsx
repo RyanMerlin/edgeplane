@@ -1,411 +1,264 @@
 /**
- * Fleet dashboard — landing page (/).
+ * Dashboard — landing page (/).
  *
- * Consolidates the former Overview (per-agent conversation tabs) and Agents
- * (table) routes into one surface with two sub-views, toggled in-page:
- *   - Conversations: one tab per registered agent → live ACP <ConversationView>
- *   - Agents:        the full control-plane + mesh merge table
+ * Pivot between the two nav spines:
+ *   - Fleet card: online/total agent summary → links to /agents
+ *   - Work card: domain + mission count → links to /domains
+ *   - Recent activity: last ~8 SSE events (read-only)
  *
- * Both sub-views share one agent list via useMergedAgents() (see
- * lib/useMergedAgents.ts) — no duplicated fetch/merge. The old /agents route
- * now redirects here; the row-click detail route /agents/$agentId is unchanged.
- *
- * Conversation pane: only the active tab mounts AcpPane, so at most ONE
- * WebSocket is open at a time.
+ * Data sources:
+ *   - useMergedAgents() — fleet agent list with status
+ *   - GET /api/explorer/tree — domain + mission counts
+ *   - useEventStream() — live event ring buffer
  */
 
-import { ConversationView } from '@/components/conversation/ConversationView';
-import { AgentsTable } from '@/components/fleet/AgentsTable';
-import { useAcpConversation } from '@/lib/conversation/useAcpConversation';
-import { type MergedAgent, useMergedAgents } from '@/lib/useMergedAgents';
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { apiClient, unwrap } from '@/api/client';
+import type { components } from '@/api/schema.gen';
+import { queryKeys } from '@/lib/queryKeys';
+import { useEventStream } from '@/lib/useEventStream';
+import { useMergedAgents } from '@/lib/useMergedAgents';
+import { useQuery } from '@tanstack/react-query';
+import { Link, createFileRoute } from '@tanstack/react-router';
 
 // ── Route ──────────────────────────────────────────────────────────────────────
 
 export const Route = createFileRoute('/')({
-  component: FleetDashboard,
+  component: Dashboard,
 });
 
-type FleetView = 'console' | 'table';
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+type ExplorerTreeResponse = components['schemas']['ExplorerTreeResponse'];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-/** Resolve the nodeId from the agent's metadata JSON string. */
-function resolveNodeId(metadata: string | null | undefined): string | null {
-  if (!metadata) return null;
-  try {
-    const parsed = JSON.parse(metadata);
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      typeof parsed.node_id === 'string' &&
-      parsed.node_id.length > 0
-    ) {
-      return parsed.node_id;
-    }
-  } catch {
-    // malformed JSON
-  }
-  return null;
-}
-
-function statusColor(status: string): string {
-  switch (status) {
-    case 'online':
-    case 'active':
-      return 'var(--ok)';
-    case 'working':
-    case 'busy':
-      return 'var(--warn)';
-    case 'error':
-      return 'var(--err)';
-    default:
-      return 'var(--muted)';
-  }
-}
-
-function fmtRelative(s: string | null | undefined): string {
-  if (!s) return '—';
-  const diffMs = Date.now() - new Date(s).getTime();
+function fmtRelative(ts: number): string {
+  const diffMs = Date.now() - ts;
   const diffSec = Math.floor(diffMs / 1000);
   if (diffSec < 60) return `${diffSec}s ago`;
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) return `${diffMin}m ago`;
   const diffHr = Math.floor(diffMin / 60);
   if (diffHr < 24) return `${diffHr}h ago`;
-  return new Date(s).toLocaleString();
+  return new Date(ts).toLocaleString();
 }
 
-// ── Conversation pane ────────────────────────────────────────────────────────
+// ── Card shell ─────────────────────────────────────────────────────────────────
 
-/**
- * AcpPane — mounts useAcpConversation only when rendered.
- * Kept in a separate component so the hook lifecycle (and WebSocket) is tied
- * to mounting. The parent conditionally renders this only for the active tab,
- * ensuring at most ONE ACP WebSocket is open at a time.
- */
-function AcpPane({ nodeId, agentId }: { nodeId: string; agentId: string }) {
-  const { items, status, send, cancel } = useAcpConversation(nodeId, agentId);
-  return <ConversationView items={items} status={status} onSend={send} onCancel={cancel} />;
-}
-
-function AgentPane({ agent, isActive }: { agent: MergedAgent; isActive: boolean }) {
-  const nodeId = resolveNodeId(agent.metadata);
-
-  // Derive last-seen from whichever timestamp is available
-  const lastSeen = agent.last_heartbeat_at ?? agent.updated_at;
-
+function Card({
+  heading,
+  children,
+}: {
+  heading: string;
+  children: React.ReactNode;
+}) {
   return (
     <div
-      style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-      data-testid={`agent-pane-${agent.public_id}`}
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: '6px',
+        padding: '14px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+        minWidth: 0,
+      }}
     >
-      {/* Agent status header */}
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '6px 10px',
-          background: 'var(--surface)',
-          borderBottom: '1px solid var(--border)',
-          flexShrink: 0,
           fontSize: '11px',
+          fontWeight: 700,
           color: 'var(--muted)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
         }}
-        data-testid={`agent-status-${agent.public_id}`}
       >
-        <span
-          aria-label={`status: ${agent.status}`}
-          style={{
-            width: '7px',
-            height: '7px',
-            borderRadius: '50%',
-            background: statusColor(agent.status),
-            flexShrink: 0,
-            display: 'inline-block',
-          }}
-        />
-        <span style={{ fontFamily: 'monospace', color: 'var(--text)', fontWeight: 600 }}>
-          {agent.name}
-        </span>
-        <span
-          className={`tag ${agent.status === 'online' || agent.status === 'active' ? 'ok' : ''}`}
-          data-testid={`agent-status-badge-${agent.public_id}`}
-        >
-          {agent.status}
-        </span>
-        {nodeId && (
-          <span
-            style={{ color: 'var(--dim)', fontSize: '10px' }}
-            data-testid={`agent-node-${agent.public_id}`}
-          >
-            {nodeId}
-          </span>
-        )}
-        <span style={{ marginLeft: 'auto', fontSize: '10px' }}>{fmtRelative(lastSeen)}</span>
+        {heading}
       </div>
-
-      {/* Conversation pane or fallback */}
-      <div style={{ flex: 1, minHeight: 0 }}>
-        {!nodeId && (
-          <div
-            style={{
-              padding: '24px 16px',
-              color: 'var(--muted)',
-              fontSize: '13px',
-              textAlign: 'center',
-            }}
-            data-testid={`agent-not-attachable-${agent.public_id}`}
-          >
-            <div style={{ fontWeight: 600, marginBottom: '4px' }}>Not attachable</div>
-            <div>
-              Agent <code>{agent.public_id}</code> has no <code>node_id</code> in its metadata.
-            </div>
-          </div>
-        )}
-        {nodeId && isActive && <AcpPane nodeId={nodeId} agentId={agent.public_id} />}
-      </div>
+      {children}
     </div>
   );
 }
 
-/**
- * FleetConsole — per-agent conversation tabs + active pane.
- * Owns the active-tab selection and Ctrl/Meta+N hotkeys (scoped to this view).
- */
-function FleetConsole({ agents }: { agents: MergedAgent[] }) {
-  const [activeProfile, setActiveProfile] = useState<string | null>(null);
+// ── Fleet card ─────────────────────────────────────────────────────────────────
 
-  // Derive active agent id: explicit selection or first agent as default
-  const activeAgentId = activeProfile ?? (agents.length ? agents[0].public_id : null);
+function FleetCard() {
+  const { agents, isLoading } = useMergedAgents();
 
-  // Keyboard hotkeys: Ctrl/Meta+N switches to the Nth agent tab (1-indexed)
-  useEffect(() => {
-    function handleKeydown(e: KeyboardEvent) {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const num = Number.parseInt(e.key, 10);
-      if (num >= 1 && num <= agents.length) {
-        e.preventDefault();
-        setActiveProfile(agents[num - 1].public_id);
-      }
-    }
-    document.addEventListener('keydown', handleKeydown);
-    return () => document.removeEventListener('keydown', handleKeydown);
-  }, [agents]);
-
-  const activeAgent = agents.find((a) => a.public_id === activeAgentId) ?? null;
-
-  if (agents.length === 0) {
-    return (
-      <div className="empty-state" data-testid="empty-state">
-        <div className="empty-icon">⊙</div>
-        <div className="empty-title">No agents registered</div>
-        <div className="empty-body">
-          No agents have been registered yet. Start an agent with{' '}
-          <code>edgeplane agent register</code>.
-        </div>
-      </div>
-    );
-  }
+  const onlineCount = agents.filter((a) => a.status === 'online' || a.status === 'active').length;
+  const totalCount = agents.length;
 
   return (
-    <>
-      {/* Agent tabs — one per registered agent, driven by the merged list */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 0,
-          padding: '0 0.25rem',
-          borderBottom: '1px solid var(--border)',
-          flexShrink: 0,
-        }}
-        role="tablist"
-        aria-label="Fleet agents"
-        data-testid="profile-tabs"
-      >
-        {agents.map((a, i) => {
-          const isActive = a.public_id === activeAgentId;
-          return (
-            <button
-              key={a.public_id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`panel-${a.public_id}`}
-              id={`tab-${a.public_id}`}
-              onClick={() => setActiveProfile(a.public_id)}
-              title={`${a.name} (${a.status}) — Ctrl+${i + 1}`}
+    <Card heading="Fleet">
+      <div style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'monospace', lineHeight: 1.2 }}>
+        {isLoading ? (
+          <span className="muted" style={{ fontSize: '13px' }}>
+            Loading…
+          </span>
+        ) : (
+          <>
+            <span data-testid="dash-fleet-online" style={{ color: 'var(--ok)' }}>
+              {onlineCount}
+            </span>
+            <span style={{ color: 'var(--muted)', fontSize: '14px', fontWeight: 400 }}>
+              {' / '}
+              {totalCount} online
+            </span>
+          </>
+        )}
+      </div>
+      <div style={{ marginTop: '4px' }}>
+        <Link
+          to="/agents"
+          style={{
+            fontSize: '12px',
+            color: 'var(--accent)',
+            textDecoration: 'none',
+          }}
+        >
+          Agents →
+        </Link>
+      </div>
+    </Card>
+  );
+}
+
+// ── Work card ──────────────────────────────────────────────────────────────────
+
+function WorkCard() {
+  const treeQuery = useQuery<ExplorerTreeResponse>({
+    queryKey: queryKeys.explorer.tree(),
+    queryFn: () => unwrap(apiClient.GET('/api/explorer/tree')),
+    refetchInterval: 60_000,
+  });
+
+  const domains = treeQuery.data?.domains ?? [];
+  const domainCount = domains.length;
+  const missionCount = domains.reduce((sum, d) => sum + d.missions.length, 0);
+
+  return (
+    <Card heading="Work">
+      <div style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'monospace', lineHeight: 1.2 }}>
+        {treeQuery.isLoading ? (
+          <span className="muted" style={{ fontSize: '13px' }}>
+            Loading…
+          </span>
+        ) : (
+          <>
+            <span data-testid="dash-work-domains" style={{ color: 'var(--text)' }}>
+              {domainCount}
+            </span>
+            <span style={{ color: 'var(--muted)', fontSize: '14px', fontWeight: 400 }}>
+              {' '}
+              {domainCount === 1 ? 'domain' : 'domains'}
+              {missionCount > 0 && (
+                <>
+                  {', '}
+                  {missionCount} {missionCount === 1 ? 'mission' : 'missions'}
+                </>
+              )}
+            </span>
+          </>
+        )}
+      </div>
+      <div style={{ marginTop: '4px' }}>
+        <Link
+          to="/domains"
+          style={{
+            fontSize: '12px',
+            color: 'var(--accent)',
+            textDecoration: 'none',
+          }}
+        >
+          Domains →
+        </Link>
+      </div>
+    </Card>
+  );
+}
+
+// ── Recent activity ────────────────────────────────────────────────────────────
+
+function ActivityStrip() {
+  const { events } = useEventStream();
+  const recent = events.slice(0, 8);
+
+  return (
+    <Card heading="Recent activity">
+      {recent.length === 0 ? (
+        <p className="muted" style={{ fontSize: '12px', margin: 0 }} data-testid="activity-empty">
+          No recent events.
+        </p>
+      ) : (
+        <ul
+          style={{
+            listStyle: 'none',
+            margin: 0,
+            padding: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+          }}
+          data-testid="activity-list"
+        >
+          {recent.map((ev, i) => (
+            <li
+              key={ev.id ?? i}
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.4rem',
-                padding: '0.5rem 0.75rem',
-                background: 'none',
-                border: 'none',
-                borderBottom: isActive ? '2px solid var(--accent)' : '2px solid transparent',
-                color: isActive ? 'var(--text)' : 'var(--muted)',
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                fontSize: '13px',
-                cursor: 'pointer',
+                gap: '8px',
+                fontSize: '12px',
               }}
-              data-testid={`tab-${a.public_id}`}
             >
               <span
-                aria-hidden="true"
-                style={{
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  background: statusColor(a.status),
-                  flexShrink: 0,
-                  display: 'inline-block',
-                }}
-              />
-              {a.name}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Active agent pane */}
-      {activeAgent && (
-        <div
-          role="tabpanel"
-          id={`panel-${activeAgent.public_id}`}
-          aria-labelledby={`tab-${activeAgent.public_id}`}
-          style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-          data-testid="active-profile-panel"
-        >
-          <AgentPane key={activeAgent.public_id} agent={activeAgent} isActive />
-        </div>
+                className="tag"
+                style={{ fontFamily: 'monospace', fontSize: '11px', flexShrink: 0 }}
+              >
+                {ev.type ?? ev.event ?? 'event'}
+              </span>
+              <span className="dim" style={{ fontSize: '11px', marginLeft: 'auto', flexShrink: 0 }}>
+                {fmtRelative(ev.receivedAt)}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
-    </>
-  );
-}
-
-// ── View toggle ────────────────────────────────────────────────────────────────
-
-function ViewToggle({ view, onChange }: { view: FleetView; onChange: (v: FleetView) => void }) {
-  const tabs: { id: FleetView; label: string }[] = [
-    { id: 'console', label: 'Conversations' },
-    { id: 'table', label: 'Agents' },
-  ];
-  return (
-    <div
-      style={{ display: 'flex', gap: '2px', marginLeft: 'auto' }}
-      role="tablist"
-      aria-label="Fleet view"
-      data-testid="fleet-view-toggle"
-    >
-      {tabs.map((t) => {
-        const active = view === t.id;
-        return (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(t.id)}
-            data-testid={`fleet-view-${t.id}`}
-            style={{
-              padding: '2px 10px',
-              fontSize: '11px',
-              borderRadius: '3px',
-              border: '1px solid var(--border-2)',
-              background: active ? 'var(--accent)' : 'var(--base)',
-              color: active ? 'var(--base)' : 'var(--muted)',
-              cursor: 'pointer',
-            }}
-          >
-            {t.label}
-          </button>
-        );
-      })}
-    </div>
+    </Card>
   );
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function FleetDashboard() {
-  const { agents, isLoading, isError, error } = useMergedAgents();
-  const [view, setView] = useState<FleetView>('table');
-  const navigate = useNavigate();
-
-  // Fleet summary counts — derived from merged agents, no extra endpoint needed
-  const onlineCount = agents.filter((a) => a.status === 'online' || a.status === 'active').length;
-  const totalCount = agents.length;
-
+export function Dashboard() {
   return (
     <div
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}
-      data-testid="fleet-dashboard"
+      data-testid="dashboard"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '16px',
+        padding: '20px',
+        height: '100%',
+        overflowY: 'auto',
+        boxSizing: 'border-box',
+      }}
     >
-      {/* Loading */}
-      {isLoading && (
-        <div style={{ padding: '12px' }}>
-          <p className="muted" data-testid="loading-state">
-            Loading fleet…
-          </p>
-        </div>
-      )}
+      {/* Top row: Fleet + Work side by side */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '16px',
+        }}
+      >
+        <FleetCard />
+        <WorkCard />
+      </div>
 
-      {/* Error */}
-      {isError && (
-        <div style={{ padding: '12px' }}>
-          <p className="error" data-testid="error-state">
-            Failed to load fleet — {error?.message ?? 'unknown error'}
-          </p>
-        </div>
-      )}
-
-      {/* Body — show once at least one query resolves */}
-      {!isLoading && !isError && (
-        <>
-          {/* Fleet header: summary + view toggle */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '6px 10px',
-              background: 'var(--surface)',
-              borderBottom: '1px solid var(--border)',
-              flexShrink: 0,
-              fontSize: '11px',
-              color: 'var(--muted)',
-            }}
-            data-testid="fleet-summary"
-          >
-            <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: '12px' }}>Fleet</span>
-            {totalCount > 0 && (
-              <span data-testid="fleet-online-count">
-                <span style={{ color: 'var(--ok)', fontWeight: 600 }}>{onlineCount}</span>
-                {' / '}
-                {totalCount} online
-              </span>
-            )}
-            <ViewToggle view={view} onChange={setView} />
-          </div>
-
-          {/* Active sub-view */}
-          {view === 'console' ? (
-            <FleetConsole agents={agents} />
-          ) : (
-            <AgentsTable
-              agents={agents}
-              isLoading={false}
-              isError={false}
-              error={null}
-              onRowClick={(a) =>
-                navigate({ to: '/agents/$agentId', params: { agentId: a.public_id } })
-              }
-            />
-          )}
-        </>
-      )}
+      {/* Recent activity */}
+      <ActivityStrip />
     </div>
   );
 }
