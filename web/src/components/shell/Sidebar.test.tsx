@@ -67,9 +67,10 @@ describe('Sidebar', () => {
     expect(link).not.toHaveAttribute('aria-current', 'page');
   });
 
-  it('renders onboarding nav link', () => {
+  it('does NOT render Onboarding as a top-level rail link', () => {
     render(<Sidebar />);
-    expect(screen.getByTestId('nav-onboarding')).toBeInTheDocument();
+    // The old nav-onboarding rail item must be absent from the sidebar rail
+    expect(screen.queryByTestId('nav-onboarding')).not.toBeInTheDocument();
   });
 
   it('shows a glyph avatar (not a hash slice) for an opaque subject', () => {
@@ -93,5 +94,19 @@ describe('Sidebar', () => {
     const logoutBtn = screen.getByTestId('logout-item');
     fireEvent.click(logoutBtn);
     expect(logoutSpy).toHaveBeenCalled();
+  });
+
+  it('reveals menu-onboarding under Account → Settings → Onboarding', () => {
+    render(<Sidebar />);
+    // Open account menu
+    fireEvent.click(screen.getByTestId('account-btn'));
+    // Onboarding not yet visible (settings submenu collapsed)
+    expect(screen.queryByTestId('menu-onboarding')).not.toBeInTheDocument();
+    // Open Settings submenu
+    fireEvent.click(screen.getByTestId('settings-item'));
+    // Now Onboarding is visible and links to /onboarding
+    const onboardingLink = screen.getByTestId('menu-onboarding');
+    expect(onboardingLink).toBeInTheDocument();
+    expect(onboardingLink).toHaveAttribute('href', '/onboarding');
   });
 });

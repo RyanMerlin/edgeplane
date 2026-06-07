@@ -41,6 +41,15 @@ function applyTheme(next: string) {
   }
 }
 
+// ── Nav icon map ─────────────────────────────────────────────────────────────
+const NAV_ICON: Record<string, string> = {
+  '/': '◇',
+  '/agents': '◉',
+  '/domains': '▤',
+  '/feed': '≋',
+  '/governance': '⚖',
+};
+
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 
 export function Sidebar() {
@@ -49,6 +58,7 @@ export function Sidebar() {
   const logout = useAuthStore((s) => s.logout);
 
   const [showMenu, setShowMenu] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [theme, setTheme] = useState('dark');
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -65,6 +75,7 @@ export function Sidebar() {
     function handleClick(e: MouseEvent) {
       if (showMenu && menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false);
+        setShowSettings(false);
       }
     }
     document.addEventListener('click', handleClick);
@@ -83,228 +94,383 @@ export function Sidebar() {
 
   return (
     <nav
+      data-testid="sidebar"
       style={{
-        width: 200,
+        width: 'var(--sidebar, 232px)',
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: 'var(--surface)',
+        background: 'var(--frame)',
         borderRight: '1px solid var(--border)',
         flexShrink: 0,
+        padding: '10px 8px 8px',
+        gap: 2,
+        boxSizing: 'border-box',
       }}
     >
-      {/* Logo */}
+      {/* Brand row */}
       <div
         style={{
-          padding: '12px 14px',
-          color: 'var(--accent)',
-          fontWeight: 700,
-          fontSize: 14,
-          letterSpacing: '-0.03em',
-          borderBottom: '1px solid var(--border)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '4px 8px 10px',
         }}
       >
-        EdgePlane
-      </div>
-
-      {/* Nav groups */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-        {NAV_GROUPS.map((group) => (
-          <div key={group.heading ?? group.items[0]?.to ?? 'root'}>
-            {group.heading && (
-              <div
-                style={{
-                  padding: '8px 14px 4px',
-                  fontSize: 10,
-                  color: 'var(--dim)',
-                  letterSpacing: '0.08em',
-                  fontWeight: 700,
-                }}
-              >
-                {group.heading}
-              </div>
-            )}
-            {group.items.map((item) => {
-              const active = isNavItemActive(item.to, pathname);
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  data-testid={`nav-${item.to}`}
-                  aria-current={active ? 'page' : undefined}
-                  style={{
-                    display: 'block',
-                    padding: '5px 14px',
-                    color: active ? 'var(--text)' : 'var(--muted)',
-                    textDecoration: 'none',
-                    fontSize: 13,
-                    borderLeft: active ? '2px solid var(--accent)' : '2px solid transparent',
-                    background: active ? 'var(--surface-2)' : 'transparent',
-                  }}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-
-      {/* Footer */}
-      <div
-        style={{
-          marginTop: 'auto',
-          borderTop: '1px solid var(--border)',
-          padding: '8px 0',
-        }}
-      >
-        {/* Onboarding link */}
-        <Link
-          to="/onboarding"
-          data-testid="nav-onboarding"
+        <span style={{ color: 'var(--accent)', fontSize: 16, lineHeight: 1 }}>⬡</span>
+        <span
           style={{
-            display: 'block',
-            padding: '5px 14px',
-            color: 'var(--muted)',
-            textDecoration: 'none',
-            fontSize: 13,
+            fontSize: '13.5px',
+            fontWeight: 590,
+            color: 'var(--text)',
+            letterSpacing: '-0.01em',
           }}
         >
-          Onboarding
-        </Link>
+          EdgePlane
+        </span>
+      </div>
 
-        {/* Account button + menu */}
-        <div ref={menuRef} style={{ position: 'relative' }}>
-          <button
-            type="button"
-            data-testid="account-btn"
-            className="avatar"
-            onClick={() => setShowMenu((v) => !v)}
-            title={userSubject ?? 'User menu'}
-            aria-haspopup="true"
-            aria-expanded={showMenu}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              width: '100%',
-              padding: '5px 14px',
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--muted)',
-              fontSize: 13,
-              textAlign: 'left',
-            }}
-          >
-            <span
+      {/* Search row — static affordance; ⌘K palette is a later phase */}
+      <button
+        type="button"
+        aria-label="Search"
+        onClick={() => {
+          /* ⌘K palette — Phase C */
+        }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          height: 30,
+          padding: '0 8px',
+          marginBottom: 8,
+          background: 'var(--input)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 6,
+          color: 'var(--dim)',
+          fontSize: 13,
+          cursor: 'pointer',
+          width: '100%',
+          textAlign: 'left',
+          fontFamily: 'var(--font)',
+        }}
+      >
+        Search…
+        <kbd
+          style={{
+            marginLeft: 'auto',
+            fontSize: 11,
+            color: 'var(--dim)',
+            fontFamily: 'var(--mono)',
+            background: 'none',
+            border: 'none',
+            padding: 0,
+          }}
+        >
+          ⌘K
+        </kbd>
+      </button>
+
+      {/* Nav items */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1 }}>
+        {NAV_GROUPS.flatMap((g) => g.items).map((item) => {
+          const active = isNavItemActive(item.to, pathname);
+          const icon = NAV_ICON[item.to] ?? '·';
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              data-testid={`nav-${item.to}`}
+              aria-current={active ? 'page' : undefined}
               style={{
-                width: 22,
-                height: 22,
-                borderRadius: 3,
-                background: 'var(--surface-2)',
-                border: '1px solid var(--border-2)',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 11,
-                fontWeight: 700,
-                color: 'var(--accent)',
-                flexShrink: 0,
+                gap: 9,
+                height: 28,
+                padding: '0 8px',
+                borderRadius: 6,
+                color: active ? 'var(--text)' : 'var(--text-2)',
+                fontSize: 13,
+                fontWeight: 510,
+                textDecoration: 'none',
+                background: active ? 'var(--raised-2)' : 'transparent',
+                cursor: 'pointer',
+                userSelect: 'none',
+                transition: 'background .12s ease, color .12s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (!active) {
+                  (e.currentTarget as HTMLElement).style.background = 'var(--raised)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!active) {
+                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                }
               }}
             >
-              {label ?? '⬡'}
-            </span>
-            <span
-              style={{
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                fontSize: 11,
-                color: 'var(--muted)',
-              }}
-            >
-              {label ? userSubject : 'Account'}
-            </span>
-          </button>
+              <span
+                style={{
+                  width: 15,
+                  height: 15,
+                  flexShrink: 0,
+                  color: active ? 'var(--accent)' : 'var(--dim)',
+                  display: 'grid',
+                  placeItems: 'center',
+                  fontSize: 13,
+                  transition: 'color .12s ease',
+                }}
+              >
+                {icon}
+              </span>
+              {item.label}
+            </Link>
+          );
+        })}
+      </div>
 
-          {showMenu && (
-            <div
-              className="avatar-dropdown"
-              role="menu"
+      {/* Bottom account control */}
+      <div ref={menuRef} style={{ marginTop: 'auto', position: 'relative' }}>
+        {/* Account popover menu — appears above the control */}
+        {showMenu && (
+          <div
+            role="menu"
+            data-testid="account-menu"
+            style={{
+              position: 'absolute',
+              bottom: 42,
+              left: 4,
+              right: 4,
+              background: 'var(--frame)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: 4,
+              zIndex: 20,
+              boxShadow: '0 8px 28px rgba(0,0,0,0.5)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Subject line */}
+            {userSubject && (
+              <div
+                style={{
+                  padding: '6px 8px',
+                  fontSize: 11,
+                  color: 'var(--dim)',
+                  fontFamily: 'var(--mono)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  marginBottom: 4,
+                }}
+              >
+                {userSubject}
+              </div>
+            )}
+
+            {/* Settings row with submenu toggle */}
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="settings-item"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowSettings((v) => !v);
+              }}
               style={{
-                position: 'absolute',
-                bottom: '100%',
-                left: 8,
-                right: 8,
-                background: 'var(--surface)',
-                border: '1px solid var(--border-2)',
-                borderRadius: 3,
-                zIndex: 100,
-                padding: '4px 0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 8px',
+                borderRadius: 5,
+                fontSize: 13,
+                color: 'var(--text-2)',
+                cursor: 'pointer',
+                width: '100%',
+                background: 'transparent',
+                border: 'none',
+                textAlign: 'left',
+                fontFamily: 'var(--font)',
+                transition: 'background .12s ease',
               }}
             >
-              {userSubject && (
-                <div
-                  className="avatar-subject"
+              ⚙ Settings
+              <span style={{ marginLeft: 'auto', color: 'var(--dim)', fontSize: 11 }}>›</span>
+            </button>
+
+            {/* Settings submenu */}
+            {showSettings && (
+              <div
+                data-testid="settings-submenu"
+                style={{
+                  margin: '2px 0 2px 10px',
+                  paddingLeft: 8,
+                  borderLeft: '1px solid var(--border-subtle)',
+                }}
+              >
+                <Link
+                  to="/onboarding"
+                  data-testid="menu-onboarding"
+                  role="menuitem"
                   style={{
-                    padding: '4px 12px',
-                    fontSize: 11,
-                    color: 'var(--muted)',
-                    borderBottom: '1px solid var(--border)',
-                    marginBottom: 4,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 8px',
+                    borderRadius: 5,
+                    fontSize: 13,
+                    color: 'var(--text-2)',
+                    cursor: 'pointer',
+                    textDecoration: 'none',
+                    transition: 'background .12s ease',
                   }}
                 >
-                  {userSubject}
-                </div>
-              )}
-              <button
-                type="button"
-                role="menuitem"
-                onClick={toggleTheme}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '5px 12px',
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--muted)',
-                  fontSize: 12,
-                  textAlign: 'left',
-                }}
-              >
-                {theme === 'dark' ? '☀ Light mode' : '☾ Dark mode'}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="logout-item"
-                className="logout-item"
-                onClick={async () => {
-                  setShowMenu(false);
-                  await logout();
-                }}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '5px 12px',
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--err)',
-                  fontSize: 12,
-                  textAlign: 'left',
-                }}
-              >
-                Logout
-              </button>
-            </div>
-          )}
-        </div>
+                  Onboarding
+                </Link>
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="menu-preferences"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 8px',
+                    borderRadius: 5,
+                    fontSize: 13,
+                    color: 'var(--text-2)',
+                    cursor: 'pointer',
+                    width: '100%',
+                    background: 'transparent',
+                    border: 'none',
+                    textAlign: 'left',
+                    fontFamily: 'var(--font)',
+                    transition: 'background .12s ease',
+                  }}
+                >
+                  Preferences
+                </button>
+              </div>
+            )}
+
+            {/* Theme toggle */}
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="theme-item"
+              onClick={toggleTheme}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 8px',
+                borderRadius: 5,
+                fontSize: 13,
+                color: 'var(--text-2)',
+                cursor: 'pointer',
+                width: '100%',
+                background: 'transparent',
+                border: 'none',
+                textAlign: 'left',
+                fontFamily: 'var(--font)',
+                transition: 'background .12s ease',
+              }}
+            >
+              ☾ Theme
+            </button>
+
+            {/* Logout */}
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="logout-item"
+              onClick={async () => {
+                setShowMenu(false);
+                setShowSettings(false);
+                await logout();
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 8px',
+                borderRadius: 5,
+                fontSize: 13,
+                color: 'var(--err)',
+                cursor: 'pointer',
+                width: '100%',
+                background: 'transparent',
+                border: 'none',
+                textAlign: 'left',
+                fontFamily: 'var(--font)',
+                transition: 'background .12s ease',
+              }}
+            >
+              Logout
+            </button>
+          </div>
+        )}
+
+        {/* Account button row */}
+        <button
+          type="button"
+          data-testid="account-btn"
+          aria-haspopup="menu"
+          aria-expanded={showMenu}
+          onClick={() => {
+            setShowMenu((v) => !v);
+            if (showMenu) setShowSettings(false);
+          }}
+          title={userSubject ?? 'User menu'}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 9,
+            height: 34,
+            padding: '0 8px',
+            width: '100%',
+            background: 'transparent',
+            border: 'none',
+            borderRadius: 6,
+            cursor: 'pointer',
+            color: 'var(--text-2)',
+            fontFamily: 'var(--font)',
+            fontSize: 13,
+            textAlign: 'left',
+            transition: 'background .12s ease',
+          }}
+        >
+          {/* Avatar */}
+          <span
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: 5,
+              background: 'var(--accent-dim)',
+              color: 'var(--accent)',
+              display: 'grid',
+              placeItems: 'center',
+              fontSize: 11,
+              fontWeight: 590,
+              flexShrink: 0,
+            }}
+          >
+            {label ?? '⬡'}
+          </span>
+          {/* Name */}
+          <span
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {label ? userSubject : 'Account'}
+          </span>
+          {/* Chevron */}
+          <span style={{ marginLeft: 'auto', color: 'var(--dim)', fontSize: 11 }}>⌄</span>
+        </button>
       </div>
     </nav>
   );
