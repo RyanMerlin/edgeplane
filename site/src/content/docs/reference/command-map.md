@@ -154,7 +154,8 @@ All agents launch through `edgeplane run`. `edgeplane launch` was removed in v0.
 | `edgeplane profile activate --name <name>` | Set active profile (atomic symlink swap) |
 | `edgeplane profile use --name <name>` | Activate + pull in one step |
 | `edgeplane profile publish --name <name>` | Upload local bundle → server |
-| `edgeplane profile pull --name <name>` | Download server → local |
+| `edgeplane profile pull --name <name>` | Pull bundle into local profile cache |
+| `edgeplane profile download --name <name> [--out <file>]` | Save bundle to a local file |
 | `edgeplane profile pin --name <name> --sha256 <hash>` | Pin to content hash |
 | `edgeplane profile status --name <name>` | Local sync status vs backend |
 | `edgeplane profile delete --name <name> --confirm-delete` | Remove from backend |

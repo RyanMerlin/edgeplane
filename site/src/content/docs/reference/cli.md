@@ -163,7 +163,8 @@ edgeplane profile create --name <name> [--description "..."] [--activate]
 edgeplane profile activate --name <name>        # atomic symlink swap
 edgeplane profile use --name <name>             # activate + pull in one step
 edgeplane profile publish --name <name>         # upload local bundle → server
-edgeplane profile pull --name <name>            # download server → local
+edgeplane profile pull --name <name>            # pull bundle into local profile cache (use --apply to activate)
+edgeplane profile download --name <name> [--out <file>]  # save bundle to a local file
 edgeplane profile pin --name <name> --sha256 <hash>
 edgeplane profile status --name <name>          # local sync status vs backend
 edgeplane profile delete --name <name> --confirm-delete

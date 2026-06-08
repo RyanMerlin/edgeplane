@@ -30,7 +30,7 @@ edgeplaned run --backend-url http://localhost:8008
 `edgeplaned` reads its node identity from `/etc/edgeplane/node.json` at startup. Register the node first:
 
 ```bash
-edgeplane agent node register --node-name <name>
+edgeplane agent node register --hostname <hostname>
 # → writes JWT to /etc/edgeplane/node.json
 ```
 
