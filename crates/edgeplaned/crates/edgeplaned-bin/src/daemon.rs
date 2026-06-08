@@ -850,6 +850,9 @@ fn apply_runtime_overrides(specs: &mut Vec<AgentSpec>, local_overrides: &[(Strin
         );
         spec.runtime_kind = local_rt.to_string();
 
+        // Clear the Zellij session name — it only applies to zellij_hosted.
+        spec.launch_overrides.zellij_session = None;
+
         // ACP supervisor uses profile_path as cwd so claude loads the right CLAUDE.md.
         if local_rt == "claude_agent_acp" && spec.profile_path.is_none() {
             if let Some(StateDirSpec::Persistent { path }) = &spec.launch_overrides.state_dir_spec {
@@ -2239,5 +2242,83 @@ mod tests {
                 spec.agent_id
             );
         }
+    }
+
+    // ── apply_runtime_overrides tests ────────────────────────────────────────
+
+    /// apply_runtime_overrides flips runtime_kind to the local override AND
+    /// clears launch_overrides.zellij_session (M2 fix: stale session name must
+    /// not leak into an ACP spawn path). Also verifies that profile_path is
+    /// back-filled from state_dir_spec when the spec previously had none.
+    #[test]
+    fn apply_runtime_overrides_flips_runtime_and_clears_session() {
+        use edgeplaned_core::types::StateDirSpec;
+
+        let mut specs = vec![AgentSpec {
+            agent_id: "aria-work-deadbeef".to_string(),
+            domain_id: "m-1".to_string(),
+            runtime_kind: "zellij_hosted".to_string(),
+            session_mode: SessionMode::Persistent,
+            capabilities: vec![],
+            profile_path: None,
+            webhook_url: None,
+            launch_overrides: SpawnOverrides {
+                vault_folder: None,
+                state_dir_spec: Some(StateDirSpec::Persistent {
+                    path: PathBuf::from("/tmp/test-work"),
+                }),
+                zellij_session: Some("work-session".to_string()),
+            },
+            name: Some("aria-work".to_string()),
+            local_alias_id: Some("work".to_string()),
+        }];
+
+        apply_runtime_overrides(&mut specs, &[("work".to_string(), "claude_agent_acp".to_string())]);
+
+        let spec = &specs[0];
+        assert_eq!(spec.runtime_kind, "claude_agent_acp", "runtime_kind must be flipped");
+        assert!(
+            spec.launch_overrides.zellij_session.is_none(),
+            "zellij_session must be cleared when overriding to a non-zellij runtime"
+        );
+        assert_eq!(
+            spec.profile_path.as_deref(),
+            Some(PathBuf::from("/tmp/test-work").as_path()),
+            "profile_path must be back-filled from state_dir_spec"
+        );
+    }
+
+    /// When no override matches the spec's local_alias_id, apply_runtime_overrides
+    /// must leave the spec completely unchanged.
+    #[test]
+    fn apply_runtime_overrides_no_match_is_noop() {
+        let mut specs = vec![AgentSpec {
+            agent_id: "aria-operator-cafebabe".to_string(),
+            domain_id: "m-1".to_string(),
+            runtime_kind: "zellij_hosted".to_string(),
+            session_mode: SessionMode::Persistent,
+            capabilities: vec![],
+            profile_path: None,
+            webhook_url: None,
+            launch_overrides: SpawnOverrides {
+                vault_folder: None,
+                state_dir_spec: None,
+                zellij_session: Some("aria-operator".to_string()),
+            },
+            name: Some("aria-operator".to_string()),
+            local_alias_id: Some("operator".to_string()),
+        }];
+
+        // Override list targets "work", not "operator" — no match expected.
+        apply_runtime_overrides(&mut specs, &[("work".to_string(), "claude_agent_acp".to_string())]);
+
+        let spec = &specs[0];
+        assert_eq!(spec.runtime_kind, "zellij_hosted", "runtime_kind must be unchanged");
+        assert_eq!(
+            spec.launch_overrides.zellij_session.as_deref(),
+            Some("aria-operator"),
+            "zellij_session must be unchanged when no override matches"
+        );
+        assert!(spec.profile_path.is_none(), "profile_path must remain None");
     }
 }
