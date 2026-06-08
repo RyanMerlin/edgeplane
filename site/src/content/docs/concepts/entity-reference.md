@@ -9,7 +9,7 @@ This is the single source of truth for what each EdgePlane entity means. If anyt
 
 **A bounded organizational objective.** The high-level "what we are doing and why." Carries the northstar narrative, owners, governance scope.
 
-- Columns: `northstar_md`, `owners`, `contributors`, `visibility`, `status`
+- Columns: `northstar`, `owners`, `contributors`, `visibility`, `status`
 - Owns: many missions (`mission.domain_id`)
 
 **Domains do not complete. They scope. Tasks complete.**

@@ -15,7 +15,7 @@ A Domain is:
 - A **permission boundary** — who can do what
 - A **tool/skill profile** — approved tools, required skills, capability expectations
 
-Domains carry a `northstar_md` narrative, owner list, contributor list, and visibility/status fields.
+Domains carry a **Northstar** narrative, owner list, contributor list, and visibility/status fields.
 
 **Domains do not complete. They scope. Tasks complete.**
 
@@ -94,7 +94,7 @@ Collisions surface before damage occurs. This enables safe parallelism at scale 
 
 ```
 Domain: "Build Authentication System"
-├── northstar_md, owners, governance policy
+├── Northstar, owners, governance policy
 ├── Mission: "OIDC Integration"
 │   ├── workstream_md, artifacts
 │   ├── Task: "Implement /callback route"
