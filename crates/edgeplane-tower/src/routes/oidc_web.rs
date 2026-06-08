@@ -205,6 +205,7 @@ async fn issue_session_token(
     db: &PgPool,
     subject: &str,
     email: Option<&str>,
+    display_name: Option<&str>,
     user_agent: &str,
     ttl_hours: i64,
 ) -> Result<(String, i32, chrono::NaiveDateTime), sqlx::Error> {
@@ -216,11 +217,12 @@ async fn issue_session_token(
 
     let session_id = sqlx::query_scalar::<_, i32>(
         "INSERT INTO usersession \
-         (subject, email, token_hash, token_prefix, expires_at, created_at, last_used_at, user_agent, revoked, capability_scope) \
-         VALUES ($1,$2,$3,$4,$5,$6,$6,$7,false,'') RETURNING id",
+         (subject, email, display_name, token_hash, token_prefix, expires_at, created_at, last_used_at, user_agent, revoked, capability_scope) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,false,'') RETURNING id",
     )
     .bind(subject)
     .bind(email)
+    .bind(display_name)
     .bind(&token_hash)
     .bind(&token_prefix)
     .bind(expires_at)
@@ -561,7 +563,7 @@ async fn device_token(
 
     // Issue a session token.
     let (token, _session_id, expires_at) =
-        match issue_session_token(&state.db, &subject, None, &ua, cfg.session_ttl_hours).await {
+        match issue_session_token(&state.db, &subject, None, None, &ua, cfg.session_ttl_hours).await {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("device_token: issue_session: {e}");
@@ -1102,8 +1104,25 @@ async fn oidc_callback(
         .unwrap_or("")
         .to_string();
 
+    // Prefer preferred_username (Authentik username) then name (display name) as the
+    // human-readable label surfaced in the web UI avatar.
+    let display_name: Option<String> = claims["preferred_username"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .or_else(|| claims["name"].as_str().filter(|s| !s.is_empty()))
+        .map(|s| s.to_string());
+
     let (token, _session_id, token_expires_at) =
-        match issue_session_token(&state.db, &subject, (!email.is_empty()).then_some(email.as_str()), &ua, cfg.session_ttl_hours).await {
+        match issue_session_token(
+            &state.db,
+            &subject,
+            (!email.is_empty()).then_some(email.as_str()),
+            display_name.as_deref(),
+            &ua,
+            cfg.session_ttl_hours,
+        )
+        .await
+        {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("oidc_callback: issue_session: {e}");
@@ -1283,7 +1302,7 @@ async fn exchange_grant(
         .unwrap_or(cfg.session_ttl_hours);
 
     let (token, _session_id, expires_at) =
-        match issue_session_token(&state.db, &subject, None, &ua, ttl).await {
+        match issue_session_token(&state.db, &subject, None, None, &ua, ttl).await {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("exchange_grant: issue_session: {e}");

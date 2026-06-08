@@ -69,6 +69,9 @@ pub struct MeResponse {
     /// Email address captured at OIDC login — present for browser PKCE sessions, absent
     /// for CLI/device/service-account flows. Intended for avatar initials in the web UI.
     pub email: Option<String>,
+    /// Human-readable display name from the OIDC preferred_username/name claim. Used for
+    /// the web UI avatar and sidebar label. Null for CLI/SA flows.
+    pub name: Option<String>,
 }
 
 #[derive(Deserialize)]

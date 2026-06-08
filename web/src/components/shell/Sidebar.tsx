@@ -6,19 +6,21 @@ import { NAV_GROUPS, isNavItemActive } from './navModel';
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Returns 2-letter UPPER initials when the subject looks like an email or a
- * name with separators (dot, dash, underscore, space). Returns null for opaque
- * ids/hashes so the caller can render a neutral glyph instead.
+ * Returns initials for display in the avatar.
+ * - Multi-part email/name (e.g. "ryan.merlin@…"): first letter of each of the
+ *   first two parts → "RM"
+ * - Single-word name or email local part (e.g. "merlin@…"): first letter → "M"
+ * - Opaque ids/hashes: returns null so the caller renders a neutral glyph.
  */
-export function avatarLabel(subject: string | null): string | null {
-  if (!subject) return null;
+export function avatarLabel(email: string | null): string | null {
+  if (!email) return null;
 
   // Opaque hash: 24+ hex chars with no separators → treat as opaque
-  if (/^[0-9a-f]{24,}$/i.test(subject)) return null;
+  if (/^[0-9a-f]{24,}$/i.test(email)) return null;
 
   // Email: extract the local part
-  const atIdx = subject.indexOf('@');
-  const local = atIdx > 0 ? subject.slice(0, atIdx) : subject;
+  const atIdx = email.indexOf('@');
+  const local = atIdx > 0 ? email.slice(0, atIdx) : email;
 
   // Split on word separators
   const parts = local.split(/[._\-\s]+/).filter(Boolean);
@@ -26,9 +28,9 @@ export function avatarLabel(subject: string | null): string | null {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
 
-  // Single word — only return initials if it looks like a real word (has no digits)
-  if (parts.length === 1 && /^[a-zA-Z]+$/.test(parts[0]) && parts[0].length >= 2) {
-    return parts[0].slice(0, 2).toUpperCase();
+  // Single word — return just the first letter
+  if (parts.length === 1 && /^[a-zA-Z]+$/.test(parts[0])) {
+    return parts[0][0].toUpperCase();
   }
 
   return null;
@@ -56,10 +58,10 @@ export function Sidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const userSubject = useAuthStore((s) => s.userSubject);
   const userEmail = useAuthStore((s) => s.userEmail);
+  const userName = useAuthStore((s) => s.userName);
   const logout = useAuthStore((s) => s.logout);
 
   const [showMenu, setShowMenu] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [_theme, setTheme] = useState('dark');
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -76,7 +78,6 @@ export function Sidebar() {
     function handleClick(e: MouseEvent) {
       if (showMenu && menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false);
-        setShowSettings(false);
       }
     }
     document.addEventListener('click', handleClick);
@@ -91,7 +92,7 @@ export function Sidebar() {
     });
   };
 
-  const label = avatarLabel(userEmail ?? userSubject);
+  const label = avatarLabel(userName ?? userEmail);
 
   return (
     <nav
@@ -248,6 +249,7 @@ export function Sidebar() {
               padding: 4,
               zIndex: 20,
               boxShadow: '0 8px 28px rgba(0,0,0,0.5)',
+              textAlign: 'left',
             }}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
@@ -255,34 +257,11 @@ export function Sidebar() {
               if (e.key === 'Escape') setShowMenu(false);
             }}
           >
-            {/* Subject line */}
-            {userSubject && (
-              <div
-                style={{
-                  padding: '6px 8px',
-                  fontSize: 11,
-                  color: 'var(--dim)',
-                  fontFamily: 'var(--mono)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  borderBottom: '1px solid var(--border-subtle)',
-                  marginBottom: 4,
-                }}
-              >
-                {userSubject}
-              </div>
-            )}
-
-            {/* Settings row with submenu toggle */}
+            {/* Preferences */}
             <button
               type="button"
               role="menuitem"
-              data-testid="settings-item"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowSettings((v) => !v);
-              }}
+              data-testid="menu-preferences"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -300,64 +279,30 @@ export function Sidebar() {
                 transition: 'background .12s ease',
               }}
             >
-              ⚙ Settings
-              <span style={{ marginLeft: 'auto', color: 'var(--dim)', fontSize: 11 }}>›</span>
+              Preferences
             </button>
 
-            {/* Settings submenu */}
-            {showSettings && (
-              <div
-                data-testid="settings-submenu"
-                style={{
-                  margin: '2px 0 2px 10px',
-                  paddingLeft: 8,
-                  borderLeft: '1px solid var(--border-subtle)',
-                }}
-              >
-                <Link
-                  to="/onboarding"
-                  data-testid="menu-onboarding"
-                  role="menuitem"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '6px 8px',
-                    borderRadius: 5,
-                    fontSize: 13,
-                    color: 'var(--text-2)',
-                    cursor: 'pointer',
-                    textDecoration: 'none',
-                    transition: 'background .12s ease',
-                  }}
-                >
-                  Onboarding
-                </Link>
-                <button
-                  type="button"
-                  role="menuitem"
-                  data-testid="menu-preferences"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '6px 8px',
-                    borderRadius: 5,
-                    fontSize: 13,
-                    color: 'var(--text-2)',
-                    cursor: 'pointer',
-                    width: '100%',
-                    background: 'transparent',
-                    border: 'none',
-                    textAlign: 'left',
-                    fontFamily: 'var(--font)',
-                    transition: 'background .12s ease',
-                  }}
-                >
-                  Preferences
-                </button>
-              </div>
-            )}
+            {/* Onboarding */}
+            <Link
+              to="/onboarding"
+              data-testid="menu-onboarding"
+              role="menuitem"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 8px',
+                borderRadius: 5,
+                fontSize: 13,
+                color: 'var(--text-2)',
+                cursor: 'pointer',
+                textDecoration: 'none',
+                textAlign: 'left',
+                transition: 'background .12s ease',
+              }}
+            >
+              Onboarding
+            </Link>
 
             {/* Theme toggle */}
             <button
@@ -392,7 +337,6 @@ export function Sidebar() {
               data-testid="logout-item"
               onClick={async () => {
                 setShowMenu(false);
-                setShowSettings(false);
                 await logout();
               }}
               style={{
@@ -423,11 +367,8 @@ export function Sidebar() {
           data-testid="account-btn"
           aria-haspopup="menu"
           aria-expanded={showMenu}
-          onClick={() => {
-            setShowMenu((v) => !v);
-            if (showMenu) setShowSettings(false);
-          }}
-          title={userSubject ?? 'User menu'}
+          onClick={() => setShowMenu((v) => !v)}
+          title={userName ?? userEmail ?? userSubject ?? 'User menu'}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -471,7 +412,7 @@ export function Sidebar() {
               whiteSpace: 'nowrap',
             }}
           >
-            {label ? userSubject : 'Account'}
+            {userName ?? userEmail ?? 'Account'}
           </span>
           {/* Chevron */}
           <span style={{ marginLeft: 'auto', color: 'var(--dim)', fontSize: 11 }}>⌄</span>

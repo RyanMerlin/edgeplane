@@ -105,15 +105,11 @@ describe('Sidebar', () => {
     expect(logoutSpy).toHaveBeenCalled();
   });
 
-  it('reveals menu-onboarding under Account → Settings → Onboarding', () => {
+  it('reveals menu-onboarding directly after opening the account menu', () => {
     render(<Sidebar />);
     // Open account menu
     fireEvent.click(screen.getByTestId('account-btn'));
-    // Onboarding not yet visible (settings submenu collapsed)
-    expect(screen.queryByTestId('menu-onboarding')).not.toBeInTheDocument();
-    // Open Settings submenu
-    fireEvent.click(screen.getByTestId('settings-item'));
-    // Now Onboarding is visible and links to /onboarding
+    // Onboarding is a flat top-level item — visible immediately
     const onboardingLink = screen.getByTestId('menu-onboarding');
     expect(onboardingLink).toBeInTheDocument();
     expect(onboardingLink).toHaveAttribute('href', '/onboarding');
