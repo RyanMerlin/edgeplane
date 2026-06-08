@@ -267,6 +267,7 @@ export function Sidebar() {
               style={{
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'flex-start',
                 gap: 8,
                 padding: '6px 8px',
                 borderRadius: 5,
@@ -276,7 +277,6 @@ export function Sidebar() {
                 width: '100%',
                 background: 'transparent',
                 border: 'none',
-                textAlign: 'left',
                 fontFamily: 'var(--font)',
                 transition: 'background .12s ease',
               }}
@@ -316,6 +316,7 @@ export function Sidebar() {
               style={{
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'flex-start',
                 gap: 8,
                 padding: '6px 8px',
                 borderRadius: 5,
@@ -325,7 +326,6 @@ export function Sidebar() {
                 width: '100%',
                 background: 'transparent',
                 border: 'none',
-                textAlign: 'left',
                 fontFamily: 'var(--font)',
                 transition: 'background .12s ease',
               }}
@@ -345,6 +345,7 @@ export function Sidebar() {
               style={{
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'flex-start',
                 gap: 8,
                 padding: '6px 8px',
                 borderRadius: 5,
@@ -354,7 +355,6 @@ export function Sidebar() {
                 width: '100%',
                 background: 'transparent',
                 border: 'none',
-                textAlign: 'left',
                 fontFamily: 'var(--font)',
                 transition: 'background .12s ease',
               }}
