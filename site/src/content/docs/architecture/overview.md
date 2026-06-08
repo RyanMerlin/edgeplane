@@ -74,9 +74,16 @@ The executor daemon. Agents communicate with it via Unix socket; operators never
 - Profile management — operator profile sync and activation
 
 Socket paths (`~/.edgeplane/edgeplaned/`):
-- `edgeplaned-mgmt.sock` — JSON-RPC 2.0 management gateway
-- `edgeplaned-secrets.sock` — secrets broker (agent subprocesses only)
+- `mgmt.sock` — JSON-RPC 2.0 management gateway
+- `secrets.sock` — secrets broker (agent subprocesses only)
 - `edgeplaned.sock` — PTY attach gateway
+
+## Optional Components
+
+Two additional components extend EdgePlane for specific environments:
+
+- **Web Dashboard** — React SPA served by edgeplane-tower. Provides a browser-based fleet view, ACP terminal sessions, live event feed, and governance approvals. Communicates exclusively through the tower REST/SSE/WebSocket API.
+- **edgeplane-zrpc** — Optional Zellij WASM plugin. Adds focus-free PTY injection, scrollback reads, pane lifecycle events, and cancel signals for Zellij-hosted agents. Activated by setting `EDGEPLANE_ZRPC_PLUGIN_PATH`; unset means no behavior change.
 
 ## Persistence Layers
 
@@ -109,4 +116,7 @@ A typical agent mutation (creating a task) flows:
 
 - [Persistence Model](/architecture/persistence/) — three-tier storage model in detail
 - [Ephemeral Task Agents](/architecture/ephemeral-agents/) — distributed agent execution via mesh tasks
+- [Component Reference](/architecture/components/) — per-component roles, config, and trust boundaries
+- [Data Flow](/architecture/data-flow/) — how a task moves from creation to execution to artifact publication
+- [Security Model](/architecture/security/) — authentication, authorization, and audit trail
 - [Reference: edgeplaned Daemon](/reference/edgeplaned-daemon/) — daemon internals and secrets brokering
