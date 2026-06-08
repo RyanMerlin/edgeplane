@@ -4,6 +4,8 @@
 //!
 //! The schema is intentionally self-contained: no shared crate with aria-rs.
 //! The node structs are duplicated by design so both tools can evolve independently.
+//!
+//! Exposed as `edgeplane discover [path...] [--deep]`.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -59,11 +61,17 @@ pub struct CliSchema {
 }
 
 // ---------------------------------------------------------------------------
-// Clap args struct (empty — no flags needed for this command)
+// Clap args struct
 // ---------------------------------------------------------------------------
 
 #[derive(Args, Debug, Default)]
-pub struct CliSchemaArgs {}
+pub struct DiscoverArgs {
+    /// Drill into a specific subcommand path (e.g. `agent`, `agent signal`).
+    pub path: Vec<String>,
+    /// Return the full subtree (default: 1 level of subcommands).
+    #[arg(long)]
+    pub deep: bool,
+}
 
 // ---------------------------------------------------------------------------
 // Tree walker
@@ -149,15 +157,34 @@ pub fn build_node(cmd: &clap::Command, remaining_depth: usize) -> CapabilityNode
 // Entry point
 // ---------------------------------------------------------------------------
 
-pub async fn run(_args: CliSchemaArgs) -> Result<()> {
+pub async fn run(args: DiscoverArgs) -> Result<()> {
     // Build the command tree from EdgeplaneCommand without pulling in the top-level
     // CliOpts from main.rs (which is not part of the library).
     let mut root_cmd = clap::Command::new("edgeplane")
         .about("Rust-native MCP bridge for Edgeplane")
         .version(env!("CARGO_PKG_VERSION"));
     root_cmd = crate::commands::EdgeplaneCommand::augment_subcommands(root_cmd);
+    // build() resolves all subcommand names (including `name = "..."` overrides)
+    // before we walk the tree.
+    root_cmd.build();
 
-    let root_node = build_node(&root_cmd, usize::MAX);
+    // Walk the tree by path tokens to find the subtree to emit.
+    let mut cursor: &clap::Command = &root_cmd;
+    for token in &args.path {
+        match cursor
+            .get_subcommands()
+            .find(|s| s.get_name() == token.as_str())
+        {
+            Some(sub) => cursor = sub,
+            None => anyhow::bail!(
+                "unknown subcommand path segment '{}' — run `edgeplane discover` for top-level",
+                token
+            ),
+        }
+    }
+
+    let depth = if args.deep { usize::MAX } else { 1 };
+    let root_node = build_node(cursor, depth);
 
     let schema = CliSchema {
         schema_version: 1,
@@ -207,7 +234,8 @@ mod tests {
 
     #[test]
     fn build_node_depth_one_has_no_nested_subcommands() {
-        let root_cmd = make_root();
+        let mut root_cmd = make_root();
+        root_cmd.build();
         // At depth=1 the root node's direct children are captured but their
         // children are dropped (remaining_depth goes to 0 on the recursive call).
         let node = build_node(&root_cmd, 1);
@@ -224,7 +252,8 @@ mod tests {
 
     #[test]
     fn build_node_full_depth_expands_nested() {
-        let root_cmd = make_root();
+        let mut root_cmd = make_root();
+        root_cmd.build();
         let node = build_node(&root_cmd, usize::MAX);
 
         // The `agent` subcommand has nested subcommands (signal, cancel, list, …).

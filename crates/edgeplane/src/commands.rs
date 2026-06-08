@@ -114,8 +114,6 @@ pub enum EdgeplaneCommand {
     /// Bidirectional git-backed config sync for this node.
     #[command(name = "mesh-sync", subcommand)]
     MeshSync(cmd::sync::SyncCmd),
-    /// Discover edgeplane-tower nodes and write ~/.ep/servers.
-    Discover(discover::DiscoverArgs),
     /// Launch the terminal UI (ratatui) for fleet monitoring and management.
     Tui(TuiArgs),
     /// Manage named controlplane connection contexts.
@@ -124,9 +122,8 @@ pub enum EdgeplaneCommand {
     /// Domain attachment and home-domain management for this agent.
     #[command(subcommand)]
     Domain(DomainCommand),
-    /// Emit the full CLI surface as a versioned JSON schema contract.
-    #[command(name = "cli-schema")]
-    CliSchema(crate::cli_schema::CliSchemaArgs),
+    /// Emit the CLI surface as a versioned JSON schema contract; drill into a subtree with [path...].
+    Discover(crate::cli_schema::DiscoverArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -156,6 +153,8 @@ pub enum ContextCommand {
         /// Context name to remove.
         name: String,
     },
+    /// Discover edgeplane-tower nodes and write ~/.edgeplane/servers.
+    Discover(crate::discover::NodeDiscoverArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -909,15 +908,14 @@ pub async fn run(
         }
         EdgeplaneCommand::Receipts(sub) => cmd::receipts::run(sub).map_err(Into::into),
         EdgeplaneCommand::MeshSync(sub) => cmd::sync::run(Some(sub)).map_err(Into::into),
-        EdgeplaneCommand::Discover(args) => discover::run(args).await,
         EdgeplaneCommand::Tui(args) => handle_tui(args, &config),
-        EdgeplaneCommand::Context(cmd) => handle_context(cmd),
+        EdgeplaneCommand::Context(cmd) => handle_context(cmd).await,
         EdgeplaneCommand::Domain(cmd) => handle_domain(cmd, client, &config).await,
-        EdgeplaneCommand::CliSchema(args) => crate::cli_schema::run(args).await,
+        EdgeplaneCommand::Discover(args) => crate::cli_schema::run(args).await,
     }
 }
 
-fn handle_context(cmd: ContextCommand) -> Result<()> {
+async fn handle_context(cmd: ContextCommand) -> Result<()> {
     use crate::context::{active_context, load_contexts, save_contexts, session_file_for};
 
     match cmd {
@@ -979,6 +977,7 @@ fn handle_context(cmd: ContextCommand) -> Result<()> {
             save_contexts(&file).map_err(|e| anyhow::anyhow!("failed to save contexts: {e}"))?;
             println!("Removed context '{}'", name);
         }
+        ContextCommand::Discover(args) => discover::run(args).await?,
     }
     Ok(())
 }

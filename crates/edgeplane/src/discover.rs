@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::config::{load_server_list, write_servers_file};
 
 #[derive(Args, Debug)]
-pub struct DiscoverArgs {
+pub struct NodeDiscoverArgs {
     /// Candidate edgeplane-tower URLs to probe (comma-separated or repeated).
     /// If omitted, probes the current server list + localhost:8008.
     #[arg(long, value_delimiter = ',')]
@@ -17,7 +17,7 @@ pub struct DiscoverArgs {
     pub dry_run: bool,
 }
 
-pub async fn run(args: DiscoverArgs) -> Result<()> {
+pub async fn run(args: NodeDiscoverArgs) -> Result<()> {
     let candidates = if args.probe.is_empty() {
         let mut c = load_server_list();
         let default = "http://localhost:8008".to_string();
@@ -34,7 +34,7 @@ pub async fn run(args: DiscoverArgs) -> Result<()> {
 
     if live.is_empty() {
         anyhow::bail!(
-            "No edgeplane-tower nodes responded. Try: edgeplane discover --probe https://your-node:8008"
+            "No edgeplane-tower nodes responded. Try: edgeplane context discover --probe https://your-node:8008"
         );
     }
 
