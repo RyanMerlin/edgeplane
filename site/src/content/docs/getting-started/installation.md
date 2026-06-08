@@ -43,16 +43,12 @@ Requires a working [Rust toolchain](https://rustup.rs) (stable).
 git clone https://github.com/RyanMerlin/edgeplane.git
 cd edgeplane
 
-# Build and install edgeplane CLI
-cd crates/edgeplane && cargo build --release
+# Build all three binaries from the workspace root
+cargo build --release -p edgeplane -p edgeplaned -p edgeplane-tower
+
+# Install
 cp target/release/edgeplane ~/.local/bin/edgeplane
-
-# Build and install edgeplaned daemon
-cd ../edgeplaned && cargo build --release
 cp target/release/edgeplaned ~/.local/bin/edgeplaned
-
-# Build and install edgeplane-tower server
-cd ../edgeplane-tower && cargo build --release
 cp target/release/edgeplane-tower ~/.local/bin/edgeplane-tower
 ```
 

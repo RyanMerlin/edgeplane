@@ -57,7 +57,7 @@ Write a `permissions.kdl` file in that cache directory **before starting Zellij*
 
 ## Loading the Plugin in a Session
 
-Add the plugin to your Zellij config or session layout:
+Add the plugin to your Zellij config or session layout. Note that the config block uses a `file:` URI prefix — this is different from `permissions.kdl`, which uses the raw absolute path without any prefix. Both forms are intentional and required.
 
 ```kdl
 // ~/.config/zellij/config.kdl

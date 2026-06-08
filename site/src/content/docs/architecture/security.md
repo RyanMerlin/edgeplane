@@ -25,7 +25,7 @@ EdgePlane uses three distinct authentication modes depending on who (or what) is
 edgeplane auth login
   │
   ▼
-Browser opens https://your-tower-host/api/auth/oidc/login
+Browser opens https://your-tower-host/api/auth/oidc/start
   │  Redirect to IdP (Authentik, Okta, etc.)
   ▼
 IdP issues authorization code → user authenticates
@@ -55,10 +55,11 @@ edgeplaned registers a node using a short-lived join token:
 
 ```bash
 # Admin creates a join token (expires in 10 minutes)
-edgeplane agent node join-token create --ttl 600
+edgeplane agent node join-token create --ttl-seconds 600
 
-# On the target machine
-edgeplane agent node register --join-token <TOKEN> --endpoint https://edgeplane.example.com
+# On the target machine — point EP_BASE_URL at the tower first
+export EP_BASE_URL=https://edgeplane.example.com
+edgeplane agent node register --hostname <node-hostname>
 ```
 
 Tower issues an RS256-signed JWT and writes it to `/etc/edgeplane/node.json` (root-readable only). edgeplaned reads this file at startup — no environment variable injection is required. JTI-based revocation is tracked in the `nodetoken` table; compromised node credentials can be revoked without rotating the signing key.
