@@ -58,7 +58,7 @@ The Axum HTTP server backing the REST/SSE API. Runs independently from the CLI. 
 - Automatic database migrations on startup
 
 ```bash
-edgeplane-tower --serve --bind 0.0.0.0:8008
+edgeplane-tower --bind 0.0.0.0:8008
 ```
 
 Everything agents interact with via MCP tools routes through this server.

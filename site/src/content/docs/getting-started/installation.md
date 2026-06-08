@@ -61,7 +61,7 @@ cp target/release/edgeplane-tower ~/.local/bin/edgeplane-tower
 `edgeplane-tower` is the API server all agents and operators talk to. Migrations run automatically on startup.
 
 ```bash
-edgeplane-tower --serve --bind 0.0.0.0:8008
+edgeplane-tower --bind 0.0.0.0:8008
 ```
 
 Verify it's up:

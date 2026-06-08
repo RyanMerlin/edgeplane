@@ -10,7 +10,7 @@ This guide walks you from zero to a running agent session. Assumes you've comple
 If you're running locally:
 
 ```bash
-edgeplane-tower --serve --bind 127.0.0.1:8008
+edgeplane-tower --bind 127.0.0.1:8008
 ```
 
 If you have a deployed instance, point the CLI at it:
