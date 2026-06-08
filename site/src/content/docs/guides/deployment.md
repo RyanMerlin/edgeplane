@@ -81,11 +81,50 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now edgeplane
 ```
 
-### 4. Verify
+### 4. Add a Reverse Proxy / TLS
+
+Terminate TLS at a reverse proxy and forward plain HTTP to tower on port 8008. The tower itself does not handle TLS.
+
+**nginx example:**
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name your-tower-host;
+
+    ssl_certificate     /etc/ssl/certs/edgeplane.crt;
+    ssl_certificate_key /etc/ssl/private/edgeplane.key;
+
+    location / {
+        proxy_pass         http://localhost:8008;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        # WebSocket support (attach-ws)
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+}
+```
+
+**Caddy example:**
+
+```
+your-tower-host {
+    reverse_proxy localhost:8008 {
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
+```
+
+### 5. Verify
 
 ```bash
-curl http://localhost:8008/health
-curl http://localhost:8008/raft/status
+curl https://your-tower-host/api/health
+curl https://your-tower-host/api/raft/status
 ```
 
 ## Docker Compose
@@ -110,8 +149,8 @@ docker compose up
 ```
 
 Health endpoints:
-- `/health` — process alive (no auth required)
-- `/readyz` — DB ready, object storage reachable when configured
+- `/api/health` — process alive (no auth required)
+- `/api/readyz` — DB ready, object storage reachable when configured
 
 ## Kubernetes
 
@@ -162,8 +201,8 @@ sqlx migrate info
 
 After deployment:
 
-- [ ] `GET /health` returns 200 without auth
-- [ ] `GET /readyz` returns 200 (DB ready, S3 reachable if configured)
+- [ ] `GET /api/health` returns 200 without auth
+- [ ] `GET /api/readyz` returns 200 (DB ready, S3 reachable if configured)
 - [ ] `edgeplane health --json` returns connected from operator workstation
 - [ ] Bearer token callers are not admins unless their subject/email is in `EP_ADMIN_SUBJECTS` or `EP_ADMIN_EMAILS`
 - [ ] Create + delete mission paths work with expected authorization

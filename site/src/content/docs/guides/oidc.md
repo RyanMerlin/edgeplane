@@ -14,7 +14,7 @@ OIDC_ISSUER_URL=https://<your-idp>/application/o/<provider-slug>/
 OIDC_AUDIENCE=<oidc-client-id>
 OIDC_CLIENT_ID=<oidc-client-id>
 OIDC_CLIENT_SECRET=<optional-for-confidential-clients>
-OIDC_REDIRECT_URI=https://<edgeplane-host>/auth/oidc/callback
+OIDC_REDIRECT_URI=https://<edgeplane-host>/api/auth/oidc/callback
 OIDC_SCOPES=openid profile email
 EP_ADMIN_SUBJECTS=<comma-separated-subjects>
 EP_ADMIN_EMAILS=<comma-separated-emails>
@@ -41,14 +41,14 @@ OIDC_PUBLIC_ISSUER_URL=https://<public-idp-host>/application/o/<slug>/
 
 ```bash
 # 1. Initiate — get a browser URL and a cli_nonce
-curl -s https://<edgeplane-host>/auth/oidc/cli-initiate
+curl -s https://<edgeplane-host>/api/auth/oidc/cli-initiate
 # → {"authorize_url": "https://...", "cli_nonce": "...", "expires_at": "..."}
 
 # 2. Open authorize_url in your browser and complete login.
 #    The success page shows a grant_id (olg_…).
 
 # 3. Exchange the grant_id for a session token
-curl -s -X POST https://<edgeplane-host>/auth/oidc/exchange \
+curl -s -X POST https://<edgeplane-host>/api/auth/oidc/exchange \
   -H "Content-Type: application/json" \
   -d '{"grant_id": "olg_…"}'
 # → {"token": "mcs_…", "subject": "…", "expires_at": "…"}
@@ -63,7 +63,7 @@ chmod 600 ~/.edgeplane/session.json
 **Polling instead of copy-paste:**
 
 ```bash
-curl -s https://<edgeplane-host>/auth/oidc/cli-poll/<cli_nonce>
+curl -s https://<edgeplane-host>/api/auth/oidc/cli-poll/<cli_nonce>
 # → {"status":"ready","grant_id":"olg_…"}  (404 until login completes)
 ```
 
@@ -79,11 +79,11 @@ edgeplane auth whoami
 
 EdgePlane uses a backend PKCE flow:
 
-1. Browser requests `GET /auth/oidc/start`
+1. Browser requests `GET /api/auth/oidc/start`
 2. Server redirects to IdP authorize endpoint with PKCE challenge
-3. IdP returns to `GET /auth/oidc/callback`
+3. IdP returns to `GET /api/auth/oidc/callback`
 4. Server exchanges auth code, validates token, issues one-time grant
-5. Browser calls `POST /auth/oidc/exchange` to receive `mcs_*` session token
+5. Browser calls `POST /api/auth/oidc/exchange` to receive `mcs_*` session token
 
 ## Auth Mode Reference
 
