@@ -11,9 +11,9 @@ EdgePlane uses three distinct authentication modes depending on who (or what) is
 
 | Mode | Identity | Issued by | Stored at |
 |------|----------|-----------|-----------|
-| **OIDC session** | Human operator (browser) | IdP → edgeplane-tower | `~/.edgeplane/session.json`, `ep_session_token` cookie |
-| **Node JWT** (RS256) | Machine / daemon | `edgeplaned register` via tower | `/etc/edgeplane/node.json` |
-| **Service account** | CI / scripted automation | Tower API (`mcs_sa_*` prefix) | Caller-managed |
+| **OIDC session** | Human operator (browser) | IdP → edgeplane-tower | `~/.edgeplane/session.json`, `ep_session_token` cookie (token prefix: `mcs_`, not `mcs_sa_`) |
+| **Node JWT** (RS256) | Machine / daemon | `edgeplane agent node register` via tower | `/etc/edgeplane/node.json` |
+| **Service account** | CI / scripted automation | Tower API (`mcs_sa_*` prefix) | Caller-managed; pass via `EP_AGENT_TOKEN` env var |
 
 > **Note:** The static shared-secret `EP_TOKEN` was removed in v0.11.0. Any deployment still using it must migrate to one of the three modes above before upgrading.
 
@@ -36,7 +36,7 @@ Browser redirected to https://your-tower-host/api/auth/oidc/callback?code=...
   │  Claims verified via provider's userinfo endpoint (not unverified JWT parsing)
   │  `preferred_username` captured (falls back to `name`)
   ▼
-Tower issues opaque session token (mcs_* prefix)
+Tower issues opaque session token (`mcs_` prefix — not `mcs_sa_`; service-account tokens use `mcs_sa_`)
   │  Sets HttpOnly cookie (ep_session_token) for browser requests
   │  Also returned in response body for CLI storage
   ▼
@@ -45,7 +45,7 @@ Tower issues opaque session token (mcs_* prefix)
 
 The CLI uses the stored token as a Bearer header. The web dashboard uses the cookie. Both paths go through the same middleware in edgeplane-tower.
 
-Session tokens can be refreshed via `edgeplane auth refresh` before they expire. Token TTL is configurable on the tower.
+Token TTL is configurable on the tower; re-run `edgeplane auth login` to get a new session when needed.
 
 ---
 
@@ -58,7 +58,7 @@ edgeplaned registers a node using a short-lived join token:
 edgeplane agent node join-token create --ttl 600
 
 # On the target machine
-edgeplaned register --join-token <TOKEN> --endpoint https://edgeplane.example.com
+edgeplane agent node register --join-token <TOKEN> --endpoint https://edgeplane.example.com
 ```
 
 Tower issues an RS256-signed JWT and writes it to `/etc/edgeplane/node.json` (root-readable only). edgeplaned reads this file at startup — no environment variable injection is required. JTI-based revocation is tracked in the `nodetoken` table; compromised node credentials can be revoked without rotating the signing key.
@@ -71,12 +71,16 @@ Token rotation: `edgeplane agent node join-token rotate`.
 
 For non-interactive callers (CI pipelines, automation scripts):
 
+Service account tokens are created via the tower API:
+
 ```bash
-# Create a service account token
-edgeplane auth service-accounts create --name ci-pipeline
+# Create via API
+curl -X POST https://your-tower-host/api/auth/service-accounts \
+  -H "Authorization: Bearer $SESSION_TOKEN" \
+  -d '{"name": "ci-pipeline"}'
 ```
 
-Tokens have the `mcs_sa_` prefix. They are validated against the `serviceaccount` + `serviceaccounttoken` tables in Postgres. Revocation is immediate: `edgeplane auth service-accounts delete <id>`.
+Tokens carry the `mcs_sa_` prefix. They are validated against the `serviceaccount` + `serviceaccounttoken` tables in Postgres. Pass them to agent processes via the `EP_AGENT_TOKEN` environment variable. Revocation is immediate via the API or web dashboard.
 
 ---
 

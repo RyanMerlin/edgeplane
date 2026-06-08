@@ -14,7 +14,7 @@ EdgePlane is composed of five components. Three are core binaries that must coop
 **Responsibilities:**
 - `edgeplane tui` — full-screen terminal UI (agents, domains, missions, feed, approvals, secrets, config)
 - `edgeplane run <runtime>` — unified agent launcher (claude, codex, goose, gemini, custom)
-- `edgeplane auth login / logout / refresh` — OIDC session token lifecycle
+- `edgeplane auth login / logout / whoami` — OIDC session token lifecycle
 - `edgeplane capabilities` — capability pack discovery and dispatch
 - `edgeplane domain`, `edgeplane mission`, `edgeplane task`, `edgeplane agent` — entity CRUD
 - `edgeplane health` — connectivity check and server status
@@ -42,7 +42,7 @@ EdgePlane is composed of five components. Three are core binaries that must coop
 - OIDC authentication (`/api/auth/oidc/login`, `/api/auth/oidc/callback`)
 - Governance enforcement — policy lifecycle, approval tokens, domain membership checks
 - Artifact ledger — S3 streaming, vector indexing of artifact content, SHA-256 provenance
-- Automatic Alembic-style database migrations on startup
+- Automatic schema migrations on startup
 - Serving the React web dashboard (static files bundled into the binary)
 
 **Trust boundary:** Authoritative. All writes route through here. OIDC JWTs and node JWTs are validated here. No agent writes to the database directly.
@@ -73,7 +73,7 @@ Think of the relationship as: `edgeplane` = kubectl (operator interface), `edgep
 - Secrets broker — agents receive `EP_SECRETS_SOCKET` and `EP_SECRETS_SESSION` env vars; raw credentials never leave the daemon
 - PTY bridge for Zellij-hosted agents — gateway between edgeplane-tower attach WebSocket and the agent's terminal
 - Cron dispatch — reads `~/.edgeplane/edgeplaned/cron.toml`, fires scheduled jobs
-- Node registration — persists node JWT to `/etc/edgeplane/node.json` via `edgeplaned register`
+- Node registration — persists node JWT to `/etc/edgeplane/node.json` via `edgeplane agent node register`
 - Task worker loops — claim loop and triage loop for distributed mesh task execution
 
 **Trust boundary:** Holds a machine-identity node JWT (`/etc/edgeplane/node.json`). Acts on behalf of the agents it manages. Cannot escalate privileges beyond what edgeplane-tower's node identity grants.
@@ -91,13 +91,13 @@ Think of the relationship as: `edgeplane` = kubectl (operator interface), `edgep
 | Variable / file | Purpose |
 |-----------------|---------|
 | `EP_BACKEND_URL` | edgeplane-tower base URL |
-| `/etc/edgeplane/node.json` | Node JWT (written by `edgeplaned register`) |
+| `/etc/edgeplane/node.json` | Node JWT (written by `edgeplane agent node register`) |
 | `~/.edgeplane/edgeplaned/config.yaml` | Daemon config (work dir, agent profiles) |
 | `~/.edgeplane/edgeplaned/cron.toml` | Scheduled job definitions |
 
 ```bash
 # Register this machine as an EdgePlane node
-edgeplaned register --join-token <TOKEN> --endpoint https://edgeplane.example.com
+edgeplane agent node register --join-token <TOKEN> --endpoint https://edgeplane.example.com
 
 # Run the daemon
 edgeplaned run --backend-url https://edgeplane.example.com
@@ -142,4 +142,4 @@ edgeplaned run --backend-url https://edgeplane.example.com
 
 - [Data Flow](/architecture/data-flow/) — how a task moves from submission to artifact publication
 - [Security Model](/architecture/security/) — authentication, authorization, and audit trail
-- [Guides: Zellij Integration](/guides/zellij/) — enable and configure edgeplane-zrpc
+- [Guides: Zellij Integration](/guides/zellij-integration/) — enable and configure edgeplane-zrpc
