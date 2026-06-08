@@ -92,9 +92,9 @@ Collisions surface before damage occurs. This enables safe parallelism at scale 
 
 ## The Hierarchy in Practice
 
-\`\`\`
+```
 Domain: "Build Authentication System"
-├── northstar, owners, governance policy
+├── northstar_md, owners, governance policy
 ├── Mission: "OIDC Integration"
 │   ├── workstream_md, artifacts
 │   ├── Task: "Implement /callback route"
@@ -103,7 +103,7 @@ Domain: "Build Authentication System"
 └── Mission: "Token Management"
     ├── Task: "Design refresh token schema"
     └── Task: "Implement revocation endpoint"
-\`\`\`
+```
 
 Domains scope. Missions stream. Tasks complete.
 
