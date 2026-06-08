@@ -366,15 +366,17 @@ pub enum MissionCommand {
     Show {
         /// Mission ID.
         id: String,
-        #[arg(long)]
-        domain_id: Option<String>,
+        /// Domain this mission belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
     },
     /// Update a mission's metadata.
     Update {
         /// Mission ID.
         id: String,
-        #[arg(long)]
-        domain_id: Option<String>,
+        /// Domain this mission belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
@@ -392,8 +394,9 @@ pub enum MissionCommand {
     Delete {
         /// Mission ID.
         id: String,
-        #[arg(long)]
-        domain_id: Option<String>,
+        /// Domain this mission belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
     },
 }
 
@@ -407,8 +410,9 @@ pub enum TaskCommand {
         /// Mission this task belongs to (required).
         #[arg(long, required = true)]
         mission_id: String,
-        #[arg(long)]
-        domain_id: Option<String>,
+        /// Domain this task belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
         #[arg(long)]
         description: Option<String>,
         #[arg(long)]
@@ -437,8 +441,9 @@ pub enum TaskCommand {
         id: String,
         #[arg(long, required = true)]
         mission_id: String,
-        #[arg(long)]
-        domain_id: Option<String>,
+        /// Domain this task belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
     },
     /// Update a task's metadata.
     Update {
@@ -446,8 +451,9 @@ pub enum TaskCommand {
         id: String,
         #[arg(long, required = true)]
         mission_id: String,
-        #[arg(long)]
-        domain_id: Option<String>,
+        /// Domain this task belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
         #[arg(long)]
         title: Option<String>,
         #[arg(long)]
@@ -469,8 +475,9 @@ pub enum TaskCommand {
         id: String,
         #[arg(long, required = true)]
         mission_id: String,
-        #[arg(long)]
-        domain_id: Option<String>,
+        /// Domain this task belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
     },
 }
 
@@ -3909,12 +3916,7 @@ async fn handle_mission(
             output::print_value(output_mode, &result);
         }
         MissionCommand::Show { id, domain_id } => {
-            let path = if let Some(did) = domain_id {
-                format!("/domains/{did}/m/{id}")
-            } else {
-                format!("/missions/{id}")
-            };
-            let result = client.get_json(&path).await?;
+            let result = client.get_json(&format!("/domains/{domain_id}/m/{id}")).await?;
             output::print_value(output_mode, &result);
         }
         MissionCommand::Update {
@@ -3934,21 +3936,11 @@ async fn handle_mission(
             if let Some(v) = contributors { body["contributors"]  = json!(v); }
             if let Some(v) = tags         { body["tags"]          = json!(v); }
             if let Some(v) = status       { body["status"]        = json!(v); }
-            let path = if let Some(did) = domain_id {
-                format!("/domains/{did}/m/{id}")
-            } else {
-                format!("/missions/{id}")
-            };
-            let result = client.patch_json(&path, &body).await?;
+            let result = client.patch_json(&format!("/domains/{domain_id}/m/{id}"), &body).await?;
             output::print_value(output_mode, &result);
         }
         MissionCommand::Delete { id, domain_id } => {
-            let path = if let Some(did) = domain_id {
-                format!("/domains/{did}/m/{id}")
-            } else {
-                format!("/missions/{id}")
-            };
-            client.delete(&path).await?;
+            client.delete(&format!("/domains/{domain_id}/m/{id}")).await?;
             println!("Deleted mission {id}");
         }
     }
@@ -3981,12 +3973,7 @@ async fn handle_task(
             if let Some(v) = contributors { body["contributors"]       = json!(v); }
             if let Some(v) = dod          { body["definition_of_done"] = json!(v); }
             if let Some(v) = dependencies { body["dependencies"]       = json!(v); }
-            let path = if let Some(did) = domain_id {
-                format!("/domains/{did}/m/{mission_id}/t")
-            } else {
-                format!("/missions/{mission_id}/t")
-            };
-            let result = client.post_json(&path, &body).await?;
+            let result = client.post_json(&format!("/domains/{domain_id}/m/{mission_id}/t"), &body).await?;
             output::print_value(output_mode, &result);
         }
         TaskCommand::List { mission_id } => {
@@ -3994,12 +3981,7 @@ async fn handle_task(
             output::print_value(output_mode, &result);
         }
         TaskCommand::Show { id, mission_id, domain_id } => {
-            let path = if let Some(did) = domain_id {
-                format!("/domains/{did}/m/{mission_id}/t/{id}")
-            } else {
-                format!("/missions/{mission_id}/t/{id}")
-            };
-            let result = client.get_json(&path).await?;
+            let result = client.get_json(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}")).await?;
             output::print_value(output_mode, &result);
         }
         TaskCommand::Update {
@@ -4022,21 +4004,11 @@ async fn handle_task(
             if let Some(v) = contributors { body["contributors"]       = json!(v); }
             if let Some(v) = dod          { body["definition_of_done"] = json!(v); }
             if let Some(v) = dependencies { body["dependencies"]       = json!(v); }
-            let path = if let Some(did) = domain_id {
-                format!("/domains/{did}/m/{mission_id}/t/{id}")
-            } else {
-                format!("/missions/{mission_id}/t/{id}")
-            };
-            let result = client.patch_json(&path, &body).await?;
+            let result = client.patch_json(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}"), &body).await?;
             output::print_value(output_mode, &result);
         }
         TaskCommand::Delete { id, mission_id, domain_id } => {
-            let path = if let Some(did) = domain_id {
-                format!("/domains/{did}/m/{mission_id}/t/{id}")
-            } else {
-                format!("/missions/{mission_id}/t/{id}")
-            };
-            client.delete(&path).await?;
+            client.delete(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}")).await?;
             println!("Deleted task {id}");
         }
     }

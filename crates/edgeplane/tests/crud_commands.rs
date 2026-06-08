@@ -2,6 +2,9 @@
 //! Uses two complementary approaches:
 //!   1. Binary invocation (--help / parse smoke tests) — no network needed.
 //!   2. httpmock round-trip tests — verify the right HTTP verb+path is sent.
+//!
+//! All mutation operations (show/update/delete for missions; create/show/update/delete
+//! for tasks) require --domain-id because tower only serves domain-scoped paths.
 
 use httpmock::Method::{DELETE, GET, PATCH, POST};
 use httpmock::MockServer;
@@ -222,10 +225,72 @@ async fn mission_list_with_domain_uses_domain_path() {
 }
 
 #[tokio::test]
-async fn mission_delete_sends_delete_to_missions_path() {
+async fn mission_show_uses_domain_scoped_path() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
-        when.method(DELETE).path("/api/missions/mis-del-1");
+        when.method(GET).path("/api/domains/dom-1/m/mis-99");
+        then.status(200)
+            .json_body(json!({ "id": "mis-99", "name": "my-mission" }));
+    });
+
+    let (client, booster) = build_client_and_booster(&server.url(""));
+    let config = build_config(&server.url(""));
+    run(
+        EdgeplaneCommand::Mission(MissionCommand::Show {
+            id: "mis-99".into(),
+            domain_id: "dom-1".into(),
+        }),
+        client,
+        booster,
+        config,
+        OutputMode::Json,
+    )
+    .await
+    .unwrap();
+
+    mock.assert();
+}
+
+#[tokio::test]
+async fn mission_update_patches_domain_scoped_path() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(PATCH)
+            .path("/api/domains/dom-1/m/mis-99")
+            .json_body(json!({ "status": "active" }));
+        then.status(200)
+            .json_body(json!({ "id": "mis-99", "status": "active" }));
+    });
+
+    let (client, booster) = build_client_and_booster(&server.url(""));
+    let config = build_config(&server.url(""));
+    run(
+        EdgeplaneCommand::Mission(MissionCommand::Update {
+            id: "mis-99".into(),
+            domain_id: "dom-1".into(),
+            name: None,
+            description: None,
+            owners: None,
+            contributors: None,
+            tags: None,
+            status: Some("active".into()),
+        }),
+        client,
+        booster,
+        config,
+        OutputMode::Json,
+    )
+    .await
+    .unwrap();
+
+    mock.assert();
+}
+
+#[tokio::test]
+async fn mission_delete_sends_delete_to_domain_scoped_path() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(DELETE).path("/api/domains/dom-1/m/mis-del-1");
         then.status(204);
     });
 
@@ -234,7 +299,7 @@ async fn mission_delete_sends_delete_to_missions_path() {
     run(
         EdgeplaneCommand::Mission(MissionCommand::Delete {
             id: "mis-del-1".into(),
-            domain_id: None,
+            domain_id: "dom-1".into(),
         }),
         client,
         booster,
@@ -250,11 +315,11 @@ async fn mission_delete_sends_delete_to_missions_path() {
 // ── task HTTP round-trip tests ────────────────────────────────────────────────
 
 #[tokio::test]
-async fn task_create_posts_to_mission_shortcut_path() {
+async fn task_create_posts_to_domain_scoped_path() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
         when.method(POST)
-            .path("/api/missions/mis-abc/t")
+            .path("/api/domains/dom-abc/m/mis-abc/t")
             .json_body(json!({ "title": "Do the thing", "mission_id": "mis-abc" }));
         then.status(200)
             .json_body(json!({ "id": 42, "title": "Do the thing" }));
@@ -266,7 +331,7 @@ async fn task_create_posts_to_mission_shortcut_path() {
         EdgeplaneCommand::Task(TaskCommand::Create {
             title: "Do the thing".into(),
             mission_id: "mis-abc".into(),
-            domain_id: None,
+            domain_id: "dom-abc".into(),
             description: None,
             status: None,
             owner: None,
@@ -310,7 +375,35 @@ async fn task_list_uses_mission_shortcut_path() {
 }
 
 #[tokio::test]
-async fn task_update_patches_task_via_full_path_when_domain_given() {
+async fn task_show_uses_domain_scoped_path() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET).path("/api/domains/dom-1/m/mis-1/t/task-5");
+        then.status(200)
+            .json_body(json!({ "id": 5, "title": "a task" }));
+    });
+
+    let (client, booster) = build_client_and_booster(&server.url(""));
+    let config = build_config(&server.url(""));
+    run(
+        EdgeplaneCommand::Task(TaskCommand::Show {
+            id: "task-5".into(),
+            mission_id: "mis-1".into(),
+            domain_id: "dom-1".into(),
+        }),
+        client,
+        booster,
+        config,
+        OutputMode::Json,
+    )
+    .await
+    .unwrap();
+
+    mock.assert();
+}
+
+#[tokio::test]
+async fn task_update_patches_task_via_domain_scoped_path() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
         when.method(PATCH)
@@ -326,7 +419,7 @@ async fn task_update_patches_task_via_full_path_when_domain_given() {
         EdgeplaneCommand::Task(TaskCommand::Update {
             id: "task-99".into(),
             mission_id: "mis-1".into(),
-            domain_id: Some("dom-1".into()),
+            domain_id: "dom-1".into(),
             title: None,
             description: None,
             status: Some("done".into()),
@@ -347,10 +440,10 @@ async fn task_update_patches_task_via_full_path_when_domain_given() {
 }
 
 #[tokio::test]
-async fn task_delete_sends_delete_via_shortcut_path() {
+async fn task_delete_sends_delete_via_domain_scoped_path() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
-        when.method(DELETE).path("/api/missions/mis-2/t/task-7");
+        when.method(DELETE).path("/api/domains/dom-1/m/mis-2/t/task-7");
         then.status(204);
     });
 
@@ -360,7 +453,7 @@ async fn task_delete_sends_delete_via_shortcut_path() {
         EdgeplaneCommand::Task(TaskCommand::Delete {
             id: "task-7".into(),
             mission_id: "mis-2".into(),
-            domain_id: None,
+            domain_id: "dom-1".into(),
         }),
         client,
         booster,
