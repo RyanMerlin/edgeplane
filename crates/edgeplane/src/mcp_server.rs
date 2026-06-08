@@ -343,6 +343,63 @@ async fn dispatch(
                 .to_string();
             let tool_args = params.get("arguments").cloned().unwrap_or(json!({}));
 
+            // Gateway-local meta-tools — handled without a tower round-trip.
+            if tool_name == "discover" {
+                let path: Vec<String> = tool_args
+                    .get("path")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let deep = tool_args.get("deep").and_then(|v| v.as_bool()).unwrap_or(false);
+                let result = crate::cli_schema::discover_to_value(&path, deep);
+                let text = result_to_text(&result);
+                return resp!(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "content": [{ "type": "text", "text": text }],
+                        "isError": false
+                    }
+                }));
+            }
+
+            if tool_name == "exec" {
+                let cli_args: Vec<String> = tool_args
+                    .get("args")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("edgeplane"));
+                let output = std::process::Command::new(&exe)
+                    .args(&cli_args)
+                    .output();
+                let result = match output {
+                    Ok(out) => json!({
+                        "stdout": String::from_utf8_lossy(&out.stdout),
+                        "stderr": String::from_utf8_lossy(&out.stderr),
+                        "exit_code": out.status.code().unwrap_or(-1)
+                    }),
+                    Err(e) => json!({ "error": format!("exec failed: {}", e) }),
+                };
+                let text = result_to_text(&result);
+                return resp!(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "content": [{ "type": "text", "text": text }],
+                        "isError": false
+                    }
+                }));
+            }
+
             match mcp_tools::call_tool(client, None, None, &tool_name, tool_args).await {
                 Ok(result) => {
                     maybe_update_context_json(&result);
@@ -486,20 +543,62 @@ async fn fetch_tools(
     // a JSON-RPC error instead of an empty tool list. The retry task (spawned
     // during initialized) will send a fresh listChanged when ready.
     match mcp_tools::fetch_tools_from_backend(client).await {
-        Ok(tools) => {
+        Ok(mut tools) => {
             tracing::info!(
                 "mcp_server: fetch_tools backend returned {} tools",
                 tools.len()
             );
+            // Inject gateway-local meta-tools at the end of the list.
+            tools.extend(gateway_meta_tools());
             let mut c = cache.lock().unwrap();
             c.set(tools.clone());
             Ok(tools)
         }
         Err(e) => {
             tracing::warn!("mcp_server: fetch_tools error: {}; returning empty list", e);
-            Ok(Vec::new())
+            // Still advertise the meta-tools even when the backend is down.
+            Ok(gateway_meta_tools())
         }
     }
+}
+
+/// The two gateway-local meta-tools injected alongside the tower's runtime set.
+fn gateway_meta_tools() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({
+            "name": "discover",
+            "description": "Walk the edgeplane CLI command tree. Returns the capability subtree at `path` (default: top-level nouns). Use discover('domain') to see CRUD subcommands, discover('--deep') for the full tree.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Drill into a subcommand path, e.g. [\"domain\"] or [\"agent\", \"signal\"]. Omit for top-level."
+                    },
+                    "deep": {
+                        "type": "boolean",
+                        "description": "Return the full subtree (default: 1 level)."
+                    }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "exec",
+            "description": "Run an edgeplane CLI command and return its output. Use this to call any management operation. Example: exec([\"domain\", \"list\", \"--output\", \"json\"])",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "args": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "CLI arguments to pass to edgeplane, e.g. [\"domain\", \"create\", \"--name\", \"my-domain\"]"
+                    }
+                },
+                "required": ["args"]
+            }
+        }),
+    ]
 }
 
 // ── I/O helpers ───────────────────────────────────────────────────────────────

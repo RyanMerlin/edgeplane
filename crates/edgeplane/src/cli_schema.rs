@@ -154,6 +154,44 @@ pub fn build_node(cmd: &clap::Command, remaining_depth: usize) -> CapabilityNode
 }
 
 // ---------------------------------------------------------------------------
+// Meta-tool helper (used by the MCP gateway's discover meta-tool)
+// ---------------------------------------------------------------------------
+
+/// Walk the edgeplane command tree by `path` tokens and return the subtree at
+/// that node as a JSON value.  `deep=false` returns 1 level; `deep=true` returns
+/// the full subtree.  Used by the `discover` MCP meta-tool so the gateway can
+/// serve it without spawning a subprocess.
+pub fn discover_to_value(path: &[String], deep: bool) -> serde_json::Value {
+    use crate::commands::CliRoot;
+    use clap::CommandFactory;
+
+    let mut root_cmd = <CliRoot as CommandFactory>::command();
+    root_cmd.build();
+
+    let depth = if deep { usize::MAX } else { 1 };
+
+    // Walk path tokens. On unknown token, return an error object.
+    let mut current: &clap::Command = &root_cmd;
+    for token in path {
+        match current
+            .get_subcommands()
+            .find(|s| s.get_name() == token.as_str())
+        {
+            Some(sub) => current = sub,
+            None => {
+                return serde_json::json!({
+                    "error": format!("unknown path segment '{}' — run discover() for top-level", token)
+                });
+            }
+        }
+    }
+
+    serde_json::to_value(build_node(current, depth)).unwrap_or_else(|e| {
+        serde_json::json!({ "error": format!("serialization failed: {}", e) })
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -267,5 +305,26 @@ mod tests {
             !agent.subcommands.is_empty(),
             "agent should have nested subcommands at full depth"
         );
+    }
+
+    #[test]
+    fn discover_to_value_top_level_returns_subcommands() {
+        let v = discover_to_value(&[], false);
+        assert!(v.get("subcommands").is_some(), "top-level should have subcommands");
+        let subs = v.get("subcommands").unwrap().as_array().unwrap();
+        assert!(!subs.is_empty());
+    }
+
+    #[test]
+    fn discover_to_value_path_drills_into_subtree() {
+        let v = discover_to_value(&["domain".to_string()], false);
+        let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        assert_eq!(name, "domain");
+    }
+
+    #[test]
+    fn discover_to_value_unknown_path_returns_error() {
+        let v = discover_to_value(&["no-such-command".to_string()], false);
+        assert!(v.get("error").is_some(), "unknown path should return error object");
     }
 }
