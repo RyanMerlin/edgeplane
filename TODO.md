@@ -8,6 +8,10 @@ Nothing currently blocked.
 
 ## Next
 
+- First-class CLI create commands: `edgeplane domain create`, `edgeplane mission create`,
+  `edgeplane task create` — operators should not need to invoke MCP tools or run an agent
+  to scaffold work. These are the human-facing counterparts to the MCP-only surface that
+  currently handles all entity creation.
 
 ## Backlog
 
