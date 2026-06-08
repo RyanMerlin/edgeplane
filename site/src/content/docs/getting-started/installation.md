@@ -67,7 +67,7 @@ edgeplane-tower --serve --bind 0.0.0.0:8008
 Verify it's up:
 
 ```bash
-curl http://localhost:8008/health
+curl http://localhost:8008/api/health
 ```
 
 ## Environment Variables
@@ -91,6 +91,10 @@ EdgePlane uses three auth mechanisms — no static `EP_TOKEN` is required:
 | OIDC (interactive) | Operators, interactive use | `edgeplane auth login` — browser flow, issues a session token |
 | Node JWT (machine) | Daemons, `edgeplaned` | `edgeplane agent node register --node-name <name>` — JWT stored at `/etc/edgeplane/node.json` |
 | Service account | CI, programmatic | `mcs_sa_*` tokens — created via API, passed as `Bearer` |
+
+:::note[v0.13.0 breaking change]
+`edgeplane launch` was removed in v0.13.0. Use `edgeplane run <runtime>` as the single agent launcher for all runtimes (`claude`, `codex`, `gemini`, `goose`, `openclaw`, `custom`).
+:::
 
 ## Verify
 

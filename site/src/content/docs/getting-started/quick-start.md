@@ -13,59 +13,54 @@ If you're running locally:
 edgeplane-tower --serve --bind 127.0.0.1:8008
 ```
 
-If you have a deployed instance, set `EP_BASE_URL` to point to it.
-
-## 2. Configure Your Connection
+If you have a deployed instance, point the CLI at it:
 
 ```bash
-export EP_BASE_URL="http://localhost:8008"   # or your deployed URL
+export EP_BASE_URL="https://edgeplane.example.com"
 ```
 
-Verify connectivity:
+## 2. Authenticate
+
+```bash
+edgeplane auth login       # opens a browser OIDC flow → writes ~/.edgeplane/session.json
+edgeplane auth whoami      # confirm identity and token expiry
+```
+
+After `auth login` succeeds, `edgeplane` picks up the session automatically from `~/.edgeplane/session.json` — no further credential management needed.
+
+## 3. Verify the Connection
 
 ```bash
 edgeplane health --json
+edgeplane status           # shows auth, runtime, and workspace lease status
 ```
 
-## 3. Create a Session Token (recommended)
-
-Exchange your credentials for a revocable session token that's never written to agent config files:
-
-```bash
-edgeplane auth login          # creates ~/.edgeplane/session.json
-edgeplane auth whoami         # confirm identity
-```
-
-After this, `edgeplane` picks up the session automatically from `~/.edgeplane/session.json`.
+Both should report `ok: true`. If `health` fails, confirm `EP_BASE_URL` is set and the tower is reachable.
 
 ## 4. Launch an Agent
 
 ```bash
-edgeplane run claude          # Claude Code
-edgeplane run codex           # OpenAI Codex CLI
-edgeplane run gemini          # Google Gemini CLI
+edgeplane run claude         # Claude Code with EdgePlane MCP wired in
+edgeplane run codex          # OpenAI Codex CLI
+edgeplane run gemini         # Google Gemini CLI
 ```
 
-`edgeplane run` validates your environment, fetches the onboarding manifest, and launches the agent with EdgePlane wired in as an MCP server.
+`edgeplane run` validates your environment, fetches the onboarding manifest, and injects EdgePlane as an MCP server before handing off to the agent binary. No manual MCP config required.
 
-## 5. Create Your First Domain
+:::note[v0.13.0]
+`edgeplane launch` was removed in v0.13.0. `edgeplane run` is the single entry point for all runtimes.
+:::
 
-Inside the running agent, or via the CLI:
-
-```bash
-edgeplane status
-```
-
-Or open the TUI for a full fleet view:
+## 5. Explore the Fleet
 
 ```bash
 edgeplane tui
 ```
 
-The TUI gives you real-time agent status, domain/mission/task drill-down, a live event feed, and a pending approvals queue.
+The TUI gives you a full-screen fleet view. Key bindings: `a` — agents, `m` — domains, `f` — live event feed, `p` — pending approvals queue.
 
 ## What's Next
 
-- [Agent Setup](/getting-started/agent-setup/) — per-agent config, MCP server setup, auth modes
+- [Agent Setup](/getting-started/agent-setup/) — per-agent config, ACP runtime, profile loading
 - [Concepts: Domains, Missions & Tasks](/concepts/domains-missions-tasks/) — the organizational model
 - [Guides: Deployment](/guides/deployment/) — running EdgePlane in production
