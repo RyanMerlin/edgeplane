@@ -1950,6 +1950,13 @@
             ],
             "description": "Email address captured at OIDC login — present for browser PKCE sessions, absent\nfor CLI/device/service-account flows. Intended for avatar initials in the web UI."
           },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable display name from the OIDC preferred_username/name claim. Used for\nthe web UI avatar and sidebar label. Null for CLI/SA flows."
+          },
           "session_id": {
             "type": [
               "integer",
