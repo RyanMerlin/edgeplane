@@ -3,21 +3,16 @@ title: OIDC Authentication
 description: Configure SSO and OIDC JWT authentication for EdgePlane.
 ---
 
-EdgePlane supports OIDC JWT validation alongside static token auth for MCP compatibility. This guide covers server configuration, CLI login flows, and Kubernetes secret management.
+EdgePlane uses OIDC for human operator authentication. This guide covers server configuration, CLI login flows, and Kubernetes secret management.
 
 ## Server Environment Variables
 
 ```bash
-AUTH_MODE=oidc
-OIDC_REQUIRED=false
 OIDC_ISSUER_URL=https://<your-idp>/application/o/<provider-slug>/
-OIDC_AUDIENCE=<oidc-client-id>
 OIDC_CLIENT_ID=<oidc-client-id>
-OIDC_CLIENT_SECRET=<optional-for-confidential-clients>
+OIDC_CLIENT_SECRET=<oidc-client-secret>
 OIDC_REDIRECT_URI=https://<edgeplane-host>/api/auth/oidc/callback
 OIDC_SCOPES=openid profile email
-EP_ADMIN_SUBJECTS=<comma-separated-subjects>
-EP_ADMIN_EMAILS=<comma-separated-emails>
 # optional — auto-discovered if omitted
 # OIDC_JWKS_URL=https://<your-idp>/application/o/<provider-slug>/jwks/
 ```
@@ -85,25 +80,24 @@ EdgePlane uses a backend PKCE flow:
 4. Server exchanges auth code, validates token, issues one-time grant
 5. Browser calls `POST /api/auth/oidc/exchange` to receive `mcs_*` session token
 
-## Auth Mode Reference
+## Auth Paths
 
-| `AUTH_MODE` | Behavior |
-|-------------|---------|
-| `token` | Static bearer token only |
-| `oidc` | OIDC JWT only |
-| `dual` | Accept both — recommended for staged migration |
+EdgePlane has three authentication paths — no static API token (`EP_TOKEN` was removed in v0.11.0):
 
-`OIDC_REQUIRED=true` in `dual` mode enforces OIDC for non-`/mcp` paths. MCP agent connections use service account tokens or node JWTs.
+| Path | Who | How |
+|------|-----|-----|
+| **OIDC session** | Human operators | `edgeplane auth login` → browser flow → `mcs_*` session token |
+| **Service account** | CI / scripted | Create via API → `mcs_sa_*` token → pass via `EP_AGENT_TOKEN` |
+| **Node JWT** | `edgeplaned` daemon | `edgeplane agent node register` → RS256 JWT at `/etc/edgeplane/node.json` |
 
-## Staged Rollout (Recommended)
+When `OIDC_ISSUER_URL` and `OIDC_CLIENT_ID` are set, the server enables OIDC login automatically.
 
-For production deployments adopting OIDC on an existing instance:
+## Production Setup
 
-1. Set `AUTH_MODE=oidc`, `OIDC_REQUIRED=false` — OIDC available but not enforced
-2. Validate CLI and web login flows work end-to-end
-3. Optionally switch to `AUTH_MODE=dual` for a transition period
-4. Optionally set `OIDC_REQUIRED=true` when all clients have migrated
-5. Later: migrate MCP clients to service-account OIDC and remove static token
+1. Set `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` in the server environment
+2. Configure `OIDC_REDIRECT_URI` to `https://<edgeplane-host>/api/auth/oidc/callback` in your IdP
+3. Validate the CLI login flow: `edgeplane auth login` → browser → `edgeplane auth whoami`
+4. Validate the web dashboard login (browser → tower root → IdP → back to dashboard)
 
 ## Kubernetes Secret Management
 
@@ -117,11 +111,9 @@ metadata:
   name: edgeplane-auth
 type: Opaque
 stringData:
-  AUTH_MODE: "oidc"
   OIDC_ISSUER_URL: "https://..."
   OIDC_CLIENT_ID: "..."
   OIDC_CLIENT_SECRET: "..."
-  EP_ADMIN_EMAILS: "..."
 ```
 
 Mount in the deployment:
