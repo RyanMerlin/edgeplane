@@ -249,7 +249,9 @@ export function Sidebar() {
               padding: 4,
               zIndex: 20,
               boxShadow: '0 8px 28px rgba(0,0,0,0.5)',
-              textAlign: 'left',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'stretch',
             }}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
@@ -297,7 +299,8 @@ export function Sidebar() {
                 color: 'var(--text-2)',
                 cursor: 'pointer',
                 textDecoration: 'none',
-                textAlign: 'left',
+                width: '100%',
+                boxSizing: 'border-box',
                 transition: 'background .12s ease',
               }}
             >
