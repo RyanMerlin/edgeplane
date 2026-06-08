@@ -122,6 +122,12 @@ pub enum EdgeplaneCommand {
     /// Domain attachment and home-domain management for this agent.
     #[command(subcommand)]
     Domain(DomainCommand),
+    /// Mission (workstream) CRUD — create, list, show, update, delete.
+    #[command(subcommand)]
+    Mission(MissionCommand),
+    /// Task CRUD — create, list, show, update, delete.
+    #[command(subcommand)]
+    Task(TaskCommand),
     /// Emit the CLI surface as a versioned JSON schema contract; drill into a subtree with [path...].
     Discover(crate::cli_schema::DiscoverArgs),
 }
@@ -270,6 +276,202 @@ pub enum DomainCommand {
     },
     /// Detach from the current domain and return to the home domain.
     Detach,
+    /// Create a new domain.
+    Create {
+        /// Domain name.
+        name: String,
+        #[arg(long)]
+        description: Option<String>,
+        /// Comma-separated owner identities.
+        #[arg(long)]
+        owners: Option<String>,
+        /// Comma-separated contributor identities.
+        #[arg(long)]
+        contributors: Option<String>,
+        /// Comma-separated tags.
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long)]
+        visibility: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// List all visible domains.
+    List {
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
+    /// Show a single domain.
+    Show {
+        /// Domain ID.
+        id: String,
+    },
+    /// Update a domain's metadata.
+    Update {
+        /// Domain ID.
+        id: String,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        owners: Option<String>,
+        #[arg(long)]
+        contributors: Option<String>,
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long)]
+        visibility: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Delete a domain.
+    Delete {
+        /// Domain ID.
+        id: String,
+    },
+}
+
+/// Subcommands for `edgeplane mission` — CRUD for missions (workstreams).
+#[derive(Subcommand, Debug)]
+pub enum MissionCommand {
+    /// Create a new mission.
+    Create {
+        /// Mission name.
+        name: String,
+        /// Domain this mission belongs to.
+        #[arg(long)]
+        domain_id: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        /// Comma-separated owner identities.
+        #[arg(long)]
+        owners: Option<String>,
+        /// Comma-separated contributor identities.
+        #[arg(long)]
+        contributors: Option<String>,
+        /// Comma-separated tags.
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        /// Workstream markdown content.
+        #[arg(long)]
+        workstream: Option<String>,
+    },
+    /// List missions, optionally filtered to a domain.
+    List {
+        #[arg(long)]
+        domain_id: Option<String>,
+    },
+    /// Show a single mission.
+    Show {
+        /// Mission ID.
+        id: String,
+        #[arg(long)]
+        domain_id: Option<String>,
+    },
+    /// Update a mission's metadata.
+    Update {
+        /// Mission ID.
+        id: String,
+        #[arg(long)]
+        domain_id: Option<String>,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        owners: Option<String>,
+        #[arg(long)]
+        contributors: Option<String>,
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Delete a mission.
+    Delete {
+        /// Mission ID.
+        id: String,
+        #[arg(long)]
+        domain_id: Option<String>,
+    },
+}
+
+/// Subcommands for `edgeplane task` — CRUD for tasks (units of work).
+#[derive(Subcommand, Debug)]
+pub enum TaskCommand {
+    /// Create a new task.
+    Create {
+        /// Task title.
+        title: String,
+        /// Mission this task belongs to (required).
+        #[arg(long, required = true)]
+        mission_id: String,
+        #[arg(long)]
+        domain_id: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        owner: Option<String>,
+        /// Comma-separated contributor identities.
+        #[arg(long)]
+        contributors: Option<String>,
+        /// Definition of done.
+        #[arg(long)]
+        dod: Option<String>,
+        /// Comma-separated task IDs this task depends on.
+        #[arg(long)]
+        dependencies: Option<String>,
+    },
+    /// List tasks for a mission.
+    List {
+        /// Mission ID (required).
+        #[arg(long, required = true)]
+        mission_id: String,
+    },
+    /// Show a single task.
+    Show {
+        /// Task ID.
+        id: String,
+        #[arg(long, required = true)]
+        mission_id: String,
+        #[arg(long)]
+        domain_id: Option<String>,
+    },
+    /// Update a task's metadata.
+    Update {
+        /// Task ID.
+        id: String,
+        #[arg(long, required = true)]
+        mission_id: String,
+        #[arg(long)]
+        domain_id: Option<String>,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        owner: Option<String>,
+        #[arg(long)]
+        contributors: Option<String>,
+        #[arg(long)]
+        dod: Option<String>,
+        #[arg(long)]
+        dependencies: Option<String>,
+    },
+    /// Delete a task.
+    Delete {
+        /// Task ID.
+        id: String,
+        #[arg(long, required = true)]
+        mission_id: String,
+        #[arg(long)]
+        domain_id: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -910,7 +1112,9 @@ pub async fn run(
         EdgeplaneCommand::MeshSync(sub) => cmd::sync::run(Some(sub)).map_err(Into::into),
         EdgeplaneCommand::Tui(args) => handle_tui(args, &config),
         EdgeplaneCommand::Context(cmd) => handle_context(cmd).await,
-        EdgeplaneCommand::Domain(cmd) => handle_domain(cmd, client, &config).await,
+        EdgeplaneCommand::Domain(cmd) => handle_domain(cmd, client, &config, output_mode).await,
+        EdgeplaneCommand::Mission(cmd) => handle_mission(cmd, client, output_mode).await,
+        EdgeplaneCommand::Task(cmd) => handle_task(cmd, client, output_mode).await,
         EdgeplaneCommand::Discover(args) => crate::cli_schema::run(args).await,
     }
 }
@@ -3568,7 +3772,12 @@ async fn call_mcp_tool(
 
 // ── edgeplane domain ────────────────────────────────────────────────────────────────
 
-async fn handle_domain(cmd: DomainCommand, client: EdgeplaneClient, config: &EdgeplaneConfig) -> Result<()> {
+async fn handle_domain(
+    cmd: DomainCommand,
+    client: EdgeplaneClient,
+    config: &EdgeplaneConfig,
+    output_mode: OutputMode,
+) -> Result<()> {
     // Resolve the agent id for this runtime. Prefer the configured agent_id;
     // fall back to the default derived from the session state file.
     let agent_id = config
@@ -3600,6 +3809,235 @@ async fn handle_domain(cmd: DomainCommand, client: EdgeplaneClient, config: &Edg
             let curr  = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
             let name  = agent.get("domain_name").and_then(|v| v.as_str()).unwrap_or("—");
             println!("Detached — returned to home domain {curr} ({name})");
+        }
+        DomainCommand::Create {
+            name,
+            description,
+            owners,
+            contributors,
+            tags,
+            visibility,
+            status,
+        } => {
+            let mut body = json!({ "name": name });
+            if let Some(v) = description   { body["description"]   = json!(v); }
+            if let Some(v) = owners        { body["owners"]        = json!(v); }
+            if let Some(v) = contributors  { body["contributors"]  = json!(v); }
+            if let Some(v) = tags          { body["tags"]          = json!(v); }
+            if let Some(v) = visibility    { body["visibility"]    = json!(v); }
+            if let Some(v) = status        { body["status"]        = json!(v); }
+            let result = client.post_json("/domains", &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        DomainCommand::List { limit } => {
+            let path = format!("/domains?limit={limit}");
+            let result = client.get_json(&path).await?;
+            output::print_value(output_mode, &result);
+        }
+        DomainCommand::Show { id } => {
+            let result = client.get_json(&format!("/domains/{id}")).await?;
+            output::print_value(output_mode, &result);
+        }
+        DomainCommand::Update {
+            id,
+            description,
+            owners,
+            contributors,
+            tags,
+            visibility,
+            status,
+        } => {
+            let mut body = json!({});
+            if let Some(v) = description   { body["description"]   = json!(v); }
+            if let Some(v) = owners        { body["owners"]        = json!(v); }
+            if let Some(v) = contributors  { body["contributors"]  = json!(v); }
+            if let Some(v) = tags          { body["tags"]          = json!(v); }
+            if let Some(v) = visibility    { body["visibility"]    = json!(v); }
+            if let Some(v) = status        { body["status"]        = json!(v); }
+            let result = client.patch_json(&format!("/domains/{id}"), &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        DomainCommand::Delete { id } => {
+            client.delete(&format!("/domains/{id}")).await?;
+            println!("Deleted domain {id}");
+        }
+    }
+    Ok(())
+}
+
+// ── edgeplane mission ────────────────────────────────────────────────────────────────
+
+async fn handle_mission(
+    cmd: MissionCommand,
+    client: EdgeplaneClient,
+    output_mode: OutputMode,
+) -> Result<()> {
+    match cmd {
+        MissionCommand::Create {
+            name,
+            domain_id,
+            description,
+            owners,
+            contributors,
+            tags,
+            status,
+            workstream,
+        } => {
+            // Determine the REST path before moving domain_id into the body.
+            let path = match &domain_id {
+                Some(did) => format!("/domains/{did}/m"),
+                None => "/missions".to_string(),
+            };
+            let mut body = json!({ "name": name });
+            if let Some(v) = domain_id    { body["domain_id"]     = json!(v); }
+            if let Some(v) = description  { body["description"]   = json!(v); }
+            if let Some(v) = owners       { body["owners"]        = json!(v); }
+            if let Some(v) = contributors { body["contributors"]  = json!(v); }
+            if let Some(v) = tags         { body["tags"]          = json!(v); }
+            if let Some(v) = status       { body["status"]        = json!(v); }
+            if let Some(v) = workstream   { body["workstream_md"] = json!(v); }
+            let result = client.post_json(&path, &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        MissionCommand::List { domain_id } => {
+            let result = if let Some(did) = domain_id {
+                client.get_json(&format!("/domains/{did}/m")).await?
+            } else {
+                // Search with empty query to list all visible missions
+                client.get_json("/search/missions?q=&limit=50").await?
+            };
+            output::print_value(output_mode, &result);
+        }
+        MissionCommand::Show { id, domain_id } => {
+            let path = if let Some(did) = domain_id {
+                format!("/domains/{did}/m/{id}")
+            } else {
+                format!("/missions/{id}")
+            };
+            let result = client.get_json(&path).await?;
+            output::print_value(output_mode, &result);
+        }
+        MissionCommand::Update {
+            id,
+            domain_id,
+            name,
+            description,
+            owners,
+            contributors,
+            tags,
+            status,
+        } => {
+            let mut body = json!({});
+            if let Some(v) = name         { body["name"]          = json!(v); }
+            if let Some(v) = description  { body["description"]   = json!(v); }
+            if let Some(v) = owners       { body["owners"]        = json!(v); }
+            if let Some(v) = contributors { body["contributors"]  = json!(v); }
+            if let Some(v) = tags         { body["tags"]          = json!(v); }
+            if let Some(v) = status       { body["status"]        = json!(v); }
+            let path = if let Some(did) = domain_id {
+                format!("/domains/{did}/m/{id}")
+            } else {
+                format!("/missions/{id}")
+            };
+            let result = client.patch_json(&path, &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        MissionCommand::Delete { id, domain_id } => {
+            let path = if let Some(did) = domain_id {
+                format!("/domains/{did}/m/{id}")
+            } else {
+                format!("/missions/{id}")
+            };
+            client.delete(&path).await?;
+            println!("Deleted mission {id}");
+        }
+    }
+    Ok(())
+}
+
+// ── edgeplane task ────────────────────────────────────────────────────────────────
+
+async fn handle_task(
+    cmd: TaskCommand,
+    client: EdgeplaneClient,
+    output_mode: OutputMode,
+) -> Result<()> {
+    match cmd {
+        TaskCommand::Create {
+            title,
+            mission_id,
+            domain_id,
+            description,
+            status,
+            owner,
+            contributors,
+            dod,
+            dependencies,
+        } => {
+            let mut body = json!({ "title": title, "mission_id": mission_id });
+            if let Some(v) = description  { body["description"]        = json!(v); }
+            if let Some(v) = status       { body["status"]             = json!(v); }
+            if let Some(v) = owner        { body["owner"]              = json!(v); }
+            if let Some(v) = contributors { body["contributors"]       = json!(v); }
+            if let Some(v) = dod          { body["definition_of_done"] = json!(v); }
+            if let Some(v) = dependencies { body["dependencies"]       = json!(v); }
+            let path = if let Some(did) = domain_id {
+                format!("/domains/{did}/m/{mission_id}/t")
+            } else {
+                format!("/missions/{mission_id}/t")
+            };
+            let result = client.post_json(&path, &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        TaskCommand::List { mission_id } => {
+            let result = client.get_json(&format!("/missions/{mission_id}/t")).await?;
+            output::print_value(output_mode, &result);
+        }
+        TaskCommand::Show { id, mission_id, domain_id } => {
+            let path = if let Some(did) = domain_id {
+                format!("/domains/{did}/m/{mission_id}/t/{id}")
+            } else {
+                format!("/missions/{mission_id}/t/{id}")
+            };
+            let result = client.get_json(&path).await?;
+            output::print_value(output_mode, &result);
+        }
+        TaskCommand::Update {
+            id,
+            mission_id,
+            domain_id,
+            title,
+            description,
+            status,
+            owner,
+            contributors,
+            dod,
+            dependencies,
+        } => {
+            let mut body = json!({});
+            if let Some(v) = title        { body["title"]              = json!(v); }
+            if let Some(v) = description  { body["description"]        = json!(v); }
+            if let Some(v) = status       { body["status"]             = json!(v); }
+            if let Some(v) = owner        { body["owner"]              = json!(v); }
+            if let Some(v) = contributors { body["contributors"]       = json!(v); }
+            if let Some(v) = dod          { body["definition_of_done"] = json!(v); }
+            if let Some(v) = dependencies { body["dependencies"]       = json!(v); }
+            let path = if let Some(did) = domain_id {
+                format!("/domains/{did}/m/{mission_id}/t/{id}")
+            } else {
+                format!("/missions/{mission_id}/t/{id}")
+            };
+            let result = client.patch_json(&path, &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        TaskCommand::Delete { id, mission_id, domain_id } => {
+            let path = if let Some(did) = domain_id {
+                format!("/domains/{did}/m/{mission_id}/t/{id}")
+            } else {
+                format!("/missions/{mission_id}/t/{id}")
+            };
+            client.delete(&path).await?;
+            println!("Deleted task {id}");
         }
     }
     Ok(())
