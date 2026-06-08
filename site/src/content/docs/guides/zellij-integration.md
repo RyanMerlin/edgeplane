@@ -27,7 +27,7 @@ The plugin is **dormant by default**. If `EDGEPLANE_ZRPC_PLUGIN_PATH` is unset, 
 ## Building the Plugin
 
 ```bash
-git clone https://github.com/your-org/edgeplane.git
+git clone https://github.com/RyanMerlin/edgeplane.git
 cd edgeplane/crates/edgeplane-zrpc
 cargo build --release --target wasm32-wasip1
 # Output: target/wasm32-wasip1/release/edgeplane_zrpc.wasm

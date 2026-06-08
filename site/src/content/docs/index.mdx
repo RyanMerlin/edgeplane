@@ -3,7 +3,7 @@ title: Documentation
 description: EdgePlane documentation — guides, architecture, and reference.
 template: splash
 hero:
-  tagline: Guides, architecture, and reference for the EdgePlane control plane.
+  tagline: Coordination infrastructure for AI agent fleets.
   actions:
     - text: Quick Start
       link: /getting-started/quick-start/
@@ -22,10 +22,8 @@ Without a shared system of record, parallel agents duplicate effort, diverge on 
 
 EdgePlane is a **control plane for AI agents and human collaborators**. It provides:
 
-- **Domains & Missions** — organizational units that scope knowledge, tools, permissions, and governance
-- **Overlap Detection** — fuzzy + vector similarity runs before task and artifact creation; collisions surface before damage occurs
-- **Artifact Ledger** — every mutation recorded in Postgres, vector-indexed for search, committed to Git with full provenance
-- **MCP-Native Interface** — standard MCP stdio tools; works with any MCP-compatible agent
-- **Governance & Approvals** — versioned policy lifecycle, role-based access, HMAC-signed approval tokens
-- **Persistent Agent Sessions** — `edgeplaned` manages long-running agent processes; sessions survive crashes and reconnects
-- **Semantic Search** — tasks, docs, and missions are vector-indexed (pgvector) for similarity and hybrid search
+- **OIDC Authentication & Governance** — OIDC/PKCE login, role-based access, versioned policy lifecycle, and HMAC-signed approval tokens
+- **ACP Sessions & Persistent Agents** — `edgeplaned` manages long-running agent processes over the Agent Communication Protocol; sessions survive crashes and reconnects
+- **Multi-Agent Mesh** — structured domains, missions, and tasks with overlap detection; agents coordinate without duplicating work or colliding on artifacts
+- **MCP-Native Interface** — standard MCP stdio tools and a real-time WebSocket event bus; works with any MCP-compatible agent
+- **Zellij Integration** — first-class Zellij plugin (zrpc) for fleet management directly inside your terminal

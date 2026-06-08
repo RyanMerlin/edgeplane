@@ -34,7 +34,7 @@ For CI pipelines that need to validate the environment without launching an agen
 edgeplane run codex --preflight-only
 
 # Or for other agents
-edgeplane launch gemini --preflight-only
+edgeplane run gemini --preflight-only
 ```
 
 Verify readiness before running an agent:
@@ -61,7 +61,7 @@ Any agent that implements the ACP protocol can connect to EdgePlane.
 **Generate the config:**
 
 ```bash
-edgeplane launch custom \
+edgeplane run custom \
   --agent-binary /path/to/your-agent \
   --mission-id <id> \
   --preflight-only   # validate first
