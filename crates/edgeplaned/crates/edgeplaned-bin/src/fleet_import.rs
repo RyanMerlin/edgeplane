@@ -24,11 +24,18 @@ pub const SOURCE_FLEET_IMPORT: &str = "fleet_import";
 #[derive(Debug, Clone, Deserialize)]
 pub struct Profile {
     pub name: String,
-    pub zellij_session: String,
+    /// Zellij session name. Required for `zellij_hosted` runtime; ignored
+    /// (but still parsed) for ACP profiles so existing TOML files need no change.
+    pub zellij_session: Option<String>,
     /// systemd `--user` unit name (e.g. `aria-work.service`). Used by
     /// the Phase 5 unit-health loop to monitor + restart.
     pub service: String,
     pub state_dir: String,
+    /// Runtime kind. Defaults to `"zellij_hosted"`.
+    /// Set to `"claude_agent_acp"` to spawn via the ACP supervisor instead of
+    /// bridging to a Zellij PTY pane.
+    #[serde(default)]
+    pub runtime: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,9 +63,12 @@ pub struct ImportSummary {
     pub total: usize,
 }
 
-/// Import each profile into the registry as a `ZellijHosted` agent with
-/// a matching `AgentLaunchContext`. Upserts by `(source, id)` so re-runs
+/// Import each profile into the registry. Upserts by `(source, id)` so re-runs
 /// are no-ops on unchanged profiles.
+///
+/// Supports two runtime kinds:
+/// - `"zellij_hosted"` (default): bridges attach connections to a Zellij PTY pane.
+/// - `"claude_agent_acp"`: spawns `claude --acp-server` via the ACP supervisor.
 pub fn import_into(registry: &LocalRegistry, profiles: &[Profile]) -> Result<ImportSummary> {
     let mut summary = ImportSummary {
         total: profiles.len(),
@@ -74,13 +84,21 @@ pub fn import_into(registry: &LocalRegistry, profiles: &[Profile]) -> Result<Imp
         .collect();
 
     for profile in profiles {
+        let runtime_kind = profile.runtime.as_deref().unwrap_or("zellij_hosted").to_string();
+        let is_acp = runtime_kind == "claude_agent_acp";
+
         let spec = AgentSpec {
             agent_id: profile.name.clone(),
             domain_id: String::new(),
-            runtime_kind: "zellij_hosted".to_string(),
+            runtime_kind: runtime_kind.clone(),
             session_mode: SessionMode::Persistent,
             capabilities: vec![],
-            profile_path: None,
+            // ACP supervisor uses profile_path as cwd so claude loads the right CLAUDE.md.
+            profile_path: if is_acp {
+                Some(PathBuf::from(&profile.state_dir))
+            } else {
+                None
+            },
             webhook_url: None,
             launch_overrides: Default::default(),
             name: None,
@@ -98,7 +116,8 @@ pub fn import_into(registry: &LocalRegistry, profiles: &[Profile]) -> Result<Imp
             state_dir_spec: Some(StateDirSpec::Persistent {
                 path: PathBuf::from(&profile.state_dir),
             }),
-            zellij_session: Some(profile.zellij_session.clone()),
+            // ACP supervisor doesn't use zellij_session; only set it for PTY profiles.
+            zellij_session: if is_acp { None } else { profile.zellij_session.clone() },
             // Phase 5: store the systemd unit name so the unit-health
             // loop can supervise it.
             systemd_service: Some(profile.service.clone()),
@@ -141,6 +160,22 @@ state_dir      = "/home/merlin/.claude/profiles/work"
 "#
     }
 
+    fn sample_toml_with_acp() -> &'static str {
+        r#"
+[[profile]]
+name           = "operator"
+zellij_session = "operator"
+service        = "aria.service"
+state_dir      = "/home/merlin/.claude/profiles/operator"
+
+[[profile]]
+name           = "work"
+runtime        = "claude_agent_acp"
+service        = "aria-work.service"
+state_dir      = "/home/merlin/.claude/profiles/work"
+"#
+    }
+
     #[test]
     fn parses_fleet_profiles_toml() {
         let dir = TempDir::new().unwrap();
@@ -149,8 +184,18 @@ state_dir      = "/home/merlin/.claude/profiles/work"
         let profiles = load_profiles(&path).unwrap();
         assert_eq!(profiles.len(), 2);
         assert_eq!(profiles[0].name, "operator");
-        assert_eq!(profiles[1].zellij_session, "work");
+        assert_eq!(profiles[1].zellij_session.as_deref(), Some("work"));
         assert_eq!(profiles[1].state_dir, "/home/merlin/.claude/profiles/work");
+    }
+
+    #[test]
+    fn parses_acp_profile_without_zellij_session() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("fleet.toml");
+        std::fs::write(&path, sample_toml_with_acp()).unwrap();
+        let profiles = load_profiles(&path).unwrap();
+        assert_eq!(profiles[1].runtime.as_deref(), Some("claude_agent_acp"));
+        assert!(profiles[1].zellij_session.is_none());
     }
 
     #[test]
@@ -159,9 +204,10 @@ state_dir      = "/home/merlin/.claude/profiles/work"
         let registry = LocalRegistry::open(&dir.path().join("registry.db")).unwrap();
         let profiles = vec![Profile {
             name: "operator".into(),
-            zellij_session: "operator".into(),
+            zellij_session: Some("operator".into()),
             service: "aria.service".into(),
             state_dir: "/home/merlin/.claude/profiles/operator".into(),
+            runtime: None,
         }];
         let summary = import_into(&registry, &profiles).unwrap();
         assert_eq!(summary.created, 1);
@@ -188,14 +234,47 @@ state_dir      = "/home/merlin/.claude/profiles/work"
     }
 
     #[test]
+    fn import_acp_profile_sets_runtime_and_profile_path() {
+        let dir = TempDir::new().unwrap();
+        let registry = LocalRegistry::open(&dir.path().join("registry.db")).unwrap();
+        let profiles = vec![Profile {
+            name: "work".into(),
+            zellij_session: None,
+            service: "aria-work.service".into(),
+            state_dir: "/home/merlin/.claude/profiles/work".into(),
+            runtime: Some("claude_agent_acp".into()),
+        }];
+        let summary = import_into(&registry, &profiles).unwrap();
+        assert_eq!(summary.created, 1);
+
+        let agents = registry.list_by_source(SOURCE_FLEET_IMPORT).unwrap();
+        assert_eq!(agents[0].runtime_kind, "claude_agent_acp");
+
+        let ctx = registry
+            .get_launch_context(SOURCE_FLEET_IMPORT, "work")
+            .unwrap()
+            .unwrap();
+        // ACP profiles do NOT get a zellij_session in the launch context.
+        assert!(ctx.zellij_session.is_none());
+        // state_dir is still set.
+        match ctx.state_dir_spec {
+            Some(StateDirSpec::Persistent { path }) => {
+                assert_eq!(path, PathBuf::from("/home/merlin/.claude/profiles/work"));
+            }
+            other => panic!("expected Persistent, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn import_is_idempotent() {
         let dir = TempDir::new().unwrap();
         let registry = LocalRegistry::open(&dir.path().join("registry.db")).unwrap();
         let profiles = vec![Profile {
             name: "operator".into(),
-            zellij_session: "operator".into(),
+            zellij_session: Some("operator".into()),
             service: "aria.service".into(),
             state_dir: "/home/merlin/.claude/profiles/operator".into(),
+            runtime: None,
         }];
         let _ = import_into(&registry, &profiles).unwrap();
         let second = import_into(&registry, &profiles).unwrap();
@@ -210,9 +289,10 @@ state_dir      = "/home/merlin/.claude/profiles/work"
         let registry = LocalRegistry::open(&dir.path().join("registry.db")).unwrap();
         let mut profiles = vec![Profile {
             name: "work".into(),
-            zellij_session: "work".into(),
+            zellij_session: Some("work".into()),
             service: "aria-work.service".into(),
             state_dir: "/old/path".into(),
+            runtime: None,
         }];
         import_into(&registry, &profiles).unwrap();
         profiles[0].state_dir = "/new/path".into();

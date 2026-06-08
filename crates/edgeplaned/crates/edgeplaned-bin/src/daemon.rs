@@ -279,12 +279,15 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         if let Ok(db_path_boot) = LocalRegistry::default_path() {
             match tokio::task::spawn_blocking(move || {
                 let reg = LocalRegistry::open(&db_path_boot)?;
-                reg.list_all_launch_contexts()
+                let ctxs = reg.list_all_launch_contexts()?;
+                let overrides = reg.list_local_runtime_overrides()?;
+                Ok::<_, anyhow::Error>((ctxs, overrides))
             })
             .await
             {
-                Ok(Ok(boot_ctxs)) => {
+                Ok(Ok((boot_ctxs, local_runtime_overrides))) => {
                     merge_federated_overrides(&mut agent_specs, &boot_ctxs);
+                    apply_runtime_overrides(&mut agent_specs, &local_runtime_overrides);
                 }
                 Ok(Err(e)) => {
                     tracing::warn!(
@@ -779,12 +782,19 @@ async fn persist_and_resolve_specs(
     if let Ok(db_path_for_merge) = LocalRegistry::default_path() {
         match tokio::task::spawn_blocking(move || {
             let reg = LocalRegistry::open(&db_path_for_merge)?;
-            reg.list_all_launch_contexts()
+            let ctxs = reg.list_all_launch_contexts()?;
+            let overrides = reg.list_local_runtime_overrides()?;
+            Ok::<_, anyhow::Error>((ctxs, overrides))
         })
         .await
         {
-            Ok(Ok(fleet_ctxs)) => {
+            Ok(Ok((fleet_ctxs, local_runtime_overrides))) => {
                 merge_federated_overrides(&mut db_specs, &fleet_ctxs);
+                // Post-merge: apply runtime_kind overrides for specs the local
+                // manifest says should use a different runtime than the controlplane
+                // recorded. e.g. a profile set to "claude_agent_acp" in profiles.toml
+                // while the controlplane still stores "zellij_hosted".
+                apply_runtime_overrides(&mut db_specs, &local_runtime_overrides);
             }
             Ok(Err(e)) => {
                 tracing::warn!(
@@ -801,6 +811,52 @@ async fn persist_and_resolve_specs(
     }
 
     db_specs
+}
+
+/// Post-merge pass: apply local manifest runtime overrides.
+///
+/// Called after `merge_federated_overrides` has set `local_alias_id` on any spec
+/// matched to a local context. For each matched spec whose `runtime_kind` differs
+/// from the local manifest record, this function updates `runtime_kind` (and, for
+/// ACP profiles, sets `profile_path` to the state_dir so claude starts with the
+/// right CLAUDE.md).
+///
+/// `local_overrides` is a slice of `(agent_id, runtime_kind)` for all
+/// non-controlplane sources in the local registry (returned by
+/// `LocalRegistry::list_local_runtime_overrides`).
+fn apply_runtime_overrides(specs: &mut Vec<AgentSpec>, local_overrides: &[(String, String)]) {
+    use edgeplaned_core::types::StateDirSpec;
+
+    let override_map: HashMap<&str, &str> = local_overrides
+        .iter()
+        .map(|(id, rt)| (id.as_str(), rt.as_str()))
+        .collect();
+
+    for spec in specs.iter_mut() {
+        let alias = match spec.local_alias_id.as_deref() {
+            Some(a) if !a.is_empty() => a,
+            _ => continue,
+        };
+        let Some(&local_rt) = override_map.get(alias) else { continue };
+        if local_rt == spec.runtime_kind { continue; }
+
+        tracing::info!(
+            "apply_runtime_overrides: overriding runtime_kind for '{}' (alias='{}') \
+             from '{}' → '{}'",
+            spec.agent_id,
+            alias,
+            spec.runtime_kind,
+            local_rt,
+        );
+        spec.runtime_kind = local_rt.to_string();
+
+        // ACP supervisor uses profile_path as cwd so claude loads the right CLAUDE.md.
+        if local_rt == "claude_agent_acp" && spec.profile_path.is_none() {
+            if let Some(StateDirSpec::Persistent { path }) = &spec.launch_overrides.state_dir_spec {
+                spec.profile_path = Some(path.clone());
+            }
+        }
+    }
 }
 
 /// Federated launch-override merge.

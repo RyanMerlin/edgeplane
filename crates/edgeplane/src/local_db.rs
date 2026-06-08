@@ -212,10 +212,16 @@ pub fn unenroll_by_source(source: &str) -> Result<usize> {
 #[derive(Debug, Clone, Deserialize)]
 struct ManifestProfile {
     pub name: String,
-    pub zellij_session: String,
+    /// Only required for `zellij_hosted` runtime. Optional so ACP profiles
+    /// can omit it without breaking existing TOML files that still include it.
+    pub zellij_session: Option<String>,
     /// systemd `--user` unit name (e.g. `aria.service`).
     pub service: String,
     pub state_dir: String,
+    /// Runtime kind. Defaults to `"zellij_hosted"`.
+    /// Set to `"claude_agent_acp"` for supervisor-spawned ACP sessions.
+    #[serde(default)]
+    pub runtime: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -259,16 +265,24 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
     };
 
     for profile in &parsed.profile {
+        let runtime_kind = profile.runtime.as_deref().unwrap_or("zellij_hosted");
+        let is_acp = runtime_kind == "claude_agent_acp";
+
+        // ACP supervisor uses profile_path as cwd so claude loads the right CLAUDE.md.
+        let profile_path: Option<&str> =
+            if is_acp { Some(&profile.state_dir) } else { None };
+
         // Upsert agent row.
         conn.execute(
             "INSERT INTO agent
                 (id, source, domain_id, runtime_kind, supervision_mode,
-                 capabilities_json, enrolled_at)
-             VALUES (?1, ?2, '', 'zellij_hosted', 'persistent', '[]', ?3)
+                 capabilities_json, profile_path, enrolled_at)
+             VALUES (?1, ?2, '', ?3, 'persistent', '[]', ?4, ?5)
              ON CONFLICT(source, id) DO UPDATE SET
                 runtime_kind     = excluded.runtime_kind,
-                supervision_mode = excluded.supervision_mode",
-            params![profile.name, source, enrolled_at],
+                supervision_mode = excluded.supervision_mode,
+                profile_path     = excluded.profile_path",
+            params![profile.name, source, runtime_kind, profile_path, enrolled_at],
         )?;
 
         // Upsert launch context row.
@@ -278,6 +292,10 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
             "kind": "persistent", "path": profile.state_dir
         })
         .to_string();
+
+        // ACP profiles don't use a zellij_session in their launch context.
+        let zellij_session: Option<&str> =
+            if is_acp { None } else { profile.zellij_session.as_deref() };
 
         conn.execute(
             "INSERT INTO agent_launch_context
@@ -294,7 +312,7 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
                 profile.name,
                 profile.name,
                 state_dir_spec,
-                profile.zellij_session,
+                zellij_session,
                 profile.service,
             ],
         )?;
@@ -415,6 +433,50 @@ state_dir      = "/tmp/test-profiles/work"
             )
             .unwrap();
         assert_eq!(count, 2, "idempotent re-import should not create duplicates");
+
+        teardown();
+    }
+
+    #[test]
+    fn import_manifest_acp_profile_sets_runtime_kind_and_null_session() {
+        let tmp = TempDir::new().unwrap();
+        setup_ep_home(&tmp);
+
+        let path = tmp.path().join("acp.toml");
+        std::fs::write(
+            &path,
+            r#"
+[[profile]]
+name      = "work"
+runtime   = "claude_agent_acp"
+service   = "aria-work.service"
+state_dir = "/home/merlin/.claude/profiles/work"
+"#,
+        )
+        .unwrap();
+
+        let summary = import_manifest(&path, "test_acp").unwrap();
+        assert_eq!(summary.created, 1);
+
+        let conn = open().unwrap();
+        let (runtime_kind, profile_path): (String, Option<String>) = conn
+            .query_row(
+                "SELECT runtime_kind, profile_path FROM agent WHERE id = 'work'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(runtime_kind, "claude_agent_acp");
+        assert_eq!(profile_path.as_deref(), Some("/home/merlin/.claude/profiles/work"));
+
+        let zellij_session: Option<String> = conn
+            .query_row(
+                "SELECT zellij_session FROM agent_launch_context WHERE agent_id = 'work'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(zellij_session.is_none(), "ACP profile should have no zellij_session");
 
         teardown();
     }

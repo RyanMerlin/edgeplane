@@ -397,6 +397,20 @@ impl LocalRegistry {
 
     /// List all known launch contexts across every source. Used by the
     /// unit-health loop to enumerate agents to supervise.
+    /// Returns `(agent_id, runtime_kind)` pairs for all non-controlplane agents.
+    /// Used by the federated merge to apply local manifest runtime overrides
+    /// (e.g. `claude_agent_acp`) on top of controlplane specs.
+    pub fn list_local_runtime_overrides(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, runtime_kind FROM agent \
+             WHERE source NOT LIKE 'controlplane:%' \
+             ORDER BY enrolled_at ASC",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("reading local runtime overrides from registry")
+    }
+
     pub fn list_all_launch_contexts(&self) -> Result<Vec<AgentLaunchContext>> {
         let mut stmt = self.conn.prepare(
             "SELECT source, agent_id, vault_folder, state_dir_spec, zellij_session,

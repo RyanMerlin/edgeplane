@@ -110,6 +110,13 @@ async fn run_one_session(
     cfg: &AcpSupervisorConfig,
     registry: &Arc<AttachRegistry>,
 ) -> anyhow::Result<()> {
+    // The cwd is passed to the claude subprocess via session/new. Node.js
+    // child_process.spawn() returns ENOENT when the cwd doesn't exist, even
+    // when the binary itself is accessible — so ensure it exists first.
+    tokio::fs::create_dir_all(&cfg.cwd)
+        .await
+        .with_context(|| format!("creating session cwd {}", cfg.cwd.display()))?;
+
     let session = AcpSession::open(cfg.spawn_opts.clone(), cfg.cwd.clone(), cfg.remote_control_prefix.clone())
         .await
         .context("acp session open")?;
