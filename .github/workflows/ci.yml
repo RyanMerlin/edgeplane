@@ -40,6 +40,11 @@ jobs:
         run: cargo nextest run --manifest-path crates/edgeplane/Cargo.toml --test-threads 1
       - name: Test edgeplaned
         run: cargo nextest run --workspace --exclude edgeplane --exclude edgeplane-tower
+      - name: COMMAND-MAP.md drift gate
+        run: |
+          make docs
+          git diff --exit-code docs/reference/COMMAND-MAP.md site/src/content/docs/reference/command-map.md \
+            || { echo "::error::docs/reference/COMMAND-MAP.md is stale — run 'make docs' and commit the result"; exit 1; }
 
   launch-regression:
     name: Launch regression

@@ -27,6 +27,55 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tar::{Archive, Builder};
 use url::form_urlencoded;
 
+/// Root CLI struct — mirrors `main.rs` `CliOpts` so `gen-cli-doc` has a `CommandFactory` type
+/// that covers the full command tree.
+#[derive(clap::Parser, Debug)]
+#[command(name = "edgeplane", author, version, about, long_about = None)]
+pub struct CliRoot {
+    /// Base URL pointing at an existing Edgeplane deployment.
+    #[arg(long, env = "EP_BASE_URL")]
+    pub base_url: Option<String>,
+
+    /// Optional agent identifier propagated throughout approvals and sync calls.
+    #[arg(long, env = "EP_AGENT_ID")]
+    pub agent_id: Option<String>,
+
+    /// Optional runtime session identifier propagated for per-instance attribution.
+    #[arg(long, env = "EP_RUNTIME_SESSION_ID")]
+    pub runtime_session_id: Option<String>,
+
+    /// Optional profile name propagated for per-profile attribution.
+    #[arg(long, env = "EP_AGENT_PROFILE")]
+    pub profile_name: Option<String>,
+
+    /// Timeout (in seconds) for all outbound calls.
+    #[arg(long, env = "EP_TIMEOUT_SECS", default_value_t = 10)]
+    pub timeout_secs: u64,
+
+    /// Allow invalid TLS certificates when running against local or self-signed endpoints.
+    #[arg(long, env = "EP_ALLOW_INSECURE", default_value_t = false)]
+    pub allow_insecure: bool,
+
+    /// Optional WASM booster module path.
+    #[arg(long, env = "EP_BOOSTER_WASM")]
+    pub booster_wasm: Option<std::path::PathBuf>,
+
+    /// Disable the booster hook even if a module is configured.
+    #[arg(long, env = "EP_DISABLE_BOOSTER", default_value_t = false)]
+    pub disable_booster: bool,
+
+    /// Allow booster modules to short-circuit MCP tool execution.
+    #[arg(long, env = "EP_ALLOW_BOOSTER_SHORT_CIRCUIT", default_value_t = false)]
+    pub allow_booster_short_circuit: bool,
+
+    /// Emit machine-readable JSON output.
+    #[arg(long, global = true, default_value_t = false)]
+    pub json: bool,
+
+    #[command(subcommand)]
+    pub command: EdgeplaneCommand,
+}
+
 /// Top-level CLI entrypoints for the edgeplane binary.
 #[derive(Subcommand, Debug)]
 pub enum EdgeplaneCommand {
@@ -203,6 +252,16 @@ pub enum SystemCommand {
     /// Drift ingestion + policy decision helpers for staged release gates.
     #[command(subcommand)]
     Drift(drift::DriftCommand),
+    /// Hidden developer-only helpers (not for end-user consumption).
+    #[command(subcommand, hide = true)]
+    Internal(InternalCommand),
+}
+
+/// Hidden internal subcommands under `edgeplane system internal`.
+#[derive(Subcommand, Debug)]
+pub enum InternalCommand {
+    /// Print the CLI reference as Markdown to stdout (used by `make docs`).
+    GenCliDoc,
 }
 
 #[derive(Subcommand, Debug)]
@@ -2317,6 +2376,15 @@ async fn handle_system(
         SystemCommand::Update(cmd) => update::run(cmd, config).await,
         SystemCommand::Compat(cmd) => compat::run(cmd).await,
         SystemCommand::Drift(cmd) => drift::run(cmd).await,
+        SystemCommand::Internal(cmd) => match cmd {
+            InternalCommand::GenCliDoc => {
+                // Write directly to stdout — not JSON. Caller redirects to COMMAND-MAP.md.
+                // Bypass the normal JSON output wrapper.
+                let md = clap_markdown::help_markdown::<CliRoot>();
+                print!("{md}");
+                std::process::exit(0);
+            }
+        },
     }
 }
 
