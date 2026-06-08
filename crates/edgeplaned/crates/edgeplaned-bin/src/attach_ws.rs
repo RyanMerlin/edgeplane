@@ -218,19 +218,31 @@ async fn pump_pty(
                 }
             }
             Message::Text(txt) => {
-                // Control frames. Single supported kind today: resize.
+                // Control frames: resize, and prompt (for chat-UI viewers).
                 #[derive(serde::Deserialize)]
                 struct ControlFrame {
                     kind: String,
+                    // resize
                     #[serde(default)]
                     cols: u16,
                     #[serde(default)]
                     rows: u16,
+                    // prompt
+                    #[serde(default)]
+                    text: String,
                 }
                 match serde_json::from_str::<ControlFrame>(&txt) {
                     Ok(ctrl) if ctrl.kind == "resize" && ctrl.rows > 0 && ctrl.cols > 0 => {
                         // Best-effort; bounded resize channel coalesces.
                         let _ = resize_tx.try_send((ctrl.rows, ctrl.cols));
+                    }
+                    Ok(ctrl) if ctrl.kind == "prompt" && !ctrl.text.is_empty() => {
+                        // Chat-UI prompt: inject text + newline into the PTY as if typed.
+                        let mut bytes = ctrl.text.into_bytes();
+                        bytes.push(b'\n');
+                        if stdin_tx.send(bytes).await.is_err() {
+                            break;
+                        }
                     }
                     Ok(ctrl) => {
                         tracing::debug!("attach_ws ignored control frame kind={}", ctrl.kind);
