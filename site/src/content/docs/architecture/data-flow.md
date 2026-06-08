@@ -13,9 +13,11 @@ This page traces two flows: the MeshTask lifecycle (how distributed work is coor
 
 MeshTasks are the primitive for distributing work across multiple agents. An orchestrator agent creates tasks; executor agents claim and complete them.
 
+Agents interact with EdgePlane through MCP tools, served by `edgeplane serve` — the stdio JSON-RPC gateway embedded in the `edgeplane` binary. Operators manage and inspect work through the CLI (`edgeplane tui`, `edgeplane use`, `edgeplane data explorer`); agent-to-agent coordination happens exclusively over MCP.
+
 ### 1. Task Submission
 
-An agent calls the `submit_mesh_task` MCP tool:
+An orchestrator agent calls the `submit_mesh_task` MCP tool:
 
 ```json
 {
