@@ -11,7 +11,7 @@ use httpmock::MockServer;
 use edgeplane::client::EdgeplaneClient;
 use edgeplane::config::EdgeplaneConfig;
 use edgeplane::booster::AgentBooster;
-use edgeplane::commands::{run, EdgeplaneCommand, MissionCommand, TaskCommand};
+use edgeplane::commands::{run, DomainCommand, EdgeplaneCommand, MissionCommand, TaskCommand};
 use edgeplane::output::OutputMode;
 use serde_json::json;
 use std::process::Command;
@@ -420,6 +420,230 @@ async fn task_delete_sends_delete_via_domain_scoped_path() {
             mission_id: "mis-2".into(),
             domain_id: "dom-1".into(),
         }),
+        client,
+        booster,
+        config,
+        OutputMode::Json,
+    )
+    .await
+    .unwrap();
+
+    mock.assert();
+}
+
+// ── optional-field body tests (key rename coverage) ───────────────────────────
+
+#[tokio::test]
+async fn domain_create_sends_optional_fields() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/domains")
+            .json_body(json!({
+                "name": "my-domain",
+                "description": "a description",
+                "owners": "alice,bob"
+            }));
+        then.status(200)
+            .json_body(json!({ "id": "dom-new", "name": "my-domain" }));
+    });
+
+    let (client, booster) = build_client_and_booster(&server.url(""));
+    let config = build_config(&server.url(""));
+    run(
+        EdgeplaneCommand::Domain(DomainCommand::Create {
+            name: "my-domain".into(),
+            description: Some("a description".into()),
+            owners: Some("alice,bob".into()),
+            contributors: None,
+            tags: None,
+            visibility: None,
+            status: None,
+        }),
+        client,
+        booster,
+        config,
+        OutputMode::Json,
+    )
+    .await
+    .unwrap();
+
+    mock.assert();
+}
+
+#[tokio::test]
+async fn domain_update_sends_optional_fields() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(PATCH)
+            .path("/api/domains/dom-5")
+            .json_body(json!({ "tags": "infra,prod", "status": "active" }));
+        then.status(200)
+            .json_body(json!({ "id": "dom-5", "status": "active" }));
+    });
+
+    let (client, booster) = build_client_and_booster(&server.url(""));
+    let config = build_config(&server.url(""));
+    run(
+        EdgeplaneCommand::Domain(DomainCommand::Update {
+            id: "dom-5".into(),
+            description: None,
+            owners: None,
+            contributors: None,
+            tags: Some("infra,prod".into()),
+            visibility: None,
+            status: Some("active".into()),
+        }),
+        client,
+        booster,
+        config,
+        OutputMode::Json,
+    )
+    .await
+    .unwrap();
+
+    mock.assert();
+}
+
+/// Ensures the CLI maps `--workstream` → `"workstream_md"` in the request body.
+#[tokio::test]
+async fn mission_create_maps_workstream_to_workstream_md_key() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/domains/dom-w/m")
+            .json_body(json!({
+                "name": "ws-mission",
+                "domain_id": "dom-w",
+                "workstream_md": "## Goal\nShip it."
+            }));
+        then.status(200)
+            .json_body(json!({ "id": "mis-w", "name": "ws-mission" }));
+    });
+
+    let (client, booster) = build_client_and_booster(&server.url(""));
+    let config = build_config(&server.url(""));
+    run(
+        EdgeplaneCommand::Mission(MissionCommand::Create {
+            name: "ws-mission".into(),
+            domain_id: "dom-w".into(),
+            description: None,
+            owners: None,
+            contributors: None,
+            tags: None,
+            status: None,
+            workstream: Some("## Goal\nShip it.".into()),
+        }),
+        client,
+        booster,
+        config,
+        OutputMode::Json,
+    )
+    .await
+    .unwrap();
+
+    mock.assert();
+}
+
+/// Ensures the CLI maps `--dod` → `"definition_of_done"` in the request body.
+#[tokio::test]
+async fn task_create_maps_dod_to_definition_of_done_key() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/domains/dom-t/m/mis-t/t")
+            .json_body(json!({
+                "title": "Write tests",
+                "mission_id": "mis-t",
+                "definition_of_done": "All tests green",
+                "owner": "alice"
+            }));
+        then.status(200)
+            .json_body(json!({ "id": "task-new", "title": "Write tests" }));
+    });
+
+    let (client, booster) = build_client_and_booster(&server.url(""));
+    let config = build_config(&server.url(""));
+    run(
+        EdgeplaneCommand::Task(TaskCommand::Create {
+            title: "Write tests".into(),
+            mission_id: "mis-t".into(),
+            domain_id: "dom-t".into(),
+            description: None,
+            status: None,
+            owner: Some("alice".into()),
+            contributors: None,
+            dod: Some("All tests green".into()),
+            dependencies: None,
+        }),
+        client,
+        booster,
+        config,
+        OutputMode::Json,
+    )
+    .await
+    .unwrap();
+
+    mock.assert();
+}
+
+/// Ensures optional fields in task update are sent with their correct body keys.
+#[tokio::test]
+async fn task_update_sends_optional_fields() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(PATCH)
+            .path("/api/domains/dom-1/m/mis-1/t/task-42")
+            .json_body(json!({
+                "owner": "bob",
+                "definition_of_done": "PR merged + docs updated"
+            }));
+        then.status(200)
+            .json_body(json!({ "id": "task-42", "owner": "bob" }));
+    });
+
+    let (client, booster) = build_client_and_booster(&server.url(""));
+    let config = build_config(&server.url(""));
+    run(
+        EdgeplaneCommand::Task(TaskCommand::Update {
+            id: "task-42".into(),
+            mission_id: "mis-1".into(),
+            domain_id: "dom-1".into(),
+            title: None,
+            description: None,
+            status: None,
+            owner: Some("bob".into()),
+            contributors: None,
+            dod: Some("PR merged + docs updated".into()),
+            dependencies: None,
+        }),
+        client,
+        booster,
+        config,
+        OutputMode::Json,
+    )
+    .await
+    .unwrap();
+
+    mock.assert();
+}
+
+/// Verifies that `mission list` without --domain-id normalizes the search envelope
+/// to a bare array (same shape as the domain-scoped list path).
+#[tokio::test]
+async fn mission_list_without_domain_normalizes_search_envelope() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(GET).path("/api/search/missions");
+        // Search endpoint returns an envelope; CLI must unwrap .results
+        then.status(200)
+            .json_body(json!({ "results": [{ "id": "mis-1", "name": "alpha" }], "total": 1 }));
+    });
+
+    let (client, booster) = build_client_and_booster(&server.url(""));
+    let config = build_config(&server.url(""));
+    run(
+        EdgeplaneCommand::Mission(MissionCommand::List { domain_id: None }),
         client,
         booster,
         config,

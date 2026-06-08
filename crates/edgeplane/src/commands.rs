@@ -3785,17 +3785,14 @@ async fn handle_domain(
     config: &EdgeplaneConfig,
     output_mode: OutputMode,
 ) -> Result<()> {
-    // Resolve the agent id for this runtime. Prefer the configured agent_id;
-    // fall back to the default derived from the session state file.
-    let agent_id = config
-        .agent_context
-        .agent_id
-        .clone()
-        .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
-        .context("No agent_id configured. Run `edgeplane init` or set EP_AGENT_ID.")?;
-
     match cmd {
         DomainCommand::Home => {
+            let agent_id = config
+                .agent_context
+                .agent_id
+                .clone()
+                .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
+                .context("No agent_id configured. Run `edgeplane init` or set EP_AGENT_ID.")?;
             let agent = client.get_json(&format!("/agents/{agent_id}")).await?;
             let home_id   = agent.get("home_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
             let curr_id   = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
@@ -3804,6 +3801,12 @@ async fn handle_domain(
             println!("Current      : {curr_id}  ({miss_name})");
         }
         DomainCommand::Attach { domain_id } => {
+            let agent_id = config
+                .agent_context
+                .agent_id
+                .clone()
+                .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
+                .context("No agent_id configured. Run `edgeplane init` or set EP_AGENT_ID.")?;
             let body = json!({ "domain_id": domain_id });
             let agent = client.patch_json(&format!("/agents/{agent_id}/domain"), &body).await?;
             let curr  = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
@@ -3811,6 +3814,12 @@ async fn handle_domain(
             println!("Attached to domain {curr} ({name})");
         }
         DomainCommand::Detach => {
+            let agent_id = config
+                .agent_context
+                .agent_id
+                .clone()
+                .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
+                .context("No agent_id configured. Run `edgeplane init` or set EP_AGENT_ID.")?;
             let body = json!({ "domain_id": null });
             let agent = client.patch_json(&format!("/agents/{agent_id}/domain"), &body).await?;
             let curr  = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
@@ -3866,7 +3875,11 @@ async fn handle_domain(
         }
         DomainCommand::Delete { id } => {
             client.delete(&format!("/domains/{id}")).await?;
-            println!("Deleted domain {id}");
+            if output_mode.is_machine() {
+                println!("{}", serde_json::json!({"ok": true, "deleted": id}));
+            } else {
+                println!("Deleted domain {id}");
+            }
         }
     }
     Ok(())
@@ -3906,8 +3919,9 @@ async fn handle_mission(
             let result = if let Some(did) = domain_id {
                 client.get_json(&format!("/domains/{did}/m")).await?
             } else {
-                // Search with empty query to list all visible missions
-                client.get_json("/search/missions?q=&limit=50").await?
+                // Search returns {"results":[...], "total":N} — normalize to bare array.
+                let resp = client.get_json("/search/missions?q=&limit=50").await?;
+                resp.get("results").cloned().unwrap_or(resp)
             };
             output::print_value(output_mode, &result);
         }
@@ -3937,7 +3951,11 @@ async fn handle_mission(
         }
         MissionCommand::Delete { id, domain_id } => {
             client.delete(&format!("/domains/{domain_id}/m/{id}")).await?;
-            println!("Deleted mission {id}");
+            if output_mode.is_machine() {
+                println!("{}", serde_json::json!({"ok": true, "deleted": id}));
+            } else {
+                println!("Deleted mission {id}");
+            }
         }
     }
     Ok(())
@@ -4005,7 +4023,11 @@ async fn handle_task(
         }
         TaskCommand::Delete { id, mission_id, domain_id } => {
             client.delete(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}")).await?;
-            println!("Deleted task {id}");
+            if output_mode.is_machine() {
+                println!("{}", serde_json::json!({"ok": true, "deleted": id}));
+            } else {
+                println!("Deleted task {id}");
+            }
         }
     }
     Ok(())
