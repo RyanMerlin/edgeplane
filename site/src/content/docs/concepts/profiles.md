@@ -19,7 +19,7 @@ Profiles are stored server-side, scoped strictly to the owner's identity. One op
 
 When `edgeplane run <runtime>` starts an agent:
 
-1. The CLI fetches the active profile bundle from the server (`GET /api/profiles/{name}`)
+1. The CLI fetches the active profile bundle from the server (`GET /api/me/profiles/{name}`)
 2. The bundle is written to `~/.edgeplane/profiles/<name>/` via atomic file writes
 3. An active-profile symlink is updated to point at the new version
 4. Env vars from the profile's `env` file are injected into the agent subprocess
@@ -79,5 +79,5 @@ The `config.json` file contains the profile's server-side metadata. Do not edit 
 
 ## What's Next
 
-- [Agent Setup](/guides/agent-setup/) — connecting a node and launching your first agent with a profile
-- [Advanced: Personal Fleet Profiles](/advanced/fleet-profiles/) — managing multiple profiles across nodes and teams
+- [Agent Setup](/getting-started/agent-setup/) — connecting a node and launching your first agent with a profile
+- [Advanced: Personal Fleet Profiles](/guides/fleet-profiles-advanced/) — managing multiple profiles across nodes and teams

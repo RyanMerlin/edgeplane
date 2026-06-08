@@ -24,7 +24,7 @@ There are three communication paths:
 
 **WebSocket attach (`/api/runtime/nodes/{node_id}/agents/{agent_id}/attach`)** — operators and the web dashboard attach for real-time I/O. The attach endpoint proxies frames to the running agent process via the per-node daemon. Owner-scope is enforced — you can only attach to sessions you own.
 
-**SSE event feed (`/api/events`)** — broadcasts session lifecycle events (session start, tool calls, heartbeats, termination) to subscribers. The web dashboard's live event feed reads this stream.
+**SSE streams** — scoped per session at `/api/ai/sessions/{id}/stream` for AI Console conversations. Session lifecycle events (tool calls, heartbeats, termination) stream here; the web dashboard's conversation pane reads this path.
 
 ## Session Lifecycle
 
@@ -71,7 +71,7 @@ For agents running in a Zellij pane, EdgePlane bridges via PTY rather than MCP s
 
 The optional `edgeplane-zrpc` plugin extends this with focus-free injection: it replaces the paste→delay→Enter chain with a Zellij-pipe–based request/response path that does not require the pane to have keyboard focus. The plugin ships feature-flagged — set `EDGEPLANE_ZRPC_PLUGIN_PATH` and `EDGEPLANE_ZRPC_SESSIONS` to enable it.
 
-See [Zellij Integration](/guides/zellij/) for setup details.
+See [Zellij Integration](/guides/zellij-integration/) for setup details.
 
 ## What's Next
 

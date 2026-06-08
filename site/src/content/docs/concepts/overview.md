@@ -40,7 +40,6 @@ It is infrastructure that enables parallel, governed, auditable AI execution ins
 | **Artifact Ledger** | Every mutation recorded in Postgres, vector-indexed for search, committed to Git with full provenance |
 | **MCP-Native Interface** | Standard MCP stdio tools — works with any MCP-compatible agent runtime |
 | **Governance & Approvals** | Versioned policy lifecycle, role-based access, approval tokens |
-| **Persistent Agent Sessions** | `edgeplaned` manages long-running agent processes; sessions survive crashes and reconnects |
 | **Agent Connection Protocol (ACP)** | Persistent agent sessions — `edgeplaned` manages agent processes; sessions survive crashes and reconnect automatically |
 | **Web Dashboard** | React UI for fleet monitoring, live event feed, domain/task drill-down, and ACP conversation panes |
 | **Mesh Execution** | Agents claim and execute `MeshTask` units from a shared queue — distributed work without a central scheduler |

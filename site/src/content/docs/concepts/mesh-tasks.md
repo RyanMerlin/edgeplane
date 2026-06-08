@@ -17,11 +17,11 @@ Whether the two will converge is an open architecture question. For now, use `Ta
 ## The Claim-Execute-Complete Lifecycle
 
 ```
-Submit          → status: pending
+Submit          → status: ready
 Claim           → status: claimed (lease issued, expires_at set)
 Heartbeat       → lease extended
-Complete/Fail   → status: completed | failed (result artifact recorded)
-Lease expire    → status: pending again (available for re-claim)
+Complete/Fail   → status: finished | failed (result recorded in output_json)
+Lease expire    → status: ready again (re-claimable)
 ```
 
 A claimed task holds a lease. The claiming agent must send periodic heartbeats to extend the lease. If heartbeats stop (crash, network drop, stall), the lease expires and the task becomes available for another agent to claim. This makes the mesh self-healing — no task gets permanently stuck in a claimed state.
@@ -32,7 +32,9 @@ Each `MeshTask` carries a `required_capabilities` field. When an agent polls for
 
 Agents declare capabilities at registration via `edgeplane agent register --capabilities`. At runtime, the `MeshAgent` row (the agent's runtime-bound projection) also carries `discovered_capabilities` — introspected at enrollment and unioned with declared capabilities during scheduling.
 
-Tasks that require capabilities no registered agent holds will remain pending until a matching agent comes online.
+Tasks that require capabilities no registered agent holds will remain ready until a matching agent comes online.
+
+> **Note:** the `submit_mesh_task` MCP tool does not expose `required_capabilities` directly — capability-aware routing operates at the scheduler/daemon layer. Use the REST API or `edgeplane daemon task submit` for capability-scoped submission.
 
 ## Parent-Child Structure
 
@@ -42,13 +44,15 @@ This is the mechanism behind wide agent workflows: one orchestrator task fans ou
 
 ## Result Artifacts
 
-On completion, the agent records a result as an artifact at the standard S3 path:
+On completion, the agent records the result as `output_json` on the task via `complete_mesh_task`. This does not automatically create or link a result artifact — that is a separate step. To persist a result as a named artifact, call `create_artifact` after completing the task and link it manually.
+
+Artifacts are stored at the standard S3 path:
 
 ```
 domains/{domain_id}/missions/{mission_id}/artifacts/{filename}
 ```
 
-The `MeshTask.result_artifact_id` FK points to this artifact. Callers can fetch the result via the artifact API without knowing the agent's identity or location.
+Callers can fetch artifacts via the artifact API without knowing the agent's identity or location.
 
 ## MeshTask vs Task
 
@@ -57,17 +61,17 @@ The `MeshTask.result_artifact_id` FK points to this artifact. Callers can fetch 
 | Owner | Explicit, set at creation | Claimed by any matching agent |
 | Routing | Manual assignment | Capability-based scheduling |
 | Lease | None | TTL lease, expires on inactivity |
-| Result | `definition_of_done` text | Artifact (`result_artifact_id`) |
+| Result | `definition_of_done` text | `output_json` payload (result artifacts created and linked separately) |
 | Use case | Human-driven work | Agent-driven distributed execution |
 
 ## MCP Tools for Mesh Execution
 
 | Tool | What it does |
 |------|-------------|
-| `submit_mesh_task` | Create a new task in `pending` state |
-| `claim_mesh_task` | Atomically claim a pending task; returns lease |
+| `submit_mesh_task` | Create a new task in `ready` state |
+| `claim_mesh_task` | Atomically claim a ready task; returns lease |
 | `heartbeat_mesh_task` | Extend the lease to prevent expiry |
-| `complete_mesh_task` | Mark task completed, record result artifact |
+| `complete_mesh_task` | Mark task finished; `output_json` payload recorded. Result artifacts can be created and linked separately via `create_artifact`. |
 | `fail_mesh_task` | Mark task failed with error details |
 | `list_mesh_tasks` | Query tasks by status, domain, mission, or capability |
 
