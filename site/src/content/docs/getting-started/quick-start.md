@@ -35,7 +35,7 @@ edgeplane health --json
 edgeplane status           # shows auth, runtime, and workspace lease status
 ```
 
-Both should report `ok: true`. If `health` fails, confirm `EP_BASE_URL` is set and the tower is reachable.
+`health --json` reports `{"ok": true, ...}` when the tower is reachable. `status` shows auth, runtime, and workspace context (no top-level `ok` field). If `health` fails, confirm `EP_BASE_URL` is set and the tower is reachable.
 
 ## 4. Launch an Agent
 

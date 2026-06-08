@@ -20,13 +20,13 @@ All runtimes launch through `edgeplane run <runtime>`:
 
 ## ACP Runtimes (Claude Code)
 
-The `claude` runtime uses the **Agent Communication Protocol (ACP)**: a persistent JSON-RPC session over stdio. EdgePlane injects itself as an MCP server at launch, then maintains a live session until the agent exits or you run `edgeplane stop`.
+The `claude` runtime uses the **Agent Communication Protocol (ACP)**: a persistent JSON-RPC session over stdio. EdgePlane injects itself as an MCP server at launch, then maintains a live session until the agent exits or completes naturally.
 
 Key behaviors:
 
 - Session persists across compaction — EdgePlane re-injects context on compact
 - Lifecycle hooks fire automatically: session registration, context injection, tool-audit, session-end
-- Resume a previous session: `edgeplane run claude --resume`; a failed resume clears the stale session ID and retries fresh
+- `edgeplane run claude` resumes the previous session automatically; pass `--new` to force a fresh session instead
 
 ### What `edgeplane run` does
 
@@ -34,7 +34,7 @@ Key behaviors:
 2. Validates profile and session context against the tower
 3. Fetches agent config from the onboarding manifest
 4. Writes runtime config to `~/.edgeplane/instances/<session-id>/`
-5. Injects EdgePlane as an MCP server via `--mcp-server` (Claude Code) or runtime-equivalent
+5. Injects EdgePlane by writing itself into the agent's `mcpServers` configuration before handoff — no manual MCP config required
 6. `exec`s the agent
 
 ## Session Tokens
@@ -51,7 +51,7 @@ edgeplane auth logout                      # revoke server-side and clear local 
 edgeplane auth logout --local-only         # clear local file only
 ```
 
-For CI and headless pipelines, use **service account tokens** (`mcs_sa_*`) created via the API. There is no `EP_TOKEN` — static shared-secret auth was removed in v0.11.0.
+For CI and headless pipelines, use **service account tokens** (`mcs_sa_*`) created via the API. There is no `EP_TOKEN` — static shared-secret auth was removed in v0.11.0. For non-interactive use (CI, automation), set `EP_AGENT_TOKEN` to a service account token (`mcs_sa_*`) instead of using `edgeplane auth login`.
 
 | Auth type | Recommended for |
 |-----------|----------------|
@@ -64,9 +64,9 @@ For CI and headless pipelines, use **service account tokens** (`mcs_sa_*`) creat
 Profiles carry an operator's personal environment config, tool settings, and instruction files. The profile loads automatically when you run `edgeplane run`.
 
 ```bash
-edgeplane profile switch <name>    # switch to a different profile
-edgeplane profile push             # push local profile to the tower
-edgeplane profile pull             # pull profile from the tower
+edgeplane profile activate --name <name>    # switch to a different profile
+edgeplane profile publish --name <name>     # push local profile to the tower
+edgeplane profile pull --name <name>        # pull profile from the tower
 ```
 
 ## MCP Configuration (manual wiring)
@@ -127,7 +127,8 @@ env = { EP_BASE_URL = "https://edgeplane.example.com" }
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `EP_BASE_URL` | Control plane HTTP base URL | `http://localhost:8008` |
-| `EP_OUTPUT` | Output format for CLI commands (`json`, `text`) | `text` |
+
+Output format is controlled by the `--json` global flag on any command (e.g. `edgeplane health --json`).
 
 There is no `EP_TOKEN`. Auth is handled via session file, node JWT, or service account token — never a static shared secret.
 
