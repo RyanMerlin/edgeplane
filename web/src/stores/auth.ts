@@ -38,7 +38,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const res = await fetch('/api/auth/me', { credentials: 'include' });
       if (res.ok) {
-        const data = (await res.json()) as { subject?: string; email?: string | null; name?: string | null };
+        const data = (await res.json()) as {
+          subject?: string;
+          email?: string | null;
+          name?: string | null;
+        };
         set({
           loggedIn: true,
           userSubject: data.subject ?? null,
@@ -51,7 +55,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch {
       // Ignore — keep logged out.
     }
-    set({ loggedIn: false, userSubject: null, userEmail: null, userName: null, bootstrapped: true });
+    set({
+      loggedIn: false,
+      userSubject: null,
+      userEmail: null,
+      userName: null,
+      bootstrapped: true,
+    });
   },
 
   logout: async () => {

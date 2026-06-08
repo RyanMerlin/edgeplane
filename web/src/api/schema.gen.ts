@@ -733,6 +733,11 @@ export interface components {
              */
             email?: string | null;
             /**
+             * @description Human-readable display name from the OIDC preferred_username/name claim. Used for
+             *     the web UI avatar and sidebar label. Null for CLI/SA flows.
+             */
+            name?: string | null;
+            /**
              * Format: int32
              * @description Session database ID — present for session tokens, absent for service account tokens.
              */
