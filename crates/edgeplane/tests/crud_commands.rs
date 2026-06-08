@@ -107,42 +107,7 @@ fn domain_help_lists_crud_subcommands() {
 // ── mission HTTP round-trip tests ─────────────────────────────────────────────
 
 #[tokio::test]
-async fn mission_create_posts_to_missions() {
-    let server = MockServer::start();
-    let mock = server.mock(|when, then| {
-        when.method(POST)
-            .path("/api/missions")
-            .json_body(json!({ "name": "test-mission" }));
-        then.status(200)
-            .json_body(json!({ "id": "mis-123", "name": "test-mission" }));
-    });
-
-    let (client, booster) = build_client_and_booster(&server.url(""));
-    let config = build_config(&server.url(""));
-    run(
-        EdgeplaneCommand::Mission(MissionCommand::Create {
-            name: "test-mission".into(),
-            domain_id: None,
-            description: None,
-            owners: None,
-            contributors: None,
-            tags: None,
-            status: None,
-            workstream: None,
-        }),
-        client,
-        booster,
-        config,
-        OutputMode::Json,
-    )
-    .await
-    .unwrap();
-
-    mock.assert();
-}
-
-#[tokio::test]
-async fn mission_create_posts_to_domain_path_when_domain_id_given() {
+async fn mission_create_posts_to_domain_path() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
         when.method(POST)
@@ -157,7 +122,7 @@ async fn mission_create_posts_to_domain_path_when_domain_id_given() {
     run(
         EdgeplaneCommand::Mission(MissionCommand::Create {
             name: "test-mission".into(),
-            domain_id: Some("dom-abc".into()),
+            domain_id: "dom-abc".into(),
             description: None,
             owners: None,
             contributors: None,

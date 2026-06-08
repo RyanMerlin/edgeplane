@@ -338,8 +338,8 @@ pub enum MissionCommand {
         /// Mission name.
         name: String,
         /// Domain this mission belongs to.
-        #[arg(long)]
-        domain_id: Option<String>,
+        #[arg(long, required = true)]
+        domain_id: String,
         #[arg(long)]
         description: Option<String>,
         /// Comma-separated owner identities.
@@ -3890,13 +3890,9 @@ async fn handle_mission(
             status,
             workstream,
         } => {
-            // Determine the REST path before moving domain_id into the body.
-            let path = match &domain_id {
-                Some(did) => format!("/domains/{did}/m"),
-                None => "/missions".to_string(),
-            };
-            let mut body = json!({ "name": name });
-            if let Some(v) = domain_id    { body["domain_id"]     = json!(v); }
+            let path = format!("/domains/{domain_id}/m");
+            let mut body = json!({ "name": name, "domain_id": domain_id });
+
             if let Some(v) = description  { body["description"]   = json!(v); }
             if let Some(v) = owners       { body["owners"]        = json!(v); }
             if let Some(v) = contributors { body["contributors"]  = json!(v); }
