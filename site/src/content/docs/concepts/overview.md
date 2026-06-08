@@ -41,6 +41,9 @@ It is infrastructure that enables parallel, governed, auditable AI execution ins
 | **MCP-Native Interface** | Standard MCP stdio tools — works with any MCP-compatible agent runtime |
 | **Governance & Approvals** | Versioned policy lifecycle, role-based access, approval tokens |
 | **Persistent Agent Sessions** | `edgeplaned` manages long-running agent processes; sessions survive crashes and reconnects |
+| **Agent Connection Protocol (ACP)** | Persistent agent sessions — `edgeplaned` manages agent processes; sessions survive crashes and reconnect automatically |
+| **Web Dashboard** | React UI for fleet monitoring, live event feed, domain/task drill-down, and ACP conversation panes |
+| **Mesh Execution** | Agents claim and execute `MeshTask` units from a shared queue — distributed work without a central scheduler |
 | **Semantic Search** | Tasks, docs, and missions are vector-indexed (pgvector) for similarity and hybrid search |
 | **Personal Agent Profiles** | Operator profiles travel with the operator, not the machine — sync across devices instantly |
 
@@ -71,3 +74,6 @@ Agents request actions. EdgePlane authorizes and records them.
 - [Philosophy](/concepts/philosophy/) — the design principles behind these decisions
 - [Domains, Missions & Tasks](/concepts/domains-missions-tasks/) — the organizational model in detail
 - [Entity Reference](/concepts/entity-reference/) — canonical definitions for every entity
+- [ACP — Agent Connection Protocol](/concepts/acp/) — how persistent agent sessions work
+- [MeshTask System](/concepts/mesh-tasks/) — distributed agent-to-agent task execution
+- [Profiles](/concepts/profiles/) — personal operator profiles and how they travel

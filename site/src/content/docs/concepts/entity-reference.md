@@ -81,6 +81,43 @@ See `MeshAgent` for the discoverable, runtime-bound projection.
 
 ---
 
+## AgentSession
+
+**A live agent process attached to the control plane.** Created when `edgeplane run` starts an agent; destroyed on clean exit or timeout.
+
+- Columns: `agent_id` (FK), `claude_session_id`, `context`, `started_at`, `ended_at`, `end_reason`, `audit_log`
+- Does not carry `mission_id` or `domain_id` — work-binding is via `AgentRun`
+
+`runtime_kind` values:
+
+| Value | Meaning |
+|-------|---------|
+| `claude_agent_acp` | ACP persistent — Claude Code with EdgePlane injected as an MCP server |
+| `zellij_hosted` | PTY bridge — agent lives in a Zellij pane; EdgePlane bridges via PTY |
+| `codex` | Driver subprocess |
+| `gemini` | Driver subprocess |
+| `goose` | Driver subprocess |
+| `openclaw` | Driver subprocess |
+| `custom` | Driver subprocess |
+
+Session status: `active` | `idle` | `terminated`
+
+Distinct from `AiSession` — an `AgentSession` is the live process record; an `AiSession` is the conversation record in the web AI Console.
+
+---
+
+## AiSession
+
+**A tracked conversation in the web AI Console.** Created when an operator opens a conversation in the dashboard's AI Console tab.
+
+- Columns: `id`, `owner_subject`, `title`, `status`, `runtime_kind`, `runtime_session_id`, `workspace_path`, `policy_json`, `capability_snapshot_json`
+- `capability_snapshot_json` freezes the capability set at session start for consistent policy enforcement
+- Each turn carries `role`, `content`, and events (tool calls, progress frames)
+
+Distinct from `AgentSession` — an `AiSession` is the conversation record; `AgentSession` is the live process.
+
+---
+
 ## MeshAgent
 
 **The runtime-bound, discoverable projection of an agent into the mesh.** This is the row the controlplane scheduler matches against when claiming a `meshtask`. Distinct from `agent` (the canonical identity row).
