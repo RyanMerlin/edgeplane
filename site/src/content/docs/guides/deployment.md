@@ -24,35 +24,28 @@ cp target/release/edgeplane-tower /usr/local/bin/edgeplane-tower
 Create `/etc/edgeplane/env`:
 
 ```bash
-# Auth
-AUTH_MODE=dual
-OIDC_REQUIRED=false
-OIDC_ISSUER_URL=https://<your-idp-host>/application/o/<provider-slug>/
-OIDC_AUDIENCE=<oidc-client-id>
-EP_ADMIN_EMAILS=<comma-separated-admin-emails>
-
 # Database
 DATABASE_URL=postgresql://edgeplane:password@localhost/edgeplane
-DB_POOL_SIZE=20
-DB_MAX_OVERFLOW=10
-DB_POOL_PRE_PING=true
-DB_POOL_RECYCLE_SECONDS=3600
-EP_DB_RUNTIME_MIGRATIONS=false
 
-# S3-compatible object storage (optional, for artifact/doc content)
+# OIDC authentication (required)
+OIDC_ISSUER_URL=https://<your-idp-host>/application/o/<provider-slug>/
+OIDC_CLIENT_ID=<oidc-client-id>
+OIDC_CLIENT_SECRET=<oidc-client-secret>
+
+# JWT signing key for node identity tokens (generate a persistent key for production)
+# If unset, an ephemeral key is generated on each restart — node JWTs will be invalidated on restart
+# Generate: openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt | base64 -w 0
+EP_JWT_SIGNING_KEY=<base64-encoded-rsa-pkcs8-pem>
+
+# Governance approval HMAC token signing secret (required for governance features)
+EP_APPROVAL_TOKEN_SECRET=<random-secret>
+
+# S3-compatible object storage (optional — artifact/doc content storage)
 EP_OBJECT_STORAGE_ENDPOINT=http://<s3-host>:<port>
 EP_OBJECT_STORAGE_REGION=us-east-1
 EP_OBJECT_STORAGE_BUCKET=edgeplane
-EP_OBJECT_STORAGE_SECURE=false
 EP_OBJECT_STORAGE_ACCESS_KEY=<access-key>
 EP_OBJECT_STORAGE_ACCESS_SECRET=<secret>
-
-# Request limits (optional)
-EP_REQUEST_TIMEOUT_SECONDS=30
-EP_RATE_LIMIT_DEFAULT_CAPACITY=240
-EP_RATE_LIMIT_SEARCH_CAPACITY=60
-EP_RATE_LIMIT_WRITE_CAPACITY=120
-EP_RATE_LIMIT_APPROVAL_CAPACITY=30
 ```
 
 ### 3. systemd service
@@ -66,7 +59,7 @@ After=network.target postgresql.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/edgeplane-tower --serve --bind 0.0.0.0:8008
+ExecStart=/usr/local/bin/edgeplane-tower --bind 0.0.0.0:8008
 Restart=on-failure
 EnvironmentFile=/etc/edgeplane/env
 
@@ -150,7 +143,6 @@ docker compose up
 
 Health endpoints:
 - `/api/health` — process alive (no auth required)
-- `/api/readyz` — DB ready, object storage reachable when configured
 
 ## Kubernetes
 
@@ -169,42 +161,32 @@ spec:
     - containerPort: 8008
 ```
 
-Store all auth settings (OIDC secrets, static token, DB credentials, S3 credentials) as Kubernetes Secrets and mount via `envFrom.secretRef` or `env.valueFrom.secretKeyRef`.
+Store all auth settings (OIDC credentials, DB credentials, object storage credentials) as Kubernetes Secrets and mount via `envFrom.secretRef` or `env.valueFrom.secretKeyRef`.
 
 See [Helm chart](https://github.com/RyanMerlin/edgeplane/tree/main/infra/helm/edgeplane) in the repo for a complete Kubernetes deployment.
 
-## Auth Modes
+## Authentication
 
-| `AUTH_MODE` | Behavior |
-|-------------|---------|
-| `token` | Static bearer token only |
-| `oidc` | OIDC JWT only |
-| `dual` | Accept both token and OIDC |
+EdgePlane uses three auth paths — no static API token:
 
-`OIDC_REQUIRED=true` in `dual` mode enforces OIDC for non-`/mcp` paths. If `AUTH_MODE` is unset, the server defaults to OIDC when OIDC vars are present.
+| Mode | Who | How |
+|------|-----|-----|
+| **OIDC session** | Human operators | `edgeplane auth login` → browser flow → `~/.edgeplane/session.json` |
+| **Node JWT** | Daemon machines | `edgeplane agent node register` → `/etc/edgeplane/node.json` |
+| **Service account** | CI / scripted | Create via API; pass as `EP_AGENT_TOKEN` |
+
+See [OIDC Authentication](/guides/oidc/) and [Security Model](/architecture/security/) for setup details.
 
 ## Database Migrations
 
-`edgeplane-tower` runs migrations automatically on startup. To run manually:
-
-```bash
-cd crates/edgeplane-tower && sqlx migrate run
-```
-
-Confirm migration state:
-
-```bash
-sqlx migrate info
-```
+`edgeplane-tower` runs migrations automatically on startup. To skip and run them separately, use the `--no-migrate` flag. The embedded migrations are applied via sqlx on the configured `DATABASE_URL`.
 
 ## Validation Checklist
 
 After deployment:
 
 - [ ] `GET /api/health` returns 200 without auth
-- [ ] `GET /api/readyz` returns 200 (DB ready, S3 reachable if configured)
 - [ ] `edgeplane health --json` returns connected from operator workstation
-- [ ] Bearer token callers are not admins unless their subject/email is in `EP_ADMIN_SUBJECTS` or `EP_ADMIN_EMAILS`
 - [ ] Create + delete mission paths work with expected authorization
 
 ## See Also

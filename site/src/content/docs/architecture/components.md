@@ -52,7 +52,7 @@ EdgePlane is composed of five components. Three are core binaries that must coop
 | Variable | Purpose |
 |----------|---------|
 | `DATABASE_URL` | Postgres connection string |
-| `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` | Artifact storage |
+| `EP_OBJECT_STORAGE_ENDPOINT` / `EP_OBJECT_STORAGE_BUCKET` / `EP_OBJECT_STORAGE_ACCESS_KEY` / `EP_OBJECT_STORAGE_ACCESS_SECRET` | Artifact storage |
 | OIDC client credentials (provider-specific) | Browser auth flow |
 | `--bind` flag | Bind address (default `0.0.0.0:8008`) |
 
