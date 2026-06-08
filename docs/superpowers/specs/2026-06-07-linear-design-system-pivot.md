@@ -72,4 +72,4 @@ One self-contained `mockup.html`, hosted for click-through review:
 
 ## Out of scope (unchanged from the nav spec)
 
-Realtime transport (feed/conversation connectivity), the AI Console runtime, Domains nested routes (Pass 2), and the `/auth/me` email field for real avatar initials.
+Realtime transport (feed/conversation connectivity), the AI Console runtime, Domains nested routes (Pass 2). Avatar initials are now SHIPPED — `/auth/me` returns `name` from the OIDC `preferred_username` claim (2026-06-08).

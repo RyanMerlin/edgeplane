@@ -125,9 +125,13 @@ The fleet agents (the **WHO** spine) already provide the real, wired conversatio
 
 **Dashboard (`/`) content, Pass 1 (kept simple):** a **Fleet** summary card (online/total from `useMergedAgents`, link to Agents), a **Work** summary card (domain/mission counts from the existing Explorer tree query, link to Domains), and a **Recent activity** strip from the event stream. No new backend endpoints.
 
-## 8. Dependency: avatar initials ("RM", not an ID)
+## 8. Avatar initials — SHIPPED (2026-06-08)
 
-`GET /api/auth/me` returns `{subject: <opaque hash>, auth_type, session_id}` — **no email/display name** — so the SPA cannot derive "RM". Fix requires the tower to expose `email` and/or `display_name` on `/auth/me` (the value exists in the OIDC session per `prod.json`, pending confirmation it's stored on the usersession), then the sidebar avatar computes initials from that. **In Pass 1, contingent on the email being available server-side**; if a tower change is needed it's a small, isolated addition. If unavailable, fall back to a neutral glyph (not a hash slice) and track the backend exposure separately.
+`GET /api/auth/me` now returns `{subject, auth_type, session_id, email, name}`.
+`name` is populated from the OIDC `preferred_username`/`name` claim at browser login
+(migration `0004_usersession_display_name`). The SPA auth store exposes `userName`;
+`avatarLabel()` returns a single initial for single-word names ("Merlin" → "M") and
+first+last initials for multi-part names/emails. No further work needed here.
 
 ## 9. Explicitly out of scope (separate workstreams)
 

@@ -12,11 +12,18 @@
 /// token stops being valid; the controlplane mints these for short windows
 /// (60s recommended).
 ///
-/// Wire framing:
+/// Wire framing (PTY agents):
 ///   - Binary frames carry raw bytes both ways (stdout fan-out, stdin in).
-///   - Text frames may carry control JSON; supported today: resize.
-///         {"kind":"resize","cols":120,"rows":40}
-///   - Anything else is logged and ignored.
+///   - Text frames carry control JSON. Supported kinds:
+///         {"kind":"resize","cols":120,"rows":40}   — terminal resize
+///         {"kind":"prompt","text":"..."}           — inject text+newline into PTY stdin
+///   - Anything else is logged at debug and ignored.
+///
+/// Wire framing (ACP agents):
+///   - Outbound (agent→viewer): text frames, each a serialised SessionNotification.
+///   - Inbound (viewer→agent): text frames with kind-tagged envelope:
+///         {"kind":"prompt","text":"..."}  — forwarded as AgentSignal::UserInput
+///         {"kind":"cancel"}               — forwarded as AgentSignal::Cancel
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};

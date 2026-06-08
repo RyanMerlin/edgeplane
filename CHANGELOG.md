@@ -6,6 +6,30 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
 
 ## [Unreleased]
 
+### Added
+
+- **Web UI: display name from OIDC `preferred_username` claim.**
+  `edgeplane-tower` now captures `preferred_username` (falling back to `name`) from the
+  OIDC userinfo response at browser login and stores it in a new `usersession.display_name`
+  column (migration `0004`). `GET /api/auth/me` returns the value as `name`; the SPA
+  auth store exposes `userName` and uses it for the sidebar avatar and label. Single-word
+  names ("Merlin") render as a single initial ("M"); multi-part names or emails use
+  first+last initials.
+
+- **Web UI: flat account popup with left-aligned items.**
+  The sidebar's account popover is now a flat list — Preferences, Onboarding, Theme,
+  Logout — with no Settings submenu. All items are explicitly left-aligned via
+  `justifyContent: flex-start` (overriding the global `button { justify-content: center }`
+  rule in `app.css`).
+
+### Fixed
+
+- **attach-ws: prompt frames from chat-UI viewers now reach `zellij_hosted` agent PTYs.**
+  The PTY pump in `attach_ws.rs` ignored `{"kind":"prompt","text":"..."}` text frames
+  (treating them as unknown control frames) — messages typed in the web UI were silently
+  dropped. The pump now converts prompt frames to `text + \n` bytes sent to PTY stdin, so
+  the chat UI works for all `zellij_hosted` fleet agents.
+
 ## [0.13.1] — 2026-06-07
 
 ### Fixed
