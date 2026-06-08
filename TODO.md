@@ -13,6 +13,17 @@ Nothing currently blocked.
   to scaffold work. These are the human-facing counterparts to the MCP-only surface that
   currently handles all entity creation.
 
+- NORTHSTAR as a real S3-backed file: `domains/{domain_id}/NORTHSTAR.md`. Currently
+  `domain.northstar_md` is an inline Postgres column — the intent (per
+  `docs/schema-packs/NORTHSTAR.example.md`) was always a first-class document stored in
+  object storage. Migration: add `northstar_s3_path` + `northstar_sha256` columns, write
+  NORTHSTAR.md to S3 on domain create/update, expose `GET/PUT /domains/{id}/northstar`
+  endpoints, add `get_domain_northstar` MCP tool so agents load it on join (same pattern
+  as CLAUDE.md). Same applies to Mission: `workstream_md` → `WORKSTREAM.md` in S3.
+
+- MCP audit: tag all ~65 MCP tools as `protocol-only` (agent runtime, stays MCP) or
+  `needs-cli-equivalent` (management op, gets a CLI command). See ADR 0005.
+
 ## Backlog
 
 - `edgeplane tui` SSE agent-feed: verify end-to-end against a live cluster (proxy fix
