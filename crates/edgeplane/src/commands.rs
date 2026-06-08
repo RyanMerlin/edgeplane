@@ -288,6 +288,11 @@ pub enum AgentCommand {
     /// systemd-unit liveness supervision (Phase 5 daemon-absorption).
     #[command(subcommand)]
     Supervise(SuperviseCommand),
+    /// Register a new agent with the controlplane.
+    Register(crate::agent_ops::RegisterArgs),
+    /// Update a controlplane agent's status (online/offline/busy).
+    #[command(name = "set-status")]
+    SetStatus(crate::agent_ops::SetStatusArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -2420,6 +2425,8 @@ async fn handle_agent(
             SuperviseCommand::Events(a) => crate::agent_supervise::run_events(a).await,
             SuperviseCommand::Watch(a) => crate::agent_supervise_watch::run(a).await,
         },
+        AgentCommand::Register(args) => crate::agent_ops::run_register(args, &client).await,
+        AgentCommand::SetStatus(args) => crate::agent_ops::run_set_status(args, &client).await,
     }
 }
 

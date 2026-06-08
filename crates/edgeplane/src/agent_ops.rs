@@ -79,6 +79,35 @@ pub struct DescribeArgs {
     pub json: bool,
 }
 
+#[derive(Args, Debug)]
+pub struct RegisterArgs {
+    /// Agent name (must be unique on the controlplane).
+    #[arg(long)]
+    pub name: String,
+    /// Comma-separated capability tags (e.g. `fleet-management,code-editing`).
+    #[arg(long, default_value = "")]
+    pub capabilities: String,
+    /// Optional JSON metadata string (e.g. `{"runtime":"claude-code","node_id":"excalibur"}`).
+    #[arg(long)]
+    pub metadata: Option<String>,
+    /// Emit raw JSON instead of a human-readable summary.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SetStatusArgs {
+    /// Agent id or public_id on the controlplane.
+    #[arg(long)]
+    pub id: String,
+    /// New status value (e.g. `online`, `offline`, `busy`).
+    #[arg(long)]
+    pub status: String,
+    /// Emit raw JSON instead of a human-readable summary.
+    #[arg(long)]
+    pub json: bool,
+}
+
 // ─── Command runners ─────────────────────────────────────────────────────
 
 pub async fn run_signal(args: SignalArgs, client: &EdgeplaneClient) -> Result<()> {
@@ -167,6 +196,38 @@ pub async fn run_list(args: ListArgs, client: &EdgeplaneClient) -> Result<()> {
         );
     } else {
         print_list_human(&local_agents, &remote_agents);
+    }
+    Ok(())
+}
+
+pub async fn run_register(args: RegisterArgs, client: &EdgeplaneClient) -> Result<()> {
+    let mut body = json!({
+        "name": args.name,
+        "capabilities": args.capabilities,
+    });
+    if let Some(m) = args.metadata {
+        body["metadata"] = json!(m);
+    }
+    let result: Value = client.post_json("/agents", &body).await?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        let id = result.get("id").or_else(|| result.get("public_id"))
+            .and_then(|v| v.as_str()).unwrap_or("?");
+        let name = result.get("name").and_then(|v| v.as_str()).unwrap_or(&args.name);
+        println!("registered agent '{name}' id={id}");
+    }
+    Ok(())
+}
+
+pub async fn run_set_status(args: SetStatusArgs, client: &EdgeplaneClient) -> Result<()> {
+    let body = json!({ "status": args.status });
+    let result: Value = client.patch_json(&format!("/agents/{}", args.id), &body).await?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        let status = result.get("status").and_then(|v| v.as_str()).unwrap_or(&args.status);
+        println!("agent {} status -> {status}", args.id);
     }
     Ok(())
 }

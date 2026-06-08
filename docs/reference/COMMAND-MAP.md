@@ -97,6 +97,8 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane agent supervise history`↴](#edgeplane-agent-supervise-history)
 * [`edgeplane agent supervise events`↴](#edgeplane-agent-supervise-events)
 * [`edgeplane agent supervise watch`↴](#edgeplane-agent-supervise-watch)
+* [`edgeplane agent register`↴](#edgeplane-agent-register)
+* [`edgeplane agent set-status`↴](#edgeplane-agent-set-status)
 * [`edgeplane runtime`↴](#edgeplane-runtime)
 * [`edgeplane runtime nodes`↴](#edgeplane-runtime-nodes)
 * [`edgeplane runtime nodes register`↴](#edgeplane-runtime-nodes-register)
@@ -1183,6 +1185,8 @@ Agent control workflows (remote, evolve, swarm/subagent workflows)
 * `attach` — Attach to a persistent ACP session — stream session/update frames to stdout, forward stdin lines as session/prompt
 * `cron` — Cron jobs scheduled by edgeplaned (Phase 4 daemon-absorption)
 * `supervise` — systemd-unit liveness supervision (Phase 5 daemon-absorption)
+* `register` — Register a new agent with the controlplane
+* `set-status` — Update a controlplane agent's status (online/offline/busy)
 
 
 
@@ -1680,6 +1684,37 @@ Live fleet dashboard: agent table + event tail (TUI, q to quit)
 * `--tail-size <TAIL_SIZE>` — Maximum events to retain in the scrollback. Default 200
 
   Default value: `200`
+
+
+
+## `edgeplane agent register`
+
+Register a new agent with the controlplane
+
+**Usage:** `edgeplane agent register [OPTIONS] --name <NAME>`
+
+###### **Options:**
+
+* `--name <NAME>` — Agent name (must be unique on the controlplane)
+* `--capabilities <CAPABILITIES>` — Comma-separated capability tags (e.g. `fleet-management,code-editing`)
+
+  Default value: ``
+* `--metadata <METADATA>` — Optional JSON metadata string (e.g. `{"runtime":"claude-code","node_id":"excalibur"}`)
+* `--json` — Emit raw JSON instead of a human-readable summary
+
+
+
+## `edgeplane agent set-status`
+
+Update a controlplane agent's status (online/offline/busy)
+
+**Usage:** `edgeplane agent set-status [OPTIONS] --id <ID> --status <STATUS>`
+
+###### **Options:**
+
+* `--id <ID>` — Agent id or public_id on the controlplane
+* `--status <STATUS>` — New status value (e.g. `online`, `offline`, `busy`)
+* `--json` — Emit raw JSON instead of a human-readable summary
 
 
 
