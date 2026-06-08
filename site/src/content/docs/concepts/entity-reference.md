@@ -85,7 +85,7 @@ See `MeshAgent` for the discoverable, runtime-bound projection.
 
 **A live agent process attached to the control plane.** Created when `edgeplane run` starts an agent; destroyed on clean exit or timeout.
 
-- Columns: `agent_id` (FK), `claude_session_id`, `context`, `started_at`, `ended_at`, `end_reason`, `audit_log`
+- Columns: `agent_id` (FK), `claude_session_id`, `context`, `started_at`, `ended_at`, `end_reason`, `audit_log`, `last_seen_at`
 - Does not carry `mission_id` or `domain_id` — work-binding is via `AgentRun`
 
 `runtime_kind` values:
@@ -110,7 +110,7 @@ Distinct from `AiSession` — an `AgentSession` is the live process record; an `
 
 **A tracked conversation in the web AI Console.** Created when an operator opens a conversation in the dashboard's AI Console tab.
 
-- Columns: `id`, `owner_subject`, `title`, `status`, `runtime_kind`, `runtime_session_id`, `workspace_path`, `policy_json`, `capability_snapshot_json`
+- Columns: `id`, `owner_subject`, `title`, `status`, `runtime_kind`, `runtime_session_id`, `workspace_path`, `policy_json`, `capability_snapshot_json`, `agent_id`, `turns`
 - `capability_snapshot_json` freezes the capability set at session start for consistent policy enforcement
 - Each turn carries `role`, `content`, and events (tool calls, progress frames)
 
@@ -132,33 +132,18 @@ Why two tables: `agent` is identity (who); `meshagent` is presence and capabilit
 
 ---
 
-## Session Entities — Three Layers
-
-There are three session tables. Each has a distinct responsibility. Confusion here is a common source of mistakes.
-
-### AISession — logical AI conversation
-
-**The persistent AI session as a logical entity.** Title, owner, runtime kind, status. Survives across runs.
-
-- Columns: `id`, `owner_subject`, `title`, `status`, `runtime_kind`, `runtime_session_id`, `workspace_path`, `policy_json`, `capability_snapshot_json`
-- `capability_snapshot_json` freezes the capability set at session start for consistent policy enforcement across the session's lifespan
-- This is what a user sees as "a session" — what you'd resume.
-
-### AgentSession — local agent ↔ AI binding
-
-**An agent's local handle on an AI session.** Connects an agent identity to a `claude_session_id` over a time window.
-
-- Columns: `agent_id` (FK), `claude_session_id`, `context`, `started_at`, `ended_at`, `end_reason`, `audit_log`
-- Does not carry `mission_id` or `domain_id` — work-binding is via `AgentRun`
-
-### ExecutionSession — runtime compute slot
+## ExecutionSession
 
 **A leased compute slot for running an agent.** Pure infrastructure: lease, runtime class, PTY-or-not, attach token prefix.
 
 - Columns: `lease_id` (FK), `runtime_class`, `pty_requested`, `attach_token_prefix`, `status`
 - Not for resume-key lookups. Compute-tier only.
 
-### AgentRun — the actual binding
+Distinct from `AgentSession` (live process record) and `AiSession` (conversation record). See those sections above for their definitions.
+
+---
+
+## AgentRun
 
 **A single execution of an agent doing a task.** This is where agent + task + runtime-session converge.
 
