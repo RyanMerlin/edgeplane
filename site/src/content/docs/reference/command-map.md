@@ -26,7 +26,6 @@ edgeplane approvals
 edgeplane workspace
 edgeplane ops
 edgeplane daemon
-edgeplane launch
 edgeplane run
 edgeplane init
 edgeplane serve
@@ -52,17 +51,22 @@ edgeplane tui
 
 ## `edgeplane run` — Agent Launch
 
+All agents launch through `edgeplane run`. `edgeplane launch` was removed in v0.13.0.
+
 | Command | Description |
 |---------|-------------|
-| `edgeplane run claude [-p <profile>] [--mission <id>] [--mode ...]` | Launch Claude Code |
-| `edgeplane run codex [-p <profile>] [--mission <id>] [--mode ...]` | Launch Codex CLI |
-| `edgeplane run gemini [-p <profile>] [-- args]` | Launch Gemini CLI |
+| `edgeplane run claude [-p <profile>] [--mission <id>] [--mode ...]` | Launch Claude Code (ACP persistent session) |
+| `edgeplane run codex [-p <profile>] [--mission <id>] [--mode ...]` | Launch OpenAI Codex CLI |
+| `edgeplane run gemini [-p <profile>] [-- args]` | Launch Google Gemini CLI |
+| `edgeplane run goose [-p <profile>] [--domain <id>] [-- args]` | Launch Goose (native, profile-scoped) |
+| `edgeplane run openclaw [-- args]` | Launch OpenClaw (driver agent) |
+| `edgeplane run custom [-- args]` | Launch custom ACP agent |
 | `edgeplane run claude doctor [-p <profile>] [--fix] [--json]` | Inspect/repair Claude runtime |
 | `edgeplane run claude exec [-p <profile>] -- [args]` | Raw Claude passthrough |
+| `edgeplane run claude hook --event <type>` | Internal Claude lifecycle hook |
 | `edgeplane run codex doctor [-p <profile>] [--fix] [--json]` | Inspect/repair Codex runtime |
 | `edgeplane run codex status [-p <profile>] [--json]` | Read-only Codex status |
 | `edgeplane run codex exec [-p <profile>] -- [args]` | Raw Codex passthrough |
-| `edgeplane run claude hook --event <type>` | Internal Claude lifecycle hook |
 
 ## `edgeplane auth`
 
@@ -144,21 +148,24 @@ edgeplane tui
 
 | Command | Description |
 |---------|-------------|
-| `edgeplane profile create <name>` | Create profile shell |
 | `edgeplane profile list` | List owned profiles |
-| `edgeplane profile show <name>` | Show profile metadata |
-| `edgeplane profile activate <name>` | Set active profile (atomic symlink swap) |
-| `edgeplane profile use <name>` | Activate + download (compat alias) |
-| `edgeplane profile download <name> [--out <path>]` | Download bundle |
-| `edgeplane profile pull <name>` | Pull into local cache |
-| `edgeplane profile publish <name>` | Push local profile to backend |
-| `edgeplane profile pin <name> <sha256>` | Pin to content hash |
-| `edgeplane profile status <name>` | Local sync status vs backend |
-| `edgeplane profile delete <name>` | Remove from backend |
+| `edgeplane profile show --name <name>` | Show profile metadata |
+| `edgeplane profile create --name <name>` | Create profile shell |
+| `edgeplane profile activate --name <name>` | Set active profile (atomic symlink swap) |
+| `edgeplane profile use --name <name>` | Activate + pull in one step |
+| `edgeplane profile publish --name <name>` | Upload local bundle → server |
+| `edgeplane profile pull --name <name>` | Download server → local |
+| `edgeplane profile pin --name <name> --sha256 <hash>` | Pin to content hash |
+| `edgeplane profile status --name <name>` | Local sync status vs backend |
+| `edgeplane profile delete --name <name> --confirm-delete` | Remove from backend |
+
+## Removed in 0.13.0
+
+| Removed | Replacement |
+|---------|-------------|
+| `edgeplane launch <agent>` | `edgeplane run <agent>` |
 
 ## Removed in 0.11.0
-
-The following commands were removed. Use the replacements shown:
 
 | Removed | Replacement |
 |---------|-------------|

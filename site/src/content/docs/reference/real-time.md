@@ -39,6 +39,7 @@ The optional `rate_limit` block lets local consumers back off when the server is
 | `approval` | A governance approval request or resolution |
 | `inbox` | Agent inbox message |
 | `matrix` | Mission state change or telemetry event |
+| `progress` | Agent execution progress frames — emitted during active ACP sessions |
 
 ## Backoff and Resilience
 

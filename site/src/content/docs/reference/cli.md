@@ -72,12 +72,30 @@ Session tokens (`mcs_*` prefix) are stored at `~/.edgeplane/session.json` (chmod
 ## Agent Launch
 
 ```bash
+edgeplane run <runtime> [options]
+```
+
+| Runtime | Description |
+|---------|-------------|
+| `claude` | Claude Code with EdgePlane MCP wired in (ACP persistent session) |
+| `codex` | OpenAI Codex CLI (driver agent) |
+| `gemini` | Google Gemini CLI (driver agent) |
+| `goose` | Goose (native, profile-scoped) |
+| `openclaw` | OpenClaw (driver agent) |
+| `custom` | Custom ACP agent (driver) |
+
+Common flags:
+
+```bash
 edgeplane run claude [-p <profile>] [--mission <id>] [--mode interactive|headless|solo] [-- args]
 edgeplane run codex  [-p <profile>] [--mission <id>] [--mode interactive|headless|solo] [-- args]
 edgeplane run gemini [-p <profile>] [-- args]
-edgeplane launch openclaw    # OpenClaw
-edgeplane launch custom      # Custom ACP agent
+edgeplane run goose  [-p <profile>] [--domain <id>] [-- args]
+edgeplane run openclaw [-- args]
+edgeplane run custom [-- args]
 ```
+
+`edgeplane launch` was removed in v0.13.0. All agents launch through `edgeplane run`.
 
 **Diagnostics:**
 
@@ -86,18 +104,6 @@ edgeplane run claude doctor [-p <profile>] [--fix] [--json]
 edgeplane run codex doctor  [-p <profile>] [--fix] [--json]
 edgeplane run codex status  [-p <profile>] [--json]
 ```
-
-**Flags for `edgeplane launch` (non-Claude/Codex agents):**
-
-| Flag | Effect |
-|------|--------|
-| `--preflight-only` | Validate env + auth without launching |
-| `--no-daemon` | Skip daemon management |
-| `--skip-config-gen` | Use existing config, skip manifest fetch |
-| `--no-embed-token` | Omit token from written config |
-| `--legacy-global-config` | Write config to global agent paths |
-| `--daemon-timeout N` | Seconds to wait for daemon ready (default: 15) |
-| `-- <args>` | Pass remaining args verbatim to the agent |
 
 ---
 
@@ -151,17 +157,16 @@ edgeplane agent supervise watch [--poll-secs N]     # ratatui TUI
 ## Profiles
 
 ```bash
-edgeplane profile create <name>
 edgeplane profile list
-edgeplane profile show <name>
-edgeplane profile activate <name>               # atomic symlink swap
-edgeplane profile use <name>                    # activate + download in one step
-edgeplane profile download <name> [--out <path>]
-edgeplane profile pull <name>
-edgeplane profile publish <name>
-edgeplane profile pin <name> <sha256>
-edgeplane profile status <name>
-edgeplane profile delete <name>
+edgeplane profile show --name <name>
+edgeplane profile create --name <name> [--description "..."] [--activate]
+edgeplane profile activate --name <name>        # atomic symlink swap
+edgeplane profile use --name <name>             # activate + pull in one step
+edgeplane profile publish --name <name>         # upload local bundle → server
+edgeplane profile pull --name <name>            # download server → local
+edgeplane profile pin --name <name> --sha256 <hash>
+edgeplane profile status --name <name>          # local sync status vs backend
+edgeplane profile delete --name <name> --confirm-delete
 ```
 
 ---
@@ -238,14 +243,16 @@ edgeplaned get-secret MY_API_KEY    # inside agent subprocess only
 ## edgeplane-tower Server
 
 ```bash
-edgeplane-tower --serve --bind 0.0.0.0:8008
+edgeplane-tower --bind 0.0.0.0:8008
 ```
 
-Native routes: `/health`, `/raft/status`, `/domains`, `/missions`, `/tasks`, `/agents`.
+Use `--no-migrate` to skip database migrations on startup.
+
+Native routes: `/api/health`, `/raft/status`, `/domains`, `/missions`, `/tasks`, `/agents`.
 
 ```bash
-curl http://localhost:8008/health
-curl http://localhost:8008/raft/status
+curl http://your-tower-host:8008/api/health
+curl http://your-tower-host:8008/raft/status
 ```
 
 ---

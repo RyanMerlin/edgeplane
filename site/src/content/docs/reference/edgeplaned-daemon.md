@@ -74,6 +74,18 @@ All sockets live in `~/.edgeplane/edgeplaned/`:
 | `secrets.sock` | Secrets broker (agent subprocesses only) |
 | `edgeplaned.sock` | PTY attach gateway |
 
+## Federated Attach
+
+As of v0.13.x, `edgeplaned` supports mediated attach — the tower proxies WebSocket attach requests to the node daemon, eliminating the need for direct network access to agent nodes.
+
+When the web dashboard or `edgeplane attach` connects to an agent on a remote node:
+
+```
+Web browser → /api/attach-ws → edgeplane-tower → edgeplaned (remote node) → agent PTY
+```
+
+The attach-secret handshake is self-healing — if `edgeplaned` restarts, it re-registers and re-issues the attach secret. The next attach attempt succeeds automatically.
+
 ## Secrets Broker
 
 `edgeplaned` injects two environment variables into agent subprocesses:
