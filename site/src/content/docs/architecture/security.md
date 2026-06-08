@@ -17,6 +17,8 @@ EdgePlane uses three distinct authentication modes depending on who (or what) is
 
 > **Note:** The static shared-secret `EP_TOKEN` was removed in v0.11.0. Any deployment still using it must migrate to one of the three modes above before upgrading.
 
+![Authentication flows](/diagrams/auth-flows.svg)
+
 ---
 
 ## OIDC Flow (Human Operators)

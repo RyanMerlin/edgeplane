@@ -5,6 +5,8 @@ description: How a task moves through EdgePlane — from creation to agent execu
 
 This page traces two flows: the MeshTask lifecycle (how distributed work is coordinated between agents) and the ACP session flow (how a chat message from the web dashboard reaches an agent's terminal and back).
 
+![Request lifecycle diagram](/diagrams/data-flow.svg)
+
 ---
 
 ## MeshTask Lifecycle

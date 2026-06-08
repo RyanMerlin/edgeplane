@@ -34,6 +34,8 @@ Agents (Claude Code, Codex, Gemini, custom ACP agents)
 connect to edgeplane-tower via MCP stdio (edgeplane serve)
 ```
 
+![System architecture diagram](/diagrams/system-architecture.svg)
+
 ## edgeplane — CLI and TUI
 
 The primary operator interface. All interactivity: fleet views, agent launch, capability dispatch, and the full-screen TUI.

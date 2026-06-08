@@ -107,6 +107,8 @@ Domain: "Build Authentication System"
 
 Domains scope. Missions stream. Tasks complete.
 
+![Entity hierarchy diagram](/diagrams/entity-hierarchy.svg)
+
 ## See Also
 
 - [Entity Reference](/concepts/entity-reference/) — full schema-backed definitions for every entity

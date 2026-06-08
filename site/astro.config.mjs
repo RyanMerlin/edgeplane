@@ -11,6 +11,10 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'EdgePlane',
+      customCss: ['./src/styles/custom.css'],
+      components: {
+        SiteTitle: './src/components/SiteTitle.astro',
+      },
       favicon: '/favicon.ico',
       description: 'Control plane for AI agents and human collaborators — structured missions, durable task ownership, and governed artifact publication.',
       head: [
