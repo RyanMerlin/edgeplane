@@ -44,7 +44,13 @@ export function NarrativeEditor({
         </button>
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>
-        <Suspense fallback={<div data-testid="editor-loading" style={{ color: 'var(--dim)', fontSize: 13 }}>Loading editor…</div>}>
+        <Suspense
+          fallback={
+            <div data-testid="editor-loading" style={{ color: 'var(--dim)', fontSize: 13 }}>
+              Loading editor…
+            </div>
+          }
+        >
           <MonacoEditor
             height="100%"
             language="markdown"
@@ -56,7 +62,10 @@ export function NarrativeEditor({
         </Suspense>
       </div>
       {saveError && (
-        <div data-testid="save-error" style={{ color: 'var(--err)', fontSize: 12, padding: '2px 0' }}>
+        <div
+          data-testid="save-error"
+          style={{ color: 'var(--err)', fontSize: 12, padding: '2px 0' }}
+        >
           {saveError}
         </div>
       )}

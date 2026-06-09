@@ -23,7 +23,9 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
       children,
       style,
     }: { to: string; children: React.ReactNode; style?: React.CSSProperties }) => (
-      <a href={to} style={style}>{children}</a>
+      <a href={to} style={style}>
+        {children}
+      </a>
     ),
     useNavigate: vi.fn(() => vi.fn()),
     useParams: vi.fn(() => ({ domainId: 'domain-uuid-1' })),
@@ -31,13 +33,21 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 });
 
 vi.mock('@/api/client', () => ({
-  apiClient: { GET: vi.fn(), POST: vi.fn().mockResolvedValue({ data: { ok: true } }), use: vi.fn() },
+  apiClient: {
+    GET: vi.fn(),
+    POST: vi.fn().mockResolvedValue({ data: { ok: true } }),
+    use: vi.fn(),
+  },
   unwrap: vi.fn((p: unknown) => Promise.resolve(p)),
 }));
 
 vi.mock('@monaco-editor/react', () => ({
   default: ({ value, onChange }: { value: string; onChange?: (v: string) => void }) => (
-    <textarea data-testid="monaco-editor" defaultValue={value} onChange={(e) => onChange?.(e.target.value)} />
+    <textarea
+      data-testid="monaco-editor"
+      defaultValue={value}
+      onChange={(e) => onChange?.(e.target.value)}
+    />
   ),
 }));
 
@@ -87,7 +97,9 @@ const sampleTree = {
 };
 
 function makeQC() {
-  return new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+  });
 }
 function wrap(node: React.ReactElement, qc: QueryClient) {
   return render(<QueryClientProvider client={qc}>{node}</QueryClientProvider>);
@@ -95,7 +107,10 @@ function wrap(node: React.ReactElement, qc: QueryClient) {
 
 describe('DomainsOverviewPage', () => {
   let qc: QueryClient;
-  beforeEach(() => { qc = makeQC(); vi.clearAllMocks(); });
+  beforeEach(() => {
+    qc = makeQC();
+    vi.clearAllMocks();
+  });
   afterEach(() => qc.clear());
 
   it('shows loading state while tree is pending', async () => {
@@ -115,7 +130,9 @@ describe('DomainsOverviewPage', () => {
   it('shows empty state when no domains', async () => {
     const { apiClient } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ...sampleTree, domain_count: 0, domains: [],
+      ...sampleTree,
+      domain_count: 0,
+      domains: [],
     });
     wrap(<DomainsOverviewPage />, qc);
     await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
@@ -134,7 +151,9 @@ describe('DomainsOverviewPage', () => {
     const { apiClient } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>).mockResolvedValue(sampleTree);
     wrap(<DomainsOverviewPage />, qc);
-    await waitFor(() => expect(screen.getByTestId('mission-row-mission-uuid-1')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('mission-row-mission-uuid-1')).toBeInTheDocument(),
+    );
     expect(screen.getByText('Warehouse rebuild')).toBeInTheDocument();
   });
 });

@@ -13,22 +13,48 @@ export const Route = createFileRoute('/domains/')({
 });
 
 export function DomainsOverviewPage() {
-  const { data: tree, isLoading, isError } = useQuery({
+  const {
+    data: tree,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: queryKeys.explorer.tree(),
     queryFn: () => unwrap(apiClient.GET('/api/explorer/tree', {})),
     refetchInterval: 30_000,
   });
 
-  if (isLoading) return <div data-testid="loading-state" style={{ padding: 24, color: 'var(--dim)', fontSize: 13 }}>Loading…</div>;
-  if (isError) return <div data-testid="error-state" style={{ padding: 24, color: 'var(--err)', fontSize: 13 }}>Failed to load domains.</div>;
+  if (isLoading)
+    return (
+      <div data-testid="loading-state" style={{ padding: 24, color: 'var(--dim)', fontSize: 13 }}>
+        Loading…
+      </div>
+    );
+  if (isError)
+    return (
+      <div data-testid="error-state" style={{ padding: 24, color: 'var(--err)', fontSize: 13 }}>
+        Failed to load domains.
+      </div>
+    );
   if (!tree || tree.domains.length === 0) {
-    return <div data-testid="empty-state" style={{ padding: 24, color: 'var(--dim)', fontSize: 13 }}>No domains.</div>;
+    return (
+      <div data-testid="empty-state" style={{ padding: 24, color: 'var(--dim)', fontSize: 13 }}>
+        No domains.
+      </div>
+    );
   }
 
   return (
     <div data-testid="domains-overview" style={{ padding: '16px 24px' }}>
       <div style={{ marginBottom: 16 }}>
-        <span style={{ fontSize: 11, fontWeight: 590, color: 'var(--dim)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 590,
+            color: 'var(--dim)',
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+          }}
+        >
           {tree.domain_count} domains · {tree.mission_count} missions · {tree.task_count} tasks
         </span>
       </div>
@@ -78,7 +104,15 @@ function DomainOverviewRow({ domain }: { domain: ExplorerDomainNode }) {
           type="button"
           aria-label={expanded ? 'Collapse' : 'Expand'}
           onClick={() => setExpanded((v) => !v)}
-          style={{ background: 'none', border: 'none', color: 'var(--dim)', fontSize: 11, cursor: 'pointer', padding: 0, width: 16 }}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--dim)',
+            fontSize: 11,
+            cursor: 'pointer',
+            padding: 0,
+            width: 16,
+          }}
         >
           {expanded ? '▾' : '▸'}
         </button>
@@ -88,7 +122,15 @@ function DomainOverviewRow({ domain }: { domain: ExplorerDomainNode }) {
           style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}
         >
           <span style={{ fontSize: 13, fontWeight: 510, color: 'var(--text)' }}>{domain.name}</span>
-          <span style={{ fontSize: 11, color: statusColor(domain.status), background: 'var(--raised-2)', padding: '1px 6px', borderRadius: 3 }}>
+          <span
+            style={{
+              fontSize: 11,
+              color: statusColor(domain.status),
+              background: 'var(--raised-2)',
+              padding: '1px 6px',
+              borderRadius: 3,
+            }}
+          >
             {domain.status}
           </span>
           <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--dim)' }}>
@@ -96,14 +138,18 @@ function DomainOverviewRow({ domain }: { domain: ExplorerDomainNode }) {
           </span>
         </Link>
       </div>
-      {expanded && domain.missions.map((mission) => (
-        <MissionOverviewRow key={mission.id} mission={mission} domainId={domain.id} />
-      ))}
+      {expanded &&
+        domain.missions.map((mission) => (
+          <MissionOverviewRow key={mission.id} mission={mission} domainId={domain.id} />
+        ))}
     </div>
   );
 }
 
-function MissionOverviewRow({ mission, domainId }: { mission: ExplorerMissionNode; domainId: string }) {
+function MissionOverviewRow({
+  mission,
+  domainId,
+}: { mission: ExplorerMissionNode; domainId: string }) {
   return (
     <div data-testid={`mission-row-${mission.id}`} style={{ marginBottom: 1 }}>
       <Link
@@ -122,7 +168,9 @@ function MissionOverviewRow({ mission, domainId }: { mission: ExplorerMissionNod
       >
         <span style={{ color: statusColor(mission.status) }}>{statusDot(mission.status)}</span>
         <span>{mission.name}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--dim)' }}>{mission.task_count}t</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--dim)' }}>
+          {mission.task_count}t
+        </span>
       </Link>
     </div>
   );
