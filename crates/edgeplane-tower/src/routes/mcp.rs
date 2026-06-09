@@ -35,8 +35,8 @@ fn tool_def(name: &str, description: &str, schema: Value) -> Value {
 }
 
 async fn list_tools() -> impl IntoResponse {
-    // ADR 0006: runtime-only keep set (17) + extract-first tools (7, no REST route yet).
-    // Total: 24. Management tools are served via REST API or the edgeplane CLI.
+    // ADR 0006: runtime-only keep set (17) + extract-first tools (7, no REST route yet) + northstar (1).
+    // Total: 25. Management tools are served via REST API or the edgeplane CLI.
     let tools = vec![
         // ── Core mesh work (14) ────────────────────────────────────────────────
         tool_def("submit_mesh_task", "Create a task in a mission (mesh work model)", json!({"type":"object","properties":{"mission_id":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"kind":{"type":"string"},"input_json":{"type":"string"},"priority":{"type":"integer"},"domain_id":{"type":"string"}}})),
@@ -65,6 +65,14 @@ async fn list_tools() -> impl IntoResponse {
         tool_def("provision_domain_persistence", "Create/update connection, binding, and domain policy routes in one call", json!({"type":"object","properties":{"domain_id":{"type":"string"}}})),
         tool_def("resolve_publish_plan", "Resolve publish route (binding/repo/branch/path) for an entity", json!({"type":"object","properties":{"entity_type":{"type":"string"},"entity_id":{"type":"string"},"domain_id":{"type":"string"}}})),
         tool_def("get_publication_status", "List recent publication records", json!({"type":"object","properties":{"domain_id":{"type":"string"},"limit":{"type":"integer"}}})),
+        // ── Domain context (1) ─────────────────────────────────────────────────
+        tool_def("get_domain_northstar", "Load the Northstar narrative for a domain — describes the domain's purpose, scope, and direction", json!({
+            "type": "object",
+            "properties": {
+                "domain_id": {"type": "string", "description": "The domain id"}
+            },
+            "required": ["domain_id"]
+        })),
     ];
     Json(tools)
 }
@@ -82,6 +90,7 @@ pub fn advertised_tool_names() -> Vec<&'static str> {
         "get_artifact_download_url", "export_domain_pack", "install_domain_pack",
         "publish_pending_ledger_events", "provision_domain_persistence",
         "resolve_publish_plan", "get_publication_status",
+        "get_domain_northstar",
     ]
 }
 
@@ -99,6 +108,7 @@ pub fn dispatch_handled_names() -> Vec<&'static str> {
         "get_artifact_download_url", "export_domain_pack", "install_domain_pack",
         "publish_pending_ledger_events", "provision_domain_persistence",
         "resolve_publish_plan", "get_publication_status",
+        "get_domain_northstar",
     ]
 }
 
@@ -1464,6 +1474,30 @@ async fn dispatch(
                     "released_at": r.get::<Option<chrono::NaiveDateTime>,_>("released_at"),
                 }})),
                 Err(e) => { tracing::error!("mcp release_workspace update: {e}"); err_result("database_error") }
+            }
+        }
+
+        // ── Domain context ────────────────────────────────────────────────────
+
+        "get_domain_northstar" => {
+            let domain_id = str_arg(args, "domain_id");
+            if domain_id.is_empty() {
+                return err_result("domain_id is required");
+            }
+            let row = sqlx::query(
+                "SELECT northstar_md, northstar_version FROM domain WHERE id = $1"
+            )
+            .bind(&domain_id)
+            .fetch_optional(&state.db)
+            .await;
+            match row {
+                Ok(Some(r)) => {
+                    let content: String = r.get("northstar_md");
+                    let version: i32 = r.get("northstar_version");
+                    ok_result(json!({ "domain_id": domain_id, "content": content, "version": version }))
+                }
+                Ok(None) => err_result(&format!("domain '{}' not found", domain_id)),
+                Err(e) => { tracing::error!("mcp get_domain_northstar: {e}"); err_result("database_error") }
             }
         }
 

@@ -48,17 +48,17 @@ fn dispatch_arms_all_have_catalogue_entry() {
     );
 }
 
-/// The HTTP catalogue must return exactly 24 tools (ADR 0006 runtime set).
+/// The HTTP catalogue must return exactly 25 tools (ADR 0006 runtime set + get_domain_northstar).
 #[tokio::test]
-async fn http_catalogue_has_exactly_24_tools() {
+async fn http_catalogue_has_exactly_25_tools() {
     let res = server().get("/api/mcp/tools").await;
     res.assert_status_ok();
     let body: serde_json::Value = res.json();
     let tools = body.as_array().expect("list_tools must return an array");
     assert_eq!(
         tools.len(),
-        24,
-        "expected exactly 24 tools in the MCP catalogue (ADR 0006), found {}",
+        25,
+        "expected exactly 25 tools in the MCP catalogue, found {}",
         tools.len()
     );
 }

@@ -236,12 +236,18 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane domain show`↴](#edgeplane-domain-show)
 * [`edgeplane domain update`↴](#edgeplane-domain-update)
 * [`edgeplane domain delete`↴](#edgeplane-domain-delete)
+* [`edgeplane domain northstar`↴](#edgeplane-domain-northstar)
+* [`edgeplane domain northstar get`↴](#edgeplane-domain-northstar-get)
+* [`edgeplane domain northstar edit`↴](#edgeplane-domain-northstar-edit)
 * [`edgeplane mission`↴](#edgeplane-mission)
 * [`edgeplane mission create`↴](#edgeplane-mission-create)
 * [`edgeplane mission list`↴](#edgeplane-mission-list)
 * [`edgeplane mission show`↴](#edgeplane-mission-show)
 * [`edgeplane mission update`↴](#edgeplane-mission-update)
 * [`edgeplane mission delete`↴](#edgeplane-mission-delete)
+* [`edgeplane mission brief`↴](#edgeplane-mission-brief)
+* [`edgeplane mission brief get`↴](#edgeplane-mission-brief-get)
+* [`edgeplane mission brief edit`↴](#edgeplane-mission-brief-edit)
 * [`edgeplane task`↴](#edgeplane-task)
 * [`edgeplane task create`↴](#edgeplane-task-create)
 * [`edgeplane task list`↴](#edgeplane-task-list)
@@ -3600,6 +3606,7 @@ Domain attachment and home-domain management for this agent
 * `show` — Show a single domain
 * `update` — Update a domain's metadata
 * `delete` — Delete a domain
+* `northstar` — Get or edit the domain's Northstar narrative document
 
 
 
@@ -3711,6 +3718,47 @@ Delete a domain
 
 
 
+## `edgeplane domain northstar`
+
+Get or edit the domain's Northstar narrative document
+
+**Usage:** `edgeplane domain northstar <COMMAND>`
+
+###### **Subcommands:**
+
+* `get` — Print the domain's Northstar document to stdout
+* `edit` — Open the domain's Northstar document in $EDITOR and save changes
+
+
+
+## `edgeplane domain northstar get`
+
+Print the domain's Northstar document to stdout
+
+**Usage:** `edgeplane domain northstar get [OPTIONS] <DOMAIN_ID>`
+
+###### **Arguments:**
+
+* `<DOMAIN_ID>` — Domain id
+
+###### **Options:**
+
+* `--json` — Emit raw JSON envelope instead of markdown
+
+
+
+## `edgeplane domain northstar edit`
+
+Open the domain's Northstar document in $EDITOR and save changes
+
+**Usage:** `edgeplane domain northstar edit <DOMAIN_ID>`
+
+###### **Arguments:**
+
+* `<DOMAIN_ID>` — Domain id
+
+
+
 ## `edgeplane mission`
 
 Mission (workstream) CRUD — create, list, show, update, delete
@@ -3724,6 +3772,7 @@ Mission (workstream) CRUD — create, list, show, update, delete
 * `show` — Show a single mission
 * `update` — Update a mission's metadata
 * `delete` — Delete a mission
+* `brief` — Get or edit the mission's Brief narrative document
 
 
 
@@ -3812,6 +3861,47 @@ Delete a mission
 ###### **Options:**
 
 * `--domain-id <DOMAIN_ID>` — Domain this mission belongs to (required — tower only serves domain-scoped paths)
+
+
+
+## `edgeplane mission brief`
+
+Get or edit the mission's Brief narrative document
+
+**Usage:** `edgeplane mission brief <COMMAND>`
+
+###### **Subcommands:**
+
+* `get` — Print the mission's Brief document to stdout
+* `edit` — Open the mission's Brief document in $EDITOR and save changes
+
+
+
+## `edgeplane mission brief get`
+
+Print the mission's Brief document to stdout
+
+**Usage:** `edgeplane mission brief get [OPTIONS] <MISSION_ID>`
+
+###### **Arguments:**
+
+* `<MISSION_ID>` — Mission id
+
+###### **Options:**
+
+* `--json` — Emit raw JSON envelope instead of markdown
+
+
+
+## `edgeplane mission brief edit`
+
+Open the mission's Brief document in $EDITOR and save changes
+
+**Usage:** `edgeplane mission brief edit <MISSION_ID>`
+
+###### **Arguments:**
+
+* `<MISSION_ID>` — Mission id
 
 
 

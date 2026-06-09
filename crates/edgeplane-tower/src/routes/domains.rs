@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use crate::{
     auth::Principal,
-    models::domain::{Domain, DomainCreate, DomainRoleMembership, DomainRoleUpsert, DomainUpdate},
+    models::domain::{Domain, DomainCreate, DomainRoleMembership, DomainRoleUpsert, DomainUpdate, NorthstarUpdate},
     state::AppState,
 };
 
@@ -21,6 +21,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/domains", get(list_domains).post(create_domain))
         .route("/domains/{domain_id}", get(get_domain).patch(update_domain).delete(delete_domain))
+        .route("/domains/{domain_id}/northstar", get(get_domain_northstar_handler).put(put_domain_northstar_handler))
         .route("/domains/{domain_id}/owner", post(transfer_owner))
         .route("/domains/{domain_id}/roles", get(list_roles).post(upsert_role))
         .route("/domains/{domain_id}/roles/{subject}", delete(delete_role))
@@ -70,6 +71,7 @@ fn row_to_domain(row: &PgRow) -> Domain {
         northstar_modified_by: row.get("northstar_modified_by"),
         northstar_created_at: row.get("northstar_created_at"),
         northstar_modified_at: row.get("northstar_modified_at"),
+        northstar_s3_path: row.try_get("northstar_s3_path").unwrap_or(None),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -380,5 +382,84 @@ async fn delete_role(
         Ok(r) if r.rows_affected() > 0 => Json(serde_json::json!({"ok": true})).into_response(),
         Ok(_) => not_found("Role assignment not found"),
         Err(e) => { tracing::error!("delete_role exec: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
+}
+
+// ── Northstar document endpoints ──────────────────────────────────────────────
+
+async fn get_domain_northstar_handler(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(domain_id): Path<String>,
+) -> impl IntoResponse {
+    let row = sqlx::query("SELECT * FROM domain WHERE id = $1")
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await;
+
+    match row {
+        Ok(Some(r)) => {
+            let domain = row_to_domain(&r);
+            if !can_read(&domain, &principal) {
+                return StatusCode::FORBIDDEN.into_response();
+            }
+            Json(serde_json::json!({
+                "content": domain.northstar_md,
+                "version": domain.northstar_version,
+                "modified_by": domain.northstar_modified_by,
+                "modified_at": domain.northstar_modified_at,
+            })).into_response()
+        }
+        Ok(None) => not_found("Domain not found"),
+        Err(e) => { tracing::error!("get_domain_northstar: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
+}
+
+async fn put_domain_northstar_handler(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(domain_id): Path<String>,
+    Json(payload): Json<NorthstarUpdate>,
+) -> impl IntoResponse {
+    let row = sqlx::query("SELECT * FROM domain WHERE id = $1")
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await;
+
+    let domain = match row {
+        Ok(Some(r)) => row_to_domain(&r),
+        Ok(None) => return not_found("Domain not found"),
+        Err(e) => { tracing::error!("put_domain_northstar fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+    };
+
+    if !can_write(&domain, &principal) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    let result = sqlx::query(
+        "UPDATE domain \
+         SET northstar_md = $1, \
+             northstar_version = northstar_version + 1, \
+             northstar_modified_by = $2, \
+             northstar_modified_at = NOW(), \
+             updated_at = NOW() \
+         WHERE id = $3 \
+         RETURNING northstar_md, northstar_version, northstar_modified_by, northstar_modified_at"
+    )
+    .bind(&payload.content)
+    .bind(&principal.subject)
+    .bind(&domain_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match result {
+        Ok(Some(r)) => Json(serde_json::json!({
+            "content": r.get::<String, _>("northstar_md"),
+            "version": r.get::<i32, _>("northstar_version"),
+            "modified_by": r.get::<String, _>("northstar_modified_by"),
+            "modified_at": r.get::<Option<chrono::NaiveDateTime>, _>("northstar_modified_at"),
+        })).into_response(),
+        Ok(None) => not_found("Domain not found"),
+        Err(e) => { tracing::error!("put_domain_northstar update: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
 }

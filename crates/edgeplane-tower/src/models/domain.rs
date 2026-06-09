@@ -17,6 +17,7 @@ pub struct Domain {
     pub northstar_modified_by: String,
     pub northstar_created_at: Option<NaiveDateTime>,
     pub northstar_modified_at: Option<NaiveDateTime>,
+    pub northstar_s3_path: Option<String>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -64,6 +65,11 @@ pub struct DomainUpdate {
 pub struct DomainRoleUpsert {
     pub subject: String,
     pub role: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NorthstarUpdate {
+    pub content: String,
 }
 
 fn default_public() -> String { "public".into() }

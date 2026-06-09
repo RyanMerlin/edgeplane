@@ -392,6 +392,27 @@ pub enum DomainCommand {
         /// Domain ID.
         id: String,
     },
+    /// Get or edit the domain's Northstar narrative document.
+    #[command(subcommand)]
+    Northstar(NorthstarCommand),
+}
+
+/// Subcommands for `edgeplane domain northstar`.
+#[derive(Subcommand, Debug)]
+pub enum NorthstarCommand {
+    /// Print the domain's Northstar document to stdout.
+    Get {
+        /// Domain id.
+        domain_id: String,
+        /// Emit raw JSON envelope instead of markdown.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Open the domain's Northstar document in $EDITOR and save changes.
+    Edit {
+        /// Domain id.
+        domain_id: String,
+    },
 }
 
 /// Subcommands for `edgeplane mission` — CRUD for missions (workstreams).
@@ -461,6 +482,27 @@ pub enum MissionCommand {
         /// Domain this mission belongs to (required — tower only serves domain-scoped paths).
         #[arg(long, required = true)]
         domain_id: String,
+    },
+    /// Get or edit the mission's Brief narrative document.
+    #[command(subcommand)]
+    Brief(BriefCommand),
+}
+
+/// Subcommands for `edgeplane mission brief`.
+#[derive(Subcommand, Debug)]
+pub enum BriefCommand {
+    /// Print the mission's Brief document to stdout.
+    Get {
+        /// Mission id.
+        mission_id: String,
+        /// Emit raw JSON envelope instead of markdown.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Open the mission's Brief document in $EDITOR and save changes.
+    Edit {
+        /// Mission id.
+        mission_id: String,
     },
 }
 
@@ -3956,6 +3998,7 @@ async fn handle_domain(
                 println!("Deleted domain {id}");
             }
         }
+        DomainCommand::Northstar(cmd) => handle_domain_northstar(cmd, client).await?,
     }
     Ok(())
 }
@@ -4032,8 +4075,152 @@ async fn handle_mission(
                 println!("Deleted mission {id}");
             }
         }
+        MissionCommand::Brief(cmd) => handle_mission_brief(cmd, client).await?,
     }
     Ok(())
+}
+
+// ── edgeplane domain northstar / mission brief ───────────────────────────────────
+
+/// Fetch-GET-PUT loop for the `$EDITOR`-based document edit flow.
+/// `get_path` is used for both GET and PUT (the tower API is symmetric).
+async fn edit_document(
+    client: &EdgeplaneClient,
+    get_path: &str,
+    doc_label: &str,
+) -> Result<()> {
+    // 1. Fetch current content.
+    let resp: Value = client.get_json(get_path).await?;
+    let current_content = resp
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let version = resp
+        .get("version")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    // 2. Write to a temp file.
+    let tmp_dir = std::env::temp_dir();
+    let tmp_path = tmp_dir.join(format!(
+        "edgeplane-{}-{}.md",
+        doc_label,
+        std::process::id()
+    ));
+    std::fs::write(&tmp_path, &current_content)?;
+
+    // 3. Open $EDITOR (fallback: vi).
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+    let status = std::process::Command::new(&editor)
+        .arg(&tmp_path)
+        .status()
+        .with_context(|| format!("failed to launch editor '{editor}'"))?;
+    if !status.success() {
+        anyhow::bail!("editor exited with non-zero status: {}", status);
+    }
+
+    // 4. Read back and PUT only if changed.
+    let new_content = std::fs::read_to_string(&tmp_path)?;
+    let _ = std::fs::remove_file(&tmp_path);
+
+    if new_content == current_content {
+        println!("(no changes)");
+        return Ok(());
+    }
+
+    let body = serde_json::json!({ "content": new_content });
+    let result: Value = client.put_json(get_path, &body).await?;
+    let new_version = result
+        .get("version")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(version + 1);
+    println!("{doc_label} saved (v{new_version})");
+    Ok(())
+}
+
+async fn handle_domain_northstar(
+    cmd: NorthstarCommand,
+    client: EdgeplaneClient,
+) -> Result<()> {
+    match cmd {
+        NorthstarCommand::Get { domain_id, json } => {
+            let resp: Value = client
+                .get_json(&format!("/domains/{domain_id}/northstar"))
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&resp)?);
+            } else {
+                let content = resp
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let version = resp
+                    .get("version")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let modified_by = resp
+                    .get("modified_by")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if !modified_by.is_empty() {
+                    eprintln!("# NORTHSTAR v{version} (last modified by {modified_by})");
+                }
+                print!("{content}");
+            }
+            Ok(())
+        }
+        NorthstarCommand::Edit { domain_id } => {
+            edit_document(
+                &client,
+                &format!("/domains/{domain_id}/northstar"),
+                "NORTHSTAR",
+            )
+            .await
+        }
+    }
+}
+
+async fn handle_mission_brief(
+    cmd: BriefCommand,
+    client: EdgeplaneClient,
+) -> Result<()> {
+    match cmd {
+        BriefCommand::Get { mission_id, json } => {
+            let resp: Value = client
+                .get_json(&format!("/missions/{mission_id}/brief"))
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&resp)?);
+            } else {
+                let content = resp
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let version = resp
+                    .get("version")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let modified_by = resp
+                    .get("modified_by")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if !modified_by.is_empty() {
+                    eprintln!("# BRIEF v{version} (last modified by {modified_by})");
+                }
+                print!("{content}");
+            }
+            Ok(())
+        }
+        BriefCommand::Edit { mission_id } => {
+            edit_document(
+                &client,
+                &format!("/missions/{mission_id}/brief"),
+                "BRIEF",
+            )
+            .await
+        }
+    }
 }
 
 // ── edgeplane task ────────────────────────────────────────────────────────────────

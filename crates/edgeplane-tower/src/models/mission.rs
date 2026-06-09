@@ -17,6 +17,13 @@ pub struct Mission {
     pub workstream_modified_by: String,
     pub workstream_created_at: Option<NaiveDateTime>,
     pub workstream_modified_at: Option<NaiveDateTime>,
+    pub brief_md: String,
+    pub brief_version: i32,
+    pub brief_created_by: String,
+    pub brief_modified_by: String,
+    pub brief_created_at: Option<NaiveDateTime>,
+    pub brief_modified_at: Option<NaiveDateTime>,
+    pub brief_s3_path: Option<String>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -49,6 +56,11 @@ pub struct MissionUpdate {
     pub contributors: Option<String>,
     pub tags: Option<String>,
     pub status: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct BriefUpdate {
+    pub content: String,
 }
 
 fn default_active() -> String { "active".into() }

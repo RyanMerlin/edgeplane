@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use crate::{
     auth::Principal,
-    models::mission::{Mission, MissionCreate, MissionUpdate},
+    models::mission::{BriefUpdate, Mission, MissionCreate, MissionUpdate},
     state::AppState,
 };
 
@@ -23,6 +23,15 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/domains/{domain_id}/m/{mission_id}",
             get(get_mission).patch(update_mission).delete(delete_mission),
+        )
+        .route(
+            "/domains/{domain_id}/m/{mission_id}/brief",
+            get(get_mission_brief_handler).put(put_mission_brief_handler),
+        )
+        // Flat path for CLI / agent access where domain_id is not known.
+        .route(
+            "/missions/{mission_id}/brief",
+            get(get_mission_brief_flat).put(put_mission_brief_flat),
         )
 }
 
@@ -254,4 +263,144 @@ async fn delete_mission(
 
     let _ = sqlx::query("DELETE FROM mission WHERE id=$1").bind(&mission_id).execute(&state.db).await;
     Json(serde_json::json!({"ok": true, "deleted_id": mission_id})).into_response()
+}
+
+// ── Brief document endpoints ──────────────────────────────────────────────────
+
+async fn get_mission_brief_handler(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path((domain_id, mission_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    // Check domain read access first
+    let m = sqlx::query("SELECT * FROM domain WHERE id=$1")
+        .bind(&domain_id).fetch_optional(&state.db).await;
+    let (vis, owners, contribs) = match m {
+        Ok(Some(r)) => (
+            r.try_get::<String, _>("visibility").unwrap_or_default(),
+            r.try_get::<String, _>("owners").unwrap_or_default(),
+            r.try_get::<String, _>("contributors").unwrap_or_default(),
+        ),
+        Ok(None) => return not_found("Domain not found"),
+        Err(e) => { tracing::error!("get_mission_brief domain: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+    };
+    if !domain_readable(&vis, &principal, &owners, &contribs) { return StatusCode::FORBIDDEN.into_response(); }
+
+    match sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1 AND domain_id=$2")
+        .bind(&mission_id).bind(&domain_id).fetch_optional(&state.db).await
+    {
+        Ok(Some(k)) => Json(serde_json::json!({
+            "content": k.brief_md,
+            "version": k.brief_version,
+            "modified_by": k.brief_modified_by,
+            "modified_at": k.brief_modified_at,
+        })).into_response(),
+        Ok(None) => not_found("Mission not found"),
+        Err(e) => { tracing::error!("get_mission_brief: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
+}
+
+async fn put_mission_brief_handler(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path((domain_id, mission_id)): Path<(String, String)>,
+    Json(payload): Json<BriefUpdate>,
+) -> impl IntoResponse {
+    // Check domain write access
+    let m = sqlx::query("SELECT * FROM domain WHERE id=$1")
+        .bind(&domain_id).fetch_optional(&state.db).await;
+    let (owners, contribs) = match m {
+        Ok(Some(r)) => (
+            r.try_get::<String, _>("owners").unwrap_or_default(),
+            r.try_get::<String, _>("contributors").unwrap_or_default(),
+        ),
+        Ok(None) => return not_found("Domain not found"),
+        Err(e) => { tracing::error!("put_mission_brief domain: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+    };
+    if !domain_writable(&principal, &owners, &contribs) { return StatusCode::FORBIDDEN.into_response(); }
+
+    let result = sqlx::query(
+        "UPDATE mission \
+         SET brief_md = $1, \
+             brief_version = brief_version + 1, \
+             brief_modified_by = $2, \
+             brief_modified_at = NOW(), \
+             updated_at = NOW() \
+         WHERE id = $3 AND domain_id = $4 \
+         RETURNING brief_md, brief_version, brief_modified_by, brief_modified_at"
+    )
+    .bind(&payload.content)
+    .bind(&principal.subject)
+    .bind(&mission_id)
+    .bind(&domain_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match result {
+        Ok(Some(r)) => {
+            Json(serde_json::json!({
+                "content": r.get::<String, _>("brief_md"),
+                "version": r.get::<i32, _>("brief_version"),
+                "modified_by": r.get::<String, _>("brief_modified_by"),
+                "modified_at": r.get::<Option<chrono::NaiveDateTime>, _>("brief_modified_at"),
+            })).into_response()
+        }
+        Ok(None) => not_found("Mission not found"),
+        Err(e) => { tracing::error!("put_mission_brief update: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
+}
+
+// ── Flat brief endpoints (no domain_id required — for CLI / agent access) ──
+
+async fn get_mission_brief_flat(
+    State(state): State<Arc<AppState>>,
+    _principal: Principal,
+    Path(mission_id): Path<String>,
+) -> impl IntoResponse {
+    match sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1 AND archived_at IS NULL")
+        .bind(&mission_id).fetch_optional(&state.db).await
+    {
+        Ok(Some(k)) => Json(serde_json::json!({
+            "content": k.brief_md,
+            "version": k.brief_version,
+            "modified_by": k.brief_modified_by,
+            "modified_at": k.brief_modified_at,
+        })).into_response(),
+        Ok(None) => not_found("Mission not found"),
+        Err(e) => { tracing::error!("get_mission_brief_flat: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
+}
+
+async fn put_mission_brief_flat(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(mission_id): Path<String>,
+    Json(payload): Json<BriefUpdate>,
+) -> impl IntoResponse {
+    let result = sqlx::query(
+        "UPDATE mission \
+         SET brief_md = $1, \
+             brief_version = brief_version + 1, \
+             brief_modified_by = $2, \
+             brief_modified_at = NOW(), \
+             updated_at = NOW() \
+         WHERE id = $3 AND archived_at IS NULL \
+         RETURNING brief_md, brief_version, brief_modified_by, brief_modified_at"
+    )
+    .bind(&payload.content)
+    .bind(&principal.subject)
+    .bind(&mission_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match result {
+        Ok(Some(r)) => Json(serde_json::json!({
+            "content": r.get::<String, _>("brief_md"),
+            "version": r.get::<i32, _>("brief_version"),
+            "modified_by": r.get::<String, _>("brief_modified_by"),
+            "modified_at": r.get::<Option<chrono::NaiveDateTime>, _>("brief_modified_at"),
+        })).into_response(),
+        Ok(None) => not_found("Mission not found"),
+        Err(e) => { tracing::error!("put_mission_brief_flat update: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
 }
