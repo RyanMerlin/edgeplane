@@ -15,6 +15,17 @@ export const queryKeys = {
     tree: () => [...queryKeys.explorer.all, 'tree'] as const,
     node: (type: string, id: string) => [...queryKeys.explorer.all, 'node', type, id] as const,
   },
+  domains: {
+    all: ['domains'] as const,
+    northstar: (domainId: string) => [...queryKeys.domains.all, domainId, 'northstar'] as const,
+    brief: (domainId: string, missionId: string) =>
+      [...queryKeys.domains.all, domainId, 'missions', missionId, 'brief'] as const,
+  },
+  nodes: {
+    all: ['nodes'] as const,
+    list: () => [...queryKeys.nodes.all, 'list'] as const,
+    detail: (nodeId: string) => [...queryKeys.nodes.all, 'detail', nodeId] as const,
+  },
   governance: {
     all: ['governance'] as const,
     policy: () => [...queryKeys.governance.all, 'policy'] as const,

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as NodesRouteImport } from './routes/nodes'
 import { Route as MatrixRouteImport } from './routes/matrix'
 import { Route as GovernanceRouteImport } from './routes/governance'
 import { Route as FeedRouteImport } from './routes/feed'
@@ -18,12 +19,22 @@ import { Route as DomainsRouteImport } from './routes/domains'
 import { Route as AiRouteImport } from './routes/ai'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as NodesIndexRouteImport } from './routes/nodes.index'
+import { Route as DomainsIndexRouteImport } from './routes/domains.index'
 import { Route as AgentsIndexRouteImport } from './routes/agents.index'
+import { Route as NodesNodeIdRouteImport } from './routes/nodes.$nodeId'
+import { Route as DomainsDomainIdRouteImport } from './routes/domains.$domainId'
 import { Route as AgentsAgentIdRouteImport } from './routes/agents.$agentId'
+import { Route as DomainsDomainIdMissionsMissionIdRouteImport } from './routes/domains.$domainId.missions.$missionId'
 
 const OnboardingRoute = OnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NodesRoute = NodesRouteImport.update({
+  id: '/nodes',
+  path: '/nodes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MatrixRoute = MatrixRouteImport.update({
@@ -66,55 +77,97 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NodesIndexRoute = NodesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => NodesRoute,
+} as any)
+const DomainsIndexRoute = DomainsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DomainsRoute,
+} as any)
 const AgentsIndexRoute = AgentsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AgentsRoute,
+} as any)
+const NodesNodeIdRoute = NodesNodeIdRouteImport.update({
+  id: '/$nodeId',
+  path: '/$nodeId',
+  getParentRoute: () => NodesRoute,
+} as any)
+const DomainsDomainIdRoute = DomainsDomainIdRouteImport.update({
+  id: '/$domainId',
+  path: '/$domainId',
+  getParentRoute: () => DomainsRoute,
 } as any)
 const AgentsAgentIdRoute = AgentsAgentIdRouteImport.update({
   id: '/$agentId',
   path: '/$agentId',
   getParentRoute: () => AgentsRoute,
 } as any)
+const DomainsDomainIdMissionsMissionIdRoute =
+  DomainsDomainIdMissionsMissionIdRouteImport.update({
+    id: '/missions/$missionId',
+    path: '/missions/$missionId',
+    getParentRoute: () => DomainsDomainIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/agents': typeof AgentsRouteWithChildren
   '/ai': typeof AiRoute
-  '/domains': typeof DomainsRoute
+  '/domains': typeof DomainsRouteWithChildren
   '/explorer': typeof ExplorerRoute
   '/feed': typeof FeedRoute
   '/governance': typeof GovernanceRoute
   '/matrix': typeof MatrixRoute
+  '/nodes': typeof NodesRouteWithChildren
   '/onboarding': typeof OnboardingRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/domains/$domainId': typeof DomainsDomainIdRouteWithChildren
+  '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/agents/': typeof AgentsIndexRoute
+  '/domains/': typeof DomainsIndexRoute
+  '/nodes/': typeof NodesIndexRoute
+  '/domains/$domainId/missions/$missionId': typeof DomainsDomainIdMissionsMissionIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/ai': typeof AiRoute
-  '/domains': typeof DomainsRoute
   '/explorer': typeof ExplorerRoute
   '/feed': typeof FeedRoute
   '/governance': typeof GovernanceRoute
   '/matrix': typeof MatrixRoute
   '/onboarding': typeof OnboardingRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/domains/$domainId': typeof DomainsDomainIdRouteWithChildren
+  '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/agents': typeof AgentsIndexRoute
+  '/domains': typeof DomainsIndexRoute
+  '/nodes': typeof NodesIndexRoute
+  '/domains/$domainId/missions/$missionId': typeof DomainsDomainIdMissionsMissionIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/agents': typeof AgentsRouteWithChildren
   '/ai': typeof AiRoute
-  '/domains': typeof DomainsRoute
+  '/domains': typeof DomainsRouteWithChildren
   '/explorer': typeof ExplorerRoute
   '/feed': typeof FeedRoute
   '/governance': typeof GovernanceRoute
   '/matrix': typeof MatrixRoute
+  '/nodes': typeof NodesRouteWithChildren
   '/onboarding': typeof OnboardingRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/domains/$domainId': typeof DomainsDomainIdRouteWithChildren
+  '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/agents/': typeof AgentsIndexRoute
+  '/domains/': typeof DomainsIndexRoute
+  '/nodes/': typeof NodesIndexRoute
+  '/domains/$domainId/missions/$missionId': typeof DomainsDomainIdMissionsMissionIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -127,21 +180,31 @@ export interface FileRouteTypes {
     | '/feed'
     | '/governance'
     | '/matrix'
+    | '/nodes'
     | '/onboarding'
     | '/agents/$agentId'
+    | '/domains/$domainId'
+    | '/nodes/$nodeId'
     | '/agents/'
+    | '/domains/'
+    | '/nodes/'
+    | '/domains/$domainId/missions/$missionId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/ai'
-    | '/domains'
     | '/explorer'
     | '/feed'
     | '/governance'
     | '/matrix'
     | '/onboarding'
     | '/agents/$agentId'
+    | '/domains/$domainId'
+    | '/nodes/$nodeId'
     | '/agents'
+    | '/domains'
+    | '/nodes'
+    | '/domains/$domainId/missions/$missionId'
   id:
     | '__root__'
     | '/'
@@ -152,20 +215,27 @@ export interface FileRouteTypes {
     | '/feed'
     | '/governance'
     | '/matrix'
+    | '/nodes'
     | '/onboarding'
     | '/agents/$agentId'
+    | '/domains/$domainId'
+    | '/nodes/$nodeId'
     | '/agents/'
+    | '/domains/'
+    | '/nodes/'
+    | '/domains/$domainId/missions/$missionId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AgentsRoute: typeof AgentsRouteWithChildren
   AiRoute: typeof AiRoute
-  DomainsRoute: typeof DomainsRoute
+  DomainsRoute: typeof DomainsRouteWithChildren
   ExplorerRoute: typeof ExplorerRoute
   FeedRoute: typeof FeedRoute
   GovernanceRoute: typeof GovernanceRoute
   MatrixRoute: typeof MatrixRoute
+  NodesRoute: typeof NodesRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
 }
 
@@ -176,6 +246,13 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/onboarding'
       preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/nodes': {
+      id: '/nodes'
+      path: '/nodes'
+      fullPath: '/nodes'
+      preLoaderRoute: typeof NodesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/matrix': {
@@ -234,6 +311,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/nodes/': {
+      id: '/nodes/'
+      path: '/'
+      fullPath: '/nodes/'
+      preLoaderRoute: typeof NodesIndexRouteImport
+      parentRoute: typeof NodesRoute
+    }
+    '/domains/': {
+      id: '/domains/'
+      path: '/'
+      fullPath: '/domains/'
+      preLoaderRoute: typeof DomainsIndexRouteImport
+      parentRoute: typeof DomainsRoute
+    }
     '/agents/': {
       id: '/agents/'
       path: '/'
@@ -241,12 +332,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsIndexRouteImport
       parentRoute: typeof AgentsRoute
     }
+    '/nodes/$nodeId': {
+      id: '/nodes/$nodeId'
+      path: '/$nodeId'
+      fullPath: '/nodes/$nodeId'
+      preLoaderRoute: typeof NodesNodeIdRouteImport
+      parentRoute: typeof NodesRoute
+    }
+    '/domains/$domainId': {
+      id: '/domains/$domainId'
+      path: '/$domainId'
+      fullPath: '/domains/$domainId'
+      preLoaderRoute: typeof DomainsDomainIdRouteImport
+      parentRoute: typeof DomainsRoute
+    }
     '/agents/$agentId': {
       id: '/agents/$agentId'
       path: '/$agentId'
       fullPath: '/agents/$agentId'
       preLoaderRoute: typeof AgentsAgentIdRouteImport
       parentRoute: typeof AgentsRoute
+    }
+    '/domains/$domainId/missions/$missionId': {
+      id: '/domains/$domainId/missions/$missionId'
+      path: '/missions/$missionId'
+      fullPath: '/domains/$domainId/missions/$missionId'
+      preLoaderRoute: typeof DomainsDomainIdMissionsMissionIdRouteImport
+      parentRoute: typeof DomainsDomainIdRoute
     }
   }
 }
@@ -264,15 +376,53 @@ const AgentsRouteChildren: AgentsRouteChildren = {
 const AgentsRouteWithChildren =
   AgentsRoute._addFileChildren(AgentsRouteChildren)
 
+interface DomainsDomainIdRouteChildren {
+  DomainsDomainIdMissionsMissionIdRoute: typeof DomainsDomainIdMissionsMissionIdRoute
+}
+
+const DomainsDomainIdRouteChildren: DomainsDomainIdRouteChildren = {
+  DomainsDomainIdMissionsMissionIdRoute: DomainsDomainIdMissionsMissionIdRoute,
+}
+
+const DomainsDomainIdRouteWithChildren = DomainsDomainIdRoute._addFileChildren(
+  DomainsDomainIdRouteChildren,
+)
+
+interface DomainsRouteChildren {
+  DomainsDomainIdRoute: typeof DomainsDomainIdRouteWithChildren
+  DomainsIndexRoute: typeof DomainsIndexRoute
+}
+
+const DomainsRouteChildren: DomainsRouteChildren = {
+  DomainsDomainIdRoute: DomainsDomainIdRouteWithChildren,
+  DomainsIndexRoute: DomainsIndexRoute,
+}
+
+const DomainsRouteWithChildren =
+  DomainsRoute._addFileChildren(DomainsRouteChildren)
+
+interface NodesRouteChildren {
+  NodesNodeIdRoute: typeof NodesNodeIdRoute
+  NodesIndexRoute: typeof NodesIndexRoute
+}
+
+const NodesRouteChildren: NodesRouteChildren = {
+  NodesNodeIdRoute: NodesNodeIdRoute,
+  NodesIndexRoute: NodesIndexRoute,
+}
+
+const NodesRouteWithChildren = NodesRoute._addFileChildren(NodesRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AgentsRoute: AgentsRouteWithChildren,
   AiRoute: AiRoute,
-  DomainsRoute: DomainsRoute,
+  DomainsRoute: DomainsRouteWithChildren,
   ExplorerRoute: ExplorerRoute,
   FeedRoute: FeedRoute,
   GovernanceRoute: GovernanceRoute,
   MatrixRoute: MatrixRoute,
+  NodesRoute: NodesRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
 }
 export const routeTree = rootRouteImport

@@ -1,8 +1,8 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-// Mock router
 const mockPathname = '/agents/aria-operator-bb05ea7a';
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
@@ -31,12 +31,14 @@ vi.mock('@/stores/auth', () => ({
     selector: (s: {
       userSubject: string | null;
       userEmail: string | null;
+      userName: string | null;
       logout: () => Promise<void>;
     }) => unknown,
   ) =>
     selector({
       userSubject: '73c5a571f3b774a535810a3835f3b8fa',
       userEmail: null,
+      userName: null,
       logout: logoutSpy,
     }),
 }));
@@ -46,7 +48,26 @@ vi.mock('@/stores/toast', () => ({
     selector({ message: null }),
 }));
 
+vi.mock('@/api/client', () => ({
+  apiClient: { GET: vi.fn(), use: vi.fn() },
+  unwrap: vi.fn((p: unknown) => Promise.resolve(p)),
+}));
+
 import { Sidebar, avatarLabel } from './Sidebar';
+
+function makeQC() {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+  });
+}
+function renderSidebar() {
+  const qc = makeQC();
+  return render(
+    <QueryClientProvider client={qc}>
+      <Sidebar />
+    </QueryClientProvider>,
+  );
+}
 
 describe('avatarLabel', () => {
   it('returns null for null input', () => {
@@ -65,51 +86,49 @@ describe('avatarLabel', () => {
 
 describe('Sidebar', () => {
   it('renders /agents nav item with aria-current="page" when pathname is under /agents', () => {
-    render(<Sidebar />);
+    renderSidebar();
     const link = screen.getByTestId('nav-/agents');
     expect(link).toHaveAttribute('aria-current', 'page');
   });
 
+  it('renders /nodes nav item', () => {
+    renderSidebar();
+    expect(screen.getByTestId('nav-/nodes')).toBeInTheDocument();
+  });
+
   it('renders / nav item WITHOUT aria-current when not on root', () => {
-    render(<Sidebar />);
+    renderSidebar();
     const link = screen.getByTestId('nav-/');
     expect(link).not.toHaveAttribute('aria-current', 'page');
   });
 
   it('does NOT render Onboarding as a top-level rail link', () => {
-    render(<Sidebar />);
-    // The old nav-onboarding rail item must be absent from the sidebar rail
+    renderSidebar();
     expect(screen.queryByTestId('nav-onboarding')).not.toBeInTheDocument();
   });
 
   it('shows a glyph avatar (not a hash slice) for an opaque subject', () => {
-    render(<Sidebar />);
-    // Should NOT render a slice of the opaque hash
+    renderSidebar();
     expect(screen.queryByText(/^73/)).not.toBeInTheDocument();
   });
 
   it('renders logout button in account menu after opening it', () => {
-    render(<Sidebar />);
-    const accountBtn = screen.getByTestId('account-btn');
-    fireEvent.click(accountBtn);
+    renderSidebar();
+    fireEvent.click(screen.getByTestId('account-btn'));
     expect(screen.getByTestId('logout-item')).toBeInTheDocument();
   });
 
   it('calls logout when logout button is clicked', async () => {
     logoutSpy.mockResolvedValue(undefined);
-    render(<Sidebar />);
-    const accountBtn = screen.getByTestId('account-btn');
-    fireEvent.click(accountBtn);
-    const logoutBtn = screen.getByTestId('logout-item');
-    fireEvent.click(logoutBtn);
+    renderSidebar();
+    fireEvent.click(screen.getByTestId('account-btn'));
+    fireEvent.click(screen.getByTestId('logout-item'));
     expect(logoutSpy).toHaveBeenCalled();
   });
 
   it('reveals menu-onboarding directly after opening the account menu', () => {
-    render(<Sidebar />);
-    // Open account menu
+    renderSidebar();
     fireEvent.click(screen.getByTestId('account-btn'));
-    // Onboarding is a flat top-level item — visible immediately
     const onboardingLink = screen.getByTestId('menu-onboarding');
     expect(onboardingLink).toBeInTheDocument();
     expect(onboardingLink).toHaveAttribute('href', '/onboarding');
