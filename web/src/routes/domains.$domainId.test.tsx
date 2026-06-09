@@ -141,6 +141,19 @@ describe('DomainPage', () => {
     await waitFor(() => expect(screen.getByTestId('monaco-editor')).toBeInTheDocument());
   });
 
+  it('shows the loaded northstar markdown in the editor (not empty)', async () => {
+    const { apiClient, unwrap } = await import('@/api/client');
+    (apiClient.GET as ReturnType<typeof vi.fn>).mockResolvedValue(sampleTree);
+    (unwrap as ReturnType<typeof vi.fn>).mockResolvedValue(sampleTree);
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: () => Promise.resolve(sampleNorthstar) });
+    wrap(<DomainPage />, qc);
+    await waitFor(() =>
+      expect(screen.getByDisplayValue(/Drives investment data/)).toBeInTheDocument(),
+    );
+  });
+
   it('switches to Missions tab and shows missions', async () => {
     const { apiClient, unwrap } = await import('@/api/client');
     (apiClient.GET as ReturnType<typeof vi.fn>).mockResolvedValue(sampleTree);

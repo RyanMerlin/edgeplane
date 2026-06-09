@@ -144,16 +144,22 @@ export function DomainPage() {
           flexDirection: 'column',
         }}
       >
-        {activeTab === 'northstar' && (
-          <NarrativeEditor
-            initialValue={northstar?.northstar_md ?? (nsLoading ? '' : '')}
-            onSave={(md) => saveMutation.mutate(md)}
-            isSaving={saveMutation.isPending}
-            saveError={saveMutation.isError ? String(saveMutation.error) : null}
-            version={northstar?.northstar_version}
-            modifiedAt={northstar?.northstar_modified_at}
-          />
-        )}
+        {activeTab === 'northstar' &&
+          (nsLoading ? (
+            <div data-testid="northstar-loading" style={{ color: 'var(--dim)', fontSize: 13 }}>
+              Loading…
+            </div>
+          ) : (
+            <NarrativeEditor
+              key={domainId}
+              initialValue={northstar?.northstar_md ?? ''}
+              onSave={(md) => saveMutation.mutate(md)}
+              isSaving={saveMutation.isPending}
+              saveError={saveMutation.isError ? String(saveMutation.error) : null}
+              version={northstar?.northstar_version}
+              modifiedAt={northstar?.northstar_modified_at}
+            />
+          ))}
         {activeTab === 'missions' && <MissionsTab missions={domain.missions} domainId={domainId} />}
         {activeTab === 'overview' && <OverviewTab domain={domain} />}
       </div>

@@ -107,6 +107,8 @@ function SidebarDomainsSection({ pathname }: { pathname: string }) {
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <button
                 type="button"
+                aria-label={`${expanded ? 'Collapse' : 'Expand'} ${domain.name}`}
+                aria-expanded={expanded}
                 onClick={() => toggle(domain.id)}
                 style={{
                   background: 'none',

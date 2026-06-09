@@ -52,7 +52,7 @@ export function MissionPage() {
   const mission = detail?.mission as ExplorerMission | undefined;
   const tasks = (detail?.tasks ?? []) as TaskRecord[];
 
-  const { data: brief } = useQuery({
+  const { data: brief, isLoading: briefLoading } = useQuery({
     queryKey: queryKeys.domains.brief(domainId, missionId),
     queryFn: async (): Promise<BriefResponse> => {
       const res = await fetch(`/api/domains/${domainId}/m/${missionId}/brief`, {
@@ -168,16 +168,22 @@ export function MissionPage() {
           flexDirection: 'column',
         }}
       >
-        {activeTab === 'brief' && (
-          <NarrativeEditor
-            initialValue={brief?.brief_md ?? ''}
-            onSave={(md) => saveMutation.mutate(md)}
-            isSaving={saveMutation.isPending}
-            saveError={saveMutation.isError ? String(saveMutation.error) : null}
-            version={brief?.brief_version}
-            modifiedAt={brief?.brief_modified_at}
-          />
-        )}
+        {activeTab === 'brief' &&
+          (briefLoading ? (
+            <div data-testid="brief-loading" style={{ color: 'var(--dim)', fontSize: 13 }}>
+              Loading…
+            </div>
+          ) : (
+            <NarrativeEditor
+              key={missionId}
+              initialValue={brief?.brief_md ?? ''}
+              onSave={(md) => saveMutation.mutate(md)}
+              isSaving={saveMutation.isPending}
+              saveError={saveMutation.isError ? String(saveMutation.error) : null}
+              version={brief?.brief_version}
+              modifiedAt={brief?.brief_modified_at}
+            />
+          ))}
         {activeTab === 'tasks' && (
           <TasksTab tasks={tasks} onTaskClick={(t) => setSelectedTask(t)} />
         )}
