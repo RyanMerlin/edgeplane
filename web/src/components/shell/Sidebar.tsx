@@ -1,38 +1,25 @@
+import { apiClient, unwrap } from '@/api/client';
+import type { components } from '@/api/schema.gen';
+import { queryKeys } from '@/lib/queryKeys';
 import { useAuthStore } from '@/stores/auth';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import { NAV_GROUPS, isNavItemActive } from './navModel';
 
+type ExplorerDomainNode = components['schemas']['ExplorerDomainNode'];
+type ExplorerMissionNode = components['schemas']['ExplorerMissionNode'];
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-/**
- * Returns initials for display in the avatar.
- * - Multi-part email/name (e.g. "ryan.merlin@…"): first letter of each of the
- *   first two parts → "RM"
- * - Single-word name or email local part (e.g. "merlin@…"): first letter → "M"
- * - Opaque ids/hashes: returns null so the caller renders a neutral glyph.
- */
 export function avatarLabel(email: string | null): string | null {
   if (!email) return null;
-
-  // Opaque hash: 24+ hex chars with no separators → treat as opaque
   if (/^[0-9a-f]{24,}$/i.test(email)) return null;
-
-  // Email: extract the local part
   const atIdx = email.indexOf('@');
   const local = atIdx > 0 ? email.slice(0, atIdx) : email;
-
-  // Split on word separators
   const parts = local.split(/[._\-\s]+/).filter(Boolean);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-
-  // Single word — return just the first letter
-  if (parts.length === 1 && /^[a-zA-Z]+$/.test(parts[0])) {
-    return parts[0][0].toUpperCase();
-  }
-
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  if (parts.length === 1 && /^[a-zA-Z]+$/.test(parts[0])) return parts[0][0].toUpperCase();
   return null;
 }
 
@@ -47,10 +34,152 @@ function applyTheme(next: string) {
 const NAV_ICON: Record<string, string> = {
   '/': '◇',
   '/agents': '◉',
+  '/nodes': '▦',
   '/domains': '▤',
   '/feed': '≋',
   '/governance': '⚖',
 };
+
+// ── Inline Domains tree ──────────────────────────────────────────────────────
+
+function SidebarDomainsSection({ pathname }: { pathname: string }) {
+  const isActive = isNavItemActive('/domains', pathname);
+  const { data: tree } = useQuery({
+    queryKey: queryKeys.explorer.tree(),
+    queryFn: () => unwrap(apiClient.GET('/api/explorer/tree', {})),
+    refetchInterval: 30_000,
+  });
+
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const toggle = (id: string) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  return (
+    <div>
+      {/* DOMAINS section label */}
+      <Link
+        to="/domains"
+        data-testid="nav-/domains"
+        aria-current={pathname === '/domains' ? 'page' : undefined}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 9,
+          height: 28,
+          padding: '0 8px',
+          borderRadius: 6,
+          color: isActive ? 'var(--text)' : 'var(--text-2)',
+          fontSize: 13,
+          fontWeight: 510,
+          textDecoration: 'none',
+          background: pathname === '/domains' ? 'var(--raised-2)' : 'transparent',
+          userSelect: 'none',
+        }}
+      >
+        <span
+          style={{
+            width: 15,
+            height: 15,
+            flexShrink: 0,
+            color: isActive ? 'var(--accent)' : 'var(--dim)',
+            display: 'grid',
+            placeItems: 'center',
+            fontSize: 13,
+          }}
+        >
+          {NAV_ICON['/domains']}
+        </span>
+        Domains
+      </Link>
+
+      {/* Domain tree items */}
+      {tree?.domains.map((domain: ExplorerDomainNode) => {
+        const domainActive = pathname.startsWith(`/domains/${domain.id}`);
+        const expanded = expandedIds.has(domain.id);
+        return (
+          <div key={domain.id}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => toggle(domain.id)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--dim)',
+                  fontSize: 10,
+                  cursor: 'pointer',
+                  padding: '0 2px 0 20px',
+                  flexShrink: 0,
+                }}
+              >
+                {expanded ? '▾' : '▸'}
+              </button>
+              <Link
+                to="/domains/$domainId"
+                params={{ domainId: domain.id }}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  height: 26,
+                  padding: '0 8px 0 2px',
+                  borderRadius: 5,
+                  fontSize: 12,
+                  color: domainActive ? 'var(--text)' : 'var(--text-2)',
+                  textDecoration: 'none',
+                  fontWeight: domainActive ? 510 : 400,
+                  background: domainActive ? 'var(--raised-2)' : 'transparent',
+                }}
+              >
+                {domain.name}
+              </Link>
+            </div>
+            {expanded &&
+              domain.missions.map((m: ExplorerMissionNode) => {
+                const mActive = pathname.includes(`/missions/${m.id}`);
+                return (
+                  <Link
+                    key={m.id}
+                    to="/domains/$domainId/missions/$missionId"
+                    params={{ domainId: domain.id, missionId: m.id }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      height: 24,
+                      padding: '0 8px 0 38px',
+                      borderRadius: 5,
+                      fontSize: 11,
+                      color: mActive ? 'var(--text)' : 'var(--text-2)',
+                      textDecoration: 'none',
+                      background: mActive ? 'var(--raised-2)' : 'transparent',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: 'var(--dim)',
+                        marginRight: 6,
+                        flexShrink: 0,
+                      }}
+                    />
+                    {m.name}
+                  </Link>
+                );
+              })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -65,7 +194,6 @@ export function Sidebar() {
   const [_theme, setTheme] = useState('dark');
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Theme init — read from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem('edgeplane:theme');
     const initial = saved === 'light' ? 'light' : 'dark';
@@ -73,7 +201,6 @@ export function Sidebar() {
     applyTheme(initial);
   }, []);
 
-  // Close menu on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (showMenu && menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -111,14 +238,7 @@ export function Sidebar() {
       }}
     >
       {/* Brand row */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '4px 8px 10px',
-        }}
-      >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px 10px' }}>
         <span style={{ color: 'var(--accent)', fontSize: 16, lineHeight: 1 }}>⬡</span>
         <span
           style={{
@@ -132,13 +252,11 @@ export function Sidebar() {
         </span>
       </div>
 
-      {/* Search row — static affordance; ⌘K palette is a later phase */}
+      {/* Search */}
       <button
         type="button"
         aria-label="Search"
-        onClick={() => {
-          /* ⌘K palette — Phase C */
-        }}
+        onClick={() => {}}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -174,8 +292,11 @@ export function Sidebar() {
       </button>
 
       {/* Nav items */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1, overflowY: 'auto' }}>
         {NAV_GROUPS.flatMap((g) => g.items).map((item) => {
+          if (item.to === '/domains') {
+            return <SidebarDomainsSection key="/domains" pathname={pathname} />;
+          }
           const active = isNavItemActive(item.to, pathname);
           const icon = NAV_ICON[item.to] ?? '·';
           return (
@@ -201,14 +322,10 @@ export function Sidebar() {
                 transition: 'background .12s ease, color .12s ease',
               }}
               onMouseEnter={(e) => {
-                if (!active) {
-                  (e.currentTarget as HTMLElement).style.background = 'var(--raised)';
-                }
+                if (!active) (e.currentTarget as HTMLElement).style.background = 'var(--raised)';
               }}
               onMouseLeave={(e) => {
-                if (!active) {
-                  (e.currentTarget as HTMLElement).style.background = 'transparent';
-                }
+                if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent';
               }}
             >
               <span
@@ -233,7 +350,6 @@ export function Sidebar() {
 
       {/* Bottom account control */}
       <div ref={menuRef} style={{ marginTop: 'auto', position: 'relative' }}>
-        {/* Account popover menu — appears above the control */}
         {showMenu && (
           <div
             role="menu"
@@ -259,7 +375,6 @@ export function Sidebar() {
               if (e.key === 'Escape') setShowMenu(false);
             }}
           >
-            {/* Preferences */}
             <button
               type="button"
               role="menuitem"
@@ -278,13 +393,10 @@ export function Sidebar() {
                 background: 'transparent',
                 border: 'none',
                 fontFamily: 'var(--font)',
-                transition: 'background .12s ease',
               }}
             >
               Preferences
             </button>
-
-            {/* Onboarding */}
             <Link
               to="/onboarding"
               data-testid="menu-onboarding"
@@ -301,13 +413,10 @@ export function Sidebar() {
                 textDecoration: 'none',
                 width: '100%',
                 boxSizing: 'border-box',
-                transition: 'background .12s ease',
               }}
             >
               Onboarding
             </Link>
-
-            {/* Theme toggle */}
             <button
               type="button"
               role="menuitem"
@@ -327,13 +436,10 @@ export function Sidebar() {
                 background: 'transparent',
                 border: 'none',
                 fontFamily: 'var(--font)',
-                transition: 'background .12s ease',
               }}
             >
               ☾ Theme
             </button>
-
-            {/* Logout */}
             <button
               type="button"
               role="menuitem"
@@ -356,15 +462,12 @@ export function Sidebar() {
                 background: 'transparent',
                 border: 'none',
                 fontFamily: 'var(--font)',
-                transition: 'background .12s ease',
               }}
             >
               Logout
             </button>
           </div>
         )}
-
-        {/* Account button row */}
         <button
           type="button"
           data-testid="account-btn"
@@ -387,10 +490,8 @@ export function Sidebar() {
             fontFamily: 'var(--font)',
             fontSize: 13,
             textAlign: 'left',
-            transition: 'background .12s ease',
           }}
         >
-          {/* Avatar */}
           <span
             style={{
               width: 22,
@@ -407,17 +508,9 @@ export function Sidebar() {
           >
             {label ?? '⬡'}
           </span>
-          {/* Name */}
-          <span
-            style={{
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {userName ?? userEmail ?? 'Account'}
           </span>
-          {/* Chevron */}
           <span style={{ marginLeft: 'auto', color: 'var(--dim)', fontSize: 11 }}>⌄</span>
         </button>
       </div>
