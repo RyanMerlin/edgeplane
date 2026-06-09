@@ -24,11 +24,12 @@ The `kind` column (values `'work'` | `'home'`) was a write-only tag that leaked 
 
 **A knowledge cluster inside a domain for a targeted outcome. This is the workstream.** Missions are where artifacts cohere and where context continuity lives.
 
-- Columns: `workstream_md`, `workstream_version`, `domain_id` (nullable), `owners`, `status`
+- Columns: `brief_md`, `brief_version`, `brief_created_by`, `brief_modified_by`, `brief_created_at`, `brief_modified_at`, `brief_s3_path`, `domain_id` (nullable), `owners`, `status`
+- Legacy compat: `workstream_md`, `workstream_version` (kept for backward compatibility; `brief_md` is the canonical field)
 - S3 layout: `domains/{domain_id}/missions/{mission_id}/{entity}/{filename}`
 - Owns: tasks, meshtasks, artifacts
 
-The column `mission.workstream_md` reflects this directly. A mission *is* a workstream. Do not call domains workstreams.
+A mission *is* a workstream. The mission Brief (`brief_md`) documents its targeted outcome. Do not call domains workstreams.
 
 ---
 

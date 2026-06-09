@@ -96,7 +96,7 @@ Then open:
 | Docker full stack | `bash scripts/dev-up.sh` |
 | Install edgeplane CLI | `bash scripts/install-edgeplane.sh` or `.\scripts\install-edgeplane.ps1` |
 | Bootstrap edgeplane (curl) | `curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh \| bash` |
-| Philosophy & vision | [EDGEPLANE_PHILOSOPHY.md](EDGEPLANE_PHILOSOPHY.md) |
+| Philosophy & vision | [EDGEPLANE_PHILOSOPHY.md](PHILOSOPHY.md) |
 | API reference | `/api/docs` (Swagger UI) |
 | Agent install guide | [docs/guides/AGENT-INSTALL.md](docs/guides/AGENT-INSTALL.md) |
 | Web UI (React 19 + Vite) | [web/README.md](web/README.md) |
