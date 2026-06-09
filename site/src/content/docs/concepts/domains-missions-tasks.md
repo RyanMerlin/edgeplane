@@ -17,6 +17,16 @@ A Domain is:
 
 Domains carry a **Northstar** narrative, owner list, contributor list, and visibility/status fields.
 
+### Northstar and Brief Narratives
+
+A Domain's **Northstar** is a narrative document describing its purpose, scope, and direction — the "why" that orients all work inside the domain. It answers questions like: what is this domain trying to achieve, what is out of scope, and what does success look like over the long term.
+
+A Mission's **Brief** describes the targeted outcome for that mission — the "what and how" for the effort underway. It gives agents and contributors the context they need to pick up work without re-establishing intent from scratch.
+
+Both are Markdown documents stored alongside the entity in S3 at the mission's scoped path. They are first-class fields, not free-form notes.
+
+Authoring support via `edgeplane domain northstar edit` and `edgeplane mission brief edit` is available now. The expected structure for each is documented in the schema-pack templates at [`docs/schema-packs/NORTHSTAR.example.md`](https://github.com/RyanMerlin/edgeplane/blob/main/docs/schema-packs/NORTHSTAR.example.md) and [`docs/schema-packs/BRIEF.example.md`](https://github.com/RyanMerlin/edgeplane/blob/main/docs/schema-packs/BRIEF.example.md) in the repository.
+
 **Domains do not complete. They scope. Tasks complete.**
 
 This distinction matters. A domain like "Build authentication system" provides context and governance for all work inside it indefinitely. Individual tasks inside that domain complete, but the domain itself remains as the scoping container.
@@ -44,7 +54,7 @@ Missions are where:
 - Agents pick up and resume work without re-establishing context
 - S3 storage is scoped: `domains/{domain_id}/missions/{mission_id}/{entity}/{filename}`
 
-A mission has a `workstream_md` describing its targeted outcome, an optional domain anchor, owners, and status. Missions can be domain-free (useful for standalone workstreams not yet attached to a broader domain).
+A mission has a `brief_md` describing its targeted outcome, an optional domain anchor, owners, and status. Missions can be domain-free (useful for standalone workstreams not yet attached to a broader domain). The legacy `workstream_md` column remains for backward compatibility.
 
 Do not call domains workstreams. Missions are workstreams.
 
@@ -96,7 +106,7 @@ Collisions surface before damage occurs. This enables safe parallelism at scale 
 Domain: "Build Authentication System"
 ├── Northstar, owners, governance policy
 ├── Mission: "OIDC Integration"
-│   ├── workstream_md, artifacts
+│   ├── brief_md, artifacts
 │   ├── Task: "Implement /callback route"
 │   ├── Task: "Write integration tests"
 │   └── MeshTask: "Generate API docs"
@@ -113,3 +123,5 @@ Domains scope. Missions stream. Tasks complete.
 
 - [Entity Reference](/concepts/entity-reference/) — full schema-backed definitions for every entity
 - [Architecture: Persistence](/architecture/persistence/) — how domains, missions, and tasks are stored across Postgres, S3, and Git
+- [Overlap Detection](/guides/overlap-detection/) — similarity analysis that surfaces duplicate work before it lands
+- [Governance & Approvals](/guides/governance-and-approvals/) — gate domain actions behind approval workflows

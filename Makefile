@@ -21,7 +21,7 @@ TAG     ?= $(shell git rev-parse --short HEAD)
         test test-client test-all \
         edgeplane-build edgeplane-build-release edgeplane-install \
         build push \
-        migrate lint \
+        migrate lint docs \
         clean
 
 help:  ## Show this help
@@ -97,6 +97,14 @@ migrate:  ## Run SQLx migrations (requires DATABASE_URL)
 
 lint:  ## Run cargo clippy on edgeplane-tower
 	cargo clippy --manifest-path crates/edgeplane-tower/Cargo.toml -- -D warnings
+
+# ── Docs ──────────────────────────────────────────────────────────────────────
+
+docs:  ## Regenerate COMMAND-MAP.md from the clap tree
+	mkdir -p docs/reference site/src/content/docs/reference
+	cargo run -p edgeplane --quiet -- system internal gen-cli-doc > docs/reference/COMMAND-MAP.md
+	{ printf -- '---\ntitle: Command Map\ndescription: Authoritative edgeplane CLI command hierarchy at a glance.\n---\n\n'; \
+	  cat docs/reference/COMMAND-MAP.md; } > site/src/content/docs/reference/command-map.md
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 

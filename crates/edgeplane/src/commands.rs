@@ -27,6 +27,55 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tar::{Archive, Builder};
 use url::form_urlencoded;
 
+/// Root CLI struct — mirrors `main.rs` `CliOpts` so `gen-cli-doc` has a `CommandFactory` type
+/// that covers the full command tree.
+#[derive(clap::Parser, Debug)]
+#[command(name = "edgeplane", author, version, about, long_about = None)]
+pub struct CliRoot {
+    /// Base URL pointing at an existing Edgeplane deployment.
+    #[arg(long, env = "EP_BASE_URL")]
+    pub base_url: Option<String>,
+
+    /// Optional agent identifier propagated throughout approvals and sync calls.
+    #[arg(long, env = "EP_AGENT_ID")]
+    pub agent_id: Option<String>,
+
+    /// Optional runtime session identifier propagated for per-instance attribution.
+    #[arg(long, env = "EP_RUNTIME_SESSION_ID")]
+    pub runtime_session_id: Option<String>,
+
+    /// Optional profile name propagated for per-profile attribution.
+    #[arg(long, env = "EP_AGENT_PROFILE")]
+    pub profile_name: Option<String>,
+
+    /// Timeout (in seconds) for all outbound calls.
+    #[arg(long, env = "EP_TIMEOUT_SECS", default_value_t = 10)]
+    pub timeout_secs: u64,
+
+    /// Allow invalid TLS certificates when running against local or self-signed endpoints.
+    #[arg(long, env = "EP_ALLOW_INSECURE", default_value_t = false)]
+    pub allow_insecure: bool,
+
+    /// Optional WASM booster module path.
+    #[arg(long, env = "EP_BOOSTER_WASM")]
+    pub booster_wasm: Option<std::path::PathBuf>,
+
+    /// Disable the booster hook even if a module is configured.
+    #[arg(long, env = "EP_DISABLE_BOOSTER", default_value_t = false)]
+    pub disable_booster: bool,
+
+    /// Allow booster modules to short-circuit MCP tool execution.
+    #[arg(long, env = "EP_ALLOW_BOOSTER_SHORT_CIRCUIT", default_value_t = false)]
+    pub allow_booster_short_circuit: bool,
+
+    /// Emit machine-readable JSON output.
+    #[arg(long, global = true, default_value_t = false)]
+    pub json: bool,
+
+    #[command(subcommand)]
+    pub command: EdgeplaneCommand,
+}
+
 /// Top-level CLI entrypoints for the edgeplane binary.
 #[derive(Subcommand, Debug)]
 pub enum EdgeplaneCommand {
@@ -114,8 +163,6 @@ pub enum EdgeplaneCommand {
     /// Bidirectional git-backed config sync for this node.
     #[command(name = "mesh-sync", subcommand)]
     MeshSync(cmd::sync::SyncCmd),
-    /// Discover edgeplane-tower nodes and write ~/.ep/servers.
-    Discover(discover::DiscoverArgs),
     /// Launch the terminal UI (ratatui) for fleet monitoring and management.
     Tui(TuiArgs),
     /// Manage named controlplane connection contexts.
@@ -124,9 +171,14 @@ pub enum EdgeplaneCommand {
     /// Domain attachment and home-domain management for this agent.
     #[command(subcommand)]
     Domain(DomainCommand),
-    /// Emit the full CLI surface as a versioned JSON schema contract.
-    #[command(name = "cli-schema")]
-    CliSchema(crate::cli_schema::CliSchemaArgs),
+    /// Mission (workstream) CRUD — create, list, show, update, delete.
+    #[command(subcommand)]
+    Mission(MissionCommand),
+    /// Task CRUD — create, list, show, update, delete.
+    #[command(subcommand)]
+    Task(TaskCommand),
+    /// Emit the CLI surface as a versioned JSON schema contract; drill into a subtree with [path...].
+    Discover(crate::cli_schema::DiscoverArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -156,6 +208,8 @@ pub enum ContextCommand {
         /// Context name to remove.
         name: String,
     },
+    /// Discover edgeplane-tower nodes and write ~/.edgeplane/servers.
+    Discover(crate::discover::NodeDiscoverArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -198,6 +252,16 @@ pub enum SystemCommand {
     /// Drift ingestion + policy decision helpers for staged release gates.
     #[command(subcommand)]
     Drift(drift::DriftCommand),
+    /// Hidden developer-only helpers (not for end-user consumption).
+    #[command(subcommand, hide = true)]
+    Internal(InternalCommand),
+}
+
+/// Hidden internal subcommands under `edgeplane system internal`.
+#[derive(Subcommand, Debug)]
+pub enum InternalCommand {
+    /// Print the CLI reference as Markdown to stdout (used by `make docs`).
+    GenCliDoc,
 }
 
 #[derive(Subcommand, Debug)]
@@ -224,6 +288,11 @@ pub enum AgentCommand {
     /// systemd-unit liveness supervision (Phase 5 daemon-absorption).
     #[command(subcommand)]
     Supervise(SuperviseCommand),
+    /// Register a new agent with the controlplane.
+    Register(crate::agent_ops::RegisterArgs),
+    /// Update a controlplane agent's status (online/offline/busy).
+    #[command(name = "set-status")]
+    SetStatus(crate::agent_ops::SetStatusArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -271,6 +340,251 @@ pub enum DomainCommand {
     },
     /// Detach from the current domain and return to the home domain.
     Detach,
+    /// Create a new domain.
+    Create {
+        /// Domain name.
+        name: String,
+        #[arg(long)]
+        description: Option<String>,
+        /// Comma-separated owner identities.
+        #[arg(long)]
+        owners: Option<String>,
+        /// Comma-separated contributor identities.
+        #[arg(long)]
+        contributors: Option<String>,
+        /// Comma-separated tags.
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long)]
+        visibility: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// List all visible domains.
+    List {
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
+    /// Show a single domain.
+    Show {
+        /// Domain ID.
+        id: String,
+    },
+    /// Update a domain's metadata.
+    Update {
+        /// Domain ID.
+        id: String,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        owners: Option<String>,
+        #[arg(long)]
+        contributors: Option<String>,
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long)]
+        visibility: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Delete a domain.
+    Delete {
+        /// Domain ID.
+        id: String,
+    },
+    /// Get or edit the domain's Northstar narrative document.
+    #[command(subcommand)]
+    Northstar(NorthstarCommand),
+}
+
+/// Subcommands for `edgeplane domain northstar`.
+#[derive(Subcommand, Debug)]
+pub enum NorthstarCommand {
+    /// Print the domain's Northstar document to stdout.
+    Get {
+        /// Domain id.
+        domain_id: String,
+        /// Emit raw JSON envelope instead of markdown.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Open the domain's Northstar document in $EDITOR and save changes.
+    Edit {
+        /// Domain id.
+        domain_id: String,
+    },
+}
+
+/// Subcommands for `edgeplane mission` — CRUD for missions (workstreams).
+#[derive(Subcommand, Debug)]
+pub enum MissionCommand {
+    /// Create a new mission.
+    Create {
+        /// Mission name.
+        name: String,
+        /// Domain this mission belongs to.
+        #[arg(long, required = true)]
+        domain_id: String,
+        #[arg(long)]
+        description: Option<String>,
+        /// Comma-separated owner identities.
+        #[arg(long)]
+        owners: Option<String>,
+        /// Comma-separated contributor identities.
+        #[arg(long)]
+        contributors: Option<String>,
+        /// Comma-separated tags.
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        /// Workstream markdown content.
+        #[arg(long)]
+        workstream: Option<String>,
+    },
+    /// List missions, optionally filtered to a domain.
+    List {
+        #[arg(long)]
+        domain_id: Option<String>,
+    },
+    /// Show a single mission.
+    Show {
+        /// Mission ID.
+        id: String,
+        /// Domain this mission belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
+    },
+    /// Update a mission's metadata.
+    Update {
+        /// Mission ID.
+        id: String,
+        /// Domain this mission belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        owners: Option<String>,
+        #[arg(long)]
+        contributors: Option<String>,
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Delete a mission.
+    Delete {
+        /// Mission ID.
+        id: String,
+        /// Domain this mission belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
+    },
+    /// Get or edit the mission's Brief narrative document.
+    #[command(subcommand)]
+    Brief(BriefCommand),
+}
+
+/// Subcommands for `edgeplane mission brief`.
+#[derive(Subcommand, Debug)]
+pub enum BriefCommand {
+    /// Print the mission's Brief document to stdout.
+    Get {
+        /// Mission id.
+        mission_id: String,
+        /// Emit raw JSON envelope instead of markdown.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Open the mission's Brief document in $EDITOR and save changes.
+    Edit {
+        /// Mission id.
+        mission_id: String,
+    },
+}
+
+/// Subcommands for `edgeplane task` — CRUD for tasks (units of work).
+#[derive(Subcommand, Debug)]
+pub enum TaskCommand {
+    /// Create a new task.
+    Create {
+        /// Task title.
+        title: String,
+        /// Mission this task belongs to (required).
+        #[arg(long, required = true)]
+        mission_id: String,
+        /// Domain this task belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        owner: Option<String>,
+        /// Comma-separated contributor identities.
+        #[arg(long)]
+        contributors: Option<String>,
+        /// Definition of done.
+        #[arg(long)]
+        dod: Option<String>,
+        /// Comma-separated task IDs this task depends on.
+        #[arg(long)]
+        dependencies: Option<String>,
+    },
+    /// List tasks for a mission.
+    List {
+        /// Mission ID (required).
+        #[arg(long, required = true)]
+        mission_id: String,
+    },
+    /// Show a single task.
+    Show {
+        /// Task ID.
+        id: String,
+        #[arg(long, required = true)]
+        mission_id: String,
+        /// Domain this task belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
+    },
+    /// Update a task's metadata.
+    Update {
+        /// Task ID.
+        id: String,
+        #[arg(long, required = true)]
+        mission_id: String,
+        /// Domain this task belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        owner: Option<String>,
+        #[arg(long)]
+        contributors: Option<String>,
+        #[arg(long)]
+        dod: Option<String>,
+        #[arg(long)]
+        dependencies: Option<String>,
+    },
+    /// Delete a task.
+    Delete {
+        /// Task ID.
+        id: String,
+        #[arg(long, required = true)]
+        mission_id: String,
+        /// Domain this task belongs to (required — tower only serves domain-scoped paths).
+        #[arg(long, required = true)]
+        domain_id: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -909,15 +1223,16 @@ pub async fn run(
         }
         EdgeplaneCommand::Receipts(sub) => cmd::receipts::run(sub).map_err(Into::into),
         EdgeplaneCommand::MeshSync(sub) => cmd::sync::run(Some(sub)).map_err(Into::into),
-        EdgeplaneCommand::Discover(args) => discover::run(args).await,
         EdgeplaneCommand::Tui(args) => handle_tui(args, &config),
-        EdgeplaneCommand::Context(cmd) => handle_context(cmd),
-        EdgeplaneCommand::Domain(cmd) => handle_domain(cmd, client, &config).await,
-        EdgeplaneCommand::CliSchema(args) => crate::cli_schema::run(args).await,
+        EdgeplaneCommand::Context(cmd) => handle_context(cmd).await,
+        EdgeplaneCommand::Domain(cmd) => handle_domain(cmd, client, &config, output_mode).await,
+        EdgeplaneCommand::Mission(cmd) => handle_mission(cmd, client, output_mode).await,
+        EdgeplaneCommand::Task(cmd) => handle_task(cmd, client, output_mode).await,
+        EdgeplaneCommand::Discover(args) => crate::cli_schema::run(args).await,
     }
 }
 
-fn handle_context(cmd: ContextCommand) -> Result<()> {
+async fn handle_context(cmd: ContextCommand) -> Result<()> {
     use crate::context::{active_context, load_contexts, save_contexts, session_file_for};
 
     match cmd {
@@ -979,6 +1294,7 @@ fn handle_context(cmd: ContextCommand) -> Result<()> {
             save_contexts(&file).map_err(|e| anyhow::anyhow!("failed to save contexts: {e}"))?;
             println!("Removed context '{}'", name);
         }
+        ContextCommand::Discover(args) => discover::run(args).await?,
     }
     Ok(())
 }
@@ -2107,6 +2423,15 @@ async fn handle_system(
         SystemCommand::Update(cmd) => update::run(cmd, config).await,
         SystemCommand::Compat(cmd) => compat::run(cmd).await,
         SystemCommand::Drift(cmd) => drift::run(cmd).await,
+        SystemCommand::Internal(cmd) => match cmd {
+            InternalCommand::GenCliDoc => {
+                // Write directly to stdout — not JSON. Caller redirects to COMMAND-MAP.md.
+                // Bypass the normal JSON output wrapper.
+                let md = clap_markdown::help_markdown::<CliRoot>();
+                print!("{md}");
+                std::process::exit(0);
+            }
+        },
     }
 }
 
@@ -2142,6 +2467,8 @@ async fn handle_agent(
             SuperviseCommand::Events(a) => crate::agent_supervise::run_events(a).await,
             SuperviseCommand::Watch(a) => crate::agent_supervise_watch::run(a).await,
         },
+        AgentCommand::Register(args) => crate::agent_ops::run_register(args, &client).await,
+        AgentCommand::SetStatus(args) => crate::agent_ops::run_set_status(args, &client).await,
     }
 }
 
@@ -3569,18 +3896,20 @@ async fn call_mcp_tool(
 
 // ── edgeplane domain ────────────────────────────────────────────────────────────────
 
-async fn handle_domain(cmd: DomainCommand, client: EdgeplaneClient, config: &EdgeplaneConfig) -> Result<()> {
-    // Resolve the agent id for this runtime. Prefer the configured agent_id;
-    // fall back to the default derived from the session state file.
-    let agent_id = config
-        .agent_context
-        .agent_id
-        .clone()
-        .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
-        .context("No agent_id configured. Run `edgeplane init` or set EP_AGENT_ID.")?;
-
+async fn handle_domain(
+    cmd: DomainCommand,
+    client: EdgeplaneClient,
+    config: &EdgeplaneConfig,
+    output_mode: OutputMode,
+) -> Result<()> {
     match cmd {
         DomainCommand::Home => {
+            let agent_id = config
+                .agent_context
+                .agent_id
+                .clone()
+                .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
+                .context("No agent_id configured. Run `edgeplane init` or set EP_AGENT_ID.")?;
             let agent = client.get_json(&format!("/agents/{agent_id}")).await?;
             let home_id   = agent.get("home_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
             let curr_id   = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
@@ -3589,6 +3918,12 @@ async fn handle_domain(cmd: DomainCommand, client: EdgeplaneClient, config: &Edg
             println!("Current      : {curr_id}  ({miss_name})");
         }
         DomainCommand::Attach { domain_id } => {
+            let agent_id = config
+                .agent_context
+                .agent_id
+                .clone()
+                .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
+                .context("No agent_id configured. Run `edgeplane init` or set EP_AGENT_ID.")?;
             let body = json!({ "domain_id": domain_id });
             let agent = client.patch_json(&format!("/agents/{agent_id}/domain"), &body).await?;
             let curr  = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
@@ -3596,11 +3931,365 @@ async fn handle_domain(cmd: DomainCommand, client: EdgeplaneClient, config: &Edg
             println!("Attached to domain {curr} ({name})");
         }
         DomainCommand::Detach => {
+            let agent_id = config
+                .agent_context
+                .agent_id
+                .clone()
+                .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
+                .context("No agent_id configured. Run `edgeplane init` or set EP_AGENT_ID.")?;
             let body = json!({ "domain_id": null });
             let agent = client.patch_json(&format!("/agents/{agent_id}/domain"), &body).await?;
             let curr  = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
             let name  = agent.get("domain_name").and_then(|v| v.as_str()).unwrap_or("—");
             println!("Detached — returned to home domain {curr} ({name})");
+        }
+        DomainCommand::Create {
+            name,
+            description,
+            owners,
+            contributors,
+            tags,
+            visibility,
+            status,
+        } => {
+            let mut body = json!({ "name": name });
+            if let Some(v) = description   { body["description"]   = json!(v); }
+            if let Some(v) = owners        { body["owners"]        = json!(v); }
+            if let Some(v) = contributors  { body["contributors"]  = json!(v); }
+            if let Some(v) = tags          { body["tags"]          = json!(v); }
+            if let Some(v) = visibility    { body["visibility"]    = json!(v); }
+            if let Some(v) = status        { body["status"]        = json!(v); }
+            let result = client.post_json("/domains", &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        DomainCommand::List { limit } => {
+            let path = format!("/domains?limit={limit}");
+            let result = client.get_json(&path).await?;
+            output::print_value(output_mode, &result);
+        }
+        DomainCommand::Show { id } => {
+            let result = client.get_json(&format!("/domains/{id}")).await?;
+            output::print_value(output_mode, &result);
+        }
+        DomainCommand::Update {
+            id,
+            description,
+            owners,
+            contributors,
+            tags,
+            visibility,
+            status,
+        } => {
+            let mut body = json!({});
+            if let Some(v) = description   { body["description"]   = json!(v); }
+            if let Some(v) = owners        { body["owners"]        = json!(v); }
+            if let Some(v) = contributors  { body["contributors"]  = json!(v); }
+            if let Some(v) = tags          { body["tags"]          = json!(v); }
+            if let Some(v) = visibility    { body["visibility"]    = json!(v); }
+            if let Some(v) = status        { body["status"]        = json!(v); }
+            let result = client.patch_json(&format!("/domains/{id}"), &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        DomainCommand::Delete { id } => {
+            client.delete(&format!("/domains/{id}")).await?;
+            if output_mode.is_machine() {
+                println!("{}", serde_json::json!({"ok": true, "deleted": id}));
+            } else {
+                println!("Deleted domain {id}");
+            }
+        }
+        DomainCommand::Northstar(cmd) => handle_domain_northstar(cmd, client).await?,
+    }
+    Ok(())
+}
+
+// ── edgeplane mission ────────────────────────────────────────────────────────────────
+
+async fn handle_mission(
+    cmd: MissionCommand,
+    client: EdgeplaneClient,
+    output_mode: OutputMode,
+) -> Result<()> {
+    match cmd {
+        MissionCommand::Create {
+            name,
+            domain_id,
+            description,
+            owners,
+            contributors,
+            tags,
+            status,
+            workstream,
+        } => {
+            let path = format!("/domains/{domain_id}/m");
+            let mut body = json!({ "name": name, "domain_id": domain_id });
+
+            if let Some(v) = description  { body["description"]   = json!(v); }
+            if let Some(v) = owners       { body["owners"]        = json!(v); }
+            if let Some(v) = contributors { body["contributors"]  = json!(v); }
+            if let Some(v) = tags         { body["tags"]          = json!(v); }
+            if let Some(v) = status       { body["status"]        = json!(v); }
+            if let Some(v) = workstream   { body["workstream_md"] = json!(v); }
+            let result = client.post_json(&path, &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        MissionCommand::List { domain_id } => {
+            let result = if let Some(did) = domain_id {
+                client.get_json(&format!("/domains/{did}/m")).await?
+            } else {
+                // Search returns {"results":[...], "total":N} — normalize to bare array.
+                let resp = client.get_json("/search/missions?q=&limit=50").await?;
+                resp.get("results").cloned().unwrap_or(resp)
+            };
+            output::print_value(output_mode, &result);
+        }
+        MissionCommand::Show { id, domain_id } => {
+            let result = client.get_json(&format!("/domains/{domain_id}/m/{id}")).await?;
+            output::print_value(output_mode, &result);
+        }
+        MissionCommand::Update {
+            id,
+            domain_id,
+            name,
+            description,
+            owners,
+            contributors,
+            tags,
+            status,
+        } => {
+            let mut body = json!({});
+            if let Some(v) = name         { body["name"]          = json!(v); }
+            if let Some(v) = description  { body["description"]   = json!(v); }
+            if let Some(v) = owners       { body["owners"]        = json!(v); }
+            if let Some(v) = contributors { body["contributors"]  = json!(v); }
+            if let Some(v) = tags         { body["tags"]          = json!(v); }
+            if let Some(v) = status       { body["status"]        = json!(v); }
+            let result = client.patch_json(&format!("/domains/{domain_id}/m/{id}"), &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        MissionCommand::Delete { id, domain_id } => {
+            client.delete(&format!("/domains/{domain_id}/m/{id}")).await?;
+            if output_mode.is_machine() {
+                println!("{}", serde_json::json!({"ok": true, "deleted": id}));
+            } else {
+                println!("Deleted mission {id}");
+            }
+        }
+        MissionCommand::Brief(cmd) => handle_mission_brief(cmd, client).await?,
+    }
+    Ok(())
+}
+
+// ── edgeplane domain northstar / mission brief ───────────────────────────────────
+
+/// Fetch-GET-PUT loop for the `$EDITOR`-based document edit flow.
+/// `get_path` is used for both GET and PUT (the tower API is symmetric).
+async fn edit_document(
+    client: &EdgeplaneClient,
+    get_path: &str,
+    doc_label: &str,
+) -> Result<()> {
+    // 1. Fetch current content.
+    let resp: Value = client.get_json(get_path).await?;
+    let current_content = resp
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let version = resp
+        .get("version")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    // 2. Write to a temp file.
+    let tmp_dir = std::env::temp_dir();
+    let tmp_path = tmp_dir.join(format!(
+        "edgeplane-{}-{}.md",
+        doc_label,
+        std::process::id()
+    ));
+    std::fs::write(&tmp_path, &current_content)?;
+
+    // 3. Open $EDITOR (fallback: vi).
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+    let status = std::process::Command::new(&editor)
+        .arg(&tmp_path)
+        .status()
+        .with_context(|| format!("failed to launch editor '{editor}'"))?;
+    if !status.success() {
+        anyhow::bail!("editor exited with non-zero status: {}", status);
+    }
+
+    // 4. Read back and PUT only if changed.
+    let new_content = std::fs::read_to_string(&tmp_path)?;
+    let _ = std::fs::remove_file(&tmp_path);
+
+    if new_content == current_content {
+        println!("(no changes)");
+        return Ok(());
+    }
+
+    let body = serde_json::json!({ "content": new_content });
+    let result: Value = client.put_json(get_path, &body).await?;
+    let new_version = result
+        .get("version")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(version + 1);
+    println!("{doc_label} saved (v{new_version})");
+    Ok(())
+}
+
+async fn handle_domain_northstar(
+    cmd: NorthstarCommand,
+    client: EdgeplaneClient,
+) -> Result<()> {
+    match cmd {
+        NorthstarCommand::Get { domain_id, json } => {
+            let resp: Value = client
+                .get_json(&format!("/domains/{domain_id}/northstar"))
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&resp)?);
+            } else {
+                let content = resp
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let version = resp
+                    .get("version")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let modified_by = resp
+                    .get("modified_by")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if !modified_by.is_empty() {
+                    eprintln!("# NORTHSTAR v{version} (last modified by {modified_by})");
+                }
+                print!("{content}");
+            }
+            Ok(())
+        }
+        NorthstarCommand::Edit { domain_id } => {
+            edit_document(
+                &client,
+                &format!("/domains/{domain_id}/northstar"),
+                "NORTHSTAR",
+            )
+            .await
+        }
+    }
+}
+
+async fn handle_mission_brief(
+    cmd: BriefCommand,
+    client: EdgeplaneClient,
+) -> Result<()> {
+    match cmd {
+        BriefCommand::Get { mission_id, json } => {
+            let resp: Value = client
+                .get_json(&format!("/missions/{mission_id}/brief"))
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&resp)?);
+            } else {
+                let content = resp
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let version = resp
+                    .get("version")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let modified_by = resp
+                    .get("modified_by")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if !modified_by.is_empty() {
+                    eprintln!("# BRIEF v{version} (last modified by {modified_by})");
+                }
+                print!("{content}");
+            }
+            Ok(())
+        }
+        BriefCommand::Edit { mission_id } => {
+            edit_document(
+                &client,
+                &format!("/missions/{mission_id}/brief"),
+                "BRIEF",
+            )
+            .await
+        }
+    }
+}
+
+// ── edgeplane task ────────────────────────────────────────────────────────────────
+
+async fn handle_task(
+    cmd: TaskCommand,
+    client: EdgeplaneClient,
+    output_mode: OutputMode,
+) -> Result<()> {
+    match cmd {
+        TaskCommand::Create {
+            title,
+            mission_id,
+            domain_id,
+            description,
+            status,
+            owner,
+            contributors,
+            dod,
+            dependencies,
+        } => {
+            let mut body = json!({ "title": title, "mission_id": mission_id });
+            if let Some(v) = description  { body["description"]        = json!(v); }
+            if let Some(v) = status       { body["status"]             = json!(v); }
+            if let Some(v) = owner        { body["owner"]              = json!(v); }
+            if let Some(v) = contributors { body["contributors"]       = json!(v); }
+            if let Some(v) = dod          { body["definition_of_done"] = json!(v); }
+            if let Some(v) = dependencies { body["dependencies"]       = json!(v); }
+            let result = client.post_json(&format!("/domains/{domain_id}/m/{mission_id}/t"), &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        TaskCommand::List { mission_id } => {
+            let result = client.get_json(&format!("/missions/{mission_id}/t")).await?;
+            output::print_value(output_mode, &result);
+        }
+        TaskCommand::Show { id, mission_id, domain_id } => {
+            let result = client.get_json(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}")).await?;
+            output::print_value(output_mode, &result);
+        }
+        TaskCommand::Update {
+            id,
+            mission_id,
+            domain_id,
+            title,
+            description,
+            status,
+            owner,
+            contributors,
+            dod,
+            dependencies,
+        } => {
+            let mut body = json!({});
+            if let Some(v) = title        { body["title"]              = json!(v); }
+            if let Some(v) = description  { body["description"]        = json!(v); }
+            if let Some(v) = status       { body["status"]             = json!(v); }
+            if let Some(v) = owner        { body["owner"]              = json!(v); }
+            if let Some(v) = contributors { body["contributors"]       = json!(v); }
+            if let Some(v) = dod          { body["definition_of_done"] = json!(v); }
+            if let Some(v) = dependencies { body["dependencies"]       = json!(v); }
+            let result = client.patch_json(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}"), &body).await?;
+            output::print_value(output_mode, &result);
+        }
+        TaskCommand::Delete { id, mission_id, domain_id } => {
+            client.delete(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}")).await?;
+            if output_mode.is_machine() {
+                println!("{}", serde_json::json!({"ok": true, "deleted": id}));
+            } else {
+                println!("Deleted task {id}");
+            }
         }
     }
     Ok(())
