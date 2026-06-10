@@ -46,7 +46,7 @@ pub enum ReceiptsCmd {
 pub fn run(cmd: ReceiptsCmd) -> Result<()> {
     use edgeplaned_receipts::{ReceiptFilter, ReceiptStore};
 
-    let db_path = crate::config::ep_home_dir().join("receipts.db");
+    let db_path = edgeplaned_paths::receipts_db_path();
     let store = ReceiptStore::open(&db_path)?;
 
     match cmd {

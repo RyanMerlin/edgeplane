@@ -52,8 +52,7 @@ pub struct SecretsProfileConfig {
 }
 
 pub fn profile_secrets_path(profile_name: &str) -> PathBuf {
-    crate::config::ep_home_dir()
-        .join("profiles")
+    edgeplaned_paths::profiles_dir()
         .join(profile_name)
         .join("secrets.json")
 }

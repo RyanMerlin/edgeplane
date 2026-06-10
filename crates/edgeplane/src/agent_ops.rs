@@ -13,7 +13,7 @@
 //!
 //! ## Transport
 //!
-//! Local: Unix socket `~/.edgeplane/mgmt.sock`, newline-delimited
+//! Local: Unix socket `~/.edgeplane/run/mgmt.sock`, newline-delimited
 //! JSON-RPC 2.0, no auth (filesystem perms gate access).
 //! Remote: existing controlplane HTTP via [`EdgeplaneClient`].
 
@@ -351,8 +351,8 @@ async fn list_remote(client: &EdgeplaneClient) -> Result<Vec<Value>> {
 // ─── Mgmt-socket JSON-RPC client ─────────────────────────────────────────
 
 fn mgmt_socket_path() -> std::path::PathBuf {
-    // Mirrors edgeplaned_core::paths::mgmt_socket_path() — `~/.edgeplane/mgmt.sock`.
-    crate::config::ep_home_dir().join("edgeplaned").join("mgmt.sock")
+    // Delegates to edgeplaned_paths::mgmt_socket_path() — `~/.edgeplane/run/mgmt.sock`.
+    edgeplaned_paths::mgmt_socket_path()
 }
 
 async fn call_mgmt(method: &str, params: Value) -> Result<Value> {

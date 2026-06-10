@@ -1211,7 +1211,7 @@ fn detect_machine_info() -> Value {
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(0);
 
-    let work_dir = crate::config::ep_home_dir().join("edgeplaned").join("work");
+    let work_dir = edgeplaned_paths::work_dir();
 
     // Detect key tools.
     let tools: Vec<Value> = [
@@ -1912,11 +1912,11 @@ impl Drop for RawTerminal {
 }
 
 fn attach_socket_path() -> std::path::PathBuf {
-    crate::config::ep_home_dir().join("edgeplaned").join("edgeplaned.sock")
+    edgeplaned_paths::attach_socket_path()
 }
 
 fn mgmt_socket_path() -> std::path::PathBuf {
-    crate::config::ep_home_dir().join("edgeplaned").join("mgmt.sock")
+    edgeplaned_paths::mgmt_socket_path()
 }
 
 /// Connect-probe the daemon's mgmt socket. Returns true only if the socket
@@ -2065,7 +2065,7 @@ fn locate_mcd_workspace() -> Option<std::path::PathBuf> {
 // ---------------------------------------------------------------------------
 
 fn state_file_path() -> PathBuf {
-    crate::config::ep_home_dir().join("edgeplaned").join("state.json")
+    edgeplaned_paths::state_file_path()
 }
 
 /// Read the state file as a v2 JSON object. Returns an empty v2 structure on

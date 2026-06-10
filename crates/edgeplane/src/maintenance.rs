@@ -113,7 +113,7 @@ fn perform_profile_gc(args: ProfileGcArgs) -> Result<ProfileGcSummary> {
     let mut removed_instances = Vec::<String>::new();
     let mut removed_bundles = Vec::<String>::new();
 
-    let instances_dir = root.join("instances");
+    let instances_dir = edgeplaned_paths::instances_dir();
     if instances_dir.exists() {
         let mut entries: Vec<_> = std::fs::read_dir(&instances_dir)?
             .filter_map(|entry| entry.ok())
@@ -144,7 +144,7 @@ fn perform_profile_gc(args: ProfileGcArgs) -> Result<ProfileGcSummary> {
         }
     }
 
-    let profiles_dir = root.join("profiles");
+    let profiles_dir = edgeplaned_paths::profiles_dir();
     if profiles_dir.exists() {
         for profile in std::fs::read_dir(&profiles_dir)?.filter_map(|entry| entry.ok()) {
             let bundles_dir = profile.path().join("bundles");

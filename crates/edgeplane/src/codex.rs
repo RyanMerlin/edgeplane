@@ -1,5 +1,5 @@
 use crate::{
-    config::{EdgeplaneConfig, ep_home_dir},
+    config::EdgeplaneConfig,
     ep_info, ep_ok,
 };
 use anyhow::{Context, Result, bail};
@@ -241,7 +241,7 @@ pub async fn run_exec(
 }
 
 pub fn codex_paths(profile: &str) -> CodexPaths {
-    let profile_root = ep_home_dir().join("profiles").join("codex").join(profile);
+    let profile_root = edgeplaned_paths::profiles_dir().join("codex").join(profile);
     let runtime_home = profile_root.join("codex-home");
     CodexPaths {
         config_path: runtime_home.join("config.toml"),

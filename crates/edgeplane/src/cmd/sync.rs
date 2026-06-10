@@ -35,7 +35,7 @@ struct EdgeplaneSyncConfig {
 }
 
 fn read_config_sync_repo() -> Option<String> {
-    let path = crate::config::ep_home_dir().join("config.json");
+    let path = edgeplaned_paths::cli_config_path();
     let content = std::fs::read_to_string(path).ok()?;
     let cfg: EdgeplaneSyncConfig = serde_json::from_str(&content).ok()?;
     cfg.sync_repo
@@ -66,7 +66,7 @@ pub fn run(cmd: Option<SyncCmd>) -> Result<()> {
             )
         })?;
 
-    let cache_dir = crate::config::ep_home_dir().join("sync");
+    let cache_dir = edgeplaned_paths::sync_cache_dir();
     let hostname = resolve_hostname();
 
     let client = SyncClient::new(&repo_url, &cache_dir, &hostname)?;

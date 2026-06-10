@@ -12,7 +12,8 @@ fn ep_bin() -> &'static str {
 fn initialized_request_returns_result_and_list_changed_notification() {
     let tmp = tempdir().expect("tmp");
     let ep_home = tmp.path().join("edgeplane-home");
-    fs::create_dir_all(&ep_home).expect("ep_home");
+    let state_dir = ep_home.join("state");
+    fs::create_dir_all(&state_dir).expect("ep_home/state");
     let session = json!({
         "token": "mcs_test-token",
         "subject": "test-user",
@@ -21,7 +22,7 @@ fn initialized_request_returns_result_and_list_changed_notification() {
         "session_id": null
     });
     fs::write(
-        ep_home.join("session.json"),
+        state_dir.join("session.json"),
         serde_json::to_string(&session).unwrap(),
     )
     .expect("session.json");

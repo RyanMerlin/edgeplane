@@ -18,7 +18,7 @@ pub async fn run_from_repo(repo_url: &str, profile: Option<&str>) -> Result<()> 
     use edgeplaned_sync::SyncClient;
 
     let profile_name = profile.unwrap_or("default");
-    let cache_dir = crate::config::ep_home_dir().join("sync");
+    let cache_dir = edgeplaned_paths::sync_cache_dir();
     let hostname = resolve_hostname();
 
     // Step 1: Clone / pull sync repo.
@@ -37,7 +37,7 @@ pub async fn run_from_repo(repo_url: &str, profile: Option<&str>) -> Result<()> 
     // TODO(edgeplane-init): install + enable systemd unit for edgeplaned daemon
 
     // Step 3: Write config file.
-    let config_path = crate::config::ep_home_dir().join("config.json");
+    let config_path = edgeplaned_paths::cli_config_path();
     write_init_config(&config_path, repo_url)?;
     println!("✓ config written to {}", config_path.display());
 

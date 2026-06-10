@@ -334,7 +334,7 @@ fn pretty_event(ev: &Value) -> String {
 }
 
 fn mgmt_socket_path() -> std::path::PathBuf {
-    crate::config::ep_home_dir().join("edgeplaned").join("mgmt.sock")
+    edgeplaned_paths::mgmt_socket_path()
 }
 
 async fn call_mgmt(method: &str, params: Value) -> Result<Value> {

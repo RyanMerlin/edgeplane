@@ -2246,7 +2246,7 @@ async fn handle_secrets_provider(
 }
 
 fn handle_infisical_profiles(command: InfisicalProfileCommand, output_mode: OutputMode) -> Result<()> {
-    let path = crate::config::ep_home_dir().join("infisical_profiles.json");
+    let path = edgeplaned_paths::infisical_profiles_path();
     let mut map = if path.exists() {
         let raw = fs::read_to_string(&path)?;
         serde_json::from_str::<edgeplaned_secrets::InfisicalProfileMap>(&raw)
@@ -3063,7 +3063,7 @@ async fn handle_profile(
             apply,
             allow_pin_mismatch,
         } => {
-            let profile_root = crate::config::ep_home_dir().join("profiles").join(&name);
+            let profile_root = edgeplaned_paths::profiles_dir().join(&name);
             let mut pull_args = json!({ "name": name });
             if let Some(pinned_sha) = read_local_pinned_sha(&profile_root)? {
                 if !allow_pin_mismatch {
@@ -3134,7 +3134,7 @@ async fn handle_profile(
             }
         }
         ProfileCommand::Pin { name, sha256 } => {
-            let profile_root = crate::config::ep_home_dir().join("profiles").join(&name);
+            let profile_root = edgeplaned_paths::profiles_dir().join(&name);
             fs::create_dir_all(&profile_root)?;
             let pin = json!({
                 "profile": name,
@@ -3194,7 +3194,7 @@ async fn handle_profile(
                 .and_then(|v| v.get("sha256"))
                 .cloned()
                 .unwrap_or(Value::Null);
-            let profile_root = crate::config::ep_home_dir().join("profiles").join(&name);
+            let profile_root = edgeplaned_paths::profiles_dir().join(&name);
             let local_pin_path = profile_root.join("pin.json");
             let local_state_path = profile_root.join("state.json");
             let local_pin = if local_pin_path.exists() {
@@ -3258,7 +3258,7 @@ async fn handle_profile(
                 .unwrap_or("unknown");
 
             // 3. Store bundle tarball and extract into the live profile directory.
-            let profile_root = crate::config::ep_home_dir().join("profiles").join(&name);
+            let profile_root = edgeplaned_paths::profiles_dir().join(&name);
             let bundles = profile_root.join("bundles");
             fs::create_dir_all(&bundles)?;
             let tar_path = bundles.join(format!("{}.tar", sha));
@@ -3401,9 +3401,7 @@ fn validate_init_base_url(config: &EdgeplaneConfig) -> Result<()> {
 }
 
 fn write_synced_profile_state(profile_name: &str) -> Result<()> {
-    let profile_root = crate::config::ep_home_dir()
-        .join("profiles")
-        .join(profile_name);
+    let profile_root = edgeplaned_paths::profiles_dir().join(profile_name);
     fs::create_dir_all(&profile_root)?;
     let payload = json!({
         "profile": profile_name,
@@ -3424,9 +3422,7 @@ fn bootstrap_local_profile(
     output_mode: OutputMode,
 ) -> Result<()> {
     let json_output = output_mode.is_machine();
-    let profile_root = crate::config::ep_home_dir()
-        .join("profiles")
-        .join(profile_name);
+    let profile_root = edgeplaned_paths::profiles_dir().join(profile_name);
     fs::create_dir_all(&profile_root)?;
     let payload = json!({
         "profile": profile_name,

@@ -18,7 +18,7 @@
 
 use crate::{
     client::EdgeplaneClient,
-    config::{load_saved_config, ep_home_dir, save_config},
+    config::{load_saved_config, save_config},
     ui,
 };
 use anyhow::{Context, Result, anyhow};
@@ -98,7 +98,7 @@ pub fn session_file_path() -> PathBuf {
         return crate::context::session_file_for(&name);
     }
 
-    ep_home_dir().join("session.json")
+    edgeplaned_paths::session_file_path()
 }
 
 /// Read the saved session from disk and validate it is not expired and matches
