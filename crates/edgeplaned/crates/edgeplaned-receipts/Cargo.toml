@@ -6,6 +6,7 @@ description = "SQLite audit store for edgeplaned capability executions"
 license = "Apache-2.0"
 
 [dependencies]
+edgeplaned-paths = { path = "../../../edgeplaned-paths" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -203,10 +203,8 @@ impl LocalRegistry {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating db dir {}", parent.display()))?;
         }
-        let conn = Connection::open(path)
+        let conn = edgeplaned_paths::open_tuned(path)
             .with_context(|| format!("opening registry {}", path.display()))?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.pragma_update(None, "foreign_keys", 1)?;
         Self::migrate(&conn)?;
         set_mode_0600(path)?;
         Ok(Self { conn })
@@ -429,9 +427,8 @@ impl LocalRegistry {
     /// call from `tokio::task::spawn_blocking`. WAL mode allows concurrent
     /// reads from the daemon's long-lived connection while this write runs.
     pub fn replace_source(path: &Path, source: &str, specs: &[AgentSpec]) -> Result<()> {
-        let mut conn = Connection::open(path)
+        let mut conn = edgeplaned_paths::open_tuned(path)
             .with_context(|| format!("opening registry for replace_source: {}", path.display()))?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
         Self::migrate(&conn)?;
         let now = chrono::Utc::now().to_rfc3339();
         let tx = conn.transaction()?;

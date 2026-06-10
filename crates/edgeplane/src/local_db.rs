@@ -43,9 +43,8 @@ fn open() -> Result<Connection> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating db dir {}", parent.display()))?;
     }
-    let conn = Connection::open(&path)
+    let conn = edgeplaned_paths::open_tuned(&path)
         .with_context(|| format!("opening local registry {}", path.display()))?;
-    conn.pragma_update(None, "journal_mode", "WAL")?;
     ensure_schema(&conn)?;
     Ok(conn)
 }

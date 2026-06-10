@@ -43,6 +43,7 @@ which = "6"
 libc = "0.2"
 rusqlite = { version = "0.31", features = ["bundled"] }
 toml = "0.8"
+edgeplaned-paths = { path = "../edgeplaned-paths" }
 edgeplaned-packs = { path = "../edgeplaned/crates/edgeplaned-packs" }
 edgeplaned-receipts = { path = "../edgeplaned/crates/edgeplaned-receipts" }
 edgeplaned-sync = { path = "../edgeplaned/crates/edgeplaned-sync" }

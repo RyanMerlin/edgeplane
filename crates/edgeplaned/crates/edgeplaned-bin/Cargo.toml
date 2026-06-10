@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 edgeplaned-acp = { path = "../edgeplaned-acp" }
 edgeplaned-core = { path = "../edgeplaned-core" }
+edgeplaned-paths = { path = "../../../edgeplaned-paths" }
 edgeplaned-secrets = { path = "../edgeplaned-secrets" }
 edgeplaned-packs = { path = "../edgeplaned-packs" }
 edgeplaned-receipts = { path = "../edgeplaned-receipts" }
