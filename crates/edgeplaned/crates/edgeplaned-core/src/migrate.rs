@@ -378,6 +378,19 @@ mod tests {
         fs::write(home.join("receipts.db"), b"r").unwrap();
         fs::write(home.join("contexts.yaml"), b"c").unwrap();
         fs::write(home.join("session.json"), b"s").unwrap();
+        // Additional files exercised by v2 but not yet covered by assertions.
+        fs::write(home.join("agent_id"), b"agt-abc123").unwrap();
+        fs::write(home.join("infisical_profiles.json"), b"{}").unwrap();
+        fs::create_dir_all(home.join("instances/inst-1")).unwrap();
+        fs::write(home.join("instances/inst-1/state.json"), b"{}").unwrap();
+        fs::create_dir_all(home.join("profiles/operator")).unwrap();
+        fs::write(home.join("profiles/operator/ctx.json"), b"{}").unwrap();
+        fs::create_dir_all(home.join("skills")).unwrap();
+        fs::write(home.join("skills/my-skill.toml"), b"[skill]").unwrap();
+        fs::create_dir_all(home.join("sync")).unwrap();
+        fs::write(home.join("sync/data.json"), b"[]").unwrap();
+        // `servers` is a FILE (server-list), not a dir — match production shape.
+        fs::write(home.join("servers"), b"https://tower.example\n").unwrap();
         fs::create_dir_all(edgeplaned.join("work/agentA")).unwrap();
         fs::write(edgeplaned.join("work/agentA/ws.txt"), b"workspace").unwrap();
 
@@ -391,6 +404,15 @@ mod tests {
         assert!(home.join("state/registry.db-wal").exists(), "wal sibling moved");
         assert!(home.join("state/receipts.db").exists(), "receipts.db -> state/");
         assert!(home.join("state/session.json").exists(), "session.json -> state/");
+        // Additional bucket assertions.
+        assert!(home.join("state/agent_id").exists(), "agent_id -> state/");
+        assert_eq!(fs::read_to_string(home.join("state/agent_id")).unwrap(), "agt-abc123");
+        assert!(home.join("state/infisical_profiles.json").exists(), "infisical_profiles.json -> state/");
+        assert!(home.join("state/instances/inst-1/state.json").exists(), "instances/ -> state/instances/");
+        assert!(home.join("state/profiles/operator/ctx.json").exists(), "profiles/ -> state/profiles/");
+        assert!(home.join("state/skills/my-skill.toml").exists(), "skills/ -> state/skills/");
+        assert!(home.join("state/sync/data.json").exists(), "sync/ -> state/sync/");
+        assert!(home.join("config/servers").is_file(), "servers (file) -> config/servers");
         assert!(!edgeplaned.join("hn.html").exists(), "hn.html junk deleted");
         // cron compat symlink resolves to the moved file.
         let link = edgeplaned.join("cron.toml");

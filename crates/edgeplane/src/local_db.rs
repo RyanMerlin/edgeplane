@@ -331,8 +331,6 @@ mod tests {
     use tempfile::TempDir;
 
     fn setup_ep_home(tmp: &TempDir) {
-        let db_dir = tmp.path().join("edgeplaned");
-        std::fs::create_dir_all(&db_dir).unwrap();
         // SAFETY: tests run single-threaded (--test-threads 1).
         unsafe { std::env::set_var("EP_HOME", tmp.path()) };
     }

@@ -394,7 +394,6 @@ pub async fn run_driver_agent(
         ep_warn!("could not write edgeplane/context.json: {}", e);
     }
     upsert_launch_session(
-        &base_mc_home,
         LaunchSessionRecord {
             runtime_session_id: runtime_session_id.clone(),
             agent: selected_agent.config_key().to_string(),
@@ -893,20 +892,20 @@ async fn resolve_profile_name(
     Ok("default".to_string())
 }
 
-fn session_index_path(_base_mc_home: &Path) -> PathBuf {
+fn session_index_path() -> PathBuf {
     edgeplaned_paths::sessions_dir().join("launch-index.jsonl")
 }
 
 pub(crate) fn sessions_for_profile(profile: &str) -> Vec<LaunchSessionRecord> {
-    read_launch_sessions(&ep_home_dir())
+    read_launch_sessions()
         .unwrap_or_default()
         .into_iter()
         .filter(|s| s.profile == profile)
         .collect()
 }
 
-fn read_launch_sessions(base_mc_home: &Path) -> Result<Vec<LaunchSessionRecord>> {
-    let path = session_index_path(base_mc_home);
+fn read_launch_sessions() -> Result<Vec<LaunchSessionRecord>> {
+    let path = session_index_path();
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -923,8 +922,8 @@ fn read_launch_sessions(base_mc_home: &Path) -> Result<Vec<LaunchSessionRecord>>
     Ok(out)
 }
 
-fn upsert_launch_session(base_mc_home: &Path, record: LaunchSessionRecord) -> Result<()> {
-    let mut sessions = read_launch_sessions(base_mc_home)?;
+fn upsert_launch_session(record: LaunchSessionRecord) -> Result<()> {
+    let mut sessions = read_launch_sessions()?;
     sessions.retain(|s| s.runtime_session_id != record.runtime_session_id);
     sessions.push(record);
     let sessions_dir = edgeplaned_paths::sessions_dir();
@@ -934,7 +933,7 @@ fn upsert_launch_session(base_mc_home: &Path, record: LaunchSessionRecord) -> Re
         .map(serde_json::to_string)
         .collect::<std::result::Result<Vec<_>, _>>()?
         .join("\n");
-    fs::write(session_index_path(base_mc_home), format!("{}\n", body))?;
+    fs::write(session_index_path(), format!("{}\n", body))?;
     Ok(())
 }
 

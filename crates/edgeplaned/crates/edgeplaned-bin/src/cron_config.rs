@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 /// "binary too old, upgrade edgeplaned" message.
 pub const MCD_SUPPORTED_CRON_SCHEMA: u32 = 1;
 
-/// Default config file path: `~/.ep/edgeplaned/cron.toml`. Override via env
+/// Default config file path: `~/.edgeplane/config/cron.toml`. Override via env
 /// `MCD_CRON_FILE` or `DaemonConfig.cron_file`.
 pub fn default_path() -> PathBuf {
     edgeplaned_paths::cron_config_path()
@@ -682,7 +682,7 @@ prompt = "x"
 
     #[test]
     fn load_path_resolution() {
-        // Default path lives under mcd_dir().
+        // Default path lives under config_dir() (i.e. ~/.edgeplane/config/).
         let default = default_path();
         assert!(
             default.ends_with("cron.toml"),
