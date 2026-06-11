@@ -3,7 +3,7 @@ name = "edgeplane"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "Rust-native MCP bridge for Edgeplane"
+description = "EdgePlane — fleet control-plane CLI"
 license.workspace = true
 
 [dependencies]

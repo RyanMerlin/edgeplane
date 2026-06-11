@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use crate::client::EdgeplaneClient;
 
-/// `edgeplane agent evolve` — self-improvement loop: run agents against MC's own backlog.
+/// `edgeplane agent evolve` — self-improvement loop: run agents against EdgePlane's own backlog.
 #[derive(Args, Debug)]
 pub struct EvolveArgs {
     #[command(subcommand)]
