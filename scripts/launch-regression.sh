@@ -49,13 +49,13 @@ assert_not_exists() {
 # ── codex: configs land in profile dir, not global home ──────────────────────
 echo "[launch-regression] codex profile isolation"
 run_mc run codex
-assert_exists  "$EP_HOME/profiles/codex/default/codex-home/config.toml"
+assert_exists  "$EP_HOME/state/profiles/codex/default/codex-home/config.toml"
 assert_not_exists "$TEST_HOME/.codex/config.toml"
 
 # ── claude: configs land in profile dir, not global home ─────────────────────
 echo "[launch-regression] claude profile isolation"
 run_mc run claude
-assert_exists  "$EP_HOME/profiles/default/claude/runtime/home/.claude.json"
+assert_exists  "$EP_HOME/state/profiles/default/claude/runtime/home/.claude.json"
 assert_not_exists "$TEST_HOME/.claude.json"
 
 echo "[launch-regression] ok"
