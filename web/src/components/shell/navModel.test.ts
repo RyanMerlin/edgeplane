@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { NAV_GROUPS, isNavItemActive } from './navModel';
 
 describe('navModel', () => {
-  it('exposes Dashboard, Agents, Nodes, Domains, Feed, Governance', () => {
+  it('exposes Dashboard, Agents, Nodes, Domains, Feed, Governance, Admin', () => {
     const tos = NAV_GROUPS.flatMap((g) => g.items).map((i) => i.to);
-    expect(tos).toEqual(['/', '/agents', '/nodes', '/domains', '/feed', '/governance']);
+    expect(tos).toEqual(['/', '/agents', '/nodes', '/domains', '/feed', '/governance', '/admin']);
   });
   it('matches "/" only exactly', () => {
     expect(isNavItemActive('/', '/')).toBe(true);

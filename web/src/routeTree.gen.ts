@@ -18,10 +18,12 @@ import { Route as ExplorerRouteImport } from './routes/explorer'
 import { Route as DomainsRouteImport } from './routes/domains'
 import { Route as AiRouteImport } from './routes/ai'
 import { Route as AgentsRouteImport } from './routes/agents'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as NodesIndexRouteImport } from './routes/nodes.index'
 import { Route as DomainsIndexRouteImport } from './routes/domains.index'
 import { Route as AgentsIndexRouteImport } from './routes/agents.index'
+import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as NodesNodeIdRouteImport } from './routes/nodes.$nodeId'
 import { Route as DomainsDomainIdRouteImport } from './routes/domains.$domainId'
 import { Route as AgentsAgentIdRouteImport } from './routes/agents.$agentId'
@@ -72,6 +74,11 @@ const AgentsRoute = AgentsRouteImport.update({
   path: '/agents',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -91,6 +98,11 @@ const AgentsIndexRoute = AgentsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AgentsRoute,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
 } as any)
 const NodesNodeIdRoute = NodesNodeIdRouteImport.update({
   id: '/$nodeId',
@@ -116,6 +128,7 @@ const DomainsDomainIdMissionsMissionIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/agents': typeof AgentsRouteWithChildren
   '/ai': typeof AiRoute
   '/domains': typeof DomainsRouteWithChildren
@@ -128,6 +141,7 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId': typeof AgentsAgentIdRoute
   '/domains/$domainId': typeof DomainsDomainIdRouteWithChildren
   '/nodes/$nodeId': typeof NodesNodeIdRoute
+  '/admin/': typeof AdminIndexRoute
   '/agents/': typeof AgentsIndexRoute
   '/domains/': typeof DomainsIndexRoute
   '/nodes/': typeof NodesIndexRoute
@@ -144,6 +158,7 @@ export interface FileRoutesByTo {
   '/agents/$agentId': typeof AgentsAgentIdRoute
   '/domains/$domainId': typeof DomainsDomainIdRouteWithChildren
   '/nodes/$nodeId': typeof NodesNodeIdRoute
+  '/admin': typeof AdminIndexRoute
   '/agents': typeof AgentsIndexRoute
   '/domains': typeof DomainsIndexRoute
   '/nodes': typeof NodesIndexRoute
@@ -152,6 +167,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/agents': typeof AgentsRouteWithChildren
   '/ai': typeof AiRoute
   '/domains': typeof DomainsRouteWithChildren
@@ -164,6 +180,7 @@ export interface FileRoutesById {
   '/agents/$agentId': typeof AgentsAgentIdRoute
   '/domains/$domainId': typeof DomainsDomainIdRouteWithChildren
   '/nodes/$nodeId': typeof NodesNodeIdRoute
+  '/admin/': typeof AdminIndexRoute
   '/agents/': typeof AgentsIndexRoute
   '/domains/': typeof DomainsIndexRoute
   '/nodes/': typeof NodesIndexRoute
@@ -173,6 +190,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/agents'
     | '/ai'
     | '/domains'
@@ -185,6 +203,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/domains/$domainId'
     | '/nodes/$nodeId'
+    | '/admin/'
     | '/agents/'
     | '/domains/'
     | '/nodes/'
@@ -201,6 +220,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/domains/$domainId'
     | '/nodes/$nodeId'
+    | '/admin'
     | '/agents'
     | '/domains'
     | '/nodes'
@@ -208,6 +228,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/agents'
     | '/ai'
     | '/domains'
@@ -220,6 +241,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/domains/$domainId'
     | '/nodes/$nodeId'
+    | '/admin/'
     | '/agents/'
     | '/domains/'
     | '/nodes/'
@@ -228,6 +250,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRouteWithChildren
   AgentsRoute: typeof AgentsRouteWithChildren
   AiRoute: typeof AiRoute
   DomainsRoute: typeof DomainsRouteWithChildren
@@ -304,6 +327,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -331,6 +361,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/agents/'
       preLoaderRoute: typeof AgentsIndexRouteImport
       parentRoute: typeof AgentsRoute
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/nodes/$nodeId': {
       id: '/nodes/$nodeId'
@@ -362,6 +399,16 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface AdminRouteChildren {
+  AdminIndexRoute: typeof AdminIndexRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminIndexRoute: AdminIndexRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface AgentsRouteChildren {
   AgentsAgentIdRoute: typeof AgentsAgentIdRoute
@@ -415,6 +462,7 @@ const NodesRouteWithChildren = NodesRoute._addFileChildren(NodesRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRouteWithChildren,
   AgentsRoute: AgentsRouteWithChildren,
   AiRoute: AiRoute,
   DomainsRoute: DomainsRouteWithChildren,

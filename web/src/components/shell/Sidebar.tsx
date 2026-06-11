@@ -38,6 +38,7 @@ const NAV_ICON: Record<string, string> = {
   '/domains': '▤',
   '/feed': '≋',
   '/governance': '⚖',
+  '/admin': '⚙',
 };
 
 // ── Inline Domains tree ──────────────────────────────────────────────────────

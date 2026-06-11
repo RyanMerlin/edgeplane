@@ -19,6 +19,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/governance', label: 'Governance' },
     ],
   },
+  { heading: null, items: [{ to: '/admin', label: 'Admin' }] },
 ];
 
 /** Active when pathname equals the item ("/" exact) or is a path-boundary descendant. */
