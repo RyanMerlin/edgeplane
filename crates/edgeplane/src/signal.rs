@@ -75,10 +75,10 @@ pub async fn run(args: SignalArgs, client: &EdgeplaneClient) -> Result<()> {
         return Ok(());
     }
 
-    // Ensure the sender agent identity exists. Idempotent: the MCP
-    // register_agent tool upserts by name and returns the existing
-    // public_id when the row is already there. Capabilities are set to
-    // `signal` so it's obvious in the agent list what this row is for.
+    // Ensure the sender agent identity exists. Idempotent: POST /agents
+    // upserts by name and returns the existing public_id when the row is
+    // already there. Capabilities are set to `signal` so it's obvious in
+    // the agent list what this row is for.
     let pid = ensure_sender_agent(client, &sender)
         .await
         .with_context(|| format!("ensure sender agent `{sender}`"))?;
@@ -115,32 +115,28 @@ fn default_sender_name() -> String {
     format!("{cleaned}-edgeplane-signal")
 }
 
-/// Upsert the sender agent via the MCP `register_agent` tool. Returns
-/// the resolved `public_id`. The agent table's ON CONFLICT (name) DO
-/// UPDATE makes this idempotent — re-runs leave the row's public_id
-/// unchanged. register_agent returns the public_id directly so no
-/// follow-up GET is needed.
+/// Upsert the sender agent via `POST /agents` and return its `public_id`.
+///
+/// `POST /agents` is idempotent: the tower's `create_agent` handler uses
+/// `ON CONFLICT (name) DO UPDATE SET …` so a duplicate name refreshes
+/// `capabilities` and `updated_at` rather than erroring. Both the insert
+/// and the upsert-update paths return `200 OK` with the full agent JSON,
+/// including `public_id` at the top level. No follow-up GET is needed.
+///
+/// The previous implementation called the MCP `register_agent` tool, which
+/// was removed in ADR 0006 (tower MCP catalogue reduction). Callers of
+/// `ensure_sender_agent` are unchanged.
 async fn ensure_sender_agent(client: &EdgeplaneClient, name: &str) -> Result<String> {
-    let body = json!({
-        "tool": "register_agent",
-        "args": { "name": name, "capabilities": "signal" }
-    });
+    let body = json!({ "name": name, "capabilities": "signal" });
     let resp: Value = client
-        .post_json("/mcp/call", &body)
+        .post_json("/agents", &body)
         .await
-        .context("mcp register_agent")?;
-    if resp.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-        anyhow::bail!(
-            "register_agent failed: {}",
-            resp.get("error")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown error")
-        );
-    }
+        .context("POST /agents")?;
     let pid = resp
-        .pointer("/result/public_id")
+        .get("public_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("register_agent response missing public_id"))?;
+        .or_else(|| resp.get("id").and_then(|v| v.as_str()))
+        .ok_or_else(|| anyhow::anyhow!("POST /agents response missing public_id: {resp}"))?;
     Ok(pid.to_string())
 }
 
