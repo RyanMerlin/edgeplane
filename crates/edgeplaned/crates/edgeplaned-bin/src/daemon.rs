@@ -426,6 +426,13 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         );
     }
 
+    // Compute the registry path here so the shutdown checkpoint below (which
+    // runs after the mgmt-gateway block) can use the same path. The
+    // mgmt-gateway block uses a clone of this for registry_path and moves that
+    // clone into AgentOpsHandle, so we need the original to remain accessible.
+    let shutdown_registry: PathBuf = crate::local_registry::LocalRegistry::default_path()
+        .unwrap_or_else(|_| edgeplaned_core::paths::registry_db_path());
+
     // If the daemon has a registered node_id, send periodic node heartbeats
     // to edgeplane-tower with current Tailscale info.
     if let Some(node_id) = cfg.node_id.clone() {
@@ -510,11 +517,9 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         // Phase 3 daemon-absorption: wire the supervisor + runtime_map +
         // registry path so the new `agent.local.*` and
         // `agent.describe_local` JSON-RPC methods can answer queries about
-        // locally-supervised agents. Registry path falls back to the
-        // default location if discovery fails — the agent.* handlers
-        // return a structured "registry read failed" error in that case.
-        let registry_path = crate::local_registry::LocalRegistry::default_path()
-            .unwrap_or_else(|_| edgeplaned_core::paths::registry_db_path());
+        // locally-supervised agents. Path is cloned from shutdown_registry
+        // (computed before this block) so both targets resolve identically.
+        let registry_path = shutdown_registry.clone();
 
         // Phase 4: spawn the cron tick loop + GC task. CronHandle is
         // threaded into AgentOpsHandle so the `agent.cron.reload` JSON-RPC
@@ -556,6 +561,29 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
             .await
         });
 
+        // Keep the SQLite WAL files bounded: TRUNCATE-checkpoint registry + receipts
+        // on a 60s cadence. journal_size_limit caps the file; this actively reclaims it.
+        // Resolve the SAME paths the live stores opened (registry_path / paths::*),
+        // so the checkpoint provably targets the real WAL, not a stray empty file
+        // created by edgeplaned_paths::*_db_path() which points at a different dir.
+        let ckpt_registry = registry_path.clone();
+        let ckpt_receipts = paths::receipts_db_path();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+            tick.tick().await; // consume the immediate first tick
+            loop {
+                tick.tick().await;
+                for p in [ckpt_registry.clone(), ckpt_receipts.clone()] {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if let Err(e) = edgeplaned_paths::checkpoint_truncate(&p) {
+                            tracing::debug!("wal checkpoint {}: {e}", p.display());
+                        }
+                    })
+                    .await;
+                }
+            }
+        });
+
         let agent_ops = crate::mgmt_gateway::AgentOpsHandle {
             supervisor: Arc::clone(&supervisor),
             runtime_map: Arc::clone(&runtime_map),
@@ -591,6 +619,19 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
                 tracing::info!("All task loops exited");
             }
         }
+    }
+
+    // Drain the WAL on graceful shutdown so the files don't linger at high-water mark.
+    // Use shutdown_registry (computed before the mgmt-gateway block, identical to
+    // the registry_path used by the live store and the periodic checkpoint) and
+    // paths::receipts_db_path() — not edgeplaned_paths which may point at a
+    // different directory and silently create a stale empty file.
+    if let Err(e) = edgeplaned_paths::checkpoint_truncate(&shutdown_registry) {
+        tracing::debug!("shutdown wal checkpoint {}: {e}", shutdown_registry.display());
+    }
+    let receipts_path = paths::receipts_db_path();
+    if let Err(e) = edgeplaned_paths::checkpoint_truncate(&receipts_path) {
+        tracing::debug!("shutdown wal checkpoint {}: {e}", receipts_path.display());
     }
 
     // Clean up sockets on exit.

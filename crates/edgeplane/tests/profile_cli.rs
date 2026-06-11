@@ -12,8 +12,10 @@ fn ep_bin() -> &'static str {
 
 /// Seed a session.json with a test token in `ep_home`, mimicking the file
 /// written by `edgeplane auth login`. Returns the EP_HOME path.
+/// Session lives at `<EP_HOME>/state/session.json` (new bucketed layout).
 fn seed_session(ep_home: &Path, base_url: &str) {
-    fs::create_dir_all(ep_home).expect("ep_home");
+    let state_dir = ep_home.join("state");
+    fs::create_dir_all(&state_dir).expect("state dir");
     let session = json!({
         "token": "mcs_test-token",
         "subject": "test-user",
@@ -22,7 +24,7 @@ fn seed_session(ep_home: &Path, base_url: &str) {
         "session_id": null
     });
     fs::write(
-        ep_home.join("session.json"),
+        state_dir.join("session.json"),
         serde_json::to_string(&session).unwrap(),
     )
     .expect("session.json");
@@ -114,7 +116,7 @@ fn profile_pull_respects_pin_mismatch_from_mcp() {
     let tmp = tempdir().expect("tmp");
     let ep_home = tmp.path().join("edgeplane-home");
     seed_session(&ep_home, &server.url(""));
-    let profile_dir = ep_home.join("profiles").join("research");
+    let profile_dir = ep_home.join("state").join("profiles").join("research");
     fs::create_dir_all(&profile_dir).expect("profile dir");
     fs::write(
         profile_dir.join("pin.json"),
@@ -157,7 +159,7 @@ fn profile_status_calls_get_and_pin_tools() {
     let tmp = tempdir().expect("tmp");
     let ep_home = tmp.path().join("edgeplane-home");
     seed_session(&ep_home, &server.url(""));
-    let profile_dir = ep_home.join("profiles").join("research");
+    let profile_dir = ep_home.join("state").join("profiles").join("research");
     fs::create_dir_all(&profile_dir).expect("profile dir");
     fs::write(
         profile_dir.join("pin.json"),

@@ -282,7 +282,7 @@ fn read_node_credential() -> Option<(String, String)> {
 }
 
 fn read_mc_base_url() -> Option<String> {
-    let content = std::fs::read_to_string(paths::ep_home_dir().join("config.json")).ok()?;
+    let content = std::fs::read_to_string(edgeplaned_paths::cli_config_path()).ok()?;
     let cfg: EdgeplaneConfig = serde_json::from_str(&content).ok()?;
     cfg.base_url
 }

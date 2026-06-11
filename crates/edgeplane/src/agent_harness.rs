@@ -369,8 +369,8 @@ pub async fn run_driver_agent(
             .unwrap_or_else(|_| "default".to_string());
 
     let runtime_session_id = format!("rs_{}", Uuid::new_v4().simple());
-    let instance_home = base_mc_home.join("instances").join(&runtime_session_id);
-    let profile_home = base_mc_home.join("profiles").join(&profile_name);
+    let instance_home = edgeplaned_paths::instances_dir().join(&runtime_session_id);
+    let profile_home = edgeplaned_paths::profiles_dir().join(&profile_name);
     fs::create_dir_all(&instance_home)?;
     fs::create_dir_all(&profile_home)?;
 
@@ -893,8 +893,8 @@ async fn resolve_profile_name(
     Ok("default".to_string())
 }
 
-fn session_index_path(base_mc_home: &Path) -> PathBuf {
-    base_mc_home.join("sessions").join("launch-index.jsonl")
+fn session_index_path(_base_mc_home: &Path) -> PathBuf {
+    edgeplaned_paths::sessions_dir().join("launch-index.jsonl")
 }
 
 pub(crate) fn sessions_for_profile(profile: &str) -> Vec<LaunchSessionRecord> {
@@ -927,7 +927,7 @@ fn upsert_launch_session(base_mc_home: &Path, record: LaunchSessionRecord) -> Re
     let mut sessions = read_launch_sessions(base_mc_home)?;
     sessions.retain(|s| s.runtime_session_id != record.runtime_session_id);
     sessions.push(record);
-    let sessions_dir = base_mc_home.join("sessions");
+    let sessions_dir = edgeplaned_paths::sessions_dir();
     fs::create_dir_all(&sessions_dir)?;
     let body = sessions
         .iter()
@@ -1120,7 +1120,7 @@ async fn enforce_profile_pin(
     profile_name: &str,
     allow_pin_mismatch: bool,
 ) -> Result<()> {
-    let profile_root = ep_home_dir().join("profiles").join(profile_name);
+    let profile_root = edgeplaned_paths::profiles_dir().join(profile_name);
     let pin_path = profile_root.join("pin.json");
     if !pin_path.exists() {
         return Ok(());

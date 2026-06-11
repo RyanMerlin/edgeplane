@@ -1,8 +1,8 @@
 //! `edgeplane agent cron` — inspection + reload for edgeplaned's cron scheduler.
 //!
 //! All verbs route through the mgmt_gateway over the Unix socket
-//! (`~/.edgeplane/edgeplaned/mgmt.sock`). Phase 4 of the daemon-absorption
-//! plan. Job definitions live in `~/.ep/edgeplaned/cron.toml` — operators edit
+//! (`~/.edgeplane/run/mgmt.sock`). Phase 4 of the daemon-absorption
+//! plan. Job definitions live in `~/.edgeplane/config/cron.toml` — operators edit
 //! that file directly; this CLI only inspects and pokes reload.
 
 use anyhow::{Context, Result, bail};
@@ -232,7 +232,7 @@ fn str_or<'a>(v: &'a Value, key: &str, fallback: &'a str) -> &'a str {
 }
 
 fn mgmt_socket_path() -> std::path::PathBuf {
-    crate::config::ep_home_dir().join("edgeplaned").join("mgmt.sock")
+    edgeplaned_paths::mgmt_socket_path()
 }
 
 async fn call_mgmt(method: &str, params: Value) -> Result<Value> {

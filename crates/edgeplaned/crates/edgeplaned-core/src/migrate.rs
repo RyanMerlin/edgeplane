@@ -1,20 +1,33 @@
-//! One-shot migration from legacy path layouts to the canonical `~/.ep/edgeplaned/` layout.
+//! One-shot migrations from legacy path layouts to the canonical `~/.edgeplane/` layout.
 //!
-//! Runs on first `edgeplaned` boot. Writes `~/.ep/edgeplaned/.migrated-v1` as a sentinel and
-//! skips on subsequent starts. All operations are soft-fail: warnings are emitted
+//! Each pass is independently idempotent via its own sentinel file written inside
+//! `~/.edgeplane/edgeplaned/`. All operations are soft-fail: warnings are emitted
 //! but boot is never blocked.
+//!
+//! Passes:
+//! - v1 (`.migrated-v1`): relocate `edgeplane-mesh.*` scattered files → `edgeplaned/`
+//! - v2 (`.migrated-v2`): relocate flat/process-split files → function buckets
+//!   (`config/`, `state/`, `run/`, `work/`) and dissolve the `edgeplaned/` namespace.
 
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
-use crate::paths::{ep_home_dir, mcd_dir};
+use crate::paths::{config_dir, ep_home_dir, mcd_dir, run_dir, state_dir, work_dir};
 
 const SENTINEL: &str = ".migrated-v1";
+const SENTINEL_V2: &str = ".migrated-v2";
 
-/// Run legacy-path migration once. Idempotent after the sentinel is written.
+/// Run all one-shot path migrations in order. Each pass is independently
+/// idempotent via its own sentinel.
 ///
 /// Call from `edgeplaned/src/main.rs` before daemon startup.
 pub fn migrate_once() {
+    migrate_legacy_v1();
+    migrate_to_buckets_v2();
+}
+
+/// v1: relocate scattered `edgeplane-mesh.*` files into `edgeplaned/`.
+fn migrate_legacy_v1() {
     let edgeplaned = mcd_dir();
     if let Err(e) = std::fs::create_dir_all(&edgeplaned) {
         warn!("migrate: could not create edgeplaned dir {}: {e}", edgeplaned.display());
@@ -85,6 +98,106 @@ pub fn migrate_once() {
     }
 }
 
+/// v2: relocate the flat/process-split layout into function buckets
+/// (`config/`, `state/`, `run/`, `work/`) and dissolve the `edgeplaned/` namespace.
+/// Idempotent via `.migrated-v2`. Soft-fail throughout.
+fn migrate_to_buckets_v2() {
+    let home = ep_home_dir();
+    let edgeplaned = home.join("edgeplaned");
+    let v2_sentinel = edgeplaned.join(SENTINEL_V2);
+    if v2_sentinel.exists() {
+        return;
+    }
+
+    for d in [config_dir(), state_dir(), run_dir(), edgeplaned.clone()] {
+        if let Err(e) = std::fs::create_dir_all(&d) {
+            warn!("migrate v2: mkdir {} failed: {e}", d.display());
+            return;
+        }
+    }
+
+    // config/
+    move_file(edgeplaned.join("cron.toml"), config_dir().join("cron.toml"), "cron.toml");
+    move_file(edgeplaned.join("config.yaml"), config_dir().join("config.yaml"), "config.yaml");
+    move_file(home.join("config.json"), config_dir().join("config.json"), "cli config.json");
+    move_file(home.join("contexts.yaml"), config_dir().join("contexts.yaml"), "contexts.yaml");
+    move_file(home.join("servers"), config_dir().join("servers"), "servers");
+
+    // state/
+    move_db(
+        edgeplaned.join("registry.db"),
+        edgeplaned.join("registry.db-shm"),
+        edgeplaned.join("registry.db-wal"),
+        state_dir().join("registry.db"),
+        "registry",
+    );
+    move_db(
+        home.join("receipts.db"),
+        home.join("receipts.db-shm"),
+        home.join("receipts.db-wal"),
+        state_dir().join("receipts.db"),
+        "receipts",
+    );
+    move_file(edgeplaned.join("state.json"), state_dir().join("state.json"), "state.json");
+    move_file(
+        edgeplaned.join("state.json.bak"),
+        state_dir().join("state.json.bak"),
+        "state.json.bak",
+    );
+    move_file(home.join("session.json"), state_dir().join("session.json"), "session.json");
+    move_file(home.join("agent_id"), state_dir().join("agent_id"), "agent_id");
+    move_file(
+        home.join("infisical_profiles.json"),
+        state_dir().join("infisical_profiles.json"),
+        "infisical_profiles.json",
+    );
+    move_dir(home.join("instances"), state_dir().join("instances"), "instances");
+    move_dir(home.join("sessions"), state_dir().join("sessions"), "sessions");
+    move_dir(home.join("profiles"), state_dir().join("profiles"), "profiles");
+    move_dir(home.join("skills"), state_dir().join("skills"), "skills");
+    move_dir(home.join("sync"), state_dir().join("sync"), "sync");
+
+    // run/
+    move_file(
+        edgeplaned.join("edgeplaned.lock"),
+        run_dir().join("edgeplaned.lock"),
+        "lock",
+    );
+    // sockets are recreated by the daemon on boot; do not move live sockets.
+
+    // work/ — merge contents into the bucket. The daemon may already have created
+    // an empty (or partially-populated) `work/` before/after migration, so we move
+    // each child entry rather than renaming the whole dir (which would skip on a
+    // pre-existing destination and strand the old workspaces).
+    merge_dir(edgeplaned.join("work"), work_dir());
+
+    // junk
+    for j in ["hn.html", "hn-news.html"] {
+        let _ = std::fs::remove_file(edgeplaned.join(j));
+    }
+
+    // compat: keep the documented cron path working for one release.
+    // `../config/cron.toml` is relative to the `edgeplaned/` dir, so it resolves
+    // to `<home>/config/cron.toml`.
+    let link = edgeplaned.join("cron.toml");
+    let target = PathBuf::from("../config/cron.toml");
+    if !link.exists() {
+        #[cfg(unix)]
+        if let Err(e) = std::os::unix::fs::symlink(&target, &link) {
+            warn!("migrate v2: cron compat symlink failed: {e}");
+        }
+    }
+
+    if let Err(e) = std::fs::write(&v2_sentinel, b"") {
+        warn!(
+            "migrate v2: could not write sentinel {}: {e}",
+            v2_sentinel.display()
+        );
+    } else {
+        info!("edgeplaned: v2 bucket migration complete");
+    }
+}
+
 // ---------- helpers ----------
 
 fn move_file(src: PathBuf, dst: PathBuf, label: &str) {
@@ -114,7 +227,7 @@ fn move_db(src: PathBuf, src_shm: PathBuf, src_wal: PathBuf, dst: PathBuf, label
         info!("migrate: {label} db already at destination, skipping");
         return;
     }
-    // Checkpoint WAL before moving (best-effort; daemon isn't running yet).
+    // Move the .db plus its -shm/-wal siblings together so no committed-but-uncheckpointed state is lost.
     let dst_shm = dst.with_extension("db-shm");
     let dst_wal = dst.with_extension("db-wal");
     move_file(src, dst, label);
@@ -136,6 +249,41 @@ fn move_dir(src: PathBuf, dst: PathBuf, label: &str) {
     } else {
         info!("migrate: moved {label} dir: {} → {}", src.display(), dst.display());
     }
+}
+
+/// Move every child entry of `src` into `dst`, creating `dst` if needed.
+/// Per-entry: skip if the destination entry already exists (never clobber).
+/// Removes `src` afterward if it ends up empty. Soft-fail. Same-filesystem
+/// rename is assumed (both live under `$EP_HOME`); a cross-fs rename failure is
+/// logged and the entry is left in place for a manual move.
+fn merge_dir(src: PathBuf, dst: PathBuf) {
+    if !src.exists() {
+        return;
+    }
+    if let Err(e) = std::fs::create_dir_all(&dst) {
+        warn!("migrate v2: mkdir {} failed: {e}", dst.display());
+        return;
+    }
+    let entries = match std::fs::read_dir(&src) {
+        Ok(e) => e,
+        Err(e) => {
+            warn!("migrate v2: read_dir {} failed: {e}", src.display());
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if to.exists() {
+            info!("migrate v2: work item already at destination, skipping {}", to.display());
+            continue;
+        }
+        if let Err(e) = std::fs::rename(&from, &to) {
+            warn!("migrate v2: could not move work item {} -> {}: {e}", from.display(), to.display());
+        }
+    }
+    // Remove the now-(hopefully)-empty source dir; ignore failure if not empty.
+    let _ = std::fs::remove_dir(&src);
 }
 
 fn is_dir_empty(path: &Path) -> bool {
@@ -206,5 +354,139 @@ mod tests {
         assert!(new_dir.join("config.json").exists());
         assert!(!legacy_dir.join("config.json").exists());
         assert!(is_dir_empty(&legacy_dir));
+    }
+
+    #[test]
+    fn v2_relocates_files_into_buckets() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().to_path_buf();
+        // SAFETY: migrate tests run single-threaded.
+        unsafe { std::env::set_var("EP_HOME", &home) };
+
+        let edgeplaned = home.join("edgeplaned");
+        fs::create_dir_all(&edgeplaned).unwrap();
+        // v1 sentinel present so only the v2 pass runs.
+        fs::write(edgeplaned.join(".migrated-v1"), b"").unwrap();
+
+        // Seed current-layout files in both levels.
+        fs::write(edgeplaned.join("cron.toml"), b"schema_version = 1\n").unwrap();
+        fs::write(edgeplaned.join("config.yaml"), b"backend_url: x\n").unwrap();
+        fs::write(edgeplaned.join("state.json"), b"{}").unwrap();
+        fs::write(edgeplaned.join("registry.db"), b"db").unwrap();
+        fs::write(edgeplaned.join("registry.db-wal"), b"wal").unwrap();
+        fs::write(edgeplaned.join("hn.html"), b"junk").unwrap();
+        fs::write(home.join("receipts.db"), b"r").unwrap();
+        fs::write(home.join("contexts.yaml"), b"c").unwrap();
+        fs::write(home.join("session.json"), b"s").unwrap();
+        fs::create_dir_all(edgeplaned.join("work/agentA")).unwrap();
+        fs::write(edgeplaned.join("work/agentA/ws.txt"), b"workspace").unwrap();
+
+        migrate_once();
+
+        assert!(home.join("config/cron.toml").exists(), "cron.toml -> config/");
+        assert!(home.join("config/config.yaml").exists(), "config.yaml -> config/");
+        assert!(home.join("config/contexts.yaml").exists(), "contexts.yaml -> config/");
+        assert!(home.join("state/state.json").exists(), "state.json -> state/");
+        assert!(home.join("state/registry.db").exists(), "registry.db -> state/");
+        assert!(home.join("state/registry.db-wal").exists(), "wal sibling moved");
+        assert!(home.join("state/receipts.db").exists(), "receipts.db -> state/");
+        assert!(home.join("state/session.json").exists(), "session.json -> state/");
+        assert!(!edgeplaned.join("hn.html").exists(), "hn.html junk deleted");
+        // cron compat symlink resolves to the moved file.
+        let link = edgeplaned.join("cron.toml");
+        assert!(link.exists(), "cron.toml compat symlink present");
+        assert_eq!(fs::read_to_string(&link).unwrap(), "schema_version = 1\n");
+        assert!(home.join("edgeplaned/.migrated-v2").exists(), "v2 sentinel written");
+        assert!(home.join("work/agentA/ws.txt").exists(), "agent workspace moved to work/");
+        assert_eq!(fs::read_to_string(home.join("work/agentA/ws.txt")).unwrap(), "workspace");
+
+        unsafe { std::env::remove_var("EP_HOME") };
+    }
+
+    /// Regression: pre-existing `work/` (created by the daemon before migration
+    /// finishes) must not strand workspaces from `edgeplaned/work/`.
+    #[test]
+    fn v2_work_merge_into_existing_dir() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().to_path_buf();
+        // SAFETY: migrate tests run single-threaded.
+        unsafe { std::env::set_var("EP_HOME", &home) };
+
+        let edgeplaned = home.join("edgeplaned");
+        fs::create_dir_all(&edgeplaned).unwrap();
+        fs::write(edgeplaned.join(".migrated-v1"), b"").unwrap();
+
+        // Simulate: old workspaces in edgeplaned/work/
+        fs::create_dir_all(edgeplaned.join("work/agentA")).unwrap();
+        fs::write(edgeplaned.join("work/agentA/old.txt"), b"old-workspace").unwrap();
+
+        // Simulate: daemon already created <home>/work/ (e.g. agentB started before migration)
+        fs::create_dir_all(home.join("work/agentB")).unwrap();
+        fs::write(home.join("work/agentB/new.txt"), b"new-workspace").unwrap();
+
+        migrate_once();
+
+        // Both agents must be present in the merged work/ bucket.
+        assert!(
+            home.join("work/agentA/old.txt").exists(),
+            "old workspace from edgeplaned/work/ must be merged into work/"
+        );
+        assert_eq!(
+            fs::read_to_string(home.join("work/agentA/old.txt")).unwrap(),
+            "old-workspace"
+        );
+        assert!(
+            home.join("work/agentB/new.txt").exists(),
+            "pre-existing work/ entry must be preserved"
+        );
+        assert_eq!(
+            fs::read_to_string(home.join("work/agentB/new.txt")).unwrap(),
+            "new-workspace"
+        );
+
+        // v2 sentinel written.
+        assert!(home.join("edgeplaned/.migrated-v2").exists(), "v2 sentinel written");
+
+        unsafe { std::env::remove_var("EP_HOME") };
+    }
+
+    #[test]
+    fn v2_idempotent_on_double_run() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().to_path_buf();
+        // SAFETY: migrate tests run single-threaded.
+        unsafe { std::env::set_var("EP_HOME", &home) };
+
+        let edgeplaned = home.join("edgeplaned");
+        fs::create_dir_all(&edgeplaned).unwrap();
+        fs::write(edgeplaned.join(".migrated-v1"), b"").unwrap();
+
+        // Seed some files for the first run.
+        fs::write(edgeplaned.join("cron.toml"), b"schema_version = 1\n").unwrap();
+        fs::write(edgeplaned.join("state.json"), b"{}").unwrap();
+
+        // First run — migrates files.
+        migrate_once();
+        assert!(home.join("config/cron.toml").exists(), "first run: cron moved");
+        assert!(home.join("state/state.json").exists(), "first run: state moved");
+        assert!(home.join("edgeplaned/.migrated-v2").exists(), "sentinel written");
+
+        // Seed a new file at the OLD location after the first run.
+        fs::write(edgeplaned.join("state.json"), b"NEW").unwrap();
+
+        // Second run — sentinel short-circuits; the new file at the old location
+        // must NOT be moved.
+        migrate_once();
+        assert_eq!(
+            fs::read_to_string(home.join("state/state.json")).unwrap(),
+            "{}",
+            "second run must not overwrite bucket file"
+        );
+        assert!(
+            edgeplaned.join("state.json").exists(),
+            "second run must leave old-location file untouched"
+        );
+
+        unsafe { std::env::remove_var("EP_HOME") };
     }
 }

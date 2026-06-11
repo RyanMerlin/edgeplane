@@ -1502,6 +1502,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "edgeplaned-packs",
+ "edgeplaned-paths",
  "edgeplaned-receipts",
  "edgeplaned-secrets",
  "edgeplaned-sync",
@@ -1599,6 +1600,7 @@ dependencies = [
  "edgeplaned-acp",
  "edgeplaned-core",
  "edgeplaned-packs",
+ "edgeplaned-paths",
  "edgeplaned-receipts",
  "edgeplaned-runtimes",
  "edgeplaned-secrets",
@@ -1657,6 +1659,7 @@ dependencies = [
  "chrono",
  "dirs",
  "edgeplaned-packs",
+ "edgeplaned-paths",
  "edgeplaned-receipts",
  "edgeplaned-secrets",
  "futures",
@@ -1686,11 +1689,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "edgeplaned-paths"
+version = "0.13.1"
+dependencies = [
+ "dirs",
+ "rusqlite",
+]
+
+[[package]]
 name = "edgeplaned-receipts"
 version = "0.13.1"
 dependencies = [
  "chrono",
  "dirs",
+ "edgeplaned-paths",
  "rusqlite",
  "serde",
  "serde_json",

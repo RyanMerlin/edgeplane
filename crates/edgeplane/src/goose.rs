@@ -5,7 +5,7 @@
 //! all inference through the cluster-internal LiteLLM proxy and injects the standard `EP_*`
 //! environment variables so the running agent can report progress back to Edgeplane.
 use crate::{
-    config::{EdgeplaneConfig, ep_home_dir},
+    config::EdgeplaneConfig,
     task_md,
 };
 use anyhow::{Context, Result, bail};
@@ -19,8 +19,7 @@ pub struct GoosePaths {
 }
 
 pub fn goose_paths(profile: &str) -> GoosePaths {
-    let profile_root = ep_home_dir()
-        .join("profiles")
+    let profile_root = edgeplaned_paths::profiles_dir()
         .join("goose")
         .join(profile);
     let runtime_home = profile_root.join("goose-home");

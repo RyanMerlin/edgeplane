@@ -18,7 +18,7 @@ fn test_write_servers_file_creates_file() {
     ])
     .unwrap();
 
-    let contents = std::fs::read_to_string(dir.path().join("servers")).unwrap();
+    let contents = std::fs::read_to_string(dir.path().join("config").join("servers")).unwrap();
     assert!(contents.contains("https://node-a:8008"));
     assert!(contents.contains("https://node-b:8008"));
     assert!(contents.contains("# Auto-generated"));
@@ -35,7 +35,7 @@ fn test_write_servers_file_overwrites_existing() {
     write_servers_file(&["https://old:8008".to_string()]).unwrap();
     write_servers_file(&["https://new:8008".to_string()]).unwrap();
 
-    let contents = std::fs::read_to_string(dir.path().join("servers")).unwrap();
+    let contents = std::fs::read_to_string(dir.path().join("config").join("servers")).unwrap();
     assert!(!contents.contains("https://old:8008"));
     assert!(contents.contains("https://new:8008"));
 

@@ -1,5 +1,4 @@
 use crate::{agent_context::AgentContext, schema_pack::SchemaPack};
-use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use std::{env, fs, path::PathBuf, time::Duration};
 use thiserror::Error;
@@ -111,7 +110,7 @@ pub struct SavedConfig {
 }
 
 pub fn config_file_path() -> PathBuf {
-    ep_home_dir().join("config.json")
+    edgeplaned_paths::cli_config_path()
 }
 
 pub fn load_saved_config() -> SavedConfig {
@@ -140,7 +139,7 @@ pub fn save_config(cfg: &SavedConfig) -> std::io::Result<()> {
 }
 
 pub fn ep_home_dir() -> PathBuf {
-    expand_home_path(&env::var("EP_HOME").unwrap_or_else(|_| "~/.edgeplane".into()))
+    edgeplaned_paths::ep_home_dir()
 }
 
 /// Resolve the command used to launch the running `edgeplane` binary, for
@@ -159,7 +158,7 @@ pub fn resolve_ep_command() -> String {
 }
 
 pub fn servers_file_path() -> PathBuf {
-    ep_home_dir().join("servers")
+    edgeplaned_paths::servers_path()
 }
 
 /// Resolution order:
@@ -212,17 +211,18 @@ fn parse_server_list(s: &str) -> Vec<String> {
 }
 
 pub fn skills_home_dir() -> PathBuf {
-    ep_home_dir().join("skills")
+    edgeplaned_paths::skills_dir()
 }
 
 pub fn ensure_mc_dirs() -> std::io::Result<()> {
-    fs::create_dir_all(ep_home_dir())?;
+    fs::create_dir_all(edgeplaned_paths::config_dir())?;
+    fs::create_dir_all(edgeplaned_paths::state_dir())?;
     fs::create_dir_all(skills_home_dir())?;
     Ok(())
 }
 
 pub fn agent_id_file() -> PathBuf {
-    ep_home_dir().join("agent_id")
+    edgeplaned_paths::agent_id_path()
 }
 
 fn read_agent_id_from_disk() -> Option<String> {
@@ -244,17 +244,3 @@ pub fn persist_agent_id(agent_id: &str) -> std::io::Result<()> {
     fs::write(path, format!("{}\n", agent_id))
 }
 
-fn expand_home_path(value: &str) -> PathBuf {
-    if let Some(stripped) = value.strip_prefix('~') {
-        if let Some(home) = home_dir() {
-            if stripped.is_empty() {
-                return home;
-            }
-            if let Some(stripped_without_slash) = stripped.strip_prefix('/') {
-                return home.join(stripped_without_slash);
-            }
-            return home.join(stripped);
-        }
-    }
-    PathBuf::from(value)
-}

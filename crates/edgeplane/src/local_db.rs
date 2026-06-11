@@ -13,17 +13,15 @@ use rusqlite::{Connection, params};
 use serde::Deserialize;
 use std::path::Path;
 
-use crate::config::ep_home_dir;
-
 pub fn db_path() -> std::path::PathBuf {
-    ep_home_dir().join("edgeplaned").join("registry.db")
+    edgeplaned_paths::registry_db_path()
 }
 
 /// Returns true if the node has a registered controlplane identity
 /// (state file has a `node_id`). Used to switch between standalone and
 /// federated CLI paths.
 pub fn is_federated() -> bool {
-    let state_path = ep_home_dir().join("edgeplaned").join("state.json");
+    let state_path = edgeplaned_paths::state_file_path();
     let Ok(raw) = std::fs::read_to_string(&state_path) else {
         return false;
     };
@@ -43,9 +41,8 @@ fn open() -> Result<Connection> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating db dir {}", parent.display()))?;
     }
-    let conn = Connection::open(&path)
+    let conn = edgeplaned_paths::open_tuned(&path)
         .with_context(|| format!("opening local registry {}", path.display()))?;
-    conn.pragma_update(None, "journal_mode", "WAL")?;
     ensure_schema(&conn)?;
     Ok(conn)
 }

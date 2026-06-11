@@ -23,12 +23,10 @@ impl ReceiptStore {
                 .map_err(|e| rusqlite::Error::InvalidPath(format!("{e}").into()))?;
         }
 
-        let conn = Connection::open(path)?;
+        let conn = edgeplaned_paths::open_tuned(path)?;
 
         conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             CREATE TABLE IF NOT EXISTS receipts (
+            "CREATE TABLE IF NOT EXISTS receipts (
                  id                TEXT PRIMARY KEY,
                  capability        TEXT NOT NULL,
                  args_json         TEXT NOT NULL,

@@ -28,7 +28,7 @@ pub const MCD_SUPPORTED_CRON_SCHEMA: u32 = 1;
 /// Default config file path: `~/.ep/edgeplaned/cron.toml`. Override via env
 /// `MCD_CRON_FILE` or `DaemonConfig.cron_file`.
 pub fn default_path() -> PathBuf {
-    edgeplaned_core::paths::mcd_dir().join("cron.toml")
+    edgeplaned_paths::cron_config_path()
 }
 
 /// Resolve the cron config file path: env override > config override > default.

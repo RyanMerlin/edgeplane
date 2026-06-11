@@ -14,6 +14,7 @@ COPY Cargo.toml Cargo.lock ./
 # Copy all workspace member Cargo.toml files (required for workspace resolver)
 COPY crates/edgeplane/Cargo.toml ./crates/edgeplane/Cargo.toml
 COPY crates/edgeplane-tower/Cargo.toml ./crates/edgeplane-tower/Cargo.toml
+COPY crates/edgeplaned-paths/Cargo.toml ./crates/edgeplaned-paths/Cargo.toml
 COPY crates/edgeplaned/crates/edgeplaned-bin/Cargo.toml ./crates/edgeplaned/crates/edgeplaned-bin/Cargo.toml
 COPY crates/edgeplaned/crates/edgeplaned-acp/Cargo.toml ./crates/edgeplaned/crates/edgeplaned-acp/Cargo.toml
 COPY crates/edgeplaned/crates/edgeplaned-core/Cargo.toml ./crates/edgeplaned/crates/edgeplaned-core/Cargo.toml
@@ -30,6 +31,7 @@ COPY crates/edgeplane-zrpc-proto/Cargo.toml ./crates/edgeplane-zrpc-proto/Cargo.
 RUN for d in \
       crates/edgeplane \
       crates/edgeplane-tower \
+      crates/edgeplaned-paths \
       crates/edgeplane-zrpc-proto \
       crates/edgeplaned/crates/edgeplaned-bin \
       crates/edgeplaned/crates/edgeplaned-acp \

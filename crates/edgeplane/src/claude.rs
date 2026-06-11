@@ -1,6 +1,6 @@
 use crate::{
     client::EdgeplaneClient,
-    config::{EdgeplaneConfig, ep_home_dir},
+    config::EdgeplaneConfig,
     ep_info, ep_ok, ep_warn,
 };
 use anyhow::{Context, Result, anyhow, bail};
@@ -247,8 +247,7 @@ pub async fn run_hook(event: String, config: &EdgeplaneConfig) -> Result<()> {
 }
 
 pub fn claude_paths(profile: &str) -> ClaudePaths {
-    let runtime_root = ep_home_dir()
-        .join("profiles")
+    let runtime_root = edgeplaned_paths::profiles_dir()
         .join(profile)
         .join("claude")
         .join("runtime");
