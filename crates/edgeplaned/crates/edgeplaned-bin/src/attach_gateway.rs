@@ -1,6 +1,6 @@
 /// Local unix socket gateway for `edgeplane daemon attach`.
 ///
-/// The daemon binds a unix socket at `~/.edgeplane/edgeplaned.sock`.
+/// The daemon binds a unix socket at `~/.edgeplane/run/edgeplaned.sock`.
 /// The `edgeplane` CLI connects, sends a single line with the target agent ID,
 /// receives `OK\n` (or `ERR <reason>\n`), then I/O becomes raw PTY proxy:
 ///

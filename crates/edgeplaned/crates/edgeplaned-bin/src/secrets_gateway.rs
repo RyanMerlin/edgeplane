@@ -28,6 +28,11 @@ impl SecretsGateway {
     }
 
     pub async fn run(self) -> Result<()> {
+        // Create parent dir (run/) if needed — matches the pattern in attach_gateway
+        // and mgmt_gateway; avoids a latent ENOENT if boot order changes.
+        if let Some(parent) = self.socket_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         let _ = std::fs::remove_file(&self.socket_path);
         let listener = UnixListener::bind(&self.socket_path)?;
 

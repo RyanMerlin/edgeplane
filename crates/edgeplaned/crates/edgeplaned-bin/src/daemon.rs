@@ -563,9 +563,8 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
 
         // Keep the SQLite WAL files bounded: TRUNCATE-checkpoint registry + receipts
         // on a 60s cadence. journal_size_limit caps the file; this actively reclaims it.
-        // Resolve the SAME paths the live stores opened (registry_path / paths::*),
-        // so the checkpoint provably targets the real WAL, not a stray empty file
-        // created by edgeplaned_paths::*_db_path() which points at a different dir.
+        // Uses the same paths the live stores opened (registry_path / paths::receipts_db_path),
+        // which now agree with edgeplaned_paths::*_db_path — both resolve to state/.
         let ckpt_registry = registry_path.clone();
         let ckpt_receipts = paths::receipts_db_path();
         tokio::spawn(async move {
@@ -622,10 +621,9 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     }
 
     // Drain the WAL on graceful shutdown so the files don't linger at high-water mark.
-    // Use shutdown_registry (computed before the mgmt-gateway block, identical to
-    // the registry_path used by the live store and the periodic checkpoint) and
-    // paths::receipts_db_path() — not edgeplaned_paths which may point at a
-    // different directory and silently create a stale empty file.
+    // shutdown_registry == registry_path used by the live store and the periodic
+    // checkpoint. paths::receipts_db_path() == edgeplaned_paths::receipts_db_path()
+    // — both resolve to state/receipts.db after the bucket migration.
     if let Err(e) = edgeplaned_paths::checkpoint_truncate(&shutdown_registry) {
         tracing::debug!("shutdown wal checkpoint {}: {e}", shutdown_registry.display());
     }
