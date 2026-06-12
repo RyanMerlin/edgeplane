@@ -1175,6 +1175,7 @@ pub async fn run(
     booster: AgentBooster,
     config: EdgeplaneConfig,
     output_mode: OutputMode,
+    raw_base_url: Option<String>,
 ) -> Result<()> {
     match command {
         EdgeplaneCommand::Status(args) => handle_status(args, client, &config, output_mode).await,
@@ -1190,7 +1191,7 @@ pub async fn run(
         EdgeplaneCommand::Artifact(cmd) => {
             handle_artifact(cmd, client, &booster, &config.schema_pack, output_mode).await
         }
-        EdgeplaneCommand::Auth(cmd) => handle_auth(cmd, client, &config).await,
+        EdgeplaneCommand::Auth(cmd) => handle_auth(cmd, client, &config, raw_base_url).await,
         EdgeplaneCommand::Data(cmd) => {
             handle_data(cmd, client, &booster, &config.schema_pack, output_mode).await
         }
@@ -1958,9 +1959,12 @@ async fn handle_auth(
     command: AuthCommand,
     client: EdgeplaneClient,
     config: &EdgeplaneConfig,
+    raw_base_url: Option<String>,
 ) -> Result<()> {
     match command {
-        AuthCommand::Login(args) => auth::login(args, &client, config.base_url.as_str()).await,
+        AuthCommand::Login(args) => {
+            auth::login(args, &client, config.base_url.as_str(), raw_base_url).await
+        }
         AuthCommand::Logout(args) => auth::logout(args, &client).await,
         AuthCommand::Whoami(_) => auth::whoami(&client).await,
     }
@@ -2519,6 +2523,8 @@ async fn handle_init(
                 },
                 &client,
                 config.base_url.as_str(),
+                // URL is already resolved from config — suppress context-selection prompt.
+                Some(config.base_url.to_string()),
             )
             .await
             {

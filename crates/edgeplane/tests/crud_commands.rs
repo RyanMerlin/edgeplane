@@ -134,6 +134,7 @@ async fn mission_create_posts_to_domain_path() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -158,6 +159,7 @@ async fn mission_list_without_domain_uses_search() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -182,6 +184,7 @@ async fn mission_list_with_domain_uses_domain_path() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -209,6 +212,7 @@ async fn mission_show_uses_domain_scoped_path() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -244,6 +248,7 @@ async fn mission_update_patches_domain_scoped_path() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -270,6 +275,7 @@ async fn mission_delete_sends_delete_to_domain_scoped_path() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -308,6 +314,7 @@ async fn task_create_posts_to_domain_scoped_path() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -332,6 +339,7 @@ async fn task_list_uses_mission_shortcut_path() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -360,6 +368,7 @@ async fn task_show_uses_domain_scoped_path() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -397,6 +406,7 @@ async fn task_update_patches_task_via_domain_scoped_path() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -424,6 +434,7 @@ async fn task_delete_sends_delete_via_domain_scoped_path() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -464,6 +475,7 @@ async fn domain_create_sends_optional_fields() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -498,6 +510,7 @@ async fn domain_update_sends_optional_fields() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -538,6 +551,7 @@ async fn mission_create_maps_workstream_to_workstream_md_key() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -580,6 +594,7 @@ async fn task_create_maps_dod_to_definition_of_done_key() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -621,6 +636,7 @@ async fn task_update_sends_optional_fields() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();
@@ -648,6 +664,7 @@ async fn mission_list_without_domain_normalizes_search_envelope() {
         booster,
         config,
         OutputMode::Json,
+        None,
     )
     .await
     .unwrap();

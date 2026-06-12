@@ -61,5 +61,5 @@ async fn main() -> anyhow::Result<()> {
         OutputMode::Human
     };
 
-    edgeplane::commands::run(opts.command, client, booster, config, output_mode).await
+    edgeplane::commands::run(opts.command, client, booster, config, output_mode, opts.base_url).await
 }

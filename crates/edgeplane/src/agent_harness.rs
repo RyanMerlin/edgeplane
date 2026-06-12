@@ -433,6 +433,8 @@ pub async fn run_driver_agent(
                 },
                 client,
                 config.base_url.as_str(),
+                // URL is already resolved from config — suppress context-selection prompt.
+                Some(config.base_url.to_string()),
             )
             .await
             .context("login failed — cannot launch without authentication")?;
