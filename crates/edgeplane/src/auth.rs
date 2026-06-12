@@ -83,19 +83,20 @@ pub struct SavedSession {
 /// Falls back to the legacy `~/.ep/session.json` when `contexts.yaml` is absent
 /// so existing installs keep working without any migration step.
 pub fn session_file_path() -> PathBuf {
-    let file = crate::context::load_contexts();
-    let (name, _) = crate::context::active_context(&file);
+    let ctx_path = crate::context::contexts_file_path();
 
     // Only use the per-context path when contexts.yaml actually exists on disk
     // (i.e. the user has run `edgeplane context add` at least once). Otherwise honour
     // the legacy path so nothing breaks for existing single-server installs.
-    let ctx_path = crate::context::contexts_file_path();
     if ctx_path.exists() {
-        let dir = crate::context::sessions_dir();
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            tracing::warn!("could not create sessions dir: {e}");
+        let file = crate::context::load_contexts();
+        if let Some((name, _)) = crate::context::active_context(&file) {
+            let dir = crate::context::sessions_dir();
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                tracing::warn!("could not create sessions dir: {e}");
+            }
+            return crate::context::session_file_for(&name);
         }
-        return crate::context::session_file_for(&name);
     }
 
     edgeplaned_paths::session_file_path()
@@ -249,6 +250,7 @@ pub async fn login(
     args: LoginArgs,
     _client: &EdgeplaneClient,
     current_base_url: &str,
+    explicit_base_url: Option<String>,
 ) -> Result<()> {
     if args.non_interactive {
         // Non-interactive: use EP_AGENT_TOKEN env directly with the resolved URL
@@ -266,13 +268,123 @@ pub async fn login(
 
     ui_section("Edgeplane Login");
 
-    let base_url = resolve_base_url(Some(current_base_url))?;
+    // Context selection: when no explicit server was provided via --base-url / EP_BASE_URL,
+    // and saved contexts exist, let the user pick one (or confirm the active one).
+    // `explicit_base_url` is `Some` when the flag or env var was set; `None` means unspecified.
+    let base_url = match explicit_base_url.as_deref().filter(|u| !u.is_empty()) {
+        Some(url) => {
+            // Caller specified a server explicitly — use it without prompting.
+            resolve_base_url(Some(url))?
+        }
+        None => {
+            // No explicit server — check saved contexts and prompt if multiple exist.
+            let ctxs = crate::context::load_contexts();
+            if !ctxs.contexts.is_empty() {
+                resolve_base_url_with_context_prompt(&ctxs, &ctxs.active)?
+            } else {
+                resolve_base_url(None)?
+            }
+        }
+    };
+
+    // Always show which server we are about to authenticate against.
+    display_login_target(&base_url);
 
     if args.with_token {
         login_with_token(&base_url, args.ttl_hours, args.print_token).await
     } else {
         login_oidc(&base_url, args.ttl_hours, args.print_token).await
     }
+}
+
+/// Print the Server / Context block that always precedes authentication.
+fn display_login_target(base_url: &str) {
+    let ctxs = crate::context::load_contexts();
+    let context_label = ctxs
+        .contexts
+        .iter()
+        .find(|(_, e)| e.base_url.trim_end_matches('/') == base_url.trim_end_matches('/'))
+        .map(|(name, _)| name.as_str())
+        .unwrap_or("(ad-hoc — not a saved context)")
+        .to_string();
+    ui_kv("Server", base_url, ui::CYAN);
+    ui_kv("Context", &context_label, ui::DIM);
+    eprintln!();
+}
+
+/// Pure selection logic: map user input to a base_url from `entries`.
+///
+/// - `input` is the raw line the user typed (already trimmed).
+/// - `entries` is `(name, base_url)` in display order.
+/// - `active_idx` is the 0-based index of the active/default entry (clamped to valid range).
+///
+/// Rules:
+/// - Empty input → entry at `active_idx`.
+/// - Numeric input in `[1, entries.len()]` → that entry (1-based).
+/// - Anything else (out-of-range number, non-numeric) → entry at `active_idx`.
+/// - Returns empty string when `entries` is empty.
+pub(crate) fn pick_context_base_url(
+    input: &str,
+    entries: &[(String, String)],
+    active_idx: usize,
+) -> String {
+    if entries.is_empty() {
+        return String::new();
+    }
+    let safe_idx = active_idx.min(entries.len() - 1);
+    if input.is_empty() {
+        return entries[safe_idx].1.trim_end_matches('/').to_string();
+    }
+    let chosen_idx = input
+        .parse::<usize>()
+        .ok()
+        .filter(|&n| n >= 1 && n <= entries.len())
+        .map(|n| n - 1)
+        .unwrap_or(safe_idx);
+    entries[chosen_idx].1.trim_end_matches('/').to_string()
+}
+
+/// When multiple contexts are configured and no server was explicitly specified,
+/// list them and let the user pick. Returns the resolved base_url.
+fn resolve_base_url_with_context_prompt(
+    ctxs: &crate::context::ContextsFile,
+    active_name: &str,
+) -> Result<String> {
+    let entries: Vec<(&String, &crate::context::ContextEntry)> = ctxs.contexts.iter().collect();
+
+    if entries.len() == 1 {
+        // Single context — use it without prompting.
+        return Ok(entries[0].1.base_url.trim_end_matches('/').to_string());
+    }
+
+    // Multiple contexts — list and prompt.
+    eprintln!();
+    eprintln!("  {}Available contexts:{}  (active: {}{}{})", ui::BOLD, ui::RESET, ui::CYAN, active_name, ui::RESET);
+    eprintln!();
+    for (i, (name, entry)) in entries.iter().enumerate() {
+        let desc = entry.description.as_deref().unwrap_or("");
+        let desc_part = if desc.is_empty() { String::new() } else { format!("  # {}", desc) };
+        let active_marker = if *name == active_name { format!("{}*{} ", ui::GREEN, ui::RESET) } else { "  ".to_string() };
+        eprintln!(
+            "  {}{}{}{} {}  {}{}",
+            active_marker, ui::BOLD, i + 1, ui::RESET, name, entry.base_url, desc_part
+        );
+    }
+    eprintln!();
+
+    let active_idx = entries.iter().position(|(n, _)| *n == active_name).unwrap_or(0);
+    let raw = prompt(&format!(
+        "  Select context [1-{}] (or Enter for active '{}'): ",
+        entries.len(),
+        active_name
+    ))?;
+
+    // Delegate pure selection logic to pick_context_base_url.
+    let flat: Vec<(String, String)> = entries
+        .iter()
+        .map(|(n, e)| ((*n).clone(), e.base_url.clone()))
+        .collect();
+    Ok(pick_context_base_url(raw.trim(), &flat, active_idx))
 }
 
 async fn login_with_token(base_url: &str, ttl_hours: u64, print_token: bool) -> Result<()> {
@@ -306,7 +418,29 @@ async fn login_oidc(base_url: &str, ttl_hours: u64, print_token: bool) -> Result
     let init: serde_json::Value = anon_client
         .get_json("/auth/oidc/cli-initiate")
         .await
-        .context("OIDC is not configured on this server (GET /auth/oidc/cli-initiate failed)")?;
+        .map_err(|e| {
+            // Distinguish connection failures from OIDC-not-configured errors so
+            // the user gets an actionable message instead of a raw reqwest chain.
+            let msg = e.to_string();
+            if msg.contains("connection refused")
+                || msg.contains("error sending request")
+                || msg.contains("failed to connect")
+                || msg.contains("dns error")
+                || msg.contains("No such host")
+                || msg.contains("tcp connect")
+            {
+                anyhow!(
+                    "could not reach the EdgePlane server at {} — check the URL \
+                     (edgeplane context list) and that the tower is reachable",
+                    base_url
+                )
+            } else {
+                anyhow!(
+                    "OIDC is not configured on this server (GET /auth/oidc/cli-initiate failed): {}",
+                    e
+                )
+            }
+        })?;
 
     let authorize_url = init["authorize_url"]
         .as_str()
@@ -577,10 +711,11 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> S
     let ctx_file = crate::context::contexts_file_path();
     if ctx_file.exists() {
         let ctxs = crate::context::load_contexts();
-        let (_, entry) = crate::context::active_context(&ctxs);
-        let url = entry.base_url.trim_end_matches('/');
-        if !url.is_empty() {
-            return url.to_string();
+        if let Some((_, entry)) = crate::context::active_context(&ctxs) {
+            let url = entry.base_url.trim_end_matches('/');
+            if !url.is_empty() {
+                return url.to_string();
+            }
         }
     }
 
@@ -593,4 +728,83 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> S
     }
 
     default.trim_end_matches('/').to_string()
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::pick_context_base_url;
+
+    fn entries(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(n, u)| ((*n).to_string(), (*u).to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn pick_valid_numeric_selection() {
+        let e = entries(&[
+            ("prod", "http://prod:8008"),
+            ("staging", "http://staging:8008"),
+            ("local", "http://localhost:8008"),
+        ]);
+        // 1-based: input "2" → staging
+        assert_eq!(pick_context_base_url("2", &e, 0), "http://staging:8008");
+        // input "1" → prod
+        assert_eq!(pick_context_base_url("1", &e, 2), "http://prod:8008");
+        // input "3" → local
+        assert_eq!(pick_context_base_url("3", &e, 0), "http://localhost:8008");
+    }
+
+    #[test]
+    fn pick_empty_input_returns_active() {
+        let e = entries(&[
+            ("prod", "http://prod:8008"),
+            ("staging", "http://staging:8008"),
+        ]);
+        // active_idx=1 → staging
+        assert_eq!(pick_context_base_url("", &e, 1), "http://staging:8008");
+        // active_idx=0 → prod
+        assert_eq!(pick_context_base_url("", &e, 0), "http://prod:8008");
+    }
+
+    #[test]
+    fn pick_out_of_range_falls_back_to_active() {
+        let e = entries(&[("prod", "http://prod:8008"), ("staging", "http://staging:8008")]);
+        // "5" is out of range [1,2]; should fall back to active_idx=0 (prod)
+        assert_eq!(pick_context_base_url("5", &e, 0), "http://prod:8008");
+        // "0" is also out of range; active_idx=1 → staging
+        assert_eq!(pick_context_base_url("0", &e, 1), "http://staging:8008");
+    }
+
+    #[test]
+    fn pick_non_numeric_falls_back_to_active() {
+        let e = entries(&[("prod", "http://prod:8008"), ("staging", "http://staging:8008")]);
+        // "abc" is not numeric; active_idx=1 → staging
+        assert_eq!(pick_context_base_url("abc", &e, 1), "http://staging:8008");
+        // empty-after-trim variant
+        assert_eq!(pick_context_base_url("  ", &e, 0), "http://prod:8008");
+    }
+
+    #[test]
+    fn pick_strips_trailing_slash() {
+        let e = entries(&[("prod", "http://prod:8008/")]);
+        assert_eq!(pick_context_base_url("1", &e, 0), "http://prod:8008");
+        assert_eq!(pick_context_base_url("", &e, 0), "http://prod:8008");
+    }
+
+    #[test]
+    fn pick_empty_entries_returns_empty() {
+        assert_eq!(pick_context_base_url("1", &[], 0), "");
+        assert_eq!(pick_context_base_url("", &[], 0), "");
+    }
+
+    #[test]
+    fn pick_active_idx_clamped_when_oob() {
+        // active_idx out of bounds → clamped to last entry
+        let e = entries(&[("prod", "http://prod:8008")]);
+        assert_eq!(pick_context_base_url("", &e, 99), "http://prod:8008");
+    }
 }
