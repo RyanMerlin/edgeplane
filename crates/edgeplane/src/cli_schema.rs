@@ -199,7 +199,7 @@ pub async fn run(args: DiscoverArgs) -> Result<()> {
     // Build the command tree from EdgeplaneCommand without pulling in the top-level
     // CliOpts from main.rs (which is not part of the library).
     let mut root_cmd = clap::Command::new("edgeplane")
-        .about("Rust-native MCP bridge for Edgeplane")
+        .about("EdgePlane — fleet control-plane CLI")
         .version(env!("CARGO_PKG_VERSION"));
     root_cmd = crate::commands::EdgeplaneCommand::augment_subcommands(root_cmd);
     // build() resolves all subcommand names (including `name = "..."` overrides)
@@ -245,7 +245,7 @@ mod tests {
 
     fn make_root() -> clap::Command {
         let mut root = clap::Command::new("edgeplane")
-            .about("Rust-native MCP bridge for Edgeplane")
+            .about("EdgePlane — fleet control-plane CLI")
             .version(env!("CARGO_PKG_VERSION"));
         root = crate::commands::EdgeplaneCommand::augment_subcommands(root);
         root

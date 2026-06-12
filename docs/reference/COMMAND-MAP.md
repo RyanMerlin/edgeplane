@@ -99,6 +99,7 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane agent supervise watch`↴](#edgeplane-agent-supervise-watch)
 * [`edgeplane agent register`↴](#edgeplane-agent-register)
 * [`edgeplane agent set-status`↴](#edgeplane-agent-set-status)
+* [`edgeplane agent delete`↴](#edgeplane-agent-delete)
 * [`edgeplane runtime`↴](#edgeplane-runtime)
 * [`edgeplane runtime nodes`↴](#edgeplane-runtime-nodes)
 * [`edgeplane runtime nodes register`↴](#edgeplane-runtime-nodes-register)
@@ -258,7 +259,7 @@ This document contains the help content for the `edgeplane` command-line program
 
 ## `edgeplane`
 
-Rust-native MCP bridge for Edgeplane
+EdgePlane — fleet control-plane CLI
 
 **Usage:** `edgeplane [OPTIONS] <COMMAND>`
 
@@ -284,7 +285,7 @@ Rust-native MCP bridge for Edgeplane
 * `workspace` — Workspace lifecycle helpers (load/heartbeat/artifact/commit/release)
 * `ops` — Domain operations (lifecycle orchestration and execution workflows)
 * `update` — Self-update helper for the edgeplane binary
-* `init` — Initialize MC profile state for first-time usage
+* `init` — Initialize EdgePlane profile state for first-time usage
 * `serve` — Start an MCP server (stdio JSON-RPC 2.0) for LLM runtime connections
 * `channel` — Claude channel server integrations
 * `profile` — Manage Edgeplane user profiles
@@ -1193,6 +1194,7 @@ Agent control workflows (remote, evolve, swarm/subagent workflows)
 * `supervise` — systemd-unit liveness supervision (Phase 5 daemon-absorption)
 * `register` — Register a new agent with the controlplane
 * `set-status` — Update a controlplane agent's status (online/offline/busy)
+* `delete` — Delete an agent from the controlplane (sends DELETE /agents/{id})
 
 
 
@@ -1724,6 +1726,23 @@ Update a controlplane agent's status (online/offline/busy)
 
 
 
+## `edgeplane agent delete`
+
+Delete an agent from the controlplane (sends DELETE /agents/{id})
+
+**Usage:** `edgeplane agent delete [OPTIONS] <AGENT_ID>`
+
+###### **Arguments:**
+
+* `<AGENT_ID>` — Agent public_id or numeric id to delete
+
+###### **Options:**
+
+* `-y`, `--yes` — Skip the confirmation prompt
+* `--json` — Emit raw JSON instead of a human-readable summary
+
+
+
 ## `edgeplane runtime`
 
 Runtime fabric workflows (nodes, jobs, leases)
@@ -2134,7 +2153,7 @@ Self-update helper for the edgeplane binary
 
 ## `edgeplane init`
 
-Initialize MC profile state for first-time usage
+Initialize EdgePlane profile state for first-time usage
 
 **Usage:** `edgeplane init [OPTIONS]`
 
@@ -3177,7 +3196,7 @@ Manage controlplane profiles (add, list, remove, rename)
 
 ###### **Subcommands:**
 
-* `add` — Add a controlplane profile. If --bootstrap-token is given, registers this node with the controlplane and saves its identity in the profile
+* `add` — Add a controlplane profile. If --join-token is given, registers this node with the controlplane and saves its identity in the profile
 * `list` — List saved profiles
 * `remove` — Remove a profile (clears active_profile if it was the active one)
 * `rename` — Rename a profile (preserves active_profile pointer if needed)
@@ -3187,7 +3206,7 @@ Manage controlplane profiles (add, list, remove, rename)
 
 ## `edgeplane daemon profile add`
 
-Add a controlplane profile. If --bootstrap-token is given, registers this node with the controlplane and saves its identity in the profile
+Add a controlplane profile. If --join-token is given, registers this node with the controlplane and saves its identity in the profile
 
 **Usage:** `edgeplane daemon profile add [OPTIONS] --url <URL> <NAME>`
 
@@ -3199,7 +3218,7 @@ Add a controlplane profile. If --bootstrap-token is given, registers this node w
 
 * `--url <URL>` — Controlplane base URL (e.g. http://edgeplane:8008)
 * `--ttl-hours <TTL_HOURS>` — TTL for the OIDC session token in hours (1–8760). Omit to use the server default (8h). Longer values reduce re-auth frequency for edgeplaned
-* `--bootstrap-token <BOOTSTRAP_TOKEN>` — One-time bootstrap token from `edgeplane node join-tokens`. When supplied, this node is registered with the controlplane and its identity (node_id + attach_secret) is saved into the profile
+* `--join-token <BOOTSTRAP_TOKEN>` — One-time node join token (from `edgeplane node ... join-token create`). When supplied, this node is registered with the controlplane and its identity (node_id + attach_secret) is saved into the profile
 * `--node-name <NODE_NAME>` — Display name for this node (defaults to system hostname)
 * `--trust-tier <TRUST_TIER>` — Trust tier label sent at registration (default: "untrusted")
 

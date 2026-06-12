@@ -770,7 +770,7 @@ fn panel_server(state: &ConfigScreenState) -> Vec<Line<'static>> {
         Span::styled(latency, theme::dim()),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("  MC URL   ", theme::muted()),
+        Span::styled("  Controlplane URL   ", theme::muted()),
         Span::styled(state.base_url.clone(), theme::accent()),
     ]));
     lines.push(Line::from(vec![
@@ -786,7 +786,7 @@ fn panel_server(state: &ConfigScreenState) -> Vec<Line<'static>> {
         )));
     } else {
         lines.push(Line::from(Span::styled(
-            "  Enter to select profile  ·  e to edit MC URL",
+            "  Enter to select profile  ·  e to edit Controlplane URL",
             theme::dim(),
         )));
     }
@@ -819,7 +819,7 @@ fn panel_server_edit(form: &ControlplaneEditForm) -> Vec<Line<'static>> {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  MC URL   ", theme::muted()),
+            Span::styled("  Controlplane URL   ", theme::muted()),
             Span::styled(format!("[{}{}]", form.url, cursor(0)), f(0)),
         ]),
         Line::from(""),

@@ -132,7 +132,7 @@ pub enum EdgeplaneCommand {
     Ops(ops::OpsCommand),
     /// Self-update helper for the edgeplane binary.
     Update(update::SelfUpdateArgs),
-    /// Initialize MC profile state for first-time usage.
+    /// Initialize EdgePlane profile state for first-time usage.
     Init(InitArgs),
     /// Start an MCP server (stdio JSON-RPC 2.0) for LLM runtime connections.
     Serve(mcp_server::ServeMcpArgs),
@@ -293,6 +293,8 @@ pub enum AgentCommand {
     /// Update a controlplane agent's status (online/offline/busy).
     #[command(name = "set-status")]
     SetStatus(crate::agent_ops::SetStatusArgs),
+    /// Delete an agent from the controlplane (sends DELETE /agents/{id}).
+    Delete(crate::agent_ops::DeleteArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -1175,6 +1177,7 @@ pub async fn run(
     booster: AgentBooster,
     config: EdgeplaneConfig,
     output_mode: OutputMode,
+    raw_base_url: Option<String>,
 ) -> Result<()> {
     match command {
         EdgeplaneCommand::Status(args) => handle_status(args, client, &config, output_mode).await,
@@ -1190,7 +1193,7 @@ pub async fn run(
         EdgeplaneCommand::Artifact(cmd) => {
             handle_artifact(cmd, client, &booster, &config.schema_pack, output_mode).await
         }
-        EdgeplaneCommand::Auth(cmd) => handle_auth(cmd, client, &config).await,
+        EdgeplaneCommand::Auth(cmd) => handle_auth(cmd, client, &config, raw_base_url).await,
         EdgeplaneCommand::Data(cmd) => {
             handle_data(cmd, client, &booster, &config.schema_pack, output_mode).await
         }
@@ -1238,11 +1241,11 @@ async fn handle_context(cmd: ContextCommand) -> Result<()> {
     match cmd {
         ContextCommand::List => {
             let file = load_contexts();
-            let (active_name, _) = active_context(&file);
             if file.contexts.is_empty() {
                 println!("No contexts configured. Run: edgeplane context add <name> --url <url>");
                 return Ok(());
             }
+            let active_name = active_context(&file).map(|(n, _)| n).unwrap_or_default();
             for (name, entry) in &file.contexts {
                 let marker = if *name == active_name { "*" } else { " " };
                 let desc = entry.description.as_deref().unwrap_or("");
@@ -1252,8 +1255,10 @@ async fn handle_context(cmd: ContextCommand) -> Result<()> {
         }
         ContextCommand::Current => {
             let file = load_contexts();
-            let (name, entry) = active_context(&file);
-            println!("{} ({})", name, entry.base_url);
+            match active_context(&file) {
+                Some((name, entry)) => println!("{} ({})", name, entry.base_url),
+                None => println!("no active context — run: edgeplane context add <name> --url <url>"),
+            }
         }
         ContextCommand::Use { name } => {
             let mut file = load_contexts();
@@ -1280,8 +1285,9 @@ async fn handle_context(cmd: ContextCommand) -> Result<()> {
         }
         ContextCommand::Remove { name } => {
             let mut file = load_contexts();
-            let (active_name, _) = active_context(&file);
-            if name == active_name {
+            if let Some((active_name, _)) = active_context(&file)
+                && name == active_name
+            {
                 anyhow::bail!("cannot remove the active context '{}' — switch first with `edgeplane context use <other>`", name);
             }
             if file.contexts.remove(&name).is_none() {
@@ -1301,7 +1307,9 @@ async fn handle_context(cmd: ContextCommand) -> Result<()> {
 
 fn handle_tui(args: TuiArgs, config: &EdgeplaneConfig) -> Result<()> {
     let ctxs = crate::context::load_contexts();
-    let (context_name, _) = crate::context::active_context(&ctxs);
+    let context_name = crate::context::active_context(&ctxs)
+        .map(|(n, _)| n)
+        .unwrap_or_default();
     let cfg = crate::tui::TuiConfig {
         base_url: config.base_url.to_string(),
         token: config.token.clone(),
@@ -1953,9 +1961,12 @@ async fn handle_auth(
     command: AuthCommand,
     client: EdgeplaneClient,
     config: &EdgeplaneConfig,
+    raw_base_url: Option<String>,
 ) -> Result<()> {
     match command {
-        AuthCommand::Login(args) => auth::login(args, &client, config.base_url.as_str()).await,
+        AuthCommand::Login(args) => {
+            auth::login(args, &client, config.base_url.as_str(), raw_base_url).await
+        }
         AuthCommand::Logout(args) => auth::logout(args, &client).await,
         AuthCommand::Whoami(_) => auth::whoami(&client).await,
     }
@@ -2469,6 +2480,7 @@ async fn handle_agent(
         },
         AgentCommand::Register(args) => crate::agent_ops::run_register(args, &client).await,
         AgentCommand::SetStatus(args) => crate::agent_ops::run_set_status(args, &client).await,
+        AgentCommand::Delete(args) => crate::agent_ops::run_delete(args, &client).await,
     }
 }
 
@@ -2514,6 +2526,8 @@ async fn handle_init(
                 },
                 &client,
                 config.base_url.as_str(),
+                // URL is already resolved from config — suppress context-selection prompt.
+                Some(config.base_url.to_string()),
             )
             .await
             {
