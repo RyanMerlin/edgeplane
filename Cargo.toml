@@ -21,7 +21,7 @@ members = [
 exclude = ["crates/edgeplane-zrpc"]
 
 [workspace.package]
-version = "0.13.1"
+version = "0.14.0"
 edition = "2024"
 authors = ["Edgeplane Engineers <support@edgeplane.ai>"]
 license = "Apache-2.0"
