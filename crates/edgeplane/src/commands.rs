@@ -1238,11 +1238,11 @@ async fn handle_context(cmd: ContextCommand) -> Result<()> {
     match cmd {
         ContextCommand::List => {
             let file = load_contexts();
-            let (active_name, _) = active_context(&file);
             if file.contexts.is_empty() {
                 println!("No contexts configured. Run: edgeplane context add <name> --url <url>");
                 return Ok(());
             }
+            let active_name = active_context(&file).map(|(n, _)| n).unwrap_or_default();
             for (name, entry) in &file.contexts {
                 let marker = if *name == active_name { "*" } else { " " };
                 let desc = entry.description.as_deref().unwrap_or("");
@@ -1252,8 +1252,10 @@ async fn handle_context(cmd: ContextCommand) -> Result<()> {
         }
         ContextCommand::Current => {
             let file = load_contexts();
-            let (name, entry) = active_context(&file);
-            println!("{} ({})", name, entry.base_url);
+            match active_context(&file) {
+                Some((name, entry)) => println!("{} ({})", name, entry.base_url),
+                None => println!("no active context — run: edgeplane context add <name> --url <url>"),
+            }
         }
         ContextCommand::Use { name } => {
             let mut file = load_contexts();
@@ -1280,8 +1282,9 @@ async fn handle_context(cmd: ContextCommand) -> Result<()> {
         }
         ContextCommand::Remove { name } => {
             let mut file = load_contexts();
-            let (active_name, _) = active_context(&file);
-            if name == active_name {
+            if let Some((active_name, _)) = active_context(&file)
+                && name == active_name
+            {
                 anyhow::bail!("cannot remove the active context '{}' — switch first with `edgeplane context use <other>`", name);
             }
             if file.contexts.remove(&name).is_none() {
@@ -1301,7 +1304,9 @@ async fn handle_context(cmd: ContextCommand) -> Result<()> {
 
 fn handle_tui(args: TuiArgs, config: &EdgeplaneConfig) -> Result<()> {
     let ctxs = crate::context::load_contexts();
-    let (context_name, _) = crate::context::active_context(&ctxs);
+    let context_name = crate::context::active_context(&ctxs)
+        .map(|(n, _)| n)
+        .unwrap_or_default();
     let cfg = crate::tui::TuiConfig {
         base_url: config.base_url.to_string(),
         token: config.token.clone(),

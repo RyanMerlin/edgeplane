@@ -83,19 +83,20 @@ pub struct SavedSession {
 /// Falls back to the legacy `~/.ep/session.json` when `contexts.yaml` is absent
 /// so existing installs keep working without any migration step.
 pub fn session_file_path() -> PathBuf {
-    let file = crate::context::load_contexts();
-    let (name, _) = crate::context::active_context(&file);
+    let ctx_path = crate::context::contexts_file_path();
 
     // Only use the per-context path when contexts.yaml actually exists on disk
     // (i.e. the user has run `edgeplane context add` at least once). Otherwise honour
     // the legacy path so nothing breaks for existing single-server installs.
-    let ctx_path = crate::context::contexts_file_path();
     if ctx_path.exists() {
-        let dir = crate::context::sessions_dir();
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            tracing::warn!("could not create sessions dir: {e}");
+        let file = crate::context::load_contexts();
+        if let Some((name, _)) = crate::context::active_context(&file) {
+            let dir = crate::context::sessions_dir();
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                tracing::warn!("could not create sessions dir: {e}");
+            }
+            return crate::context::session_file_for(&name);
         }
-        return crate::context::session_file_for(&name);
     }
 
     edgeplaned_paths::session_file_path()
@@ -266,13 +267,96 @@ pub async fn login(
 
     ui_section("Edgeplane Login");
 
-    let base_url = resolve_base_url(Some(current_base_url))?;
+    // Context selection: when no explicit server was provided via env/flag and
+    // saved contexts exist, let the user pick one (or confirm the active one).
+    let base_url = if current_base_url.is_empty() {
+        let ctxs = crate::context::load_contexts();
+        if !ctxs.contexts.is_empty() {
+            resolve_base_url_with_context_prompt(&ctxs, &ctxs.active)?
+        } else {
+            resolve_base_url(None)?
+        }
+    } else {
+        resolve_base_url(Some(current_base_url))?
+    };
+
+    // Always show which server we are about to authenticate against.
+    display_login_target(&base_url);
 
     if args.with_token {
         login_with_token(&base_url, args.ttl_hours, args.print_token).await
     } else {
         login_oidc(&base_url, args.ttl_hours, args.print_token).await
     }
+}
+
+/// Print the Server / Context block that always precedes authentication.
+fn display_login_target(base_url: &str) {
+    let ctxs = crate::context::load_contexts();
+    let context_label = ctxs
+        .contexts
+        .iter()
+        .find(|(_, e)| e.base_url.trim_end_matches('/') == base_url.trim_end_matches('/'))
+        .map(|(name, _)| name.as_str())
+        .unwrap_or("(ad-hoc — not a saved context)")
+        .to_string();
+    ui_kv("Server", base_url, ui::CYAN);
+    ui_kv("Context", &context_label, ui::DIM);
+    eprintln!();
+}
+
+/// When multiple contexts are configured and no server was explicitly specified,
+/// list them and let the user pick. Returns the resolved base_url.
+fn resolve_base_url_with_context_prompt(
+    ctxs: &crate::context::ContextsFile,
+    active_name: &str,
+) -> Result<String> {
+    let entries: Vec<(&String, &crate::context::ContextEntry)> = ctxs.contexts.iter().collect();
+
+    if entries.len() == 1 {
+        // Single context — use it without prompting.
+        return Ok(entries[0].1.base_url.trim_end_matches('/').to_string());
+    }
+
+    // Multiple contexts — list and prompt.
+    eprintln!();
+    eprintln!("  {}Available contexts:{}  (active: {}{}{})", ui::BOLD, ui::RESET, ui::CYAN, active_name, ui::RESET);
+    eprintln!();
+    for (i, (name, entry)) in entries.iter().enumerate() {
+        let desc = entry.description.as_deref().unwrap_or("");
+        let desc_part = if desc.is_empty() { String::new() } else { format!("  # {}", desc) };
+        let active_marker = if *name == active_name { format!("{}*{} ", ui::GREEN, ui::RESET) } else { "  ".to_string() };
+        eprintln!(
+            "  {}{}{}{} {}  {}{}",
+            active_marker, ui::BOLD, i + 1, ui::RESET, name, entry.base_url, desc_part
+        );
+    }
+    eprintln!();
+
+    let default_idx = entries.iter().position(|(n, _)| *n == active_name).unwrap_or(0) + 1;
+    let raw = prompt(&format!(
+        "  Select context [1-{}] (or Enter for active '{}'): ",
+        entries.len(),
+        active_name
+    ))?;
+
+    let chosen = if raw.is_empty() {
+        entries
+            .iter()
+            .find(|(n, _)| *n == active_name)
+            .or_else(|| entries.first())
+            .map(|(_, e)| e.base_url.trim_end_matches('/').to_string())
+            .unwrap_or_default()
+    } else {
+        let idx: usize = raw
+            .parse::<usize>()
+            .ok()
+            .filter(|&n| n >= 1 && n <= entries.len())
+            .unwrap_or(default_idx);
+        entries[idx - 1].1.base_url.trim_end_matches('/').to_string()
+    };
+
+    Ok(chosen)
 }
 
 async fn login_with_token(base_url: &str, ttl_hours: u64, print_token: bool) -> Result<()> {
@@ -306,7 +390,29 @@ async fn login_oidc(base_url: &str, ttl_hours: u64, print_token: bool) -> Result
     let init: serde_json::Value = anon_client
         .get_json("/auth/oidc/cli-initiate")
         .await
-        .context("OIDC is not configured on this server (GET /auth/oidc/cli-initiate failed)")?;
+        .map_err(|e| {
+            // Distinguish connection failures from OIDC-not-configured errors so
+            // the user gets an actionable message instead of a raw reqwest chain.
+            let msg = e.to_string();
+            if msg.contains("connection refused")
+                || msg.contains("error sending request")
+                || msg.contains("failed to connect")
+                || msg.contains("dns error")
+                || msg.contains("No such host")
+                || msg.contains("tcp connect")
+            {
+                anyhow!(
+                    "could not reach the EdgePlane server at {} — check the URL \
+                     (edgeplane context list) and that the tower is reachable",
+                    base_url
+                )
+            } else {
+                anyhow!(
+                    "OIDC is not configured on this server (GET /auth/oidc/cli-initiate failed): {}",
+                    e
+                )
+            }
+        })?;
 
     let authorize_url = init["authorize_url"]
         .as_str()
@@ -577,10 +683,11 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> S
     let ctx_file = crate::context::contexts_file_path();
     if ctx_file.exists() {
         let ctxs = crate::context::load_contexts();
-        let (_, entry) = crate::context::active_context(&ctxs);
-        let url = entry.base_url.trim_end_matches('/');
-        if !url.is_empty() {
-            return url.to_string();
+        if let Some((_, entry)) = crate::context::active_context(&ctxs) {
+            let url = entry.base_url.trim_end_matches('/');
+            if !url.is_empty() {
+                return url.to_string();
+            }
         }
     }
 

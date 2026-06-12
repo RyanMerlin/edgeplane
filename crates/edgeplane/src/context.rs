@@ -57,20 +57,21 @@ pub fn load_contexts() -> ContextsFile {
     migrate_from_legacy()
 }
 
-/// Return the active (name, entry) pair. Falls back gracefully if the active
-/// name is not found in the map (e.g. after a manual edit).
-pub fn active_context(file: &ContextsFile) -> (String, ContextEntry) {
+/// Return the active (name, entry) pair, or `None` when no contexts exist.
+///
+/// Resolution order:
+/// 1. The named active context from `file.active` if present in the map.
+/// 2. The first entry in the map (handles manual-edit / stale active name).
+/// 3. `None` — no contexts at all (caller must handle; no localhost default).
+pub fn active_context(file: &ContextsFile) -> Option<(String, ContextEntry)> {
     if let Some(entry) = file.contexts.get(&file.active) {
-        return (file.active.clone(), entry.clone());
+        return Some((file.active.clone(), entry.clone()));
     }
-    // Fallback: first context or localhost
+    // Fallback: first context if map is non-empty
     if let Some((name, entry)) = file.contexts.iter().next() {
-        return (name.clone(), entry.clone());
+        return Some((name.clone(), entry.clone()));
     }
-    (
-        "default".to_string(),
-        ContextEntry { base_url: "http://localhost:8008".to_string(), description: None },
-    )
+    None
 }
 
 pub fn save_contexts(file: &ContextsFile) -> std::io::Result<()> {
@@ -86,15 +87,18 @@ pub fn save_contexts(file: &ContextsFile) -> std::io::Result<()> {
 
 fn migrate_from_legacy() -> ContextsFile {
     let saved = crate::config::load_saved_config();
-    let base_url = saved
-        .base_url
-        .filter(|u| !u.is_empty())
-        .unwrap_or_else(|| "http://localhost:8008".to_string());
 
-    let mut contexts = BTreeMap::new();
-    contexts.insert(
-        "default".to_string(),
-        ContextEntry { base_url, description: Some("Default context".to_string()) },
-    );
-    ContextsFile { active: "default".to_string(), contexts }
+    // Only synthesise a "default" context when legacy config actually has a URL.
+    // When there is no legacy base_url, return an empty file — do NOT invent localhost.
+    match saved.base_url.filter(|u| !u.is_empty()) {
+        Some(base_url) => {
+            let mut contexts = BTreeMap::new();
+            contexts.insert(
+                "default".to_string(),
+                ContextEntry { base_url, description: Some("Default context".to_string()) },
+            );
+            ContextsFile { active: "default".to_string(), contexts }
+        }
+        None => ContextsFile { active: String::new(), contexts: BTreeMap::new() },
+    }
 }
