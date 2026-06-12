@@ -334,7 +334,7 @@ pub struct DaemonWatchArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum DaemonProfileCommand {
-    /// Add a controlplane profile. If --bootstrap-token is given, registers
+    /// Add a controlplane profile. If --join-token is given, registers
     /// this node with the controlplane and saves its identity in the profile.
     Add(ProfileAddArgs),
     /// List saved profiles.
@@ -360,10 +360,10 @@ pub struct ProfileAddArgs {
     /// server default (8h). Longer values reduce re-auth frequency for edgeplaned.
     #[arg(long)]
     pub ttl_hours: Option<u64>,
-    /// One-time bootstrap token from `edgeplane node join-tokens`. When supplied,
-    /// this node is registered with the controlplane and its identity
+    /// One-time node join token (from `edgeplane node ... join-token create`). When
+    /// supplied, this node is registered with the controlplane and its identity
     /// (node_id + attach_secret) is saved into the profile.
-    #[arg(long)]
+    #[arg(long = "join-token", alias = "bootstrap-token")]
     pub bootstrap_token: Option<String>,
     /// Display name for this node (defaults to system hostname).
     #[arg(long)]
@@ -2011,6 +2011,8 @@ fn start_daemon_background(backend_url: &str, token: &str) -> Result<()> {
         .arg("run")
         .arg("--backend-url")
         .arg(backend_url)
+        // edgeplaned run --token is a dev-only override; production nodes read
+        // their session token from the profile state loaded at startup.
         .arg("--token")
         .arg(token)
         .stdin(std::process::Stdio::null())
@@ -2322,7 +2324,7 @@ fn handle_profile_list() -> Result<()> {
         }
     };
     if profiles.is_empty() {
-        println!("No profiles saved. Add one: edgeplane daemon profile add <name> --url <url> --token <tok>");
+        println!("No profiles saved. Add one: edgeplane daemon profile add <name> --url <url>  (add --join-token <tok> to also enroll this node)");
         return Ok(());
     }
     println!("{:<4} {:<20} {:<40} {}", "  ", "NAME", "URL", "NODE_ID");
