@@ -45,10 +45,13 @@ export function AdminIndexPage() {
 
   const handleCopy = () => {
     if (mutation.data?.token) {
-      navigator.clipboard.writeText(mutation.data.token).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }).catch(() => {});
+      navigator.clipboard
+        .writeText(mutation.data.token)
+        .then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        })
+        .catch(() => {});
     }
   };
 
