@@ -17,6 +17,11 @@ async fn main() -> anyhow::Result<()> {
 
     let opts = CliRoot::parse();
 
+    // Self-heal any legacy CLI config/session files stranded at the old
+    // `~/.edgeplane/` root by the daemon-only, sentinel-gated path migration.
+    // Idempotent + soft-fail; must run before context/base_url resolution.
+    edgeplane::migrate::heal_legacy_cli_paths();
+
     // Resolve base_url: flag/env → ~/.ep/config.json → hardcoded default.
     let base_url = resolve_startup_base_url(opts.base_url.clone(), DEFAULT_BASE_URL);
 

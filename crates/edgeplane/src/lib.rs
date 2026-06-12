@@ -26,6 +26,7 @@ pub mod governance;
 pub mod agent_harness;
 pub mod local_db;
 pub mod maintenance;
+pub mod migrate;
 pub mod mcp_server;
 pub mod mcp_stdio;
 pub mod mcp_tools;
