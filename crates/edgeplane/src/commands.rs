@@ -293,6 +293,8 @@ pub enum AgentCommand {
     /// Update a controlplane agent's status (online/offline/busy).
     #[command(name = "set-status")]
     SetStatus(crate::agent_ops::SetStatusArgs),
+    /// Delete an agent from the controlplane (sends DELETE /agents/{id}).
+    Delete(crate::agent_ops::DeleteArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -2469,6 +2471,7 @@ async fn handle_agent(
         },
         AgentCommand::Register(args) => crate::agent_ops::run_register(args, &client).await,
         AgentCommand::SetStatus(args) => crate::agent_ops::run_set_status(args, &client).await,
+        AgentCommand::Delete(args) => crate::agent_ops::run_delete(args, &client).await,
     }
 }
 

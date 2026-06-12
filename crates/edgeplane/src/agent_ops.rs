@@ -108,6 +108,18 @@ pub struct SetStatusArgs {
     pub json: bool,
 }
 
+#[derive(Args, Debug)]
+pub struct DeleteArgs {
+    /// Agent public_id or numeric id to delete.
+    pub agent_id: String,
+    /// Skip the confirmation prompt.
+    #[arg(long, short = 'y')]
+    pub yes: bool,
+    /// Emit raw JSON instead of a human-readable summary.
+    #[arg(long)]
+    pub json: bool,
+}
+
 // ─── Command runners ─────────────────────────────────────────────────────
 
 pub async fn run_signal(args: SignalArgs, client: &EdgeplaneClient) -> Result<()> {
@@ -229,6 +241,88 @@ pub async fn run_set_status(args: SetStatusArgs, client: &EdgeplaneClient) -> Re
         let status = result.get("status").and_then(|v| v.as_str()).unwrap_or(&args.status);
         println!("agent {} status -> {status}", args.id);
     }
+    Ok(())
+}
+
+pub async fn run_delete(args: DeleteArgs, client: &EdgeplaneClient) -> Result<()> {
+    // Confirm the agent exists on the controlplane and extract display fields.
+    let info = describe_remote(&args.agent_id, client).await.map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("HTTP 404") {
+            anyhow!("agent '{}' not found on the controlplane", args.agent_id)
+        } else if msg.contains("HTTP 403") {
+            anyhow!(
+                "forbidden: insufficient permissions to describe agent '{}'",
+                args.agent_id
+            )
+        } else {
+            e
+        }
+    })?;
+
+    let name = info
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&args.agent_id);
+    let display_id = info
+        .get("public_id")
+        .or_else(|| info.get("id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(&args.agent_id);
+    let home_domain_id = info
+        .get("home_domain_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+
+    if !args.yes {
+        eprint!(
+            "Delete agent {} ({})? This cannot be undone. [y/N]: ",
+            name, display_id
+        );
+        use std::io::{Write, BufRead};
+        std::io::stderr().flush()?;
+        let mut answer = String::new();
+        std::io::BufReader::new(std::io::stdin()).read_line(&mut answer)?;
+        if !matches!(answer.trim(), "y" | "Y") {
+            eprintln!("aborted");
+            return Ok(());
+        }
+    }
+
+    client.delete(&format!("/agents/{}", args.agent_id)).await.map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("HTTP 404") {
+            anyhow!("agent '{}' not found on the controlplane", args.agent_id)
+        } else if msg.contains("HTTP 403") {
+            anyhow!(
+                "forbidden: insufficient permissions to delete agent '{}'",
+                args.agent_id
+            )
+        } else {
+            e
+        }
+    })?;
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "deleted": true,
+                "agent_id": display_id,
+            }))?
+        );
+    } else {
+        println!("deleted agent {display_id}");
+    }
+
+    if let Some(domain_id) = home_domain_id {
+        eprintln!(
+            "note: home domain {domain_id} is not auto-removed \
+             (domains are not currently deletable via the API)"
+        );
+    }
+
     Ok(())
 }
 
