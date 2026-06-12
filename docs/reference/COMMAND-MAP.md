@@ -99,6 +99,7 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane agent supervise watch`↴](#edgeplane-agent-supervise-watch)
 * [`edgeplane agent register`↴](#edgeplane-agent-register)
 * [`edgeplane agent set-status`↴](#edgeplane-agent-set-status)
+* [`edgeplane agent delete`↴](#edgeplane-agent-delete)
 * [`edgeplane runtime`↴](#edgeplane-runtime)
 * [`edgeplane runtime nodes`↴](#edgeplane-runtime-nodes)
 * [`edgeplane runtime nodes register`↴](#edgeplane-runtime-nodes-register)
@@ -1193,6 +1194,7 @@ Agent control workflows (remote, evolve, swarm/subagent workflows)
 * `supervise` — systemd-unit liveness supervision (Phase 5 daemon-absorption)
 * `register` — Register a new agent with the controlplane
 * `set-status` — Update a controlplane agent's status (online/offline/busy)
+* `delete` — Delete an agent from the controlplane (sends DELETE /agents/{id})
 
 
 
@@ -1720,6 +1722,23 @@ Update a controlplane agent's status (online/offline/busy)
 
 * `--id <ID>` — Agent id or public_id on the controlplane
 * `--status <STATUS>` — New status value (e.g. `online`, `offline`, `busy`)
+* `--json` — Emit raw JSON instead of a human-readable summary
+
+
+
+## `edgeplane agent delete`
+
+Delete an agent from the controlplane (sends DELETE /agents/{id})
+
+**Usage:** `edgeplane agent delete [OPTIONS] <AGENT_ID>`
+
+###### **Arguments:**
+
+* `<AGENT_ID>` — Agent public_id or numeric id to delete
+
+###### **Options:**
+
+* `-y`, `--yes` — Skip the confirmation prompt
 * `--json` — Emit raw JSON instead of a human-readable summary
 
 
