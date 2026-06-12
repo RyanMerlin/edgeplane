@@ -263,7 +263,7 @@ This document contains the help content for the `edgeplane` command-line program
 
 ## `edgeplane`
 
-Rust-native MCP bridge for Edgeplane
+EdgePlane — fleet control-plane CLI
 
 **Usage:** `edgeplane [OPTIONS] <COMMAND>`
 
@@ -289,7 +289,7 @@ Rust-native MCP bridge for Edgeplane
 * `workspace` — Workspace lifecycle helpers (load/heartbeat/artifact/commit/release)
 * `ops` — Domain operations (lifecycle orchestration and execution workflows)
 * `update` — Self-update helper for the edgeplane binary
-* `init` — Initialize MC profile state for first-time usage
+* `init` — Initialize EdgePlane profile state for first-time usage
 * `serve` — Start an MCP server (stdio JSON-RPC 2.0) for LLM runtime connections
 * `channel` — Claude channel server integrations
 * `profile` — Manage Edgeplane user profiles
@@ -2139,7 +2139,7 @@ Self-update helper for the edgeplane binary
 
 ## `edgeplane init`
 
-Initialize MC profile state for first-time usage
+Initialize EdgePlane profile state for first-time usage
 
 **Usage:** `edgeplane init [OPTIONS]`
 
