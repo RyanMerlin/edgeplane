@@ -12,7 +12,6 @@ summary: >
 source_of_truth:
   docs:
     - README.md
-    - docs/design/CLOUD-INTEGRATION.md
   code_paths:
     - crates/edgeplane-tower/src/routes/slack_integrations.rs
     - crates/edgeplane-tower/src/routes/chat_integrations.rs
@@ -46,7 +45,6 @@ dependencies:
   - api
 
 read_next:
-  - docs/design/CLOUD-INTEGRATION.md
   - README.md
 
 last_reviewed: 2026-03-21
