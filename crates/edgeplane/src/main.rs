@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
         Some(
             secrets::resolve_maybe_secret_ref(&raw)
                 .await
-                .map_err(|e| anyhow::anyhow!("failed to resolve MC token secret ref: {e}"))?,
+                .map_err(|e| anyhow::anyhow!("failed to resolve EdgePlane token secret ref: {e}"))?,
         )
     } else {
         None

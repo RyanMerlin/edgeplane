@@ -132,7 +132,7 @@ pub enum EdgeplaneCommand {
     Ops(ops::OpsCommand),
     /// Self-update helper for the edgeplane binary.
     Update(update::SelfUpdateArgs),
-    /// Initialize MC profile state for first-time usage.
+    /// Initialize EdgePlane profile state for first-time usage.
     Init(InitArgs),
     /// Start an MCP server (stdio JSON-RPC 2.0) for LLM runtime connections.
     Serve(mcp_server::ServeMcpArgs),
