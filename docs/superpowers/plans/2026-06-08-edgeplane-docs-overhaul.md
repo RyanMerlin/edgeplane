@@ -13,7 +13,7 @@
 ## Scrubbing Rules (every agent must apply these)
 
 Before committing any page, verify:
-- [ ] No homelab hostnames: `epyc`, `cloud0`, `kai`, `aria-memory-pg`, `*.ts.net`, `hartley-neon`
+- [ ] No homelab hostnames: `epyc`, `cloud0`, `kai`, `aria-memory-pg`, `*.ts.net`, `<your-tailnet>`
 - [ ] No Tailscale addresses or VPN topology
 - [ ] No personal Infisical paths: `/providers/`, `/aria-sa/`, `/infra/`
 - [ ] No personal fleet profile names: `operator`, `research`, `merlinlabs`, `work`, `engineer`

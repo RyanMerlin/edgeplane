@@ -203,3 +203,4 @@ crates/edgeplane/mission-*.md
 /target/
 
 .worktrees/
+.superpowers/

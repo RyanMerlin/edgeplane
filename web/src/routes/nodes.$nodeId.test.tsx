@@ -48,7 +48,7 @@ const sampleNode = {
   status: 'online',
   trust_tier: 'admin',
   runtime_version: '0.7.0',
-  tailscale_fqdn: 'excalibur.hartley-neon.ts.net',
+  tailscale_fqdn: 'excalibur.example.ts.net',
   tailscale_ip: '100.64.0.1',
   last_heartbeat_at: '2026-06-09T10:00:00Z',
   owner_subject: 'merlin',

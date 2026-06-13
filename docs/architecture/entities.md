@@ -1,6 +1,6 @@
 # Edgeplane — Canonical Entity Reference
 
-**This is the single source of truth for what each MC entity means.** If anything in another doc, code comment, or AI response contradicts this file, this file wins. Update this file *first*, then propagate.
+**This is the single source of truth for what each EdgePlane entity means.** If anything in another doc, code comment, or AI response contradicts this file, this file wins. Update this file *first*, then propagate.
 
 Every entity below cites both the philosophy doc (definition) and the schema (structural truth). Drift between them is a bug — file an issue, fix here first.
 
