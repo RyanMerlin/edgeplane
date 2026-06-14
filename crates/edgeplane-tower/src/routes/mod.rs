@@ -7,7 +7,6 @@ pub mod budgets;
 pub mod chat_integrations;
 pub mod docs;
 pub mod event_triggers;
-pub mod evolve;
 pub mod explorer;
 pub mod family_governance;
 pub mod feedback;
@@ -80,7 +79,6 @@ pub fn build_router() -> Router<Arc<AppState>> {
         .merge(teams_integrations::router())
         .merge(explorer::router())
         .merge(ai::router())
-        .merge(evolve::router())
         .merge(mcp::router())
         .merge(ops::router())
         .merge(slack_integrations::router())

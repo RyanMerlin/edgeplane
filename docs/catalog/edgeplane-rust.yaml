@@ -96,7 +96,6 @@ interfaces:
     - edgeplane system compat matrix run
     - edgeplane system drift triage
     - edgeplane agent remote sessions list
-    - edgeplane agent evolve status --mission <id>
     - edgeplane agent node register
     - edgeplane agent node run
     - edgeplane agent node doctor

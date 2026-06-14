@@ -106,11 +106,6 @@ edgeplane [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 - `edgeplane ops mission --action commit --lease-id <id> --change-set '[{...}]' [--validation-mode <mode>]`
 - `edgeplane ops mission --action release --lease-id <id> [--reason text]`
 
-### Agent evolve loop
-- `edgeplane agent evolve seed --spec <file>` — POST `/evolve/missions`
-- `edgeplane agent evolve run --mission <id> [--agent <name>]` — POST `/evolve/missions/{id}/run`
-- `edgeplane agent evolve status --mission <id>` — GET `/evolve/missions/{id}/status`
-
 ### Compatibility & drift loop
 - `edgeplane system compat matrix run [--providers claude,codex] [--mode smoke|full] [--out <path>]` — runs local compatibility checks and emits `compat-report.json` artifacts under `EP_HOME/compat`.
 - `edgeplane system compat matrix report-latest` — prints the latest compatibility artifact (`EP_HOME/compat/latest.json`).

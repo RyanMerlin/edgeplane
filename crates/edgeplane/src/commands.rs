@@ -7,7 +7,7 @@ use crate::{
     compat,
     config::EdgeplaneConfig,
     discover,
-    agent_harness, daemon_ctl, drift, evolve, governance, maintenance, mcp_server, mcp_tools, ops,
+    agent_harness, daemon_ctl, drift, governance, maintenance, mcp_server, mcp_tools, ops,
     run,
     output::{self, OutputMode},
     runtime,
@@ -115,7 +115,7 @@ pub enum EdgeplaneCommand {
     /// Platform diagnostics and release-control workflows.
     #[command(subcommand)]
     System(SystemCommand),
-    /// Agent control workflows (remote, evolve, swarm/subagent workflows).
+    /// Agent control workflows (remote, swarm/subagent workflows).
     #[command(subcommand)]
     Agent(AgentCommand),
     /// Runtime fabric workflows (nodes, jobs, leases).
@@ -277,8 +277,6 @@ pub enum AgentCommand {
     /// Resident node-agent control verbs.
     #[command(subcommand)]
     Node(runtime::NodeAgentCommand),
-    /// Self-improvement loop for Edgeplane itself (agent-driven backlog/code evolution).
-    Evolve(evolve::EvolveArgs),
     /// Attach to a persistent ACP session — stream session/update frames
     /// to stdout, forward stdin lines as session/prompt.
     Attach(crate::attach::AttachArgs),
@@ -2459,7 +2457,6 @@ async fn handle_agent(
         AgentCommand::List(args) => crate::agent_ops::run_list(args, &client).await,
         AgentCommand::Describe(args) => crate::agent_ops::run_describe(args, &client).await,
         AgentCommand::Node(cmd) => runtime::run_node_agent(cmd, &client).await,
-        AgentCommand::Evolve(args) => evolve::run(args, &client).await,
         AgentCommand::Attach(args) => crate::attach::run(args, &client).await,
         AgentCommand::Cron(cmd) => match cmd {
             CronCommand::List(a) => crate::agent_cron::run_list(a).await,

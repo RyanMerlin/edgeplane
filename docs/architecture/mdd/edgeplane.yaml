@@ -121,7 +121,7 @@ commands:
     status: implemented
     stability: stable
     description: Agent control — signal, attach, cancel, list, describe, cron, supervise, node.
-    subcommands: [signal, cancel, list, describe, node, evolve, attach, cron, supervise]
+    subcommands: [signal, cancel, list, describe, node, attach, cron, supervise]
 
   - name: runtime
     status: implemented
