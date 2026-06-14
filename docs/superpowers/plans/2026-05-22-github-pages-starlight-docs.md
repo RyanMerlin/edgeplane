@@ -35,9 +35,9 @@
 | `site/src/content/docs/guides/oidc.md` | OIDC setup (from guides/OIDC.md, scrubbed title) |
 | `site/src/content/docs/guides/agent-setup.md` | Full agent install guide (from guides/AGENT-INSTALL.md) |
 | `site/src/content/docs/guides/upgrading.md` | Release upgrade checklist |
-| `site/src/content/docs/reference/cli.md` | edgeplane + edgeplaned CLI reference (from reference/MC-RUST.md, scrubbed) |
+| `site/src/content/docs/reference/cli.md` | edgeplane + edgeplaned CLI reference (from reference/EDGEPLANE-RUST.md, scrubbed) |
 | `site/src/content/docs/reference/command-map.md` | Full command map (from reference/COMMAND-MAP.md) |
-| `site/src/content/docs/reference/edgeplaned-daemon.md` | edgeplaned daemon reference (from reference/MCD.md, scrubbed) |
+| `site/src/content/docs/reference/edgeplaned-daemon.md` | edgeplaned daemon reference (from reference/EDGEPLANED.md, scrubbed) |
 | `site/src/content/docs/reference/real-time.md` | SSE real-time events (from reference/REAL-TIME.md) |
 | `site/src/content/docs/reference/ai-console.md` | AI Console protocol (from reference/AI-CONSOLE.md) |
 | `site/src/content/docs/adr/0001-project-catalog.md` | ADR 0001 |
@@ -61,8 +61,8 @@ Before migrating content, apply these find-and-replace rules to each file. Check
 | `authentik` in prose | "your OIDC provider" |
 | `rustfs` in prose | "S3-compatible object storage" |
 | `Aria fleet` / `Aria-specific` | remove or rephrase |
-| `zellij_hosted … Aria fleet` in MCD.md | remove parenthetical "Aria fleet" |
-| `aria-rs` absorbed-responsibilities section in MCD.md | remove entire section (internal implementation history) |
+| `zellij_hosted … Aria fleet` in EDGEPLANED.md | remove parenthetical "Aria fleet" |
+| `aria-rs` absorbed-responsibilities section in EDGEPLANED.md | remove entire section (internal implementation history) |
 | `Author: Aria (mc-engineer) with Merlin` in ephemeral-agents | remove author line |
 | `leaked an Aria-specific operational pattern` in entities.md | `leaked a deployment-specific operational pattern` |
 
@@ -295,11 +295,11 @@ git commit -m "feat(docs): add landing page"
 - Create: `site/src/content/docs/getting-started/quick-start.md`
 - Create: `site/src/content/docs/getting-started/agent-setup.md`
 
-Source: `docs/guides/AGENT-INSTALL.md`, `docs/reference/MC-RUST.md` (Install section), `README.md` (Docker Compose quickstart), `docker-compose.quickstart.yml`.
+Source: `docs/guides/AGENT-INSTALL.md`, `docs/reference/EDGEPLANE-RUST.md` (Install section), `README.md` (Docker Compose quickstart), `docker-compose.quickstart.yml`.
 
 - [ ] **Step 1: Create `installation.md`**
 
-Adapt from `docs/reference/MC-RUST.md` install section. Content to include: install script (Linux/macOS), Windows PowerShell, build-from-source. Add Starlight frontmatter.
+Adapt from `docs/reference/EDGEPLANE-RUST.md` install section. Content to include: install script (Linux/macOS), Windows PowerShell, build-from-source. Add Starlight frontmatter.
 
 ```markdown
 ---
@@ -697,14 +697,14 @@ git commit -m "feat(docs): add Guides section"
 - Create: `site/src/content/docs/reference/ai-console.md`
 
 **Scrubs required:**
-- `edgeplaned-daemon.md` (from `reference/MCD.md`):
+- `edgeplaned-daemon.md` (from `reference/EDGEPLANED.md`):
   - In `AgentRuntime` list: `zellij_hosted (long-running agents hosted in a Zellij pane — Aria fleet; signals via edgeplane agent signal)` → `zellij_hosted (long-running agents hosted in a Zellij pane; signals via edgeplane agent signal)`
   - Remove the entire "Absorbed responsibilities (daemon-absorption plan)" section — it's internal implementation history with Aria-specific version notes.
   - Prerequisites: remove `Tailscale (or direct network access…)` bullet — replace with just `Network access to the MC backend`
 
 - [ ] **Step 1: Create `cli.md`**
 
-Copy `docs/reference/MC-RUST.md`, add frontmatter. No scrubs needed.
+Copy `docs/reference/EDGEPLANE-RUST.md`, add frontmatter. No scrubs needed.
 
 ```markdown
 ---
@@ -726,7 +726,7 @@ description: Complete edgeplane CLI command hierarchy.
 
 - [ ] **Step 3: Create `edgeplaned-daemon.md`**
 
-Copy `docs/reference/MCD.md`, add frontmatter, apply scrubs listed above.
+Copy `docs/reference/EDGEPLANED.md`, add frontmatter, apply scrubs listed above.
 
 ```markdown
 ---

@@ -48,10 +48,10 @@ If an operator needs faster-than-LLM loops, supply `--booster-wasm` with a Wasm 
 
 ## Schema pack + booster
 
-`edgeplane` draws the same schema pack that the backend enforces so the booster and matrix instrumentation share a single source of truth. Set `EP_SCHEMA_PACK_FILE` to `docs/schema-packs/main.json` (or your own custom drop-in) and the daemon will validate `domain`, `mission`, `task`, `doc`, and `artifact` payloads before invoking `/mcp/call`. Invalid schema packs are logged at startup and fall back to the embedded defaults described in [`docs/reference/MC-RUST.md`](MC-RUST.md); the matrix FE can then trust the `type`/`payload` shape without hitting the server randomly.
+`edgeplane` draws the same schema pack that the backend enforces so the booster and matrix instrumentation share a single source of truth. Set `EP_SCHEMA_PACK_FILE` to `docs/schema-packs/main.json` (or your own custom drop-in) and the daemon will validate `domain`, `mission`, `task`, `doc`, and `artifact` payloads before invoking `/mcp/call`. Invalid schema packs are logged at startup and fall back to the embedded defaults described in [`docs/reference/EDGEPLANE-RUST.md`](EDGEPLANE-RUST.md); the matrix FE can then trust the `type`/`payload` shape without hitting the server randomly.
 
 ## Operational guidance
 
 - Document how to launch the daemon alongside swarm-style workflows: run `edgeplane daemon --matrix-endpoint /events/stream --fanout-port 11234` on the planner host so scrapers or dashboards can read the local SSE feed.
 - Mention TLS/rate-limit prerequisites (the daemon may need `EP_ALLOW_INSECURE` for dev proxies), document `EP_SCHEMA_PACK_FILE` so boosters share the same schema pack, and remind operators to keep `EP_AGENT_TOKEN` or OIDC sessions rotate-ready.
-- Tie this doc back to the `edgeplane` companion guide at [docs/MC-RUST.md](MC-RUST.md).
+- Tie this doc back to the `edgeplane` companion guide at [docs/EDGEPLANE-RUST.md](EDGEPLANE-RUST.md).

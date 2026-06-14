@@ -12,7 +12,7 @@ summary: >
 source_of_truth:
   docs:
     - docs/reference/COMMAND-MAP.md
-    - docs/reference/MC-RUST.md
+    - docs/reference/EDGEPLANE-RUST.md
     - docs/reference/REAL-TIME.md
     - README.md
   code_paths:
@@ -140,7 +140,7 @@ dependencies:
 
 read_next:
   - docs/reference/COMMAND-MAP.md
-  - docs/reference/MC-RUST.md
+  - docs/reference/EDGEPLANE-RUST.md
   - docs/reference/REAL-TIME.md
   - docs/guides/DEPLOYMENT.md
 

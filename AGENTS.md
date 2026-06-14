@@ -1,5 +1,19 @@
 # Agent Instructions — Edgeplane
 
+## Planning Docs — ONE location, no exceptions
+
+Design specs and implementation plans are **git-tracked** and live in exactly one place each:
+
+- **Design specs / design docs** → `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
+- **Implementation plans** → `docs/superpowers/plans/YYYY-MM-DD-<feature>.md`
+
+These are the `superpowers` skill defaults (brainstorming / writing-plans). Do **not** invent
+`docs/plans/`, `docs/specs/`, or any other location — aligning to the tool default is deliberate:
+there is nothing to "enforce" because it is exactly where those skills already write.
+
+Ephemeral agent scratch (brainstorm sessions, mockups, handoffs) → `.superpowers/` (gitignored).
+Never hand-place a spec or plan there.
+
 ## Build & Check
 
 The primary surface is the Rust `edgeplane` CLI and `edgeplaned` daemon.

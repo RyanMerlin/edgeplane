@@ -13,7 +13,7 @@ summary: >
 source_of_truth:
   docs:
     - README.md
-    - docs/reference/MC-RUST.md
+    - docs/reference/EDGEPLANE-RUST.md
   code_paths:
     - crates/edgeplane-tower/src/routes/remotectl.rs
     - crates/edgeplane-tower/src/models/mod.rs
@@ -61,7 +61,7 @@ dependencies:
   - auth
 
 read_next:
-  - docs/reference/MC-RUST.md
+  - docs/reference/EDGEPLANE-RUST.md
   - docs/guides/DEPLOYMENT.md
 
 last_reviewed: 2026-03-21
