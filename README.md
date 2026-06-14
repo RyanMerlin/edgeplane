@@ -210,7 +210,7 @@ Publication is policy-routed. Configure repository targets via `/persistence/con
 
 Policy is DB-backed and versioned (`draft` → `active` → rollback). The Admin UI tab at `/ui` supports viewing, editing, and publishing policy. Conservative preset: `EP_GOV_PROFILE=production`.
 
-See [docs/reference/GOVERNANCE.md](docs/reference/GOVERNANCE.md) for the full env var reference.
+See the [governance & approvals guide](https://edgeplane.ai/guides/governance-and-approvals/) for the full env var reference.
 
 ## Migrations
 

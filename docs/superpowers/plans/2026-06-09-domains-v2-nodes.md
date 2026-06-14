@@ -1696,7 +1696,7 @@ import { NodesTable } from './NodesTable';
 const sampleNode = {
   id: 'node-uuid-1', node_name: 'excalibur', hostname: 'excalibur.local',
   status: 'online', trust_tier: 'admin', runtime_version: '0.7.0',
-  tailscale_fqdn: 'excalibur.hartley-neon.ts.net', tailscale_ip: '100.64.0.1',
+  tailscale_fqdn: 'excalibur.example.ts.net', tailscale_ip: '100.64.0.1',
   last_heartbeat_at: '2026-06-09T10:00:00Z', owner_subject: 'merlin',
   registered_at: '2026-01-01T00:00:00Z', updated_at: '2026-06-09T10:00:00Z',
   capabilities: [], capacity: {}, labels: {},
@@ -1885,7 +1885,7 @@ import { NodesIndexPage } from './nodes.index';
 const sampleNode = {
   id: 'node-uuid-1', node_name: 'excalibur', hostname: 'excalibur.local',
   status: 'online', trust_tier: 'admin', runtime_version: '0.7.0',
-  tailscale_fqdn: 'excalibur.hartley-neon.ts.net', tailscale_ip: '100.64.0.1',
+  tailscale_fqdn: 'excalibur.example.ts.net', tailscale_ip: '100.64.0.1',
   last_heartbeat_at: '2026-06-09T10:00:00Z', owner_subject: 'merlin',
   registered_at: '2026-01-01T00:00:00Z', updated_at: '2026-06-09T10:00:00Z',
   capabilities: [], capacity: {}, labels: {},
@@ -2053,7 +2053,7 @@ import { NodeDetailPage } from './nodes.$nodeId';
 const sampleNode = {
   id: 'node-uuid-1', node_name: 'excalibur', hostname: 'excalibur.local',
   status: 'online', trust_tier: 'admin', runtime_version: '0.7.0',
-  tailscale_fqdn: 'excalibur.hartley-neon.ts.net', tailscale_ip: '100.64.0.1',
+  tailscale_fqdn: 'excalibur.example.ts.net', tailscale_ip: '100.64.0.1',
   last_heartbeat_at: '2026-06-09T10:00:00Z', owner_subject: 'merlin',
   registered_at: '2026-01-01T00:00:00Z', updated_at: '2026-06-09T10:00:00Z',
   capabilities: ['acp', 'mesh'], capacity: { cpu: 16, memory_gb: 64 }, labels: { env: 'prod' },

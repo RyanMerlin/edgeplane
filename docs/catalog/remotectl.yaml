@@ -6,7 +6,7 @@ owners:
   - platform
 summary: >
   REST API for registering SSH/K8s targets and orchestrating remote agent launches.
-  MC issues scoped session tokens per launch; Claude uses those tokens + connection
+  EdgePlane issues scoped session tokens per launch; Claude uses those tokens + connection
   info to SSH to targets and bootstrap remote edgeplane agents. Lifecycle tracked via
   heartbeat and completion callbacks.
 
