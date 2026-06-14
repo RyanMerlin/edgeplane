@@ -64,8 +64,6 @@ fn build_manifest(base: &str) -> serde_json::Value {
             "mcp_tools": format!("{}/mcp/tools", base),
             "mcp_call": format!("{}/mcp/call", base),
             "mcp_health": format!("{}/mcp/health", base),
-            "skills_snapshot_resolve": format!("{}/skills/snapshots/resolve", base),
-            "skills_sync_status": format!("{}/skills/sync/status", base),
             "ui": format!("{}/ui/", base)
         },
         "mcp_defaults": {

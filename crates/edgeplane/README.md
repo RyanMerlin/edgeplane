@@ -190,7 +190,7 @@ The backend also exposes:
 The daemon mode connects to `/events/stream` and prints the chunked telemetry that powers the inbox,
 approval, and matrix dashboards. When you pair local swarm-style workflows with Edgeplane, run the
 `edgeplane daemon` process alongside the swarm’s leader so that the governance plane (approvals, policy
-enforcement, skill sync metadata) stays in lockstep with the agent planners and vector memory.
+enforcement) stays in lockstep with the agent planners and vector memory.
 
 Run `edgeplane daemon` with `--fanout-port <port>` to expose a local SSE server on `/events` for dashboards and
 local controller processes. The new [docs/REAL-TIME.md](../docs/reference/REAL-TIME.md) describes the `/events/stream` schema,
@@ -223,9 +223,7 @@ If `--shim-token` (or `EP_DAEMON_SHIM_TOKEN`) is set, shim requests must include
 - `Authorization: Bearer <token>`
 - `X-EP-Shim-Token: <token>`
 
-The Rust CLI keeps scratchstate simple: tools use `serde_json` for payloads, sync/promote automates the
-skill sync handshake, and the SSE stream ensures users see rapid alignment or approvals without poll
-noise.
+The Rust CLI keeps scratchstate simple: tools use `serde_json` for payloads, and the SSE stream ensures users see rapid alignment or approvals without poll noise.
 
 ## Containerized daemon (optional)
 Spin up a hardened container that runs `edgeplane daemon` with `EP_HOME` mounted, fan-out ports exposed, and

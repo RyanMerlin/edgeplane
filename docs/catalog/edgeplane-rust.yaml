@@ -87,7 +87,6 @@ interfaces:
     - edgeplane launch <agent>   # openclaw/custom legacy launch surface
     - edgeplane data tools list
     - edgeplane data tools call <tool> <args>
-    - edgeplane data sync status
     - edgeplane data explorer tree
     - edgeplane admin policy active
     - edgeplane admin governance

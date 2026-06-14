@@ -227,9 +227,6 @@ pub enum DataCommand {
     /// Inspect and invoke Edgeplane MCP tools.
     #[command(subcommand)]
     Tools(ToolsCommand),
-    /// Manage local skill sync state for Missions and domains.
-    #[command(subcommand)]
-    Sync(SyncCommand),
     /// Explore domains, missions, and tasks via the explorer endpoints.
     #[command(subcommand)]
     Explorer(ExplorerCommand),
@@ -926,14 +923,6 @@ pub struct ToolsCallArgs {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum SyncCommand {
-    /// Retrieve the last sync status for a domain/mission/agent.
-    Status(SyncStatusArgs),
-    /// Promote a skill sync snapshot to Edgeplane’s ledger.
-    Promote(SyncPromoteArgs),
-}
-
-#[derive(Subcommand, Debug)]
 pub enum ProfileCommand {
     /// Create a new profile shell on Edgeplane (empty bundle).
     Create {
@@ -1014,38 +1003,6 @@ pub enum ProfileCommand {
         #[arg(long)]
         name: String,
     },
-}
-
-#[derive(Args, Debug)]
-pub struct SyncStatusArgs {
-    #[arg(long)]
-    domain_id: String,
-    #[arg(long)]
-    mission_id: Option<String>,
-    #[arg(long)]
-    agent_id: Option<String>,
-}
-
-#[derive(Args, Debug)]
-pub struct SyncPromoteArgs {
-    #[arg(long)]
-    domain_id: String,
-    #[arg(long)]
-    snapshot_id: String,
-    #[arg(long)]
-    snapshot_sha256: String,
-    #[arg(long)]
-    local_overlay_sha256: Option<String>,
-    #[arg(long)]
-    mission_id: Option<String>,
-    #[arg(long)]
-    agent_id: Option<String>,
-    #[arg(long, default_value_t = false)]
-    degraded_offline: bool,
-    #[arg(long, default_value_t = false)]
-    drift_flag: bool,
-    #[arg(long, default_value = "{}")]
-    drift_details: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -1430,7 +1387,6 @@ fn handle_config(config: &EdgeplaneConfig, output_mode: OutputMode) -> Result<()
         },
         "paths": {
             "ep_home": crate::config::ep_home_dir(),
-            "skills_home": crate::config::skills_home_dir(),
             "agent_id_file": crate::config::agent_id_file(),
         }
     });
@@ -2413,7 +2369,6 @@ async fn handle_data(
         DataCommand::Tools(cmd) => {
             handle_tools(cmd, client, booster, schema_pack, output_mode).await
         }
-        DataCommand::Sync(cmd) => handle_sync(cmd, client).await,
         DataCommand::Explorer(cmd) => handle_explorer(cmd, client).await,
     }
 }
@@ -2846,48 +2801,6 @@ fn build_path_with_query(base: &str, query: String) -> String {
     } else {
         format!("{}?{}", base, query)
     }
-}
-
-async fn handle_sync(command: SyncCommand, client: EdgeplaneClient) -> Result<()> {
-    match command {
-        SyncCommand::Status(args) => {
-            let mut serializer = form_urlencoded::Serializer::new(String::new());
-            serializer.append_pair("domain_id", &args.domain_id);
-            if let Some(mission) = &args.mission_id {
-                serializer.append_pair("mission_id", mission);
-            }
-            if let Some(agent) = &args.agent_id {
-                serializer.append_pair("agent_id", agent);
-            }
-            let path = build_path_with_query("/skills/sync/status", serializer.finish());
-            let response = client.get_json(&path).await?;
-            print_json(&response);
-        }
-        SyncCommand::Promote(args) => {
-            let mut body = json!({
-                "domain_id": args.domain_id,
-                "snapshot_id": args.snapshot_id,
-                "snapshot_sha256": args.snapshot_sha256,
-                "degraded_offline": args.degraded_offline,
-                "drift_flag": args.drift_flag,
-            });
-            if let Some(mission_id) = args.mission_id {
-                body["mission_id"] = json!(mission_id);
-            }
-            if let Some(agent_id) = args.agent_id {
-                body["agent_id"] = json!(agent_id);
-            }
-            if let Some(local_overlay) = args.local_overlay_sha256 {
-                body["local_overlay_sha256"] = json!(local_overlay);
-            }
-            let drift_details: Value = serde_json::from_str(&args.drift_details)
-                .context("failed to decode drift_details JSON")?;
-            body["drift_details"] = drift_details;
-            let response = client.post_json("/skills/sync/ack", &body).await?;
-            print_json(&response);
-        }
-    }
-    Ok(())
 }
 
 async fn handle_profile(

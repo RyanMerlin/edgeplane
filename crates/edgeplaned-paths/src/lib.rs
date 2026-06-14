@@ -85,9 +85,6 @@ pub fn sessions_dir() -> PathBuf {
 pub fn profiles_dir() -> PathBuf {
     state_dir().join("profiles")
 }
-pub fn skills_dir() -> PathBuf {
-    state_dir().join("skills")
-}
 pub fn sync_cache_dir() -> PathBuf {
     state_dir().join("sync")
 }

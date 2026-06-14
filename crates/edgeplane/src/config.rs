@@ -210,14 +210,9 @@ fn parse_server_list(s: &str) -> Vec<String> {
         .collect()
 }
 
-pub fn skills_home_dir() -> PathBuf {
-    edgeplaned_paths::skills_dir()
-}
-
 pub fn ensure_mc_dirs() -> std::io::Result<()> {
     fs::create_dir_all(edgeplaned_paths::config_dir())?;
     fs::create_dir_all(edgeplaned_paths::state_dir())?;
-    fs::create_dir_all(skills_home_dir())?;
     Ok(())
 }
 
