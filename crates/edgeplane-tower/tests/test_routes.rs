@@ -63,24 +63,6 @@ async fn test_schema_pack_returns_json() {
 // ── Auth-gated routes return 401 without token ────────────────────────────────
 
 #[tokio::test]
-async fn test_evolve_seed_requires_auth() {
-    let res = server()
-        .post("/api/evolve/domains")
-        .json(&serde_json::json!({"spec": {}}))
-        .await;
-    // 401 (no token) or 500 (DB hit) — either is acceptable; must not be 200
-    let status = res.status_code().as_u16();
-    assert_ne!(status, 200, "unauthenticated request should not succeed");
-}
-
-#[tokio::test]
-async fn test_evolve_status_requires_auth() {
-    let res = server().get("/api/evolve/domains/evolve-testid/status").await;
-    let status = res.status_code().as_u16();
-    assert_ne!(status, 200);
-}
-
-#[tokio::test]
 async fn test_ai_sessions_requires_auth() {
     let res = server().get("/api/ai/sessions").await;
     let status = res.status_code().as_u16();

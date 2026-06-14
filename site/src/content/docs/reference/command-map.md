@@ -82,10 +82,6 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane agent node join-token create`↴](#edgeplane-agent-node-join-token-create)
 * [`edgeplane agent node join-token get`↴](#edgeplane-agent-node-join-token-get)
 * [`edgeplane agent node join-token rotate`↴](#edgeplane-agent-node-join-token-rotate)
-* [`edgeplane agent evolve`↴](#edgeplane-agent-evolve)
-* [`edgeplane agent evolve seed`↴](#edgeplane-agent-evolve-seed)
-* [`edgeplane agent evolve run`↴](#edgeplane-agent-evolve-run)
-* [`edgeplane agent evolve status`↴](#edgeplane-agent-evolve-status)
 * [`edgeplane agent attach`↴](#edgeplane-agent-attach)
 * [`edgeplane agent cron`↴](#edgeplane-agent-cron)
 * [`edgeplane agent cron list`↴](#edgeplane-agent-cron-list)
@@ -284,7 +280,7 @@ EdgePlane — fleet control-plane CLI
 * `admin` — Governance and admin workflows
 * `data` — Data/catalog/read workflows (tools, sync, explorer)
 * `system` — Platform diagnostics and release-control workflows
-* `agent` — Agent control workflows (remote, evolve, swarm/subagent workflows)
+* `agent` — Agent control workflows (remote, swarm/subagent workflows)
 * `runtime` — Runtime fabric workflows (nodes, jobs, leases)
 * `approvals` — Approval workflow commands (requests, decisions)
 * `workspace` — Workspace lifecycle helpers (load/heartbeat/artifact/commit/release)
@@ -1182,7 +1178,7 @@ Produce a policy decision from latest compatibility and drift artifacts
 
 ## `edgeplane agent`
 
-Agent control workflows (remote, evolve, swarm/subagent workflows)
+Agent control workflows (remote, swarm/subagent workflows)
 
 **Usage:** `edgeplane agent <COMMAND>`
 
@@ -1193,7 +1189,6 @@ Agent control workflows (remote, evolve, swarm/subagent workflows)
 * `list` — List visible agents — local (edgeplaned-supervised) and/or remote (controlplane)
 * `describe` — Describe a single agent — auto-resolves local vs controlplane
 * `node` — Resident node-agent control verbs
-* `evolve` — Self-improvement loop for Edgeplane itself (agent-driven backlog/code evolution)
 * `attach` — Attach to a persistent ACP session — stream session/update frames to stdout, forward stdin lines as session/prompt
 * `cron` — Cron jobs scheduled by edgeplaned (Phase 4 daemon-absorption)
 * `supervise` — systemd-unit liveness supervision (Phase 5 daemon-absorption)
@@ -1399,59 +1394,6 @@ Rotate a join token (invalidates the old one, issues a new secret)
 ###### **Arguments:**
 
 * `<TOKEN_ID>` — Join token ID (returned by `create`)
-
-
-
-## `edgeplane agent evolve`
-
-Self-improvement loop for Edgeplane itself (agent-driven backlog/code evolution)
-
-**Usage:** `edgeplane agent evolve <COMMAND>`
-
-###### **Subcommands:**
-
-* `seed` — Seed an evolve domain from a JSON spec file
-* `run` — Launch an agent against an evolve domain
-* `status` — Show evolve domain progress
-
-
-
-## `edgeplane agent evolve seed`
-
-Seed an evolve domain from a JSON spec file
-
-**Usage:** `edgeplane agent evolve seed --spec <SPEC>`
-
-###### **Options:**
-
-* `--spec <SPEC>` — JSON spec file defining the evolve domain and task backlog
-
-
-
-## `edgeplane agent evolve run`
-
-Launch an agent against an evolve domain
-
-**Usage:** `edgeplane agent evolve run [OPTIONS] --domain <DOMAIN>`
-
-###### **Options:**
-
-* `--domain <DOMAIN>` — Domain ID to run agents against
-* `--agent <AGENT>` — Agent to use (claude, codex, gemini, openclaw)
-
-  Default value: `claude`
-
-
-
-## `edgeplane agent evolve status`
-
-Show evolve domain progress
-
-**Usage:** `edgeplane agent evolve status --domain <DOMAIN>`
-
-###### **Options:**
-
-* `--domain <DOMAIN>` — Domain ID to inspect
 
 
 

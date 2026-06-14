@@ -32,10 +32,6 @@ export const queryKeys = {
     versions: () => [...queryKeys.governance.all, 'versions'] as const,
     events: () => [...queryKeys.governance.all, 'events'] as const,
   },
-  evolve: {
-    all: ['evolve'] as const,
-    mission: (id: string) => [...queryKeys.evolve.all, 'mission', id] as const,
-  },
   agents: {
     all: ['agents'] as const,
     list: () => [...queryKeys.agents.all, 'list'] as const,
