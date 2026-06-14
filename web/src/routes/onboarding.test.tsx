@@ -66,8 +66,6 @@ const sampleManifest = {
     mcp_health: '/api/mcp/health',
     mcp_tools: '/api/mcp/tools',
     openapi: '/api/openapi.json',
-    skills_snapshot_resolve: '/api/skills/snapshot/resolve',
-    skills_sync_status: '/api/skills/sync/status',
     ui: '/ui',
   },
   ep_serve_mcp_server: {

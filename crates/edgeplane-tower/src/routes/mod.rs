@@ -16,7 +16,6 @@ pub mod hooks;
 pub mod ingestion;
 pub mod missions;
 pub mod mcp;
-pub mod domain_packs;
 pub mod domains;
 pub mod oidc_web;
 pub mod onboarding;
@@ -30,7 +29,6 @@ pub mod runtime;
 pub mod scheduled_jobs;
 pub mod schema_pack;
 pub mod search;
-pub mod skills;
 pub mod slack_integrations;
 pub mod tasks;
 pub mod webhooks_tailscale;
@@ -63,7 +61,6 @@ pub fn build_router() -> Router<Arc<AppState>> {
         .merge(budgets::router())
         .merge(event_triggers::router())
         .merge(feedback::router())
-        .merge(domain_packs::router())
         .merge(onboarding::router())
         .merge(remotectl::router())
         .merge(artifacts::router())
@@ -73,7 +70,6 @@ pub fn build_router() -> Router<Arc<AppState>> {
         .merge(chat_integrations::router())
         .merge(ingestion::router())
         .merge(search::router())
-        .merge(skills::router())
         .merge(google_chat_integrations::router())
         .merge(teams_integrations::router())
         .merge(explorer::router())

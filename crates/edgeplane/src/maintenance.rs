@@ -463,9 +463,8 @@ fn perform_repairs(config: &EdgeplaneConfig) -> Vec<DoctorRepair> {
         Ok(()) => repairs.push(DoctorRepair::ok(
             "directories",
             format!(
-                "Ensured EP_HOME={} and skills dir {}",
+                "Ensured EP_HOME={}",
                 crate::config::ep_home_dir().display(),
-                crate::config::skills_home_dir().display()
             ),
         )),
         Err(err) => repairs.push(DoctorRepair::failed("directories", err.to_string())),

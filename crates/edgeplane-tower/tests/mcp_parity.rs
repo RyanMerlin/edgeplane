@@ -6,7 +6,7 @@
 //! `list_tools()` without a dispatch arm (or vice-versa).
 //!
 //! Additionally verifies that the HTTP catalogue (`GET /api/mcp/tools`)
-//! returns exactly the 24 expected tools.
+//! returns exactly the 23 expected tools.
 
 use axum_test::TestServer;
 use edgeplane_tower::{build_app, routes::mcp, AppConfig};
@@ -48,17 +48,18 @@ fn dispatch_arms_all_have_catalogue_entry() {
     );
 }
 
-/// The HTTP catalogue must return exactly 25 tools (ADR 0006 runtime set + get_domain_northstar).
+/// The HTTP catalogue must return exactly 23 tools (ADR 0006 runtime set + get_domain_northstar;
+/// export_domain_pack and install_domain_pack removed in R1c).
 #[tokio::test]
-async fn http_catalogue_has_exactly_25_tools() {
+async fn http_catalogue_has_exactly_23_tools() {
     let res = server().get("/api/mcp/tools").await;
     res.assert_status_ok();
     let body: serde_json::Value = res.json();
     let tools = body.as_array().expect("list_tools must return an array");
     assert_eq!(
         tools.len(),
-        25,
-        "expected exactly 25 tools in the MCP catalogue, found {}",
+        23,
+        "expected exactly 23 tools in the MCP catalogue, found {}",
         tools.len()
     );
 }

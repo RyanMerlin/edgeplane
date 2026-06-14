@@ -559,8 +559,6 @@ export interface components {
             mcp_health: string;
             mcp_tools: string;
             openapi: string;
-            skills_snapshot_resolve: string;
-            skills_sync_status: string;
             ui: string;
         };
         /**

@@ -1508,8 +1508,6 @@
           "mcp_tools",
           "mcp_call",
           "mcp_health",
-          "skills_snapshot_resolve",
-          "skills_sync_status",
           "ui"
         ],
         "properties": {
@@ -1532,12 +1530,6 @@
             "type": "string"
           },
           "openapi": {
-            "type": "string"
-          },
-          "skills_snapshot_resolve": {
-            "type": "string"
-          },
-          "skills_sync_status": {
             "type": "string"
           },
           "ui": {

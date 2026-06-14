@@ -50,9 +50,6 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane data tools`↴](#edgeplane-data-tools)
 * [`edgeplane data tools list`↴](#edgeplane-data-tools-list)
 * [`edgeplane data tools call`↴](#edgeplane-data-tools-call)
-* [`edgeplane data sync`↴](#edgeplane-data-sync)
-* [`edgeplane data sync status`↴](#edgeplane-data-sync-status)
-* [`edgeplane data sync promote`↴](#edgeplane-data-sync-promote)
 * [`edgeplane data explorer`↴](#edgeplane-data-explorer)
 * [`edgeplane data explorer tree`↴](#edgeplane-data-explorer-tree)
 * [`edgeplane data explorer node`↴](#edgeplane-data-explorer-node)
@@ -827,7 +824,6 @@ Data/catalog/read workflows (tools, sync, explorer)
 ###### **Subcommands:**
 
 * `tools` — Inspect and invoke Edgeplane MCP tools
-* `sync` — Manage local skill sync state for Missions and domains
 * `explorer` — Explore domains, missions, and tasks via the explorer endpoints
 
 
@@ -863,59 +859,6 @@ Call an MCP tool with JSON payload and show the response
 
 * `-t`, `--tool <TOOL>` — Name of the MCP tool to call (e.g. edgeplane.mission.load)
 * `--payload <PAYLOAD>` — JSON payload to send as MCP tool args. Defaults to empty object
-
-  Default value: `{}`
-
-
-
-## `edgeplane data sync`
-
-Manage local skill sync state for Missions and domains
-
-**Usage:** `edgeplane data sync <COMMAND>`
-
-###### **Subcommands:**
-
-* `status` — Retrieve the last sync status for a domain/mission/agent
-* `promote` — Promote a skill sync snapshot to Edgeplane’s ledger
-
-
-
-## `edgeplane data sync status`
-
-Retrieve the last sync status for a domain/mission/agent
-
-**Usage:** `edgeplane data sync status [OPTIONS] --domain-id <DOMAIN_ID>`
-
-###### **Options:**
-
-* `--domain-id <DOMAIN_ID>`
-* `--mission-id <MISSION_ID>`
-* `--agent-id <AGENT_ID>`
-
-
-
-## `edgeplane data sync promote`
-
-Promote a skill sync snapshot to Edgeplane’s ledger
-
-**Usage:** `edgeplane data sync promote [OPTIONS] --domain-id <DOMAIN_ID> --snapshot-id <SNAPSHOT_ID> --snapshot-sha256 <SNAPSHOT_SHA256>`
-
-###### **Options:**
-
-* `--domain-id <DOMAIN_ID>`
-* `--snapshot-id <SNAPSHOT_ID>`
-* `--snapshot-sha256 <SNAPSHOT_SHA256>`
-* `--local-overlay-sha256 <LOCAL_OVERLAY_SHA256>`
-* `--mission-id <MISSION_ID>`
-* `--agent-id <AGENT_ID>`
-* `--degraded-offline`
-
-  Default value: `false`
-* `--drift-flag`
-
-  Default value: `false`
-* `--drift-details <DRIFT_DETAILS>`
 
   Default value: `{}`
 

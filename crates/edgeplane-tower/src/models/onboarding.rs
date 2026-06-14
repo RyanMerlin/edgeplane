@@ -23,8 +23,6 @@ pub struct OnboardingEndpoints {
     pub mcp_tools: String,
     pub mcp_call: String,
     pub mcp_health: String,
-    pub skills_snapshot_resolve: String,
-    pub skills_sync_status: String,
     pub ui: String,
 }
 
