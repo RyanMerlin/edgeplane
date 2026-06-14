@@ -13,7 +13,7 @@ summary: >
 source_of_truth:
   docs:
     - docs/reference/AI-CONSOLE.md
-    - docs/reference/MC-RUST.md
+    - docs/reference/EDGEPLANE-RUST.md
     - README.md
   code_paths:
     - web/src/
