@@ -16,7 +16,6 @@ import { Route as GovernanceRouteImport } from './routes/governance'
 import { Route as FeedRouteImport } from './routes/feed'
 import { Route as ExplorerRouteImport } from './routes/explorer'
 import { Route as DomainsRouteImport } from './routes/domains'
-import { Route as AiRouteImport } from './routes/ai'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -62,11 +61,6 @@ const ExplorerRoute = ExplorerRouteImport.update({
 const DomainsRoute = DomainsRouteImport.update({
   id: '/domains',
   path: '/domains',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AiRoute = AiRouteImport.update({
-  id: '/ai',
-  path: '/ai',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AgentsRoute = AgentsRouteImport.update({
@@ -130,7 +124,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/agents': typeof AgentsRouteWithChildren
-  '/ai': typeof AiRoute
   '/domains': typeof DomainsRouteWithChildren
   '/explorer': typeof ExplorerRoute
   '/feed': typeof FeedRoute
@@ -149,7 +142,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/ai': typeof AiRoute
   '/explorer': typeof ExplorerRoute
   '/feed': typeof FeedRoute
   '/governance': typeof GovernanceRoute
@@ -169,7 +161,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/agents': typeof AgentsRouteWithChildren
-  '/ai': typeof AiRoute
   '/domains': typeof DomainsRouteWithChildren
   '/explorer': typeof ExplorerRoute
   '/feed': typeof FeedRoute
@@ -192,7 +183,6 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/agents'
-    | '/ai'
     | '/domains'
     | '/explorer'
     | '/feed'
@@ -211,7 +201,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/ai'
     | '/explorer'
     | '/feed'
     | '/governance'
@@ -230,7 +219,6 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/agents'
-    | '/ai'
     | '/domains'
     | '/explorer'
     | '/feed'
@@ -252,7 +240,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
   AgentsRoute: typeof AgentsRouteWithChildren
-  AiRoute: typeof AiRoute
   DomainsRoute: typeof DomainsRouteWithChildren
   ExplorerRoute: typeof ExplorerRoute
   FeedRoute: typeof FeedRoute
@@ -311,13 +298,6 @@ declare module '@tanstack/react-router' {
       path: '/domains'
       fullPath: '/domains'
       preLoaderRoute: typeof DomainsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ai': {
-      id: '/ai'
-      path: '/ai'
-      fullPath: '/ai'
-      preLoaderRoute: typeof AiRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/agents': {
@@ -464,7 +444,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   AgentsRoute: AgentsRouteWithChildren,
-  AiRoute: AiRoute,
   DomainsRoute: DomainsRouteWithChildren,
   ExplorerRoute: ExplorerRoute,
   FeedRoute: FeedRoute,

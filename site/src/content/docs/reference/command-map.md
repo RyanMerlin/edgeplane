@@ -134,7 +134,6 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane channel`↴](#edgeplane-channel)
 * [`edgeplane channel claude`↴](#edgeplane-channel-claude)
 * [`edgeplane channel claude webhook`↴](#edgeplane-channel-claude-webhook)
-* [`edgeplane channel claude missioncontrol`↴](#edgeplane-channel-claude-missioncontrol)
 * [`edgeplane profile`↴](#edgeplane-profile)
 * [`edgeplane profile create`↴](#edgeplane-profile-create)
 * [`edgeplane profile list`↴](#edgeplane-profile-list)
@@ -2152,7 +2151,6 @@ Claude channel integrations
 ###### **Subcommands:**
 
 * `webhook` — Expose a local webhook that forwards inbound messages to Claude via channel notifications
-* `missioncontrol` — Bridge Edgeplane AI session events into Claude channel notifications
 
 
 
@@ -2177,28 +2175,6 @@ Expose a local webhook that forwards inbound messages to Claude via channel noti
 * `--enable-reply` — Expose a standard MCP reply tool
 
   Default value: `false`
-* `--debug-protocol` — Log protocol traffic to stderr
-
-  Default value: `false`
-
-
-
-## `edgeplane channel claude missioncontrol`
-
-Bridge Edgeplane AI session events into Claude channel notifications
-
-**Usage:** `edgeplane channel claude missioncontrol [OPTIONS] --session-id <SESSION_ID>`
-
-###### **Options:**
-
-* `--session-id <SESSION_ID>` — AI session id to subscribe to for inbound human messages
-* `--poll-interval-ms <POLL_INTERVAL_MS>` — Poll interval between SSE reconnects
-
-  Default value: `500`
-* `--channel-name <CHANNEL_NAME>` — Name used in channel metadata
-
-  Default value: `edgeplane`
-* `--instructions <INSTRUCTIONS>` — Optional instructions to pass to Claude for this channel
 * `--debug-protocol` — Log protocol traffic to stderr
 
   Default value: `false`

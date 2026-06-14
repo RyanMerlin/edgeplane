@@ -1,5 +1,4 @@
 pub mod agent;
-pub mod ai;
 pub mod approval;
 pub mod auth;
 pub mod domain;

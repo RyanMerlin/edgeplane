@@ -3,13 +3,6 @@ export const queryKeys = {
     all: ['onboarding'] as const,
     manifest: () => [...queryKeys.onboarding.all, 'manifest'] as const,
   },
-  ai: {
-    all: ['ai'] as const,
-    sessions: () => [...queryKeys.ai.all, 'sessions'] as const,
-    session: (id: string) => [...queryKeys.ai.all, 'session', id] as const,
-    turn: (sessionId: string, turnId: number) =>
-      [...queryKeys.ai.all, 'turn', sessionId, turnId] as const,
-  },
   explorer: {
     all: ['explorer'] as const,
     tree: () => [...queryKeys.explorer.all, 'tree'] as const,

@@ -60,15 +60,6 @@ async fn test_schema_pack_returns_json() {
     assert!(body.get("loaded").is_some());
 }
 
-// ── Auth-gated routes return 401 without token ────────────────────────────────
-
-#[tokio::test]
-async fn test_ai_sessions_requires_auth() {
-    let res = server().get("/api/ai/sessions").await;
-    let status = res.status_code().as_u16();
-    assert_ne!(status, 200);
-}
-
 // ── Ops admin routes return 401 without token ─────────────────────────────────
 
 #[tokio::test]
@@ -118,11 +109,3 @@ async fn test_family_member_access_requires_auth() {
     assert_ne!(status, 200);
 }
 
-// ── AI runtime capabilities ───────────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_ai_runtime_capabilities_requires_auth() {
-    let res = server().get("/api/ai/runtime-capabilities").await;
-    // Auth required — expect 401 without a token
-    res.assert_status(axum::http::StatusCode::UNAUTHORIZED);
-}

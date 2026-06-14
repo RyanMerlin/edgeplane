@@ -1,5 +1,4 @@
 pub mod agents;
-pub mod ai;
 pub mod approvals;
 pub mod artifacts;
 pub mod auth;
@@ -78,7 +77,6 @@ pub fn build_router() -> Router<Arc<AppState>> {
         .merge(google_chat_integrations::router())
         .merge(teams_integrations::router())
         .merge(explorer::router())
-        .merge(ai::router())
         .merge(mcp::router())
         .merge(ops::router())
         .merge(slack_integrations::router())
