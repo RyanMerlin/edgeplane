@@ -1210,7 +1210,7 @@ pub async fn run(
         }
         EdgeplaneCommand::Init(args) => handle_init(args, client, &config, output_mode).await,
         EdgeplaneCommand::Serve(args) => mcp_server::run(&args, &client).await,
-        EdgeplaneCommand::Channel(cmd) => channel::run(cmd, &client).await,
+        EdgeplaneCommand::Channel(cmd) => channel::run(cmd).await,
         EdgeplaneCommand::Profile(cmd) => handle_profile(cmd, client, output_mode).await,
         EdgeplaneCommand::Secrets(cmd) => handle_secrets(cmd, client, output_mode).await,
         EdgeplaneCommand::Run(args) => run::run(args, &client, &config).await,

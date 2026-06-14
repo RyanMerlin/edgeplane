@@ -7,9 +7,8 @@ use axum::{
     routing::{get, post},
 };
 use clap::{Args, Subcommand};
-use futures_util::StreamExt as FuturesStreamExt;
 use serde_json::{Map, Value, json};
-use std::{convert::Infallible, net::SocketAddr, time::Duration};
+use std::{convert::Infallible, net::SocketAddr};
 use tokio::{
     io::BufReader,
     net::TcpListener,
@@ -17,7 +16,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::{client::EdgeplaneClient, mcp_stdio};
+use crate::mcp_stdio;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -32,8 +31,6 @@ pub enum ChannelCommand {
 pub enum ClaudeChannelCommand {
     /// Expose a local webhook that forwards inbound messages to Claude via channel notifications.
     Webhook(ClaudeWebhookArgs),
-    /// Bridge Edgeplane AI session events into Claude channel notifications.
-    Missioncontrol(ClaudeMissioncontrolArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -63,29 +60,6 @@ pub struct ClaudeWebhookArgs {
     pub debug_protocol: bool,
 }
 
-#[derive(Args, Debug, Clone)]
-pub struct ClaudeMissioncontrolArgs {
-    /// AI session id to subscribe to for inbound human messages.
-    #[arg(long)]
-    pub session_id: String,
-
-    /// Poll interval between SSE reconnects.
-    #[arg(long, default_value_t = 500)]
-    pub poll_interval_ms: u64,
-
-    /// Name used in channel metadata.
-    #[arg(long, default_value = "edgeplane")]
-    pub channel_name: String,
-
-    /// Optional instructions to pass to Claude for this channel.
-    #[arg(long)]
-    pub instructions: Option<String>,
-
-    /// Log protocol traffic to stderr.
-    #[arg(long, default_value_t = false)]
-    pub debug_protocol: bool,
-}
-
 #[derive(Clone)]
 struct WebhookState {
     tx: mpsc::Sender<Value>,
@@ -101,7 +75,7 @@ struct ChannelRuntimeConfig {
     debug_protocol: bool,
 }
 
-pub async fn run(command: ChannelCommand, client: &EdgeplaneClient) -> Result<()> {
+pub async fn run(command: ChannelCommand) -> Result<()> {
     match command {
         ChannelCommand::Claude(ClaudeChannelCommand::Webhook(args)) => {
             let runtime = ChannelRuntimeConfig {
@@ -114,22 +88,7 @@ pub async fn run(command: ChannelCommand, client: &EdgeplaneClient) -> Result<()
                 listen_host: args.listen_host,
                 listen_port: args.listen_port,
             };
-            run_claude_channel(runtime, transport, None).await
-        }
-        ChannelCommand::Claude(ClaudeChannelCommand::Missioncontrol(args)) => {
-            let runtime = ChannelRuntimeConfig {
-                channel_name: args.channel_name,
-                instructions: args.instructions,
-                // Intentionally disabled: sending replies back via /ai/sessions/{id}/turns
-                // would re-enter as user events and create a loop.
-                enable_reply: false,
-                debug_protocol: args.debug_protocol,
-            };
-            let transport = ChannelTransport::Edgeplane {
-                session_id: args.session_id,
-                poll_interval_ms: args.poll_interval_ms,
-            };
-            run_claude_channel(runtime, transport, Some(client.clone())).await
+            run_claude_channel(runtime, transport).await
         }
     }
 }
@@ -139,16 +98,11 @@ enum ChannelTransport {
         listen_host: String,
         listen_port: u16,
     },
-    Edgeplane {
-        session_id: String,
-        poll_interval_ms: u64,
-    },
 }
 
 async fn run_claude_channel(
     runtime: ChannelRuntimeConfig,
     transport: ChannelTransport,
-    client: Option<EdgeplaneClient>,
 ) -> Result<()> {
     let (inbound_tx, mut inbound_rx) = mpsc::channel::<Value>(256);
     let (reply_tx, _reply_rx) = broadcast::channel::<Value>(128);
@@ -164,17 +118,6 @@ async fn run_claude_channel(
             inbound_tx.clone(),
             reply_tx.clone(),
         )?),
-        ChannelTransport::Edgeplane {
-            session_id,
-            poll_interval_ms,
-        } => {
-            let cli = client.context("edgeplane transport requires client")?;
-            tokio::spawn(async move {
-                let _ = start_edgeplane_inbound(cli, session_id, poll_interval_ms, inbound_tx)
-                    .await;
-            });
-            None
-        }
     };
 
     let stdin = tokio::io::stdin();
@@ -253,103 +196,6 @@ fn start_webhook_transport(
             .await
             .context("channel webhook server exited unexpectedly")
     }))
-}
-
-async fn start_edgeplane_inbound(
-    client: EdgeplaneClient,
-    session_id: String,
-    poll_interval_ms: u64,
-    tx: mpsc::Sender<Value>,
-) -> Result<()> {
-    let mut after_id = 0i64;
-    let sleep = Duration::from_millis(poll_interval_ms.max(100));
-
-    loop {
-        let path = format!("/ai/sessions/{}/stream?after_id={}", session_id, after_id);
-        let response = client
-            .request_builder(reqwest::Method::GET, &path)?
-            .send()
-            .await
-            .context("edgeplane stream request failed")?
-            .error_for_status()
-            .context("edgeplane stream returned error status")?;
-
-        let mut bytes = response.bytes_stream();
-        let mut event_id: Option<i64> = None;
-        let mut event_name: Option<String> = None;
-        let mut data_buf = String::new();
-
-        while let Some(chunk) = FuturesStreamExt::next(&mut bytes).await {
-            let bytes = chunk.context("edgeplane stream read failed")?;
-            let text = String::from_utf8_lossy(&bytes);
-            for line in text.lines() {
-                let trimmed = line.trim_end();
-                if trimmed.is_empty() {
-                    if event_name.as_deref() == Some("ai_event") && !data_buf.trim().is_empty() {
-                        if let Ok(parsed) = serde_json::from_str::<Value>(&data_buf) {
-                            if let Some(next_id) = parsed.get("id").and_then(Value::as_i64) {
-                                after_id = after_id.max(next_id);
-                            }
-                            if parsed
-                                .get("event_type")
-                                .and_then(Value::as_str)
-                                .is_some_and(|v| v == "user_message")
-                            {
-                                if let Some(text) = parsed
-                                    .get("payload")
-                                    .and_then(Value::as_object)
-                                    .and_then(|p| p.get("text"))
-                                    .and_then(Value::as_str)
-                                {
-                                    let notification = json!({
-                                        "jsonrpc": "2.0",
-                                        "method": "notifications/claude/channel",
-                                        "params": {
-                                            "content": text,
-                                            "meta": {
-                                                "source": "edgeplane",
-                                                "chat_id": session_id,
-                                                "session_id": session_id,
-                                                "event_type": "user_message",
-                                                "event_id": parsed.get("id").cloned().unwrap_or(Value::Null)
-                                            }
-                                        }
-                                    });
-                                    if tx.send(notification).await.is_err() {
-                                        return Ok(());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    event_id = None;
-                    event_name = None;
-                    data_buf.clear();
-                    continue;
-                }
-                if let Some(rest) = trimmed.strip_prefix("id:") {
-                    event_id = rest.trim().parse::<i64>().ok();
-                    continue;
-                }
-                if let Some(rest) = trimmed.strip_prefix("event:") {
-                    event_name = Some(rest.trim().to_string());
-                    continue;
-                }
-                if let Some(rest) = trimmed.strip_prefix("data:") {
-                    if !data_buf.is_empty() {
-                        data_buf.push('\n');
-                    }
-                    data_buf.push_str(rest.trim());
-                    continue;
-                }
-            }
-        }
-
-        if let Some(eid) = event_id {
-            after_id = after_id.max(eid);
-        }
-        tokio::time::sleep(sleep).await;
-    }
 }
 
 async fn dispatch_claude_channel(

@@ -134,7 +134,6 @@ edgeplane [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 
 ### Claude channel bridge
 - `edgeplane channel claude webhook [--listen-host 127.0.0.1] [--listen-port 8788] [--channel-name edgeplane] [--enable-reply] [--instructions ...] [--debug-protocol]` — runs a Claude-channel MCP server over stdio, accepts inbound webhook `POST /` payloads (`text`/`content` + optional `meta`/`chat_id`) and emits `notifications/claude/channel`; optional `reply` tool writes to local SSE `GET /events` for integration testing.
-- `edgeplane channel claude edgeplane --session-id <ai_session_id> [--poll-interval-ms 500] [--channel-name edgeplane] [--instructions ...] [--debug-protocol]` — bridges Edgeplane AI session SSE (`/ai/sessions/{id}/stream`) into `notifications/claude/channel` for `user_message` events. Reply tool is intentionally disabled in this mode until a non-looping outbound endpoint is added.
 
 ### Agent launch (unified)
 - `edgeplane run claude [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [--with-rtk] [-- ARGS...]` — unified Claude launch with profile runtime + optional mesh participation. `--with-rtk` is a soft flag: warns and continues if [rtk](https://github.com/merlinlabs/rtk) is not installed.
