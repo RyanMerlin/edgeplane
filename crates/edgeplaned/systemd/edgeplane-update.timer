@@ -1,0 +1,16 @@
+[Unit]
+Description=Daily edgeplane self-update check
+Documentation=https://github.com/RyanMerlin/edgeplane
+
+[Timer]
+# Daily at 04:00 local, jittered up to 30m so a fleet doesn't hit GitHub in
+# lockstep. 04:00 is before the briefing/pre-market crons (06:00/06:30 MST),
+# so a daemon restart never collides with a scheduled run.
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=30m
+# Catch up after downtime — if the node was off at 04:00, run on next boot.
+Persistent=true
+Unit=edgeplane-update.service
+
+[Install]
+WantedBy=timers.target

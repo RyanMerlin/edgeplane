@@ -1,0 +1,15 @@
+[Unit]
+Description=edgeplane self-update — converge node binaries to the latest release
+Documentation=https://github.com/RyanMerlin/edgeplane
+# Best-effort network wait; the script itself retries and soft-skips if the
+# release is unreachable, so a missing target here is harmless.
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Installed copy of scripts/edgeplane-self-update.sh (see install-edgeplane.sh).
+ExecStart=%h/.local/bin/edgeplane-self-update
+# Resolve edgeplane/edgeplaned + systemctl for the script and the daemon's PATH.
+Environment=PATH=%h/.cargo/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Don't let a transient network/checksum failure spam restarts; the timer retries.
+TimeoutStartSec=600
