@@ -6,6 +6,8 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
 
 ## [Unreleased]
 
+## [0.14.1] — 2026-06-15
+
 ### Changed
 
 - **`edgeplane update` now converges every installed edgeplane binary, not just the CLI.**
