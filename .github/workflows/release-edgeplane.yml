@@ -195,12 +195,16 @@ jobs:
           sha256sum $(ls) > checksums.txt
           cat checksums.txt
 
-      # Self-update manifest consumed by `edgeplane update self-update`, which
-      # fetches `…/releases/latest/download/latest.json`. GitHub redirects that
-      # to the latest tag, so this asset must exist on every release or the
-      # self-update 404s. Lists only the `edgeplane` CLI binaries (self-update
-      # replaces the running CLI; the client matches on os/arch alone, so
-      # including `edgeplaned` here would make the lookup ambiguous).
+      # Self-update manifest consumed by `edgeplane update`, which fetches
+      # `…/releases/latest/download/latest.json`. GitHub redirects that to the
+      # latest tag, so this asset must exist on every release or the self-update
+      # 404s. Lists every distributable binary (`edgeplane` + `edgeplaned`) with
+      # a `bin` discriminator: `edgeplane update` converges the running CLI plus
+      # any sibling binary already installed next to it (e.g. `edgeplaned` on a
+      # node). The `bin` field removes the old os/arch-only ambiguity, so the
+      # daemon can safely be listed. Pre-0.14.1 CLIs ignore the unknown `bin`
+      # field and, because entries are emitted sorted, still match `edgeplane-*`
+      # before `edgeplaned-*` — so they keep self-updating the CLI correctly.
       - name: Generate latest.json (self-update manifest)
         working-directory: artifacts
         env:
@@ -211,8 +215,8 @@ jobs:
           import json, os, re
           tag, repo = os.environ["TAG"], os.environ["REPO"]
           base = f"https://github.com/{repo}/releases/download/{tag}"
-          # os/arch tokens must match Rust's env::consts::{OS,ARCH}.
-          pat = re.compile(r"^edgeplane-(linux|macos)-(x86_64|aarch64)$")
+          # bin token is the binary name; os/arch tokens must match Rust's env::consts::{OS,ARCH}.
+          pat = re.compile(r"^(edgeplane|edgeplaned)-(linux|macos)-(x86_64|aarch64)$")
           sums = {}
           with open("checksums.txt") as f:
               for line in f:
@@ -223,10 +227,10 @@ jobs:
           for name, sha in sorted(sums.items()):
               m = pat.match(name)
               if m:
-                  files.append({"os": m.group(1), "arch": m.group(2),
+                  files.append({"bin": m.group(1), "os": m.group(2), "arch": m.group(3),
                                 "url": f"{base}/{name}", "sha256": sha})
           if not files:
-              raise SystemExit("no edgeplane CLI artifacts matched; refusing to publish empty manifest")
+              raise SystemExit("no edgeplane artifacts matched; refusing to publish empty manifest")
           manifest = {"version": tag, "files": files}
           with open("latest.json", "w") as f:
               json.dump(manifest, f, indent=2)

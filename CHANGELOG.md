@@ -6,7 +6,23 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
 
 ## [Unreleased]
 
+### Changed
+
+- **`edgeplane update` now converges every installed edgeplane binary, not just the CLI.**
+  The self-update manifest (`latest.json`) gains a `bin` discriminator and lists
+  `edgeplaned` alongside `edgeplane`; `update` replaces the running CLI plus any
+  sibling binary already installed in the same directory (e.g. `edgeplaned` on a
+  node), skipping byte-identical files. Pre-0.14.1 CLIs stay compatible — they
+  ignore the unknown `bin` field, and entries are emitted sorted so `edgeplane-*`
+  still resolves first.
+
 ### Added
+
+- **Node self-update tooling** — `scripts/edgeplane-self-update.sh` (release-cadence
+  node updater) plus systemd `edgeplane-update.{service,timer}`, and a one-shot
+  `scripts/converge-node-0.14.0.sh` drift-remediation script. The timer is provided
+  but **not yet wired into the installer** pending a fleet-restart design decision
+  (restarting `edgeplaned` bounces co-located agent sessions on the node).
 
 - **Web UI: display name from OIDC `preferred_username` claim.**
   `edgeplane-tower` now captures `preferred_username` (falling back to `name`) from the
