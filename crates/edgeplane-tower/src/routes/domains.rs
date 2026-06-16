@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{get, post},
     Json, Router,
 };
 use chrono::Utc;
@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use crate::{
     auth::Principal,
-    models::domain::{Domain, DomainCreate, DomainRoleMembership, DomainRoleUpsert, DomainUpdate, NorthstarUpdate},
+    models::domain::{Domain, DomainCreate, DomainUpdate, NorthstarUpdate},
     state::AppState,
 };
 
@@ -23,8 +23,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/domains/{domain_id}", get(get_domain).patch(update_domain).delete(delete_domain))
         .route("/domains/{domain_id}/northstar", get(get_domain_northstar_handler).put(put_domain_northstar_handler))
         .route("/domains/{domain_id}/owner", post(transfer_owner))
-        .route("/domains/{domain_id}/roles", get(list_roles).post(upsert_role))
-        .route("/domains/{domain_id}/roles/{subject}", delete(delete_role))
 }
 
 fn new_hash_id() -> String {
@@ -72,17 +70,6 @@ fn row_to_domain(row: &PgRow) -> Domain {
         northstar_created_at: row.get("northstar_created_at"),
         northstar_modified_at: row.get("northstar_modified_at"),
         northstar_s3_path: row.try_get("northstar_s3_path").unwrap_or(None),
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
-    }
-}
-
-fn row_to_role(row: &PgRow) -> DomainRoleMembership {
-    DomainRoleMembership {
-        id: row.get("id"),
-        domain_id: row.get("domain_id"),
-        subject: row.get("subject"),
-        role: row.get("role"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -269,69 +256,10 @@ async fn delete_domain(
         return (StatusCode::CONFLICT, Json(serde_json::json!({"detail": "Domain has linked missions; move or delete missions first"}))).into_response();
     }
 
-    let _ = sqlx::query("DELETE FROM domainrolemembership WHERE domain_id = $1")
-        .bind(&domain_id).execute(&state.db).await;
     let _ = sqlx::query("DELETE FROM domain WHERE id = $1")
         .bind(&domain_id).execute(&state.db).await;
 
     Json(serde_json::json!({"ok": true, "deleted_id": domain_id})).into_response()
-}
-
-// ── Role endpoints ────────────────────────────────────────────────────────────
-
-async fn list_roles(
-    State(state): State<Arc<AppState>>,
-    principal: Principal,
-    Path(domain_id): Path<String>,
-) -> impl IntoResponse {
-    let row = sqlx::query("SELECT * FROM domain WHERE id = $1")
-        .bind(&domain_id).fetch_optional(&state.db).await;
-    match row {
-        Ok(Some(r)) => { let m = row_to_domain(&r); if !can_own(&m, &principal) { return StatusCode::FORBIDDEN.into_response(); } }
-        Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("list_roles fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
-    }
-
-    let rows = sqlx::query(
-        "SELECT * FROM domainrolemembership WHERE domain_id = $1 ORDER BY created_at ASC"
-    )
-    .bind(&domain_id).fetch_all(&state.db).await;
-
-    match rows {
-        Ok(rows) => Json(rows.iter().map(row_to_role).collect::<Vec<_>>()).into_response(),
-        Err(e) => { tracing::error!("list_roles query: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
-    }
-}
-
-async fn upsert_role(
-    State(state): State<Arc<AppState>>,
-    principal: Principal,
-    Path(domain_id): Path<String>,
-    Json(payload): Json<DomainRoleUpsert>,
-) -> impl IntoResponse {
-    let row = sqlx::query("SELECT * FROM domain WHERE id = $1")
-        .bind(&domain_id).fetch_optional(&state.db).await;
-    match row {
-        Ok(Some(r)) => { let m = row_to_domain(&r); if !can_own(&m, &principal) { return StatusCode::FORBIDDEN.into_response(); } }
-        Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("upsert_role fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
-    }
-
-    let now = Utc::now().naive_utc();
-    let result = sqlx::query(
-        r#"INSERT INTO domainrolemembership (domain_id, subject, role, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $4)
-           ON CONFLICT (domain_id, subject) DO UPDATE
-             SET role = EXCLUDED.role, updated_at = EXCLUDED.updated_at
-           RETURNING *"#
-    )
-    .bind(&domain_id).bind(&payload.subject).bind(&payload.role).bind(now)
-    .fetch_one(&state.db).await;
-
-    match result {
-        Ok(row) => Json(row_to_role(&row)).into_response(),
-        Err(e) => { tracing::error!("upsert_role insert: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
-    }
 }
 
 async fn transfer_owner(
@@ -356,32 +284,6 @@ async fn transfer_owner(
         Ok(Some(row)) => Json(row_to_domain(&row)).into_response(),
         Ok(None) => not_found("Domain not found"),
         Err(e) => { tracing::error!("transfer_owner: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
-    }
-}
-
-async fn delete_role(
-    State(state): State<Arc<AppState>>,
-    principal: Principal,
-    Path((domain_id, subject)): Path<(String, String)>,
-) -> impl IntoResponse {
-    let row = sqlx::query("SELECT * FROM domain WHERE id = $1")
-        .bind(&domain_id).fetch_optional(&state.db).await;
-    match row {
-        Ok(Some(r)) => { let m = row_to_domain(&r); if !can_own(&m, &principal) { return StatusCode::FORBIDDEN.into_response(); } }
-        Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("delete_role fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
-    }
-
-    let result = sqlx::query(
-        "DELETE FROM domainrolemembership WHERE domain_id = $1 AND subject = $2"
-    )
-    .bind(&domain_id).bind(&subject)
-    .execute(&state.db).await;
-
-    match result {
-        Ok(r) if r.rows_affected() > 0 => Json(serde_json::json!({"ok": true})).into_response(),
-        Ok(_) => not_found("Role assignment not found"),
-        Err(e) => { tracing::error!("delete_role exec: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
 }
 

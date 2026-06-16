@@ -12,6 +12,6 @@ pub mod task;
 
 pub use agent::{Agent, AgentMessage, AgentSession, TaskAssignment};
 pub use approval::ApprovalRequest;
-pub use domain::{Domain, DomainRoleMembership};
+pub use domain::Domain;
 pub use mission::Mission;
 pub use task::Task;

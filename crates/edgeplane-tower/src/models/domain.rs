@@ -22,16 +22,6 @@ pub struct Domain {
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct DomainRoleMembership {
-    pub id: i32,
-    pub domain_id: String,
-    pub subject: String,
-    pub role: String,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
-}
-
 // ── Request/response shapes ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -59,12 +49,6 @@ pub struct DomainUpdate {
     pub tags: Option<String>,
     pub visibility: Option<String>,
     pub status: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DomainRoleUpsert {
-    pub subject: String,
-    pub role: String,
 }
 
 #[derive(Debug, Deserialize)]
