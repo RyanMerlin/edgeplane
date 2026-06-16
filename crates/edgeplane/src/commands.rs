@@ -7,7 +7,7 @@ use crate::{
     compat,
     config::EdgeplaneConfig,
     discover,
-    agent_harness, daemon_ctl, drift, governance, maintenance, mcp_server, mcp_tools, ops,
+    agent_harness, daemon_ctl, drift, maintenance, mcp_server, mcp_tools, ops,
     run,
     output::{self, OutputMode},
     runtime,
@@ -106,9 +106,6 @@ pub enum EdgeplaneCommand {
     /// Authentication and identity helpers.
     #[command(subcommand)]
     Auth(AuthCommand),
-    /// Governance and admin workflows.
-    #[command(subcommand)]
-    Admin(AdminCommand),
     /// Data/catalog/read workflows (tools, sync, explorer).
     #[command(subcommand)]
     Data(DataCommand),
@@ -1053,32 +1050,6 @@ impl ExplorerNodeType {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum AdminCommand {
-    /// Governance policy summaries and event feeds.
-    #[command(subcommand)]
-    Policy(AdminPolicyCommand),
-    /// Governance automation helpers (roles, policies, events).
-    #[command(subcommand)]
-    Governance(governance::GovernanceCommand),
-}
-
-#[derive(Subcommand, Debug)]
-pub enum AdminPolicyCommand {
-    /// Show the currently active governance policy.
-    Active,
-    /// List previous policy versions (limit defaults to 50).
-    Versions {
-        #[arg(long)]
-        limit: Option<u32>,
-    },
-    /// Show the recent policy events emitted from approvals.
-    Events {
-        #[arg(long)]
-        limit: Option<u32>,
-    },
-}
-
-#[derive(Subcommand, Debug)]
 pub enum ApprovalCommand {
     /// Create an approval request for a domain action.
     Create {
@@ -1152,7 +1123,6 @@ pub async fn run(
         EdgeplaneCommand::Data(cmd) => {
             handle_data(cmd, client, &booster, &config.schema_pack, output_mode).await
         }
-        EdgeplaneCommand::Admin(cmd) => handle_admin(cmd, client).await,
         EdgeplaneCommand::System(cmd) => handle_system(cmd, client, &config).await,
         EdgeplaneCommand::Agent(cmd) => handle_agent(cmd, client, &booster, &config.schema_pack).await,
         EdgeplaneCommand::Runtime(cmd) => handle_runtime(cmd, client, output_mode).await,
@@ -3599,35 +3569,6 @@ async fn handle_explorer(command: ExplorerCommand, client: EdgeplaneClient) -> R
             let response = client.get_json(&path).await?;
             print_json(&response);
         }
-    }
-    Ok(())
-}
-
-async fn handle_admin(command: AdminCommand, client: EdgeplaneClient) -> Result<()> {
-    match command {
-        AdminCommand::Policy(AdminPolicyCommand::Active) => {
-            let response = client.get_json("/governance/policy/active").await?;
-            print_json(&response);
-        }
-        AdminCommand::Policy(AdminPolicyCommand::Versions { limit }) => {
-            let mut serializer = form_urlencoded::Serializer::new(String::new());
-            if let Some(limit) = limit {
-                serializer.append_pair("limit", &limit.to_string());
-            }
-            let path = build_path_with_query("/governance/policy/versions", serializer.finish());
-            let response = client.get_json(&path).await?;
-            print_json(&response);
-        }
-        AdminCommand::Policy(AdminPolicyCommand::Events { limit }) => {
-            let mut serializer = form_urlencoded::Serializer::new(String::new());
-            if let Some(limit) = limit {
-                serializer.append_pair("limit", &limit.to_string());
-            }
-            let path = build_path_with_query("/governance/policy/events", serializer.finish());
-            let response = client.get_json(&path).await?;
-            print_json(&response);
-        }
-        AdminCommand::Governance(cmd) => governance::run(cmd, &client).await?,
     }
     Ok(())
 }

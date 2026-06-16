@@ -186,7 +186,7 @@ fn run_provider_checks(provider: String, mode: CompatMode) -> ProviderResult {
         checks.push(CheckResult {
             name: "approval_flow_contract".into(),
             status: if available { "pass" } else { "warn" }.into(),
-            detail: "full-mode check placeholder for governance/approval contract".into(),
+            detail: "full-mode check placeholder for approval contract".into(),
         });
     }
 
