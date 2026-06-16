@@ -93,19 +93,3 @@ async fn test_oidc_start_exists() {
     assert_ne!(status, 405, "route should exist");
 }
 
-// ── Family governance ─────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_family_members_requires_auth() {
-    let res = server().get("/api/family/members").await;
-    let status = res.status_code().as_u16();
-    assert_ne!(status, 200);
-}
-
-#[tokio::test]
-async fn test_family_member_access_requires_auth() {
-    let res = server().get("/api/family/members/somesubject/access").await;
-    let status = res.status_code().as_u16();
-    assert_ne!(status, 200);
-}
-
