@@ -60,7 +60,6 @@ fn build_manifest(base: &str) -> serde_json::Value {
             "health": format!("{}/", base),
             "openapi": format!("{}/api/openapi.json", base),
             "explorer_tree": format!("{}/explorer/tree", base),
-            "governance_active": format!("{}/governance/policy/active", base),
             "mcp_tools": format!("{}/mcp/tools", base),
             "mcp_call": format!("{}/mcp/call", base),
             "mcp_health": format!("{}/mcp/health", base),

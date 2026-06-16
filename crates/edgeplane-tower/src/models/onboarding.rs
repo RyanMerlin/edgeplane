@@ -19,7 +19,6 @@ pub struct OnboardingEndpoints {
     pub health: String,
     pub openapi: String,
     pub explorer_tree: String,
-    pub governance_active: String,
     pub mcp_tools: String,
     pub mcp_call: String,
     pub mcp_health: String,

@@ -6,7 +6,7 @@
 use serde::Serialize;
 use utoipa::{OpenApi, ToSchema};
 
-// ── Schema-only DTO (health only — governance now uses real models) ───────────
+// ── Schema-only DTO ───────────────────────────────────────────────────────────
 
 /// Response emitted by `GET /api/health`.
 #[derive(Serialize, ToSchema)]
@@ -49,56 +49,6 @@ pub fn health_stub() {}
 )]
 #[allow(dead_code)]
 pub fn auth_me_stub() {}
-
-// ── Governance ────────────────────────────────────────────────────────────────
-
-/// Return the currently active governance policy, seeding the default if none exists.
-#[utoipa::path(
-    get,
-    path = "/api/governance/policy/active",
-    tag = "governance",
-    security(("bearerAuth" = [])),
-    responses(
-        (status = 200, description = "Active governance policy", body = crate::models::governance::GovernancePolicyResponse),
-        (status = 201, description = "Default policy seeded (first call on empty DB)", body = crate::models::governance::GovernancePolicyResponse),
-        (status = 401, description = "Missing or invalid token")
-    )
-)]
-#[allow(dead_code)]
-pub fn governance_active_stub() {}
-
-/// Reload the in-memory governance policy from the database (admin only).
-#[utoipa::path(
-    post,
-    path = "/api/governance/policy/reload",
-    tag = "governance",
-    security(("bearerAuth" = [])),
-    responses(
-        (status = 200, description = "Policy reloaded successfully", body = crate::models::governance::GovernanceReloadResponse),
-        (status = 401, description = "Missing or invalid token"),
-        (status = 403, description = "Admin role required")
-    )
-)]
-#[allow(dead_code)]
-pub fn governance_reload_stub() {}
-
-/// List recent governance policy audit-log events (admin only).
-#[utoipa::path(
-    get,
-    path = "/api/governance/policy/events",
-    tag = "governance",
-    security(("bearerAuth" = [])),
-    params(
-        ("limit" = Option<i64>, Query, description = "Maximum number of events to return (default 50, max 500)")
-    ),
-    responses(
-        (status = 200, description = "List of policy events, newest first", body = Vec<crate::models::governance::PolicyEvent>),
-        (status = 401, description = "Missing or invalid token"),
-        (status = 403, description = "Admin role required")
-    )
-)]
-#[allow(dead_code)]
-pub fn governance_events_stub() {}
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 
@@ -265,9 +215,6 @@ pub fn explorer_node_stub() {}
     paths(
         health_stub,
         auth_me_stub,
-        governance_active_stub,
-        governance_reload_stub,
-        governance_events_stub,
         agents_list_stub,
         agents_get_stub,
         runtime_nodes_list_stub,
@@ -279,15 +226,6 @@ pub fn explorer_node_stub() {}
     components(
         schemas(
             HealthResponse,
-            // governance
-            crate::models::governance::GovernancePolicyResponse,
-            crate::models::governance::GovernanceReloadResponse,
-            crate::models::governance::PolicyEvent,
-            crate::models::governance::PolicyDoc,
-            crate::models::governance::PolicyGlobal,
-            crate::models::governance::PolicyTerminal,
-            crate::models::governance::PolicyMcp,
-            crate::models::governance::PolicyActionRule,
             // auth
             crate::models::auth::MeResponse,
             // agents
@@ -322,7 +260,6 @@ pub fn explorer_node_stub() {}
     tags(
         (name = "system",     description = "Infrastructure endpoints"),
         (name = "auth",       description = "Authentication and identity"),
-        (name = "governance", description = "Policy lifecycle management"),
         (name = "agents",     description = "Control-plane agent registry"),
         (name = "runtime",    description = "Runtime node fleet management"),
         (name = "explorer",   description = "Domain / mission / task explorer tree"),
