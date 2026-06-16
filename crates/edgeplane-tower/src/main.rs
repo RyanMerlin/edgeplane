@@ -69,6 +69,12 @@ async fn main() -> anyhow::Result<()> {
         node_id: cli.node_id.unwrap_or(1),
         advertise_url: cli.advertise_url.clone(),
         api_proxy: cli.api_proxy.clone(),
+        admin_emails: std::env::var("EP_ADMIN_EMAILS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect(),
     };
 
     let app = build_app(db, config);

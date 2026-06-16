@@ -18,6 +18,8 @@ pub struct AppConfig {
     pub advertise_url: Option<String>,
     /// When set, routes not matched by this app are proxied to this base URL.
     pub api_proxy: Option<String>,
+    /// Lowercased admin emails, parsed from `EP_ADMIN_EMAILS` at the entrypoint.
+    pub admin_emails: std::collections::HashSet<String>,
 }
 
 pub fn build_app(db: PgPool, config: AppConfig) -> Router {
@@ -37,6 +39,7 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
         api_proxy: config.api_proxy.clone(),
         jwt_encoding_key,
         jwt_decoding_key,
+        admin_emails: config.admin_emails.clone(),
     });
 
     // Phase 2: API routes are nested under /api. The auth middleware is
