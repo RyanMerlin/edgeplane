@@ -90,14 +90,7 @@ async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &s
             return true;
         }
     }
-    sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM domainrolemembership WHERE domain_id=$1 AND subject=$2)",
-    )
-    .bind(domain_id)
-    .bind(&principal.subject)
-    .fetch_one(db)
-    .await
-    .unwrap_or(false)
+    false
 }
 
 // --- text filter ---

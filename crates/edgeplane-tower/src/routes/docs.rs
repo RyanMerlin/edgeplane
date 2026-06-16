@@ -64,14 +64,7 @@ async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &s
             |s: &str| s.split(',').map(|x| x.trim().to_lowercase()).any(|x| x == sub);
         return in_list(&owners) || in_list(&contributors);
     }
-    sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM domainrolemembership WHERE domain_id=$1 AND subject=$2)",
-    )
-    .bind(domain_id)
-    .bind(&principal.subject)
-    .fetch_one(db)
-    .await
-    .unwrap_or(false)
+    false
 }
 
 async fn can_write_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &str) -> bool {
@@ -91,14 +84,7 @@ async fn can_write_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &
             |s: &str| s.split(',').map(|x| x.trim().to_lowercase()).any(|x| x == sub);
         return in_list(&owners) || in_list(&contributors);
     }
-    sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM domainrolemembership WHERE domain_id=$1 AND subject=$2 AND role IN ('owner','contributor'))",
-    )
-    .bind(domain_id)
-    .bind(&principal.subject)
-    .fetch_one(db)
-    .await
-    .unwrap_or(false)
+    false
 }
 
 #[derive(Deserialize)]
