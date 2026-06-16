@@ -42,7 +42,7 @@ edgeplane / edgeplaned / edgeplane-tower ship in lockstep off a single git tag.
    - `bash scripts/smoke.sh --profile full`
 5. Confirm auth config for target environment:
    - OIDC settings present for preferred auth path.
-   - Admin identities set (`EP_ADMIN_SUBJECTS` and/or `EP_ADMIN_EMAILS`).
+   - Admin identities set (`EP_ADMIN_EMAILS`).
 
 ## Release Execution
 
