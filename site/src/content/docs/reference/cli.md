@@ -201,21 +201,6 @@ edgeplane system update ...
 
 ---
 
-## Approvals and Administration
-
-```bash
-edgeplane approvals list
-edgeplane approvals approve <id>
-edgeplane approvals reject <id>
-
-edgeplane admin policy active
-edgeplane admin policy versions
-edgeplane admin policy events
-edgeplane admin governance ...
-```
-
----
-
 ## Utility
 
 ```bash

@@ -153,21 +153,6 @@ Distinct from `AgentSession` (live process record) and `AiSession` (conversation
 
 ---
 
-## DomainRoleMembership
-
-**Who has what role on a domain.** Admin / Contributor / Viewer.
-
-- Columns: `domain_id`, `subject`, `role`
-- Used by governance enforcement at every mutation point
-
-| Role | Permissions |
-|------|-------------|
-| Admin | Full mutation and policy control |
-| Contributor | Create and modify within domain scope |
-| Viewer | Search, inspect, and use artifacts — no mutations |
-
----
-
 ## What this reference covers
 
 This reference covers load-bearing entities — the ones agents and operators reason about. It is not an API reference (see `docs/catalog/api.yaml` in the repo), not a deployment guide, and not exhaustive. Add entities here as they become load-bearing.

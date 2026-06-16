@@ -89,11 +89,6 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane runtime leases complete`↴](#edgeplane-runtime-leases-complete)
 * [`edgeplane runtime sessions`↴](#edgeplane-runtime-sessions)
 * [`edgeplane runtime sessions attach`↴](#edgeplane-runtime-sessions-attach)
-* [`edgeplane approvals`↴](#edgeplane-approvals)
-* [`edgeplane approvals create`↴](#edgeplane-approvals-create)
-* [`edgeplane approvals list`↴](#edgeplane-approvals-list)
-* [`edgeplane approvals approve`↴](#edgeplane-approvals-approve)
-* [`edgeplane approvals reject`↴](#edgeplane-approvals-reject)
 * [`edgeplane workspace`↴](#edgeplane-workspace)
 * [`edgeplane workspace load`↴](#edgeplane-workspace-load)
 * [`edgeplane workspace heartbeat`↴](#edgeplane-workspace-heartbeat)
@@ -254,7 +249,6 @@ EdgePlane — fleet control-plane CLI
 * `system` — Platform diagnostics and release-control workflows
 * `agent` — Agent control workflows (remote, swarm/subagent workflows)
 * `runtime` — Runtime fabric workflows (nodes, jobs, leases)
-* `approvals` — Approval workflow commands (requests, decisions)
 * `workspace` — Workspace lifecycle helpers (load/heartbeat/artifact/commit/release)
 * `ops` — Domain operations (lifecycle orchestration and execution workflows)
 * `update` — Self-update helper for the edgeplane binary
@@ -279,7 +273,7 @@ EdgePlane — fleet control-plane CLI
 ###### **Options:**
 
 * `--base-url <BASE_URL>` — Base URL pointing at an existing Edgeplane deployment
-* `--agent-id <AGENT_ID>` — Optional agent identifier propagated throughout approvals and sync calls
+* `--agent-id <AGENT_ID>` — Optional agent identifier propagated throughout sync calls
 * `--runtime-session-id <RUNTIME_SESSION_ID>` — Optional runtime session identifier propagated for per-instance attribution
 * `--profile-name <PROFILE_NAME>` — Optional profile name propagated for per-profile attribution
 * `--timeout-secs <TIMEOUT_SECS>` — Timeout (in seconds) for all outbound calls
@@ -1565,81 +1559,6 @@ Runtime execution-session helpers
 * `--raw`
 
   Default value: `false`
-
-
-
-## `edgeplane approvals`
-
-Approval workflow commands (requests, decisions)
-
-**Usage:** `edgeplane approvals <COMMAND>`
-
-###### **Subcommands:**
-
-* `create` — Create an approval request for a domain action
-* `list` — List approval requests for a domain
-* `approve` — Approve a pending request
-* `reject` — Reject a pending request
-
-
-
-## `edgeplane approvals create`
-
-Create an approval request for a domain action
-
-**Usage:** `edgeplane approvals create [OPTIONS] --domain-id <DOMAIN_ID> --action <ACTION>`
-
-###### **Options:**
-
-* `--domain-id <DOMAIN_ID>`
-* `--action <ACTION>`
-* `--channel <CHANNEL>`
-* `--reason <REASON>`
-* `--target-entity-type <TARGET_ENTITY_TYPE>`
-* `--target-entity-id <TARGET_ENTITY_ID>`
-* `--request-context <REQUEST_CONTEXT>`
-* `--expires-in-seconds <EXPIRES_IN_SECONDS>`
-
-
-
-## `edgeplane approvals list`
-
-List approval requests for a domain
-
-**Usage:** `edgeplane approvals list [OPTIONS] --domain-id <DOMAIN_ID>`
-
-###### **Options:**
-
-* `--domain-id <DOMAIN_ID>`
-* `--status <STATUS>`
-* `--limit <LIMIT>`
-
-
-
-## `edgeplane approvals approve`
-
-Approve a pending request
-
-**Usage:** `edgeplane approvals approve [OPTIONS] --approval-id <APPROVAL_ID>`
-
-###### **Options:**
-
-* `--approval-id <APPROVAL_ID>`
-* `--expires-in-seconds <EXPIRES_IN_SECONDS>`
-* `--note <NOTE>`
-
-
-
-## `edgeplane approvals reject`
-
-Reject a pending request
-
-**Usage:** `edgeplane approvals reject [OPTIONS] --approval-id <APPROVAL_ID>`
-
-###### **Options:**
-
-* `--approval-id <APPROVAL_ID>`
-* `--note <NOTE>`
 
 
 

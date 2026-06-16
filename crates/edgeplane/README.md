@@ -26,7 +26,7 @@ ENV | meaning | default
 ----|---------|--------
 `EP_BASE_URL` | base URL for Edgeplane API | `http://localhost:8008`
 `EP_AGENT_TOKEN` | service-account or session token for MCP endpoints; passed by `edgeplane run` to agents at exec time | unset
-`EP_AGENT_ID` | optional agent identity for governance/sync traces | unset
+`EP_AGENT_ID` | optional agent identity for sync traces | unset
 `EP_TIMEOUT_SECS` | outbound timeout for HTTP calls | `10`
 `EP_ALLOW_INSECURE` | accept self-signed certs (daemon use) | `false`
 `EP_SCHEMA_PACK_FILE` | optional path to a schema pack JSON to help the booster validate payloads | `docs/schema-packs/main.json`
@@ -79,26 +79,6 @@ edgeplane [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 ### Data explorer
 - `edgeplane data explorer tree` — mirrors `/explorer/tree`
 - `edgeplane data explorer node --node-type <mission|kluster|task> --node-id <id>` — fetches `/explorer/node/{type}/{id}`
-
-### Admin policy
-- `edgeplane admin policy active` — `/governance/policy/active`
-- `edgeplane admin policy versions [--limit N]`
-- `edgeplane admin policy events [--limit N]`
-- `edgeplane approvals list --mission-id <id> [--status <status>] [--limit N]`
-- `edgeplane approvals create --mission-id <id> --action <action> [--reason <text>] [--request-context '{...}']`
-- `edgeplane approvals approve --approval-id <id> [--expires-in-seconds N] [--note <text>]`
-- `edgeplane approvals reject --approval-id <id> [--note <text>]`
-
-### Governance automation
-- `edgeplane admin governance roles list --mission-id <id> [--limit N]`
-- `edgeplane admin governance roles upsert --mission-id <id> --subject <sub> --role <role>`
-- `edgeplane admin governance roles remove --mission-id <id> --subject <sub>`
-- `edgeplane admin governance policy active`
-- `edgeplane admin governance policy versions [--limit N]`
-- `edgeplane admin governance policy create-draft --file policy.json [--change-note text]`
-- `edgeplane admin governance policy publish --draft-id N [--change-note text]`
-- `edgeplane admin governance policy rollback --version N [--change-note text]`
-- `edgeplane admin governance events [--limit N]`
 
 ### AI-native operations
 - `edgeplane ops mission --action start --kluster-id <id> [--workspace-label <label>] [--agent-id <agent>] [--lease-seconds N]`
@@ -189,8 +169,8 @@ The backend also exposes:
 
 The daemon mode connects to `/events/stream` and prints the chunked telemetry that powers the inbox,
 approval, and matrix dashboards. When you pair local swarm-style workflows with Edgeplane, run the
-`edgeplane daemon` process alongside the swarm’s leader so that the governance plane (approvals, policy
-enforcement) stays in lockstep with the agent planners and vector memory.
+`edgeplane daemon` process alongside the swarm’s leader so that the event stream
+stays in lockstep with the agent planners and vector memory.
 
 Run `edgeplane daemon` with `--fanout-port <port>` to expose a local SSE server on `/events` for dashboards and
 local controller processes. The new [docs/REAL-TIME.md](../docs/reference/REAL-TIME.md) describes the `/events/stream` schema,

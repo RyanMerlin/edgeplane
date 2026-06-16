@@ -105,7 +105,7 @@ commands:
   - name: admin
     status: implemented
     stability: stable
-    description: Governance and admin workflows (domain mgmt, role grants).
+    description: Admin workflows (domain mgmt, member management).
 
   - name: data
     status: implemented
@@ -231,9 +231,9 @@ entities_touched:
   - name: Agent / MeshAgent / AISession / AgentSession / AgentRun
     via: edgeplane-tower HTTP API + edgeplaned local socket
     operations: [list, describe, signal, cancel, attach]
-  - name: Mission / Domain / Task / MeshTask / Artifact / DomainRoleMembership
+  - name: Mission / Domain / Task / MeshTask / Artifact
     via: edgeplane-tower HTTP API
-    operations: [list, describe, mutate (per ADR-0003 role gates)]
+    operations: [list, describe, mutate (per ADR-0003 owner/contributor gates)]
 
 external_dependencies:
   - name: OIDC provider (Authentik)
@@ -248,7 +248,7 @@ external_dependencies:
 internal_dependencies:
   - binary: edgeplane-tower
     via: HTTP API
-    purpose: durable state, governance, RBAC
+    purpose: durable state, authz (owners/contributors + EP_ADMIN_EMAILS)
   - binary: edgeplaned
     via: local unix socket + HTTP
     purpose: agent supervision and dispatch on the local node

@@ -124,4 +124,4 @@ Domains scope. Missions stream. Tasks complete.
 - [Entity Reference](/concepts/entity-reference/) — full schema-backed definitions for every entity
 - [Architecture: Persistence](/architecture/persistence/) — how domains, missions, and tasks are stored across Postgres, S3, and Git
 - [Overlap Detection](/guides/overlap-detection/) — similarity analysis that surfaces duplicate work before it lands
-- [Governance & Approvals](/guides/governance-and-approvals/) — gate domain actions behind approval workflows
+- [Domain Access Control](/guides/governance-and-approvals/) — how owners/contributors control domain access
