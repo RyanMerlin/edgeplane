@@ -14,7 +14,6 @@ use ratatui::{
 use super::data::{is_auth_error, DataClient, RemoteDataClient};
 use super::screens::agent_feed::{AgentFeed, AgentFeedState};
 use super::screens::agents::{AgentOp, AgentScreen, AgentScreenState};
-use super::screens::approval_queue::{ApprovalQueue, ApprovalQueueState};
 use super::screens::config::{ConfigScreen, ConfigScreenState, DoctorCheckRow, DoctorStatus, OidcPanelState};
 use super::screens::mission_matrix::{Focus as MatrixFocus, MissionMatrix, MissionMatrixState};
 use super::screens::secrets::{SecretsScreen, SecretsState, render_tree_overlay};
@@ -64,7 +63,6 @@ pub enum PendingAction {
     DeleteAgent(String),
     RestartAgent(String),
     ClearAgentContext(String),
-    DenyApproval(i64),
 }
 
 /// All currently-supported modal kinds. Extending this enum is the way to
@@ -90,7 +88,6 @@ pub enum Screen {
     Agents,
     Domains,
     Feed,
-    Approvals,
     Secrets,
     Config,
 }
@@ -112,7 +109,6 @@ pub struct App {
     pub agents: AgentScreenState,
     pub matrix: MissionMatrixState,
     pub agent_feed: AgentFeedState,
-    pub approval_queue: ApprovalQueueState,
     pub secrets: SecretsState,
     pub config: ConfigScreenState,
 
@@ -120,7 +116,6 @@ pub struct App {
     // fetch for each list-style screen; tick() compares it against an interval
     // and redispatches if the screen is currently visible.
     pub agents_last_refresh: Option<Instant>,
-    pub approvals_last_refresh: Option<Instant>,
     pub domains_last_refresh: Option<Instant>,
 
     /// Last time we polled `~/.ep/session.json` looking for a
@@ -139,7 +134,6 @@ pub struct App {
 }
 
 const AGENTS_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
-const APPROVALS_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
 const DOMAINS_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 const AGENTS_HELP: &[HelpEntry] = &[
@@ -162,14 +156,6 @@ const FEED_HELP: &[HelpEntry] = &[
     HelpEntry { keys: "p",       desc: "pause / resume" },
     HelpEntry { keys: "c",       desc: "clear buffer" },
     HelpEntry { keys: "/",       desc: "filter events" },
-];
-
-const APPROVALS_HELP: &[HelpEntry] = &[
-    HelpEntry { keys: "↑↓",      desc: "navigate queue" },
-    HelpEntry { keys: "←→",      desc: "switch Queue / Detail focus" },
-    HelpEntry { keys: "y",       desc: "approve" },
-    HelpEntry { keys: "n",       desc: "deny (confirm)" },
-    HelpEntry { keys: "s",       desc: "skip to next" },
 ];
 
 const SECRETS_HELP: &[HelpEntry] = &[
@@ -241,11 +227,9 @@ impl App {
             agents: AgentScreenState::default(),
             matrix,
             agent_feed: AgentFeedState::new(),
-            approval_queue: ApprovalQueueState::default(),
             secrets: SecretsState::default(),
             config,
             agents_last_refresh: None,
-            approvals_last_refresh: None,
             domains_last_refresh: None,
             auth_last_check: None,
             modal: None,
@@ -314,12 +298,10 @@ impl App {
         // refreshed panel instead of the old "Not signed in" copy.
         self.agents.error = None;
         self.matrix.error = None;
-        self.approval_queue.last_error = None;
         // Reset per-screen refresh stamps so `auto_refresh` immediately
         // re-fetches with the new credentials rather than waiting out the
         // interval against the pre-auth `now`.
         self.agents_last_refresh = None;
-        self.approvals_last_refresh = None;
         self.domains_last_refresh = None;
 
         true
@@ -531,53 +513,6 @@ impl App {
                         tree.deliver_names(job_id, names, error);
                     }
                 }
-                WorkResult::ApprovalsListed { approvals, error, .. } => {
-                    self.approval_queue.loading = false;
-                    if let Some(e) = error {
-                        self.approval_queue.last_error = self.classify_error(e);
-                    } else {
-                        self.approval_queue.last_error = None;
-                        let prev_id = self.approval_queue.pending.get(self.approval_queue.selection).map(|r| r.id);
-                        self.approval_queue.pending = approvals
-                            .into_iter()
-                            .map(|a| super::screens::approval_queue::ApprovalRequest {
-                                id: a.id,
-                                domain_id: a.domain_id,
-                                action: a.action,
-                                channel: a.channel,
-                                reason: a.reason,
-                                requested_by: a.requested_by,
-                                status: a.status,
-                                request_context: a.request_context,
-                            })
-                            .collect();
-                        if let Some(id) = prev_id {
-                            if let Some(idx) = self.approval_queue.pending.iter().position(|r| r.id == id) {
-                                self.approval_queue.selection = idx;
-                            } else {
-                                self.approval_queue.selection = 0;
-                            }
-                        } else {
-                            self.approval_queue.selection = 0;
-                        }
-                        self.approvals_last_refresh = Some(Instant::now());
-                    }
-                }
-                WorkResult::ApprovalResponded { approval_id, ok, error, .. } => {
-                    if ok {
-                        self.approval_queue.pending.retain(|r| r.id.to_string() != approval_id);
-                        if self.approval_queue.selection >= self.approval_queue.pending.len()
-                            && self.approval_queue.selection > 0
-                        {
-                            self.approval_queue.selection -= 1;
-                        }
-                        self.pool.dispatch(self.client.clone(), WorkRequest::FetchApprovals {
-                            job_id: next_job_id(), domain_id: None,
-                        });
-                    } else {
-                        self.approval_queue.last_error = error;
-                    }
-                }
                 WorkResult::OidcFlow(event) => {
                     match event {
                         OidcFlowEvent::Initiated { authorize_url, .. } => {
@@ -619,11 +554,9 @@ impl App {
                             self.modal = None;
                             self.agents_last_refresh = None;
                             self.domains_last_refresh = None;
-                            self.approvals_last_refresh = None;
                             // Clear any stale auth error messages from panels.
                             self.agents.error = None;
                             self.matrix.error = None;
-                            self.approval_queue.last_error = None;
                             // Navigate to Agents now that we're signed in
                             self.screen = Screen::Agents;
                         }
@@ -761,9 +694,6 @@ impl App {
         // Domains fetch.
         checks.push(error_to_check("Domains fetch", &self.matrix.error));
 
-        // Approvals fetch.
-        checks.push(error_to_check("Approvals fetch", &self.approval_queue.last_error));
-
         self.config.doctor = checks;
     }
 
@@ -785,12 +715,6 @@ impl App {
                 if !self.agents.loading && stale(self.agents_last_refresh, AGENTS_REFRESH_INTERVAL) {
                     self.agents_last_refresh = Some(now); // stamp now to dedupe in-flight
                     self.pool.dispatch(self.client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
-                }
-            }
-            Screen::Approvals => {
-                if !self.approval_queue.loading && stale(self.approvals_last_refresh, APPROVALS_REFRESH_INTERVAL) {
-                    self.approvals_last_refresh = Some(now);
-                    self.pool.dispatch(self.client.clone(), WorkRequest::FetchApprovals { job_id: next_job_id(), domain_id: None });
                 }
             }
             Screen::Domains => {
@@ -835,7 +759,6 @@ impl App {
         if key.code == KeyCode::Char('R') {
             self.try_reauth_from_disk(true);
             self.agents_last_refresh = None;
-            self.approvals_last_refresh = None;
             self.domains_last_refresh = None;
             // Force an immediate refetch of the current panel.
             match &self.screen {
@@ -844,9 +767,6 @@ impl App {
                 }
                 Screen::Domains => {
                     self.pool.dispatch(self.client.clone(), WorkRequest::ListDomains { job_id: next_job_id() });
-                }
-                Screen::Approvals => {
-                    self.pool.dispatch(self.client.clone(), WorkRequest::FetchApprovals { job_id: next_job_id(), domain_id: None });
                 }
                 Screen::Feed | Screen::Secrets | Screen::Config => {}
             }
@@ -874,33 +794,6 @@ impl App {
                 c
             }
             Screen::Feed => self.agent_feed.handle_key(key.code),
-            Screen::Approvals => {
-                let c = self.approval_queue.handle_key(key.code);
-                // Approve dispatches immediately.
-                if let Some((id, approve)) = self.approval_queue.take_pending_response() {
-                    self.pool.dispatch(
-                        self.client.clone(),
-                        WorkRequest::RespondApproval {
-                            job_id: next_job_id(),
-                            approval_id: id.to_string(),
-                            decision: if approve { "approve".into() } else { "reject".into() },
-                            note: None,
-                        },
-                    );
-                }
-                // Deny goes through a confirm modal.
-                if let Some((id, action)) = self.approval_queue.take_pending_deny_confirm() {
-                    self.modal = Some(AppModal::Confirm {
-                        modal: ConfirmModal {
-                            title: "Confirm Deny".into(),
-                            message: format!("Deny approval \"{}\"?", action),
-                            danger: true,
-                        },
-                        action: PendingAction::DenyApproval(id),
-                    });
-                }
-                c
-            }
             Screen::Secrets => {
                 if key.code == KeyCode::Esc {
                     self.prev_tab();
@@ -955,7 +848,6 @@ impl App {
                     self.config.content_focused = false;
                     self.agents.error = None;
                     self.matrix.error = None;
-                    self.approval_queue.last_error = None;
                     self.screen = Screen::Agents;
                 }
                 if self.config.take_pending_oidc_start() {
@@ -1011,18 +903,6 @@ impl App {
             PendingAction::DeleteAgent(id)        => WorkRequest::DeleteAgent { job_id: next_job_id(), agent_id: id },
             PendingAction::RestartAgent(id)       => WorkRequest::RestartAgent { job_id: next_job_id(), agent_id: id },
             PendingAction::ClearAgentContext(id)  => WorkRequest::ClearAgentContext { job_id: next_job_id(), agent_id: id },
-            PendingAction::DenyApproval(id) => {
-                self.approval_queue.confirm_deny(id);
-                if let Some((aid, approve)) = self.approval_queue.take_pending_response() {
-                    return self.pool.dispatch(self.client.clone(), WorkRequest::RespondApproval {
-                        job_id: next_job_id(),
-                        approval_id: aid.to_string(),
-                        decision: if approve { "approve".into() } else { "reject".into() },
-                        note: None,
-                    });
-                }
-                return;
-            }
         };
         self.pool.dispatch(self.client.clone(), req);
     }
@@ -1063,7 +943,6 @@ impl App {
             KeyCode::Char('a') => self.switch_to_agents(),
             KeyCode::Char('m') => self.switch_to_domains(),
             KeyCode::Char('f') => self.switch_to_feed(),
-            KeyCode::Char('p') => self.switch_to_approvals(),
             KeyCode::Char('s') => self.switch_to_secrets(),
             KeyCode::Char('c') => self.screen = Screen::Config,
             _ => {}
@@ -1072,23 +951,21 @@ impl App {
 
     fn next_tab(&mut self) {
         match self.screen {
-            Screen::Agents    => self.switch_to_domains(),
-            Screen::Domains  => self.switch_to_feed(),
-            Screen::Feed      => self.switch_to_approvals(),
-            Screen::Approvals => self.switch_to_secrets(),
-            Screen::Secrets   => { self.screen = Screen::Config; }
-            Screen::Config    => self.switch_to_agents(),
+            Screen::Agents  => self.switch_to_domains(),
+            Screen::Domains => self.switch_to_feed(),
+            Screen::Feed    => self.switch_to_secrets(),
+            Screen::Secrets => { self.screen = Screen::Config; }
+            Screen::Config  => self.switch_to_agents(),
         }
     }
 
     fn prev_tab(&mut self) {
         match self.screen {
-            Screen::Agents    => { self.screen = Screen::Config; }
-            Screen::Domains  => self.switch_to_agents(),
-            Screen::Feed      => self.switch_to_domains(),
-            Screen::Approvals => self.switch_to_feed(),
-            Screen::Secrets   => self.switch_to_approvals(),
-            Screen::Config    => self.switch_to_secrets(),
+            Screen::Agents  => { self.screen = Screen::Config; }
+            Screen::Domains => self.switch_to_agents(),
+            Screen::Feed    => self.switch_to_domains(),
+            Screen::Secrets => self.switch_to_feed(),
+            Screen::Config  => self.switch_to_secrets(),
         }
     }
 
@@ -1117,17 +994,6 @@ impl App {
                     base_url: self.base_url.clone(),
                     token: self.token.clone(),
                 },
-            );
-        }
-    }
-
-    fn switch_to_approvals(&mut self) {
-        self.screen = Screen::Approvals;
-        if self.approval_queue.pending.is_empty() && !self.approval_queue.loading {
-            self.approval_queue.loading = true;
-            self.pool.dispatch(
-                self.client.clone(),
-                WorkRequest::FetchApprovals { job_id: next_job_id(), domain_id: None },
             );
         }
     }
@@ -1228,11 +1094,7 @@ impl App {
         self.matrix.error = None;
         self.agent_feed.live = false;
         self.agent_feed.paused = false;
-        self.approval_queue.pending.clear();
-        self.approval_queue.loading = false;
-        self.approval_queue.last_error = None;
         self.agents_last_refresh = None;
-        self.approvals_last_refresh = None;
         self.domains_last_refresh = None;
         self.modal = None;
 
@@ -1315,7 +1177,6 @@ impl App {
             Screen::Agents => f.render_widget(AgentScreen { state: &self.agents }, chunks[1]),
             Screen::Domains => f.render_widget(MissionMatrix { state: &self.matrix }, chunks[1]),
             Screen::Feed => f.render_widget(AgentFeed { state: &self.agent_feed }, chunks[1]),
-            Screen::Approvals => f.render_widget(ApprovalQueue { state: &self.approval_queue }, chunks[1]),
             Screen::Secrets => {
                 f.render_widget(SecretsScreen { state: &self.secrets }, chunks[1]);
                 render_tree_overlay(&self.secrets, f, chunks[1]);
@@ -1343,7 +1204,6 @@ impl App {
             Screen::Agents => ("Agents", AGENTS_HELP),
             Screen::Domains => ("Domains", DOMAINS_HELP),
             Screen::Feed => ("Feed", FEED_HELP),
-            Screen::Approvals => ("Approvals", APPROVALS_HELP),
             Screen::Secrets => ("Secrets", SECRETS_HELP),
             Screen::Config => ("Config", CONFIG_HELP),
         }
@@ -1357,7 +1217,6 @@ impl App {
             (Screen::Agents, "Agents"),
             (Screen::Domains, "Domains"),
             (Screen::Feed, "Feed"),
-            (Screen::Approvals, "Approvals"),
             (Screen::Secrets, "Secrets"),
             (Screen::Config, "Config"),
         ];
@@ -1472,13 +1331,6 @@ impl App {
                 ("Tab/S+Tab", "next/prev tab"),
                 ("p", "pause"),
                 ("c", "clear"),
-                ("?", "help"),
-            ],
-            Screen::Approvals => &[
-                ("Tab/S+Tab", "next/prev tab"),
-                ("↑↓", "navigate"),
-                ("y", "approve"),
-                ("n", "deny"),
                 ("?", "help"),
             ],
             Screen::Secrets => &[

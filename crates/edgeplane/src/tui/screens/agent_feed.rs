@@ -140,7 +140,7 @@ impl AgentFeedState {
 }
 
 fn is_alert(event_type: &str) -> bool {
-    matches!(event_type, "step_error" | "governance" | "overlap_detected" | "approval_needed")
+    matches!(event_type, "step_error" | "overlap_detected")
 }
 
 pub struct AgentFeed<'a> {
@@ -205,7 +205,7 @@ fn render_filter_bar(buf: &mut Buffer, area: Rect, state: &AgentFeedState) {
 
     let line = Line::from(vec![
         Span::styled(format!("  {filter_display}"), if state.filter_active { theme::accent() } else { theme::muted() }),
-        Span::styled("  Errors  Governance  Artifacts  Heartbeat", theme::dim()),
+        Span::styled("  Errors  Artifacts  Heartbeat", theme::dim()),
         alerts_span,
         Span::styled("  ", theme::dim()),
         live_span,
@@ -244,7 +244,7 @@ fn render_feed(buf: &mut Buffer, area: Rect, state: &AgentFeedState) {
         // Alert margin prefix
         let (margin, margin_style) = if matches!(ev.event_type.as_str(), "step_error") {
             ("▎ ", Style::default().fg(theme::ERR))
-        } else if matches!(ev.event_type.as_str(), "governance" | "overlap_detected") {
+        } else if matches!(ev.event_type.as_str(), "overlap_detected") {
             ("▎ ", Style::default().fg(theme::WARN))
         } else {
             ("  ", theme::dim())
@@ -326,13 +326,11 @@ fn event_style(event_type: &str) -> (ratatui::style::Style, &str) {
         "step_finished" => (theme::ok(), "step_finished"),
         "step_error" => (theme::err(), "step_error"),
         "task_finished" => (Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD), "task_finished"),
-        "approval_needed" => (theme::warn(), "approval_needed"),
         "artifact_produced" => (theme::purple(), "artifact_produced"),
         "task_claimed" => (theme::ok(), "task_claimed"),
         "heartbeat" => (theme::dim(), "heartbeat"),
         "mission_started" => (theme::accent(), "mission_started"),
         "domain_started" => (theme::accent(), "domain_started"),
-        "governance" => (theme::warn(), "governance"),
         "overlap_detected" => (theme::warn(), "overlap_detected"),
         _ => (theme::muted(), event_type),
     }
