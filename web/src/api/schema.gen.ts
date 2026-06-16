@@ -118,57 +118,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/governance/policy/active": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Return the currently active governance policy, seeding the default if none exists. */
-        get: operations["governance_active_stub"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/governance/policy/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List recent governance policy audit-log events (admin only). */
-        get: operations["governance_events_stub"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/governance/policy/reload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Reload the in-memory governance policy from the database (admin only). */
-        post: operations["governance_reload_stub"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -400,52 +349,6 @@ export interface components {
             /** @description Missions not assigned to any domain. */
             unassigned_missions: components["schemas"]["ExplorerMissionNode"][];
         };
-        /**
-         * @description Response emitted by `GET /api/governance/policy/active` and related
-         *     policy-record endpoints.
-         *
-         *     The `policy` field is now a concrete typed struct rather than
-         *     `serde_json::Value`, which allows utoipa to emit a real JSON Schema for the
-         *     `policy` object and openapi-typescript to generate a typed TypeScript
-         *     interface instead of `unknown`.
-         *
-         *     Timestamp fields use `NaiveDateTime` which matches the existing wire format
-         *     (chrono serializes without a timezone suffix, preserving byte-identical
-         *     output vs. the previous `serde_json::json!` construction).
-         */
-        GovernancePolicyResponse: {
-            /** @description Human-readable change note. */
-            change_note: string;
-            /** @description Timestamp of record creation. */
-            created_at: string;
-            /** @description Subject that created this policy record. */
-            created_by: string;
-            /**
-             * Format: int32
-             * @description Database row ID.
-             */
-            id: number;
-            /** @description Parsed governance policy document. */
-            policy: components["schemas"]["PolicyDoc"];
-            /** @description Timestamp of publication; `null` for drafts. */
-            published_at?: string | null;
-            /** @description Subject that published this policy (empty string for drafts). */
-            published_by: string;
-            /** @description Policy lifecycle state: `"active"`, `"draft"`, or `"archived"`. */
-            state: string;
-            /** @description Timestamp of last update. */
-            updated_at: string;
-            /**
-             * Format: int32
-             * @description Monotonically increasing version number.
-             */
-            version: number;
-        };
-        /** @description Response emitted by `POST /api/governance/policy/reload`. */
-        GovernanceReloadResponse: {
-            /** @description Always `true` on success. */
-            ok: boolean;
-        };
         /** @description Response emitted by `GET /api/health`. */
         HealthResponse: {
             /** @description Always `"ok"` when the server is reachable. */
@@ -553,7 +456,6 @@ export interface components {
         /** @description Endpoint URLs embedded in the onboarding manifest. */
         OnboardingEndpoints: {
             explorer_tree: string;
-            governance_active: string;
             health: string;
             mcp_call: string;
             mcp_health: string;
@@ -581,79 +483,6 @@ export interface components {
             name: string;
             notes: string[];
             version: string;
-        };
-        /**
-         * @description Per-action rule — controls whether an action is enabled and whether it
-         *     requires an approval gate before execution.
-         */
-        PolicyActionRule: {
-            /** @description Whether the action is allowed at all. */
-            enabled: boolean;
-            /** @description Whether the action requires an approval workflow before proceeding. */
-            requires_approval: boolean;
-        };
-        /**
-         * @description Parsed governance policy document stored in the `policy_json` column.
-         *
-         *     All top-level sections are optional so that partial documents (e.g. the
-         *     seeded default before all subsystems existed) still round-trip cleanly.
-         */
-        PolicyDoc: {
-            /** @description Per-action rules keyed by `"<entity>.<verb>"` (e.g. `"domain.create"`). */
-            actions?: {
-                [key: string]: components["schemas"]["PolicyActionRule"];
-            } | null;
-            global?: null | components["schemas"]["PolicyGlobal"];
-            mcp?: null | components["schemas"]["PolicyMcp"];
-            terminal?: null | components["schemas"]["PolicyTerminal"];
-        };
-        /** @description A single governance policy audit-log event. */
-        PolicyEvent: {
-            /** @description Subject (user or service) that triggered the event. */
-            actor_subject: string;
-            /** @description Timestamp of the event. */
-            created_at: string;
-            /** @description Arbitrary JSON detail payload (shape varies by event type). */
-            detail: unknown;
-            /** @description Event type string (e.g. `"seeded"`, `"published"`, `"rollback"`). */
-            event_type: string;
-            /**
-             * Format: int32
-             * @description Database row ID.
-             */
-            id: number;
-            /**
-             * Format: int32
-             * @description ID of the policy record this event refers to; `null` for system events.
-             */
-            policy_id?: number | null;
-            /**
-             * Format: int32
-             * @description Policy version at the time of the event.
-             */
-            version: number;
-        };
-        /**
-         * @description Global policy flags that apply across all actions.
-         *
-         *     All fields use `#[serde(default)]` so older policy documents that lack a
-         *     field deserialize without error (field defaults to `false`).
-         */
-        PolicyGlobal: {
-            allow_create_without_approval?: boolean;
-            allow_delete?: boolean;
-            allow_publish?: boolean;
-            allow_update?: boolean;
-            require_approval_for_mutations?: boolean;
-        };
-        /** @description MCP-subsystem flags. */
-        PolicyMcp: {
-            allow_mutation_tools?: boolean;
-        };
-        /** @description Terminal-subsystem flags. */
-        PolicyTerminal: {
-            allow_create_actions?: boolean;
-            allow_publish_actions?: boolean;
         };
         /**
          * @description A registered runtime node. Returned by `GET /api/runtime/nodes`.
@@ -914,113 +743,6 @@ export interface operations {
             };
             /** @description Missing or invalid token */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    governance_active_stub: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Active governance policy */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GovernancePolicyResponse"];
-                };
-            };
-            /** @description Default policy seeded (first call on empty DB) */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GovernancePolicyResponse"];
-                };
-            };
-            /** @description Missing or invalid token */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    governance_events_stub: {
-        parameters: {
-            query?: {
-                /** @description Maximum number of events to return (default 50, max 500) */
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of policy events, newest first */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PolicyEvent"][];
-                };
-            };
-            /** @description Missing or invalid token */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Admin role required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    governance_reload_stub: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Policy reloaded successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GovernanceReloadResponse"];
-                };
-            };
-            /** @description Missing or invalid token */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Admin role required */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };

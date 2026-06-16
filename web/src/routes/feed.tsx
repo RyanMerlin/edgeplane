@@ -5,12 +5,12 @@
  *
  * Parity with web/src/routes/feed/+page.svelte:
  *   - Text filter across agent_id, mission_id, event type, and payload summary
- *   - Chip filter: All | Errors | Governance | Artifacts | Tasks | Heartbeat
- *   - Alerts-only toggle (errors + governance + overlaps)
+ *   - Chip filter: All | Errors | Artifacts | Tasks | Heartbeat
+ *   - Alerts-only toggle (errors + overlaps)
  *   - Rate counter (events received in last 60s)
  *   - Connection status indicator (LIVE / offline)
  *   - Detail panel on row click (payload, agent, domain, mission, status)
- *   - Status bar: total count, error/governance/warn counters
+ *   - Status bar: total count, error/warn counters
  *
  * NOTE: EventSource /api/events/stream shape is INFERRED from telemetry.ts.
  */
@@ -29,7 +29,7 @@ export const Route = createFileRoute('/feed')({
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type ChipFilter = 'all' | 'errors' | 'governance' | 'artifacts' | 'tasks' | 'heartbeat';
+type ChipFilter = 'all' | 'errors' | 'artifacts' | 'tasks' | 'heartbeat';
 
 /** Feed sub-view: the curated/filterable live timeline, or the raw event stream (absorbed Matrix). */
 type FeedView = 'live' | 'raw';
@@ -40,11 +40,10 @@ function eventType(e: MatrixEvent): string {
   return e.type ?? e.event ?? '';
 }
 
-function alertClass(e: MatrixEvent): '' | 'a-err' | 'a-warn' | 'a-gov' {
+function alertClass(e: MatrixEvent): '' | 'a-err' | 'a-warn' {
   const t = eventType(e);
   if (t === 'step_error') return 'a-err';
   if (t === 'overlap_detected') return 'a-warn';
-  if (t === 'governance') return 'a-gov';
   return '';
 }
 
@@ -53,7 +52,6 @@ function typeClass(e: MatrixEvent): string {
   if (t === 'step_started') return 'ty-start';
   if (t === 'step_finished') return 'ty-finish';
   if (t === 'step_error') return 'ty-err';
-  if (t === 'governance') return 'ty-gov';
   if (t === 'artifact') return 'ty-art';
   if (t === 'heartbeat') return 'ty-hb';
   if (t === 'task_claimed') return 'ty-claim';
@@ -112,7 +110,6 @@ function chipMatchesEvent(chip: ChipFilter, e: MatrixEvent): boolean {
   if (chip === 'all') return true;
   const t = eventType(e);
   if (chip === 'errors') return t === 'step_error' || t === 'overlap_detected';
-  if (chip === 'governance') return t === 'governance';
   if (chip === 'artifacts') return t === 'artifact';
   if (chip === 'tasks') return t === 'task_claimed' || t === 'task_finished';
   if (chip === 'heartbeat') return t === 'heartbeat';
@@ -130,14 +127,13 @@ function ChipButton({
 }: {
   label: string;
   active: boolean;
-  variant?: 'err' | 'gov';
+  variant?: 'err';
   onClick: () => void;
   'data-testid'?: string;
 }) {
   let className = 'chip';
   if (active) {
     if (variant === 'err') className += ' on-err';
-    else if (variant === 'gov') className += ' on-gov';
     else className += ' on';
   }
   return (
@@ -167,8 +163,6 @@ function DetailPanel({ event }: { event: MatrixEvent | null }) {
   const alertIcon =
     ac === 'a-err' ? (
       <span className="err">⚠</span>
-    ) : ac === 'a-gov' ? (
-      <span className="purple">⬡</span>
     ) : ac === 'a-warn' ? (
       <span className="warn">⚠</span>
     ) : (
@@ -308,7 +302,6 @@ export function FeedPage() {
     () => events.filter((e) => alertClass(e) === 'a-err').length,
     [events],
   );
-  const govCount = useMemo(() => events.filter((e) => alertClass(e) === 'a-gov').length, [events]);
   const warnCount = useMemo(
     () => events.filter((e) => alertClass(e) === 'a-warn').length,
     [events],
@@ -406,13 +399,6 @@ export function FeedPage() {
               variant="err"
               onClick={() => handleChipClick('errors')}
               data-testid="chip-errors"
-            />
-            <ChipButton
-              label="Governance"
-              active={activeChip === 'governance'}
-              variant="gov"
-              onClick={() => handleChipClick('governance')}
-              data-testid="chip-governance"
             />
             <ChipButton
               label="Artifacts"
@@ -581,11 +567,6 @@ export function FeedPage() {
             ) : (
               <span className="dim">0 errors</span>
             )}
-            {govCount > 0 && (
-              <span className="warn" data-testid="gov-count">
-                {govCount} governance
-              </span>
-            )}
             {warnCount > 0 && (
               <span className="warn" data-testid="warn-count">
                 {warnCount} overlap
@@ -718,7 +699,6 @@ export function FeedPage() {
         .chip:hover { background: var(--raised); color: var(--text-2); }
         .chip.on { background: var(--raised-2); color: var(--text); border-color: var(--border-2); }
         .chip.on-err { border-color: var(--err-border); color: var(--err); background: var(--err-bg); }
-        .chip.on-gov { border-color: var(--purple-border); color: var(--purple); background: var(--purple-bg); }
 
         /* Alerts toggle */
         .alerts-toggle {
@@ -818,10 +798,8 @@ export function FeedPage() {
         /* Alert row accents — left border in status color */
         .f-row.a-err { border-left: 2px solid var(--err); background: var(--err-bg); }
         .f-row.a-warn { border-left: 2px solid var(--warn); background: var(--warn-bg); }
-        .f-row.a-gov { border-left: 2px solid var(--purple); background: var(--purple-bg); }
         .f-row.sel.a-err  { background: var(--err-bg); opacity: 0.85; }
         .f-row.sel.a-warn { background: var(--warn-bg); opacity: 0.85; }
-        .f-row.sel.a-gov  { background: var(--purple-bg); opacity: 0.85; }
 
         /* Feed cell styles */
         .f-time  { color: var(--dim); font-size: 11px; font-family: var(--mono); }
@@ -835,7 +813,6 @@ export function FeedPage() {
         .ty-start  { color: var(--accent); }
         .ty-finish { color: var(--ok); }
         .ty-err    { color: var(--err); font-weight: 700; }
-        .ty-gov    { color: var(--purple); font-weight: 700; }
         .ty-art    { color: var(--purple); }
         .ty-hb     { color: var(--border-2); }
         .ty-claim  { color: var(--accent); }

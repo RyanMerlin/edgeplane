@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as NodesRouteImport } from './routes/nodes'
 import { Route as MatrixRouteImport } from './routes/matrix'
-import { Route as GovernanceRouteImport } from './routes/governance'
 import { Route as FeedRouteImport } from './routes/feed'
 import { Route as ExplorerRouteImport } from './routes/explorer'
 import { Route as DomainsRouteImport } from './routes/domains'
@@ -41,11 +40,6 @@ const NodesRoute = NodesRouteImport.update({
 const MatrixRoute = MatrixRouteImport.update({
   id: '/matrix',
   path: '/matrix',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GovernanceRoute = GovernanceRouteImport.update({
-  id: '/governance',
-  path: '/governance',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FeedRoute = FeedRouteImport.update({
@@ -127,7 +121,6 @@ export interface FileRoutesByFullPath {
   '/domains': typeof DomainsRouteWithChildren
   '/explorer': typeof ExplorerRoute
   '/feed': typeof FeedRoute
-  '/governance': typeof GovernanceRoute
   '/matrix': typeof MatrixRoute
   '/nodes': typeof NodesRouteWithChildren
   '/onboarding': typeof OnboardingRoute
@@ -144,7 +137,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/explorer': typeof ExplorerRoute
   '/feed': typeof FeedRoute
-  '/governance': typeof GovernanceRoute
   '/matrix': typeof MatrixRoute
   '/onboarding': typeof OnboardingRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
@@ -164,7 +156,6 @@ export interface FileRoutesById {
   '/domains': typeof DomainsRouteWithChildren
   '/explorer': typeof ExplorerRoute
   '/feed': typeof FeedRoute
-  '/governance': typeof GovernanceRoute
   '/matrix': typeof MatrixRoute
   '/nodes': typeof NodesRouteWithChildren
   '/onboarding': typeof OnboardingRoute
@@ -186,7 +177,6 @@ export interface FileRouteTypes {
     | '/domains'
     | '/explorer'
     | '/feed'
-    | '/governance'
     | '/matrix'
     | '/nodes'
     | '/onboarding'
@@ -203,7 +193,6 @@ export interface FileRouteTypes {
     | '/'
     | '/explorer'
     | '/feed'
-    | '/governance'
     | '/matrix'
     | '/onboarding'
     | '/agents/$agentId'
@@ -222,7 +211,6 @@ export interface FileRouteTypes {
     | '/domains'
     | '/explorer'
     | '/feed'
-    | '/governance'
     | '/matrix'
     | '/nodes'
     | '/onboarding'
@@ -243,7 +231,6 @@ export interface RootRouteChildren {
   DomainsRoute: typeof DomainsRouteWithChildren
   ExplorerRoute: typeof ExplorerRoute
   FeedRoute: typeof FeedRoute
-  GovernanceRoute: typeof GovernanceRoute
   MatrixRoute: typeof MatrixRoute
   NodesRoute: typeof NodesRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
@@ -270,13 +257,6 @@ declare module '@tanstack/react-router' {
       path: '/matrix'
       fullPath: '/matrix'
       preLoaderRoute: typeof MatrixRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/governance': {
-      id: '/governance'
-      path: '/governance'
-      fullPath: '/governance'
-      preLoaderRoute: typeof GovernanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/feed': {
@@ -447,7 +427,6 @@ const rootRouteChildren: RootRouteChildren = {
   DomainsRoute: DomainsRouteWithChildren,
   ExplorerRoute: ExplorerRoute,
   FeedRoute: FeedRoute,
-  GovernanceRoute: GovernanceRoute,
   MatrixRoute: MatrixRoute,
   NodesRoute: NodesRouteWithChildren,
   OnboardingRoute: OnboardingRoute,

@@ -40,7 +40,6 @@ const sampleEvents: MatrixEvent[] = [
     payload: { error: 'fail' },
     receivedAt: NOW - 200,
   }),
-  makeEvent({ type: 'governance', payload: { rule: 'no-delete' }, receivedAt: NOW - 300 }),
   makeEvent({ type: 'heartbeat', payload: {}, receivedAt: NOW - 400 }),
   makeEvent({ type: 'artifact', payload: { name: 'my-artifact' }, receivedAt: NOW - 500 }),
 ];
@@ -99,7 +98,6 @@ describe('RawEventList', () => {
     const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
     expect(options).toContain('task_claimed');
     expect(options).toContain('step_error');
-    expect(options).toContain('governance');
     expect(options).toContain('heartbeat');
     expect(options).toContain('artifact');
   });

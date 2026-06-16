@@ -2,7 +2,7 @@
  * Onboarding screen — unit tests.
  *
  * Mocking strategy: vi.mock('@/api/client') replaces the openapi-fetch
- * singleton with a controlled mock (same pattern as governance.test.tsx).
+ * singleton with a controlled mock (same pattern as agents.test.tsx).
  * No network calls; each test controls what `apiClient.GET` returns.
  */
 
@@ -60,7 +60,6 @@ const sampleManifest = {
   },
   endpoints: {
     explorer_tree: '/api/explorer/tree',
-    governance_active: '/api/governance/policy/active',
     health: '/api/health',
     mcp_call: '/api/mcp/call',
     mcp_health: '/api/mcp/health',

@@ -37,7 +37,6 @@ const NAV_ICON: Record<string, string> = {
   '/nodes': '▦',
   '/domains': '▤',
   '/feed': '≋',
-  '/governance': '⚖',
   '/admin': '⚙',
 };
 

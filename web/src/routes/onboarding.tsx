@@ -81,7 +81,7 @@ export function OnboardingPage() {
   return (
     <div className="onboard-page">
       {/* Top bar */}
-      <div className="gov-bar">
+      <div className="page-bar">
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px', alignItems: 'center' }}>
           <button
             type="button"
@@ -206,7 +206,7 @@ export function OnboardingPage() {
 
       {/* ── Onboarding design-system styles ── */}
       <style>{`
-        /* .gov-bar, .gov-title, .pane-row, .pane, .pane-header, .pane-body in app.css */
+        /* .page-bar, .pane-row, .pane, .pane-header, .pane-body in app.css */
         .onboard-page {
           display: flex;
           flex-direction: column;
