@@ -114,8 +114,8 @@ fn parse_goose_stream_line(line: &str) -> Vec<ProgressEvent> {
                     let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
                     match item_type {
                         "text" => {
-                            if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                                if !text.trim().is_empty() {
+                            if let Some(text) = item.get("text").and_then(|t| t.as_str())
+                                && !text.trim().is_empty() {
                                     events.push(ProgressEvent {
                                         event_type: ProgressEventType::StepStarted,
                                         phase: Some("running".into()),
@@ -124,7 +124,6 @@ fn parse_goose_stream_line(line: &str) -> Vec<ProgressEvent> {
                                         payload: serde_json::json!({ "text": text }),
                                     });
                                 }
-                            }
                         }
                         "tool_use" => {
                             let tool_name = item
@@ -148,11 +147,10 @@ fn parse_goose_stream_line(line: &str) -> Vec<ProgressEvent> {
         "notification" => {
             let mut events = vec![];
             // log.message → Info event
-            if let Some(msg) = v.pointer("/log/message").and_then(|m| m.as_str()) {
-                if !msg.trim().is_empty() {
+            if let Some(msg) = v.pointer("/log/message").and_then(|m| m.as_str())
+                && !msg.trim().is_empty() {
                     events.push(ProgressEvent::info(truncate(msg, 200)));
                 }
-            }
             // progress → StepStarted with step="progress"
             if let Some(progress_obj) = v.get("progress") {
                 let msg = progress_obj
@@ -290,11 +288,10 @@ impl AgentRuntime for GooseRuntime {
             .stderr(std::process::Stdio::piped());
 
         // Conditionally set the API key only if it is present and non-empty.
-        if let Some(key) = litellm_api_key {
-            if !key.is_empty() {
+        if let Some(key) = litellm_api_key
+            && !key.is_empty() {
                 cmd.env("LITELLM_API_KEY", key);
             }
-        }
 
         // Propagate the edgeplaned capability socket path so agents can reach `edgeplaned run`.
         if let Ok(socket) = std::env::var("EP_MESH_SOCKET") {
@@ -337,8 +334,8 @@ impl AgentRuntime for GooseRuntime {
                         }
                     }
                     line = stderr_lines.next_line() => {
-                        if let Ok(Some(l)) = line {
-                            if !l.trim().is_empty() {
+                        if let Ok(Some(l)) = line
+                            && !l.trim().is_empty() {
                                 yield ProgressEvent {
                                     event_type: ProgressEventType::Warning,
                                     phase: Some("running".into()),
@@ -347,7 +344,6 @@ impl AgentRuntime for GooseRuntime {
                                     payload: serde_json::json!({ "stderr": l }),
                                 };
                             }
-                        }
                     }
                 }
             }

@@ -75,8 +75,8 @@ impl SchemaPack {
             None => return Ok(()),
         };
 
-        if let Some(entity_key) = entity_type {
-            if let Some(spec) = self.entities.get(&entity_key) {
+        if let Some(entity_key) = entity_type
+            && let Some(spec) = self.entities.get(&entity_key) {
                 let missing: Vec<String> = spec
                     .required
                     .iter()
@@ -91,7 +91,6 @@ impl SchemaPack {
                     fields: missing,
                 });
             }
-        }
         Ok(())
     }
 }

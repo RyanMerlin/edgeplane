@@ -67,8 +67,8 @@ fn event_loop<B: ratatui::backend::Backend>(
     loop {
         app.draw(terminal)?;
 
-        if event::poll(Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
+        if event::poll(Duration::from_millis(50))?
+            && let Event::Key(key) = event::read()? {
                 // Hard-stop: Ctrl+C always quits
                 if key.code == KeyCode::Char('c')
                     && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
@@ -77,7 +77,6 @@ fn event_loop<B: ratatui::backend::Backend>(
                 }
                 app.handle_key(key);
             }
-        }
 
         if app.should_quit {
             break;

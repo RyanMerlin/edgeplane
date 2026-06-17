@@ -67,7 +67,7 @@ fn capabilities_kubernetes_tag_filter() {
 fn capabilities_none_returns_all() {
     let registry = PackRegistry::load_builtin().unwrap();
     let all = registry.capabilities(None);
-    assert!(all.len() > 0);
+    assert!(!all.is_empty());
 }
 
 #[test]

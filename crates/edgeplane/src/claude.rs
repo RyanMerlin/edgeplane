@@ -192,8 +192,8 @@ pub async fn run_hook(event: String, config: &EdgeplaneConfig) -> Result<()> {
     let _ = std::io::stdin().read_to_string(&mut input);
     let payload: Value = serde_json::from_str(&input).unwrap_or_else(|_| json!({}));
 
-    if matches!(hook_event, ClaudeHookEvent::SessionStart) {
-        if let Some(session_id) = payload.get("session_id").and_then(|v| v.as_str()) {
+    if matches!(hook_event, ClaudeHookEvent::SessionStart)
+        && let Some(session_id) = payload.get("session_id").and_then(|v| v.as_str()) {
             let home = std::env::var("HOME").unwrap_or_default();
             let home_path = PathBuf::from(home);
             if let Some(runtime_root) = home_path.parent() {
@@ -201,7 +201,6 @@ pub async fn run_hook(event: String, config: &EdgeplaneConfig) -> Result<()> {
                 let _ = write_state_session(&state_path, session_id);
             }
         }
-    }
 
     let endpoint = match hook_event {
         ClaudeHookEvent::SessionStart => "/hooks/claude/session-start",
@@ -761,11 +760,10 @@ fn run_claude_process(
     cmd.env("HOME", runtime_home);
     cmd.env("EP_AGENT_PROFILE", profile);
 
-    if let Some(token) = &config.token {
-        if !token.trim().is_empty() {
+    if let Some(token) = &config.token
+        && !token.trim().is_empty() {
             cmd.env("EP_AGENT_TOKEN", token);
         }
-    }
 
     let runtime_local_bin = runtime_home.join(".local").join("bin");
     if let Some(current_path) = std::env::var_os("PATH") {
@@ -789,6 +787,7 @@ pub fn resolved_command(name: &str) -> std::process::Command {
 }
 
 /// Blocking launch helper for SoloSupervisor — sets EP_MESH_AGENT_ID / EP_RUN_ID env vars.
+#[allow(clippy::too_many_arguments)]
 pub fn launch_claude_blocking(
     extra_args: &[String],
     runtime_home: &Path,
@@ -813,11 +812,10 @@ pub fn launch_claude_blocking(
     if let Some(p) = task_md_path {
         cmd.env("EP_TASK_MD_PATH", p);
     }
-    if let Some(token) = &config.token {
-        if !token.trim().is_empty() {
+    if let Some(token) = &config.token
+        && !token.trim().is_empty() {
             cmd.env("EP_AGENT_TOKEN", token);
         }
-    }
     let runtime_local_bin = runtime_home.join(".local").join("bin");
     if let Some(current_path) = std::env::var_os("PATH") {
         let new_path = std::env::join_paths(

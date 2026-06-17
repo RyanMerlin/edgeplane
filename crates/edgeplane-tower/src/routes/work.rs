@@ -974,15 +974,14 @@ async fn heartbeat_task(
     // Lease ID mismatch check
     if let Some(caller_lease) = &body.claim_lease_id {
         let task_lease: Option<String> = task_row.get("claim_lease_id");
-        if let Some(tl) = task_lease {
-            if &tl != caller_lease {
+        if let Some(tl) = task_lease
+            && &tl != caller_lease {
                 return (
                     StatusCode::FORBIDDEN,
                     Json(serde_json::json!({"detail": "Lease ID mismatch"})),
                 )
                     .into_response();
             }
-        }
     }
 
     let now = Utc::now().naive_utc();
@@ -1105,15 +1104,14 @@ async fn complete_task(
     // Lease ID mismatch check
     if let Some(caller_lease) = &body.claim_lease_id {
         let task_lease: Option<String> = task_row.get("claim_lease_id");
-        if let Some(tl) = task_lease {
-            if &tl != caller_lease {
+        if let Some(tl) = task_lease
+            && &tl != caller_lease {
                 return (
                     StatusCode::FORBIDDEN,
                     Json(serde_json::json!({"detail": "Lease ID mismatch"})),
                 )
                     .into_response();
             }
-        }
     }
 
     let mission_id: String = task_row.get("mission_id");
@@ -1203,15 +1201,14 @@ async fn fail_task(
     // Lease ID mismatch check
     if let Some(caller_lease) = &body.claim_lease_id {
         let task_lease: Option<String> = task_row.get("claim_lease_id");
-        if let Some(tl) = task_lease {
-            if &tl != caller_lease {
+        if let Some(tl) = task_lease
+            && &tl != caller_lease {
                 return (
                     StatusCode::FORBIDDEN,
                     Json(serde_json::json!({"detail": "Lease ID mismatch"})),
                 )
                     .into_response();
             }
-        }
     }
 
     let now = Utc::now().naive_utc();

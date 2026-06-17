@@ -180,7 +180,7 @@ async fn run_acp_attach(args: AttachArgs, client: &EdgeplaneClient) -> Result<()
             }
             let env = serde_json::json!({ "kind": "prompt", "text": trimmed });
             if stdin_tx
-                .send(Message::Text(env.to_string().into()))
+                .send(Message::Text(env.to_string()))
                 .await
                 .is_err()
             {
@@ -195,7 +195,7 @@ async fn run_acp_attach(args: AttachArgs, client: &EdgeplaneClient) -> Result<()
         let _ = tokio::signal::ctrl_c().await;
         let env = serde_json::json!({ "kind": "cancel" });
         let _ = cancel_tx
-            .send(Message::Text(env.to_string().into()))
+            .send(Message::Text(env.to_string()))
             .await;
         // Give the cancel frame a moment to flush, then exit hard.
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;

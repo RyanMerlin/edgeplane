@@ -158,6 +158,7 @@ fn row_to_execution_session(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 
 // ── ensure_node_spec ──────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn ensure_node_spec(
     db: &sqlx::PgPool,
     subject: &str,
@@ -770,15 +771,14 @@ async fn register_node(
 
     // 2. Check expiry
     let expires_at: Option<chrono::NaiveDateTime> = token_row.get("expires_at");
-    if let Some(exp) = expires_at {
-        if exp < now {
+    if let Some(exp) = expires_at
+        && exp < now {
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({"detail": "Bootstrap token expired"})),
             )
                 .into_response();
         }
-    }
 
     // 3. Check already used
     let used_at: Option<chrono::NaiveDateTime> = token_row.get("used_at");
@@ -1046,12 +1046,12 @@ async fn heartbeat_node(
     let labels_json = body
         .labels
         .as_ref()
-        .map(|v| json_dump(v))
+        .map(json_dump)
         .unwrap_or_else(|| "{}".to_string());
     let capacity_json = body
         .capacity
         .as_ref()
-        .map(|v| json_dump(v))
+        .map(json_dump)
         .unwrap_or_else(|| "{}".to_string());
     let capabilities_json = body
         .capabilities
@@ -2558,11 +2558,10 @@ async fn handle_pty_ws(socket: WebSocket, session_id: String, conn_id: String) {
         }
         // Cleanup empty sessions
         let mut reg = pty_registry().lock().await;
-        if let Some(tx) = reg.get(&session_id_clean) {
-            if tx.receiver_count() == 0 {
+        if let Some(tx) = reg.get(&session_id_clean)
+            && tx.receiver_count() == 0 {
                 reg.remove(&session_id_clean);
             }
-        }
     });
 
     // Write task: forward broadcast messages (from other clients) to this WebSocket
@@ -2702,24 +2701,6 @@ fn sign_attach_token(secret: &str, agent_id: &str, exp: i64) -> String {
     hex::encode(mac.finalize().into_bytes())
 }
 
-#[cfg(test)]
-mod attach_proxy_tests {
-    use super::sign_attach_token;
-
-    /// Locks the wire format. edgeplaned's `attach_ws::sign_attach` MUST produce
-    /// the same output for the same inputs — see the matching test there.
-    #[test]
-    fn sign_attach_token_is_stable() {
-        let sig = sign_attach_token("s3cret", "agent-1", 1_700_000_000);
-        assert_eq!(sig.len(), 64);
-        // Re-sign produces the same value.
-        assert_eq!(sig, sign_attach_token("s3cret", "agent-1", 1_700_000_000));
-        // Different inputs produce different signatures.
-        assert_ne!(sig, sign_attach_token("s3cret", "agent-2", 1_700_000_000));
-        assert_ne!(sig, sign_attach_token("other", "agent-1", 1_700_000_000));
-    }
-}
-
 async fn run_attach_proxy(
     browser_socket: WebSocket,
     mesh_url: String,
@@ -2739,8 +2720,8 @@ async fn run_attach_proxy(
         while let Some(msg) = browser_stream.next().await {
             let Ok(msg) = msg else { break };
             let out = match msg {
-                Message::Binary(b) => TgMessage::Binary(b.to_vec().into()),
-                Message::Text(t) => TgMessage::Text(t.to_string().into()),
+                Message::Binary(b) => TgMessage::Binary(b.to_vec()),
+                Message::Text(t) => TgMessage::Text(t.to_string()),
                 Message::Close(_) => break,
                 _ => continue,
             };
@@ -2938,5 +2919,23 @@ async fn handle_node_notify(mut socket: WebSocket, node_id: String) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod attach_proxy_tests {
+    use super::sign_attach_token;
+
+    /// Locks the wire format. edgeplaned's `attach_ws::sign_attach` MUST produce
+    /// the same output for the same inputs — see the matching test there.
+    #[test]
+    fn sign_attach_token_is_stable() {
+        let sig = sign_attach_token("s3cret", "agent-1", 1_700_000_000);
+        assert_eq!(sig.len(), 64);
+        // Re-sign produces the same value.
+        assert_eq!(sig, sign_attach_token("s3cret", "agent-1", 1_700_000_000));
+        // Different inputs produce different signatures.
+        assert_ne!(sig, sign_attach_token("s3cret", "agent-2", 1_700_000_000));
+        assert_ne!(sig, sign_attach_token("other", "agent-1", 1_700_000_000));
     }
 }

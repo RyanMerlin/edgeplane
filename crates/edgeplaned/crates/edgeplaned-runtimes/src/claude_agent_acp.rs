@@ -289,7 +289,7 @@ impl ClaudeAgentAcpRuntime {
                     .map(|h| h.join(".local/share/claude/versions"))
                     .and_then(|base| {
                         // pick the highest version directory
-                        std::fs::read_dir(&base).ok().and_then(|mut rd| {
+                        std::fs::read_dir(&base).ok().and_then(|rd| {
                             let mut entries: Vec<_> = rd
                                 .flatten()
                                 .filter(|e| e.path().join("claude").exists())

@@ -275,11 +275,10 @@ async fn replace_profile(
     };
 
     // Check expected_sha256 if provided
-    if let Some(expected) = &body.expected_sha256 {
-        if *expected != sha256 {
+    if let Some(expected) = &body.expected_sha256
+        && *expected != sha256 {
             return conflict("SHA256 mismatch: tarball does not match expected_sha256");
         }
-    }
 
     let description = body.description.unwrap_or_default();
     let manifest_json = match &body.manifest {
@@ -369,11 +368,10 @@ async fn patch_profile(
         match compute_sha256_and_size(tb) {
             Ok((h, s)) => {
                 // Check expected_sha256 if provided
-                if let Some(expected) = &body.expected_sha256 {
-                    if *expected != h {
+                if let Some(expected) = &body.expected_sha256
+                    && *expected != h {
                         return conflict("SHA256 mismatch: tarball does not match expected_sha256");
                     }
-                }
                 (tb.clone(), h, s)
             }
             Err(e) => return bad_request(&e),

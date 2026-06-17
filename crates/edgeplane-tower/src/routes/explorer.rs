@@ -97,11 +97,10 @@ async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &s
 
 fn matches_query(needle: &str, values: &[Option<&str>]) -> bool {
     for v in values {
-        if let Some(s) = v {
-            if s.to_lowercase().contains(needle) {
+        if let Some(s) = v
+            && s.to_lowercase().contains(needle) {
                 return true;
             }
-        }
     }
     false
 }
@@ -133,9 +132,8 @@ async fn explorer_tree(
     let limit_tasks_per_cluster = params
         .limit_tasks_per_cluster
         .unwrap_or(5)
-        .min(50)
-        .max(1) as usize;
-    let limit_missions = params.limit_missions.unwrap_or(100).min(200).max(1);
+        .clamp(1, 50) as usize;
+    let limit_missions = params.limit_missions.unwrap_or(100).clamp(1, 200);
 
     // --- fetch domains ---
     let domain_rows = {
@@ -574,7 +572,7 @@ async fn explorer_node(
     Path((node_type, node_id)): Path<(String, String)>,
     Query(params): Query<NodeQuery>,
 ) -> impl IntoResponse {
-    let limit_tasks = params.limit_tasks.unwrap_or(50).min(200).max(1);
+    let limit_tasks = params.limit_tasks.unwrap_or(50).clamp(1, 200);
 
     match node_type.as_str() {
         "domain" => {

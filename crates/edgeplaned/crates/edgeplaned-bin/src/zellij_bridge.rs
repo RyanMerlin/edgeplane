@@ -192,11 +192,10 @@ async fn pump(
                 let Some(sig) = sig else {
                     return Ok(());
                 };
-                if let Some(rendered) = render_signal(sig) {
-                    if stdin_tx.send(rendered.into_bytes()).await.is_err() {
+                if let Some(rendered) = render_signal(sig)
+                    && stdin_tx.send(rendered.into_bytes()).await.is_err() {
                         return Ok(());
                     }
-                }
             }
         }
     }

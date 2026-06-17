@@ -19,16 +19,13 @@ pub enum AgentOp {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum AgentFocus {
     Nodes,
+    #[default]
     Agents,
 }
 
-impl Default for AgentFocus {
-    fn default() -> Self {
-        AgentFocus::Agents
-    }
-}
 
 pub struct AgentScreenState {
     pub agents: Vec<AgentSummary>,
@@ -133,12 +130,11 @@ impl AgentScreenState {
         agents.iter_mut().for_each(|a| a.resolve_metadata());
         let prev_id = self.visible_agents().get(self.agent_selection).map(|a| a.id.clone());
         self.agents = agents;
-        if let Some(id) = prev_id {
-            if let Some(idx) = self.visible_agents().iter().position(|a| a.id == id) {
+        if let Some(id) = prev_id
+            && let Some(idx) = self.visible_agents().iter().position(|a| a.id == id) {
                 self.agent_selection = idx;
                 return;
             }
-        }
         let max = self.visible_agents().len().saturating_sub(1);
         if self.agent_selection > max { self.agent_selection = max; }
     }

@@ -154,7 +154,7 @@ async fn issue_session_token(
 ) -> Result<(i32, String), sqlx::Error> {
     let mut raw_bytes = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut raw_bytes);
-    let raw_token = format!("mcs_{}", hex::encode(&raw_bytes));
+    let raw_token = format!("mcs_{}", hex::encode(raw_bytes));
     let token_hash = hex::encode(Sha256::new().chain_update(raw_token.as_bytes()).finalize());
     let token_prefix = &raw_token[..8.min(raw_token.len())];
     let expires_at =

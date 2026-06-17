@@ -218,11 +218,13 @@ impl LocalRegistry {
     /// Report the schema version currently stamped on this database.
     /// Used by `edgeplaned doctor` for diagnostics. Returns 0 if no
     /// `schema_version` row exists (a fresh DB before `migrate` runs).
+    #[allow(dead_code)]
     pub fn schema_version(&self) -> Result<u32> {
         read_schema_version(&self.conn)
     }
 
     /// Insert or update an agent record (upsert on (source, id)).
+    #[allow(dead_code)]
     pub fn upsert(&self, rec: &AgentRecord) -> Result<()> {
         self.conn.execute(
             "INSERT INTO agent
@@ -252,6 +254,7 @@ impl LocalRegistry {
     }
 
     /// Reassign an agent to a different domain (updates domain_id in place).
+    #[allow(dead_code)]
     pub fn reassign(&self, source: &str, agent_id: &str, new_domain_id: &str) -> Result<bool> {
         let n = self.conn.execute(
             "UPDATE agent SET domain_id = ?1 WHERE source = ?2 AND id = ?3",
@@ -261,6 +264,7 @@ impl LocalRegistry {
     }
 
     /// Remove an agent from the registry. Returns true if a row was deleted.
+    #[allow(dead_code)]
     pub fn delete(&self, source: &str, agent_id: &str) -> Result<bool> {
         let n = self.conn.execute(
             "DELETE FROM agent WHERE source = ?1 AND id = ?2",
@@ -339,6 +343,7 @@ impl LocalRegistry {
     /// Fetch the launch context for a single agent. Returns `None` if no row
     /// exists — most agents (legacy task-mode, controlplane-synced) won't
     /// have one until they're explicitly registered with one.
+    #[allow(dead_code)]
     pub fn get_launch_context(
         &self,
         source: &str,
@@ -360,6 +365,7 @@ impl LocalRegistry {
 
     /// List all launch contexts for a given source. Used by the importer
     /// (to skip already-imported rows) and by diagnostic CLIs.
+    #[allow(dead_code)]
     pub fn list_launch_contexts_by_source(
         &self,
         source: &str,
@@ -477,7 +483,9 @@ pub struct AgentRecord {
     pub supervision_mode: String,
     pub capabilities_json: String,
     pub profile_path: Option<String>,
+    #[allow(dead_code)]
     pub enrolled_at: String,
+    #[allow(dead_code)]
     pub last_synced_at: Option<String>,
 }
 
@@ -488,6 +496,7 @@ impl AgentRecord {
     /// controlplane is on the other end). This row therefore stores the
     /// stable wire identifier — what edgeplaned uses to poll
     /// `/agents/{id}/messages` and what `edgeplane` CLI passes via `--to-agent-id`.
+    #[allow(dead_code)]
     pub fn from_spec(spec: &AgentSpec, source: &str) -> Self {
         Self {
             id: spec.agent_id.clone(),
@@ -821,6 +830,7 @@ pub struct UnitRestartEntry {
 
 impl LocalRegistry {
     /// Append a row to `unit_restart_log`. Returns the new row id.
+    #[allow(clippy::too_many_arguments)]
     pub fn log_unit_restart(
         &self,
         agent_id: &str,

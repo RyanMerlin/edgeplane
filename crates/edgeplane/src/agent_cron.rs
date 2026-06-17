@@ -68,8 +68,8 @@ pub async fn run_list(args: ListArgs) -> Result<()> {
         return Ok(());
     }
     println!(
-        "{:<24} {:<14} {:<18} {:<22} {:<10} {}",
-        "NAME", "AGENT", "SCHEDULE", "LAST_FIRED_AT", "STATUS", "ENABLED"
+        "{:<24} {:<14} {:<18} {:<22} {:<10} ENABLED",
+        "NAME", "AGENT", "SCHEDULE", "LAST_FIRED_AT", "STATUS"
     );
     for j in jobs {
         let name = j.get("name").and_then(|v| v.as_str()).unwrap_or("?");
@@ -148,11 +148,10 @@ pub async fn run_describe(args: DescribeArgs) -> Result<()> {
                 .map(|n| format!("{n}ms"))
                 .unwrap_or_else(|| "-".into());
             println!("  {when}  {status:<8}  {dur}");
-            if let Some(e) = h.get("error_message").and_then(|v| v.as_str()) {
-                if !e.is_empty() {
+            if let Some(e) = h.get("error_message").and_then(|v| v.as_str())
+                && !e.is_empty() {
                     println!("    err: {e}");
                 }
-            }
         }
     }
     Ok(())
@@ -183,8 +182,8 @@ pub async fn run_history(args: HistoryArgs) -> Result<()> {
         return Ok(());
     }
     println!(
-        "{:<24} {:<24} {:<8} {}",
-        "FIRED_AT", "JOB", "STATUS", "DURATION"
+        "{:<24} {:<24} {:<8} DURATION",
+        "FIRED_AT", "JOB", "STATUS"
     );
     for f in fires {
         let when = f.get("fired_at").and_then(|v| v.as_str()).unwrap_or("?");
@@ -196,11 +195,10 @@ pub async fn run_history(args: HistoryArgs) -> Result<()> {
             .map(|n| format!("{n}ms"))
             .unwrap_or_else(|| "-".into());
         println!("{when:<24} {job:<24} {status:<8} {dur}");
-        if let Some(e) = f.get("error_message").and_then(|v| v.as_str()) {
-            if !e.is_empty() {
+        if let Some(e) = f.get("error_message").and_then(|v| v.as_str())
+            && !e.is_empty() {
                 println!("  err: {e}");
             }
-        }
     }
     Ok(())
 }

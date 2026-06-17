@@ -27,6 +27,7 @@ pub enum ConfigError {
 }
 
 impl EdgeplaneConfig {
+    #[allow(clippy::too_many_arguments)]
     pub fn from_parts(
         base_url: &str,
         token: Option<String>,
@@ -171,8 +172,8 @@ pub fn load_server_list() -> Vec<String> {
         return parse_server_list(&val);
     }
     let path = servers_file_path();
-    if path.exists() {
-        if let Ok(contents) = fs::read_to_string(&path) {
+    if path.exists()
+        && let Ok(contents) = fs::read_to_string(&path) {
             let servers: Vec<String> = contents
                 .lines()
                 .map(|l| l.trim().to_string())
@@ -182,7 +183,6 @@ pub fn load_server_list() -> Vec<String> {
                 return servers;
             }
         }
-    }
     if let Ok(val) = env::var("EP_BASE_URL") {
         return vec![val];
     }

@@ -212,11 +212,10 @@ async fn create_artifact(
 
     let domain_id: Option<String> =
         mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
-    if let Some(ref mid) = domain_id {
-        if !can_write_domain(&state.db, &principal, mid).await {
+    if let Some(ref mid) = domain_id
+        && !can_write_domain(&state.db, &principal, mid).await {
             return StatusCode::FORBIDDEN.into_response();
         }
-    }
 
     // Resolve storage fields
     let (
@@ -620,7 +619,7 @@ async fn get_artifact_download_url(
 
     let storage_backend: String = row.try_get("storage_backend").unwrap_or_default();
     let uri: String = row.try_get("uri").unwrap_or_default();
-    let expires_seconds: i64 = q.get("expires_seconds").and_then(|v| v.parse().ok()).unwrap_or(60).min(3600).max(1);
+    let expires_seconds: i64 = q.get("expires_seconds").and_then(|v| v.parse().ok()).unwrap_or(60).clamp(1, 3600);
 
     if storage_backend == "s3" {
         // S3 presigning requires AWS SDK — not available in edgeplane-tower; return 409 with the URI
@@ -674,11 +673,10 @@ async fn update_artifact(
 
     let domain_id: Option<String> =
         mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
-    if let Some(ref mid) = domain_id {
-        if !can_write_domain(&state.db, &principal, mid).await {
+    if let Some(ref mid) = domain_id
+        && !can_write_domain(&state.db, &principal, mid).await {
             return StatusCode::FORBIDDEN.into_response();
         }
-    }
 
     // Merge updatable fields
     let name = payload
@@ -857,11 +855,10 @@ async fn publish_artifact(
 
     let domain_id: Option<String> =
         mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
-    if let Some(ref mid) = domain_id {
-        if !can_write_domain(&state.db, &principal, mid).await {
+    if let Some(ref mid) = domain_id
+        && !can_write_domain(&state.db, &principal, mid).await {
             return StatusCode::FORBIDDEN.into_response();
         }
-    }
 
     let current_version: i32 = artifact_row.get("version");
     let now = Utc::now().naive_utc();

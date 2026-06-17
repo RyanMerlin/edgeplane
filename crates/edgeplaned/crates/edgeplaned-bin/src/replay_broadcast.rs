@@ -13,8 +13,8 @@
 //! both take the same lock briefly. A notification is either:
 //!   1. In the replay snapshot a new viewer just received, OR
 //!   2. Delivered live on the broadcast channel after they subscribed,
-//! never both. This avoids the classic race where a subscriber both
-//! replays an item and then sees it again live.
+//!      never both. This avoids the classic race where a subscriber both
+//!      replays an item and then sees it again live.
 //!
 //! ## Capacity
 //!
@@ -93,6 +93,7 @@ impl<T: Clone + Send + 'static> ReplayBroadcast<T> {
     /// Subscribe without taking a replay snapshot. Used by callers that
     /// already know they only want live updates (e.g. the supervisor's
     /// own loop that's already authoritative for replay state).
+    #[allow(dead_code)]
     pub fn subscribe(&self) -> broadcast::Receiver<T> {
         let inner = self.inner.lock().expect("replay_broadcast lock");
         inner.tx.subscribe()

@@ -15,15 +15,15 @@
 /// Wire framing (PTY agents):
 ///   - Binary frames carry raw bytes both ways (stdout fan-out, stdin in).
 ///   - Text frames carry control JSON. Supported kinds:
-///         {"kind":"resize","cols":120,"rows":40}   — terminal resize
-///         {"kind":"prompt","text":"..."}           — inject text+newline into PTY stdin
+///     - `{"kind":"resize","cols":120,"rows":40}` — terminal resize
+///     - `{"kind":"prompt","text":"..."}` — inject text+newline into PTY stdin
 ///   - Anything else is logged at debug and ignored.
 ///
 /// Wire framing (ACP agents):
 ///   - Outbound (agent→viewer): text frames, each a serialised SessionNotification.
 ///   - Inbound (viewer→agent): text frames with kind-tagged envelope:
-///         {"kind":"prompt","text":"..."}  — forwarded as AgentSignal::UserInput
-///         {"kind":"cancel"}               — forwarded as AgentSignal::Cancel
+///     - `{"kind":"prompt","text":"..."}` — forwarded as AgentSignal::UserInput
+///     - `{"kind":"cancel"}` — forwarded as AgentSignal::Cancel
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
@@ -77,6 +77,10 @@ pub async fn serve(
     }
 }
 
+// The tungstenite handshake callback must return `Result<Response, ErrorResponse>`,
+// and ErrorResponse is inherently large (HTTP response fields). We can't box it
+// without changing the tungstenite API contract.
+#[allow(clippy::result_large_err)]
 async fn handle_connection(
     stream: TcpStream,
     peer: String,
@@ -197,7 +201,7 @@ async fn pump_pty(
         loop {
             match stdout_rx.recv().await {
                 Ok(bytes) => {
-                    if sink.send(Message::Binary(bytes.into())).await.is_err() {
+                    if sink.send(Message::Binary(bytes)).await.is_err() {
                         break;
                     }
                 }
@@ -313,7 +317,7 @@ async fn pump_acp(
             "kind": "hello",
             "protocol": "acp/1",
         });
-        if s.send(Message::Text(hello.to_string().into())).await.is_err() {
+        if s.send(Message::Text(hello.to_string())).await.is_err() {
             return;
         }
     }
@@ -334,7 +338,7 @@ async fn pump_acp(
                     continue;
                 }
             };
-            if s.send(Message::Text(text.into())).await.is_err() {
+            if s.send(Message::Text(text)).await.is_err() {
                 return;
             }
         }
@@ -354,7 +358,7 @@ async fn pump_acp(
                         }
                     };
                     let mut s = outbound_sink.lock().await;
-                    if s.send(Message::Text(text.into())).await.is_err() {
+                    if s.send(Message::Text(text)).await.is_err() {
                         break;
                     }
                 }

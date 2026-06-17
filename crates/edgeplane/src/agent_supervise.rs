@@ -89,8 +89,8 @@ pub async fn run_list(args: ListArgs) -> Result<()> {
         return Ok(());
     }
     println!(
-        "{:<24} {:<22} {:<10} {:<8} {}",
-        "AGENT", "SYSTEMD_SERVICE", "STATE", "PAUSED", "SOURCE"
+        "{:<24} {:<22} {:<10} {:<8} SOURCE",
+        "AGENT", "SYSTEMD_SERVICE", "STATE", "PAUSED"
     );
     for a in agents {
         let id = a.get("agent_id").and_then(|v| v.as_str()).unwrap_or("?");
@@ -138,11 +138,10 @@ pub async fn run_status(args: StatusArgs) -> Result<()> {
                 .map(|n| format!("exit={n}"))
                 .unwrap_or_else(|| "-".into());
             println!("  {when}  reason={reason:<8} result={result:<10} {exit}");
-            if let Some(notes) = h.get("notes").and_then(|v| v.as_str()) {
-                if !notes.is_empty() {
+            if let Some(notes) = h.get("notes").and_then(|v| v.as_str())
+                && !notes.is_empty() {
                     println!("    {notes}");
                 }
-            }
         }
     }
     Ok(())
@@ -213,8 +212,8 @@ pub async fn run_history(args: HistoryArgs) -> Result<()> {
         return Ok(());
     }
     println!(
-        "{:<24} {:<14} {:<10} {:<10} {}",
-        "TRIGGERED_AT", "AGENT", "REASON", "RESULT", "EXIT"
+        "{:<24} {:<14} {:<10} {:<10} EXIT",
+        "TRIGGERED_AT", "AGENT", "REASON", "RESULT"
     );
     for r in rows {
         let when = r.get("triggered_at").and_then(|v| v.as_str()).unwrap_or("?");

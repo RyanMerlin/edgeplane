@@ -20,7 +20,9 @@ pub enum FilterActive {
 
 /// Which pane has keyboard focus.
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum Focus {
+    #[default]
     Domains,
     Missions,
     Tasks,
@@ -58,11 +60,6 @@ pub struct MissionMatrixState {
     pub error: Option<String>,
 }
 
-impl Default for Focus {
-    fn default() -> Self {
-        Focus::Domains
-    }
-}
 
 impl MissionMatrixState {
     /// Handle a keypress in this screen.  Returns true if the event was consumed.
@@ -138,11 +135,10 @@ impl MissionMatrixState {
                             self.mission_selection -= 1;
                         }
                     }
-                    Focus::Tasks => {
-                        if self.task_selection > 0 {
+                    Focus::Tasks
+                        if self.task_selection > 0 => {
                             self.task_selection -= 1;
                         }
-                    }
                     _ => {}
                 }
                 true
@@ -161,11 +157,10 @@ impl MissionMatrixState {
                             self.mission_selection += 1;
                         }
                     }
-                    Focus::Tasks => {
-                        if self.task_selection + 1 < self.tasks.len() {
+                    Focus::Tasks
+                        if self.task_selection + 1 < self.tasks.len() => {
                             self.task_selection += 1;
                         }
-                    }
                     _ => {}
                 }
                 true

@@ -136,8 +136,8 @@ async fn revoke_session(
     State(state): State<Arc<AppState>>,
     principal: Principal,
 ) -> impl IntoResponse {
-    if let Some(id) = principal.session_id {
-        if let Err(e) = sqlx::query("UPDATE usersession SET revoked=true WHERE id=$1")
+    if let Some(id) = principal.session_id
+        && let Err(e) = sqlx::query("UPDATE usersession SET revoked=true WHERE id=$1")
             .bind(id)
             .execute(&state.db)
             .await
@@ -145,7 +145,6 @@ async fn revoke_session(
             tracing::error!("revoke_session: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
-    }
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -312,15 +311,14 @@ async fn client_credentials_grant(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<TokenRequest>,
 ) -> impl IntoResponse {
-    if let Some(ref gt) = payload.grant_type {
-        if gt != "client_credentials" {
+    if let Some(ref gt) = payload.grant_type
+        && gt != "client_credentials" {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({"detail": "unsupported grant_type, use client_credentials"})),
             )
                 .into_response();
         }
-    }
 
     let secret_hash = hash_token(&payload.client_secret);
     let sa_row = sqlx::query(
@@ -353,7 +351,7 @@ async fn client_credentials_grant(
 
     let (expires_at, expires_in_hours) = match payload.expires_in_hours {
         Some(h) => {
-            let h = h.max(1).min(MAX_TTL_HOURS);
+            let h = h.clamp(1, MAX_TTL_HOURS);
             (Some(now + Duration::hours(h)), Some(h))
         }
         None => (None, None),

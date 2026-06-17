@@ -219,12 +219,11 @@ fn resolve_base_url(env_base_url: Option<&str>) -> Result<String> {
 
     // 2. Saved config
     let cfg = load_saved_config();
-    if let Some(url) = cfg.base_url.as_deref() {
-        if !url.is_empty() {
+    if let Some(url) = cfg.base_url.as_deref()
+        && !url.is_empty() {
             eprintln!("edgeplane auth login: using saved server URL: {}", url);
             return Ok(url.trim_end_matches('/').to_string());
         }
-    }
 
     // 3. Interactive prompt
     let input = prompt("  Edgeplane server URL [http://localhost:8008]: ")?;
@@ -671,9 +670,9 @@ pub async fn logout(args: LogoutArgs, client: &EdgeplaneClient) -> Result<()> {
 pub async fn whoami(client: &EdgeplaneClient) -> Result<()> {
     // Show local session file info first
     let session_path = session_file_path();
-    if session_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&session_path) {
-            if let Ok(session) = serde_json::from_str::<SavedSession>(&content) {
+    if session_path.exists()
+        && let Ok(content) = std::fs::read_to_string(&session_path)
+            && let Ok(session) = serde_json::from_str::<SavedSession>(&content) {
                 ui_section("Local Session");
                 ui_kv("Subject", &session.subject, ui::CYAN);
                 if let Some(email) = session.email.as_deref().filter(|e| !e.is_empty()) {
@@ -681,8 +680,6 @@ pub async fn whoami(client: &EdgeplaneClient) -> Result<()> {
                 }
                 ui_kv("Expires", &session.expires_at, ui::DIM);
             }
-        }
-    }
 
     // Fetch live identity from server
     let resp = client
@@ -721,11 +718,10 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> S
 
     // 3. Legacy config.json
     let cfg = load_saved_config();
-    if let Some(url) = cfg.base_url.as_deref() {
-        if !url.is_empty() {
+    if let Some(url) = cfg.base_url.as_deref()
+        && !url.is_empty() {
             return url.trim_end_matches('/').to_string();
         }
-    }
 
     default.trim_end_matches('/').to_string()
 }

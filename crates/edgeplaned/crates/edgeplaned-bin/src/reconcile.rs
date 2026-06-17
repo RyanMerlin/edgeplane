@@ -393,7 +393,7 @@ mod tests {
     #[test]
     fn diff_new_agent_goes_to_spawn() {
         let s = spec("a-1", "m-1", SessionMode::Persistent);
-        let plan = diff_specs(&[s.clone()], &HashMap::new());
+        let plan = diff_specs(std::slice::from_ref(&s), &HashMap::new());
         assert_eq!(plan.to_spawn.len(), 1);
         assert_eq!(plan.to_spawn[0].agent_id, "a-1");
         assert!(plan.to_remove.is_empty());

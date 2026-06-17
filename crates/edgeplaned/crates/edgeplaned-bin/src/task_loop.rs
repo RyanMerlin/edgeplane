@@ -20,7 +20,6 @@ use std::time::Duration;
 use anyhow::Result;
 use futures::StreamExt;
 use edgeplaned_core::client::BackendClient;
-use reqwest;
 use edgeplaned_core::types::{AgentHandle, AgentSignal, PendingPeerMessage, TaskSpec};
 use edgeplaned_work::watchdog::{ConnectivityState, OfflinePolicy};
 use edgeplaned_work::{claim, task};
@@ -438,11 +437,10 @@ pub async fn run_message_relay(
 
         for msg in msgs {
             // Track the highest seen id so we don't re-deliver.
-            if let Some(id) = msg.get("id").and_then(|v| v.as_i64()) {
-                if id > last_id {
+            if let Some(id) = msg.get("id").and_then(|v| v.as_i64())
+                && id > last_id {
                     last_id = id;
                 }
-            }
 
             // from_agent_id may be an integer (agent table id) or a string public_id.
             let from_agent_id = msg
@@ -492,8 +490,8 @@ pub async fn run_message_relay(
             // Persistent agents: route to the registered session supervisor
             // for live PTY/ACP delivery.
             let mut delivered = false;
-            if let Some(ref reg) = registry {
-                if let Some(endpoints) = reg.get(&agent_id).await {
+            if let Some(ref reg) = registry
+                && let Some(endpoints) = reg.get(&agent_id).await {
                     if let Err(e) = endpoints.signal_tx().send(signal.clone()).await {
                         tracing::debug!(
                             "Session supervisor not ready for {agent_id}, falling back: {e}"
@@ -502,7 +500,6 @@ pub async fn run_message_relay(
                         delivered = true;
                     }
                 }
-            }
 
             if !delivered {
                 // Task-mode agents: buffer for the next task inject. Single-shot
@@ -582,11 +579,10 @@ pub async fn run_webhook_relay(
         }
 
         for msg in &msgs {
-            if let Some(id) = msg.get("id").and_then(|v| v.as_i64()) {
-                if id > last_id {
+            if let Some(id) = msg.get("id").and_then(|v| v.as_i64())
+                && id > last_id {
                     last_id = id;
                 }
-            }
 
             let text = msg
                 .get("content")
@@ -677,11 +673,10 @@ async fn run_notify_ws(
                     use futures::StreamExt as _;
                     match ws.next().await {
                         Some(Ok(tungstenite::Message::Text(txt))) => {
-                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
-                                if v.get("type").and_then(|t| t.as_str()) == Some("task_available") {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt)
+                                && v.get("type").and_then(|t| t.as_str()) == Some("task_available") {
                                     let _ = wake_tx.send(true);
                                 }
-                            }
                         }
                         Some(Ok(_)) => {} // ping/binary frames ignored
                         Some(Err(e)) => {

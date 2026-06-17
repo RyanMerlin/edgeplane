@@ -50,8 +50,8 @@ pub async fn call_tool(
             .context("schema pack validation failed")?;
     }
 
-    if let Some(booster) = booster {
-        if booster.is_enabled() {
+    if let Some(booster) = booster
+        && booster.is_enabled() {
             let short_circuit = booster.run(&args).context("booster validation failed")?;
             if short_circuit {
                 if booster.allow_short_circuit() {
@@ -63,7 +63,6 @@ pub async fn call_tool(
                 );
             }
         }
-    }
 
     let request = json!({
         "tool": tool,
