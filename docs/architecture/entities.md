@@ -141,15 +141,6 @@ There are three "session" tables. Confusion here is the root cause of past archi
 
 ---
 
-## DomainRoleMembership
-
-**Who has what role on a domain.** Admin / Contributor / Viewer (philosophy line 244–248).
-
-- Schema: `public.domainrolemembership` (line 659, renamed in 0012 from `missionrolemembership`) — has `domain_id`, `subject`, `role`
-- Used by governance enforcement at every mutation point.
-
----
-
 ## What this doc is not
 
 - Not an API reference (see `docs/catalog/api.yaml`)

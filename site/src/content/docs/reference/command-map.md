@@ -28,24 +28,6 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane auth login`↴](#edgeplane-auth-login)
 * [`edgeplane auth logout`↴](#edgeplane-auth-logout)
 * [`edgeplane auth whoami`↴](#edgeplane-auth-whoami)
-* [`edgeplane admin`↴](#edgeplane-admin)
-* [`edgeplane admin policy`↴](#edgeplane-admin-policy)
-* [`edgeplane admin policy active`↴](#edgeplane-admin-policy-active)
-* [`edgeplane admin policy versions`↴](#edgeplane-admin-policy-versions)
-* [`edgeplane admin policy events`↴](#edgeplane-admin-policy-events)
-* [`edgeplane admin governance`↴](#edgeplane-admin-governance)
-* [`edgeplane admin governance roles`↴](#edgeplane-admin-governance-roles)
-* [`edgeplane admin governance roles list`↴](#edgeplane-admin-governance-roles-list)
-* [`edgeplane admin governance roles upsert`↴](#edgeplane-admin-governance-roles-upsert)
-* [`edgeplane admin governance roles remove`↴](#edgeplane-admin-governance-roles-remove)
-* [`edgeplane admin governance policy`↴](#edgeplane-admin-governance-policy)
-* [`edgeplane admin governance policy active`↴](#edgeplane-admin-governance-policy-active)
-* [`edgeplane admin governance policy versions`↴](#edgeplane-admin-governance-policy-versions)
-* [`edgeplane admin governance policy create-draft`↴](#edgeplane-admin-governance-policy-create-draft)
-* [`edgeplane admin governance policy publish`↴](#edgeplane-admin-governance-policy-publish)
-* [`edgeplane admin governance policy rollback`↴](#edgeplane-admin-governance-policy-rollback)
-* [`edgeplane admin governance policy reload`↴](#edgeplane-admin-governance-policy-reload)
-* [`edgeplane admin governance events`↴](#edgeplane-admin-governance-events)
 * [`edgeplane data`↴](#edgeplane-data)
 * [`edgeplane data tools`↴](#edgeplane-data-tools)
 * [`edgeplane data tools list`↴](#edgeplane-data-tools-list)
@@ -112,11 +94,6 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane runtime leases complete`↴](#edgeplane-runtime-leases-complete)
 * [`edgeplane runtime sessions`↴](#edgeplane-runtime-sessions)
 * [`edgeplane runtime sessions attach`↴](#edgeplane-runtime-sessions-attach)
-* [`edgeplane approvals`↴](#edgeplane-approvals)
-* [`edgeplane approvals create`↴](#edgeplane-approvals-create)
-* [`edgeplane approvals list`↴](#edgeplane-approvals-list)
-* [`edgeplane approvals approve`↴](#edgeplane-approvals-approve)
-* [`edgeplane approvals reject`↴](#edgeplane-approvals-reject)
 * [`edgeplane workspace`↴](#edgeplane-workspace)
 * [`edgeplane workspace load`↴](#edgeplane-workspace-load)
 * [`edgeplane workspace heartbeat`↴](#edgeplane-workspace-heartbeat)
@@ -273,12 +250,10 @@ EdgePlane — fleet control-plane CLI
 * `completion` — Generate shell completion scripts
 * `artifact` — Artifact retrieval and mutation helpers
 * `auth` — Authentication and identity helpers
-* `admin` — Governance and admin workflows
 * `data` — Data/catalog/read workflows (tools, sync, explorer)
 * `system` — Platform diagnostics and release-control workflows
 * `agent` — Agent control workflows (remote, swarm/subagent workflows)
 * `runtime` — Runtime fabric workflows (nodes, jobs, leases)
-* `approvals` — Approval workflow commands (requests, decisions)
 * `workspace` — Workspace lifecycle helpers (load/heartbeat/artifact/commit/release)
 * `ops` — Domain operations (lifecycle orchestration and execution workflows)
 * `update` — Self-update helper for the edgeplane binary
@@ -303,7 +278,7 @@ EdgePlane — fleet control-plane CLI
 ###### **Options:**
 
 * `--base-url <BASE_URL>` — Base URL pointing at an existing Edgeplane deployment
-* `--agent-id <AGENT_ID>` — Optional agent identifier propagated throughout approvals and sync calls
+* `--agent-id <AGENT_ID>` — Optional agent identifier propagated throughout sync calls
 * `--runtime-session-id <RUNTIME_SESSION_ID>` — Optional runtime session identifier propagated for per-instance attribution
 * `--profile-name <PROFILE_NAME>` — Optional profile name propagated for per-profile attribution
 * `--timeout-secs <TIMEOUT_SECS>` — Timeout (in seconds) for all outbound calls
@@ -583,235 +558,6 @@ Revoke the current session token and clear local credentials
 Show the current authenticated identity
 
 **Usage:** `edgeplane auth whoami`
-
-
-
-## `edgeplane admin`
-
-Governance and admin workflows
-
-**Usage:** `edgeplane admin <COMMAND>`
-
-###### **Subcommands:**
-
-* `policy` — Governance policy summaries and event feeds
-* `governance` — Governance automation helpers (roles, policies, events)
-
-
-
-## `edgeplane admin policy`
-
-Governance policy summaries and event feeds
-
-**Usage:** `edgeplane admin policy <COMMAND>`
-
-###### **Subcommands:**
-
-* `active` — Show the currently active governance policy
-* `versions` — List previous policy versions (limit defaults to 50)
-* `events` — Show the recent policy events emitted from approvals
-
-
-
-## `edgeplane admin policy active`
-
-Show the currently active governance policy
-
-**Usage:** `edgeplane admin policy active`
-
-
-
-## `edgeplane admin policy versions`
-
-List previous policy versions (limit defaults to 50)
-
-**Usage:** `edgeplane admin policy versions [OPTIONS]`
-
-###### **Options:**
-
-* `--limit <LIMIT>`
-
-
-
-## `edgeplane admin policy events`
-
-Show the recent policy events emitted from approvals
-
-**Usage:** `edgeplane admin policy events [OPTIONS]`
-
-###### **Options:**
-
-* `--limit <LIMIT>`
-
-
-
-## `edgeplane admin governance`
-
-Governance automation helpers (roles, policies, events)
-
-**Usage:** `edgeplane admin governance <COMMAND>`
-
-###### **Subcommands:**
-
-* `roles` — Manage domain-level roles and memberships
-* `policy` — Work with governance policies
-* `events` — Inspect governance policy events
-
-
-
-## `edgeplane admin governance roles`
-
-Manage domain-level roles and memberships
-
-**Usage:** `edgeplane admin governance roles <COMMAND>`
-
-###### **Subcommands:**
-
-* `list` — List role assignments for a domain
-* `upsert` — Add or update a role
-* `remove` — Remove a role assignment
-
-
-
-## `edgeplane admin governance roles list`
-
-List role assignments for a domain
-
-**Usage:** `edgeplane admin governance roles list [OPTIONS] --domain-id <DOMAIN_ID>`
-
-###### **Options:**
-
-* `--domain-id <DOMAIN_ID>`
-* `--limit <LIMIT>`
-
-  Default value: `50`
-
-
-
-## `edgeplane admin governance roles upsert`
-
-Add or update a role
-
-**Usage:** `edgeplane admin governance roles upsert --domain-id <DOMAIN_ID> --subject <SUBJECT> --role <ROLE>`
-
-###### **Options:**
-
-* `--domain-id <DOMAIN_ID>`
-* `--subject <SUBJECT>`
-* `--role <ROLE>`
-
-
-
-## `edgeplane admin governance roles remove`
-
-Remove a role assignment
-
-**Usage:** `edgeplane admin governance roles remove --domain-id <DOMAIN_ID> --subject <SUBJECT>`
-
-###### **Options:**
-
-* `--domain-id <DOMAIN_ID>`
-* `--subject <SUBJECT>`
-
-
-
-## `edgeplane admin governance policy`
-
-Work with governance policies
-
-**Usage:** `edgeplane admin governance policy <COMMAND>`
-
-###### **Subcommands:**
-
-* `active` — Show the active governance policy
-* `versions` — List historical policy versions
-* `create-draft` — Create a new draft from JSON file
-* `publish` — Publish an existing draft
-* `rollback` — Roll back to a specific version
-* `reload` — Reload the active policy config
-
-
-
-## `edgeplane admin governance policy active`
-
-Show the active governance policy
-
-**Usage:** `edgeplane admin governance policy active`
-
-
-
-## `edgeplane admin governance policy versions`
-
-List historical policy versions
-
-**Usage:** `edgeplane admin governance policy versions [OPTIONS]`
-
-###### **Options:**
-
-* `--limit <LIMIT>`
-
-  Default value: `20`
-
-
-
-## `edgeplane admin governance policy create-draft`
-
-Create a new draft from JSON file
-
-**Usage:** `edgeplane admin governance policy create-draft [OPTIONS] --file <FILE>`
-
-###### **Options:**
-
-* `--file <FILE>`
-* `--change-note <CHANGE_NOTE>`
-
-
-
-## `edgeplane admin governance policy publish`
-
-Publish an existing draft
-
-**Usage:** `edgeplane admin governance policy publish [OPTIONS] --draft-id <DRAFT_ID>`
-
-###### **Options:**
-
-* `--draft-id <DRAFT_ID>`
-* `--change-note <CHANGE_NOTE>`
-
-
-
-## `edgeplane admin governance policy rollback`
-
-Roll back to a specific version
-
-**Usage:** `edgeplane admin governance policy rollback [OPTIONS] --version <VERSION>`
-
-###### **Options:**
-
-* `--version <VERSION>`
-* `--change-note <CHANGE_NOTE>`
-
-
-
-## `edgeplane admin governance policy reload`
-
-Reload the active policy config
-
-**Usage:** `edgeplane admin governance policy reload`
-
-
-
-## `edgeplane admin governance events`
-
-Inspect governance policy events
-
-**Usage:** `edgeplane admin governance events [OPTIONS]`
-
-###### **Options:**
-
-* `--limit <LIMIT>`
-
-  Default value: `50`
 
 
 
@@ -1818,81 +1564,6 @@ Runtime execution-session helpers
 * `--raw`
 
   Default value: `false`
-
-
-
-## `edgeplane approvals`
-
-Approval workflow commands (requests, decisions)
-
-**Usage:** `edgeplane approvals <COMMAND>`
-
-###### **Subcommands:**
-
-* `create` — Create an approval request for a domain action
-* `list` — List approval requests for a domain
-* `approve` — Approve a pending request
-* `reject` — Reject a pending request
-
-
-
-## `edgeplane approvals create`
-
-Create an approval request for a domain action
-
-**Usage:** `edgeplane approvals create [OPTIONS] --domain-id <DOMAIN_ID> --action <ACTION>`
-
-###### **Options:**
-
-* `--domain-id <DOMAIN_ID>`
-* `--action <ACTION>`
-* `--channel <CHANNEL>`
-* `--reason <REASON>`
-* `--target-entity-type <TARGET_ENTITY_TYPE>`
-* `--target-entity-id <TARGET_ENTITY_ID>`
-* `--request-context <REQUEST_CONTEXT>`
-* `--expires-in-seconds <EXPIRES_IN_SECONDS>`
-
-
-
-## `edgeplane approvals list`
-
-List approval requests for a domain
-
-**Usage:** `edgeplane approvals list [OPTIONS] --domain-id <DOMAIN_ID>`
-
-###### **Options:**
-
-* `--domain-id <DOMAIN_ID>`
-* `--status <STATUS>`
-* `--limit <LIMIT>`
-
-
-
-## `edgeplane approvals approve`
-
-Approve a pending request
-
-**Usage:** `edgeplane approvals approve [OPTIONS] --approval-id <APPROVAL_ID>`
-
-###### **Options:**
-
-* `--approval-id <APPROVAL_ID>`
-* `--expires-in-seconds <EXPIRES_IN_SECONDS>`
-* `--note <NOTE>`
-
-
-
-## `edgeplane approvals reject`
-
-Reject a pending request
-
-**Usage:** `edgeplane approvals reject [OPTIONS] --approval-id <APPROVAL_ID>`
-
-###### **Options:**
-
-* `--approval-id <APPROVAL_ID>`
-* `--note <NOTE>`
 
 
 

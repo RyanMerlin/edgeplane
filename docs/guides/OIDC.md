@@ -17,7 +17,6 @@ OIDC_CLIENT_ID=<oidc-client-id>
 OIDC_CLIENT_SECRET=<optional-for-confidential-clients>
 OIDC_REDIRECT_URI=https://<edgeplane-host>/auth/oidc/callback
 OIDC_SCOPES=openid profile email
-EP_ADMIN_SUBJECTS=<comma-separated-subjects>
 EP_ADMIN_EMAILS=<comma-separated-emails>
 # optional
 # OIDC_JWKS_URL=https://<authentik-host>/application/o/<provider-slug>/jwks/

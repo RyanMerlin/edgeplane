@@ -88,8 +88,7 @@ interfaces:
     - edgeplane data tools list
     - edgeplane data tools call <tool> <args>
     - edgeplane data explorer tree
-    - edgeplane admin policy active
-    - edgeplane admin governance
+    - edgeplane admin ...
     - edgeplane system doctor
     - edgeplane system update self-update
     - edgeplane system compat matrix run

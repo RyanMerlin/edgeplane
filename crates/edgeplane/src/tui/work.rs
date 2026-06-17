@@ -40,10 +40,6 @@ pub enum WorkRequest {
         path: String,
         cfg: edgeplaned_secrets::InfisicalConfig,
     },
-    /// Fetch pending approvals for a domain (or all if domain_id is None).
-    FetchApprovals { job_id: JobId, domain_id: Option<String> },
-    /// Respond to a pending approval with "approve" or "reject".
-    RespondApproval { job_id: JobId, approval_id: String, decision: String, note: Option<String> },
     /// Fetch the list of agents from the backend.
     ListAgents { job_id: JobId },
     /// Delete an agent by id.
@@ -96,14 +92,6 @@ pub enum WorkResult {
     SecretFoldersLoaded { job_id: JobId, folders: Vec<String>, error: Option<String> },
     /// Secret names returned for a path.
     SecretNamesLoaded { job_id: JobId, names: Vec<String>, error: Option<String> },
-    /// Pending approvals fetched.
-    ApprovalsListed {
-        job_id: JobId,
-        approvals: Vec<super::data::ApprovalSummary>,
-        error: Option<String>,
-    },
-    /// Approval respond call completed.
-    ApprovalResponded { job_id: JobId, approval_id: String, ok: bool, error: Option<String> },
     /// Agents listed from the backend.
     AgentsListed { job_id: JobId, agents: Vec<super::data::AgentSummary>, error: Option<String> },
     /// Agent delete completed.
@@ -262,28 +250,6 @@ impl WorkPool {
                             }
                         }
                     }
-                }
-                WorkRequest::FetchApprovals { job_id, domain_id } => {
-                    match handle.block_on(client.list_approvals(domain_id.as_deref())) {
-                        Ok(approvals) => {
-                            let _ = tx.send(WorkResult::ApprovalsListed { job_id, approvals, error: None });
-                        }
-                        Err(e) => {
-                            let _ = tx.send(WorkResult::ApprovalsListed {
-                                job_id, approvals: vec![], error: Some(e.to_string()),
-                            });
-                        }
-                    }
-                }
-                WorkRequest::RespondApproval { job_id, approval_id, decision, note } => {
-                    let res = handle.block_on(
-                        client.respond_approval(&approval_id, &decision, note.as_deref())
-                    );
-                    let (ok, error) = match res {
-                        Ok(()) => (true, None),
-                        Err(e) => (false, Some(e.to_string())),
-                    };
-                    let _ = tx.send(WorkResult::ApprovalResponded { job_id, approval_id, ok, error });
                 }
                 WorkRequest::ListAgents { job_id } => {
                     match handle.block_on(client.list_agents()) {

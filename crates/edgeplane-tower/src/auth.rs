@@ -8,9 +8,20 @@ use base64::Engine;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::state::AppState;
+
+/// Pure admin-policy check: `true` when `email` (case-insensitive) is present
+/// in the configured admin set. No DB or IO, so it is directly unit-testable.
+/// Only the user-session auth branch calls this; node and service-account
+/// principals are never admin, by construction.
+pub(crate) fn is_admin_email(email: Option<&str>, admin_emails: &HashSet<String>) -> bool {
+    email
+        .map(|e| admin_emails.contains(&e.to_lowercase()))
+        .unwrap_or(false)
+}
 
 /// Caller identity extracted from request headers.
 ///
@@ -161,7 +172,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             } else if token.starts_with("mcs_") {
                 // User session token — validate against usersession
                 let row = sqlx::query(
-                    "SELECT id, subject FROM usersession \
+                    "SELECT id, subject, email FROM usersession \
                      WHERE token_hash = $1 AND revoked = false AND expires_at > $2"
                 )
                 .bind(&hash)
@@ -173,6 +184,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
 
                 if let Some(row) = row {
                     let subject: String = row.get("subject");
+                    let email: Option<String> = row.get("email");
                     let session_id: i32 = row.get("id");
                     let db = state.db.clone();
                     let h = hash.clone();
@@ -186,7 +198,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                     });
                     return Ok(Principal {
                         subject,
-                        is_admin: false,
+                        is_admin: is_admin_email(email.as_deref(), &state.admin_emails),
                         session_id: Some(session_id),
                         auth_type: "session".into(),
                     });
@@ -336,5 +348,41 @@ mod public_path_tests {
         ] {
             assert!(!is_public_path(p), "{p} should NOT be public");
         }
+    }
+}
+
+#[cfg(test)]
+mod admin_email_tests {
+    use super::is_admin_email;
+    use std::collections::HashSet;
+
+    fn admins() -> HashSet<String> {
+        ["admin@example.com".to_string()].into_iter().collect()
+    }
+
+    #[test]
+    fn listed_email_is_admin() {
+        assert!(is_admin_email(Some("admin@example.com"), &admins()));
+    }
+
+    #[test]
+    fn listed_email_is_case_insensitive() {
+        assert!(is_admin_email(Some("Admin@Example.COM"), &admins()));
+    }
+
+    #[test]
+    fn unlisted_email_is_not_admin() {
+        assert!(!is_admin_email(Some("someone@example.com"), &admins()));
+    }
+
+    #[test]
+    fn null_email_is_not_admin() {
+        assert!(!is_admin_email(None, &admins()));
+    }
+
+    #[test]
+    fn empty_admin_set_is_never_admin() {
+        let empty: HashSet<String> = HashSet::new();
+        assert!(!is_admin_email(Some("admin@example.com"), &empty));
     }
 }

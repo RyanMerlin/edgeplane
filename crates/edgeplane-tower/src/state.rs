@@ -1,5 +1,6 @@
 use jsonwebtoken::{DecodingKey, EncodingKey};
 use sqlx::PgPool;
+use std::collections::HashSet;
 
 pub struct AppState {
     pub db: PgPool,
@@ -10,6 +11,9 @@ pub struct AppState {
     pub jwt_encoding_key: EncodingKey,
     /// RS256 public key for verifying node JWTs.
     pub jwt_decoding_key: DecodingKey,
+    /// Lowercased operator emails whose user-session principals resolve to
+    /// `is_admin = true`. Populated from `EP_ADMIN_EMAILS` at startup.
+    pub admin_emails: HashSet<String>,
 }
 
 /// Static node identity — populated from CLI args at startup.

@@ -93,24 +93,7 @@ Once authenticated, tower enforces authorization at three layers:
 
 1. **Session scope** — sessions belong to an owner. WebSocket attach is owner-scoped: a user can only attach to agents they registered or have been explicitly granted access to via domain membership.
 
-2. **Domain membership** — task and artifact writes require the caller to be a member of the domain the mission belongs to. Membership is explicit and manageable via `edgeplane domain members`.
-
-3. **Governance policies** — specific operations (publishing mutations, creating certain entity types) can be gated by governance policies. When a policy requires human approval, the mutation enters the ledger as `pending` and a notification goes out. No data moves until the approval is granted.
-
----
-
-## Governance Approvals
-
-When a governance policy requires approval before a mutation proceeds:
-
-1. Mutation is written to the ledger with `status = pending`.
-2. An `ApprovalRequest` record is created; an SSE event notifies subscribers.
-3. Tower generates an HMAC-SHA256 signed approval token (`base64url(payload).base64url(hmac_sig)`), returned to the caller and included in the notification payload.
-4. An approver acts via the web dashboard (`POST /api/approvals/{id}/approve` or `/reject`) or CLI.
-5. On approval: the mutation is promoted and the original operation proceeds. The ledger entry is updated with `approved_by` and `approved_at`.
-6. On rejection: the mutation is abandoned; the ledger records the rejection.
-
-The approval token can also be used for programmatic approval flows — sign the payload with the shared HMAC key to prove identity without a full session.
+2. **Domain ownership** — task and artifact writes require the caller to appear in the domain's `owners` or `contributors` column. Admins (subjects listed in `EP_ADMIN_EMAILS`) bypass this check.
 
 ---
 

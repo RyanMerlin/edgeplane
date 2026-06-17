@@ -7,7 +7,7 @@ use crate::{
     compat,
     config::EdgeplaneConfig,
     discover,
-    agent_harness, daemon_ctl, drift, governance, maintenance, mcp_server, mcp_tools, ops,
+    agent_harness, daemon_ctl, drift, maintenance, mcp_server, mcp_tools, ops,
     run,
     output::{self, OutputMode},
     runtime,
@@ -36,7 +36,7 @@ pub struct CliRoot {
     #[arg(long, env = "EP_BASE_URL")]
     pub base_url: Option<String>,
 
-    /// Optional agent identifier propagated throughout approvals and sync calls.
+    /// Optional agent identifier propagated throughout sync calls.
     #[arg(long, env = "EP_AGENT_ID")]
     pub agent_id: Option<String>,
 
@@ -106,9 +106,6 @@ pub enum EdgeplaneCommand {
     /// Authentication and identity helpers.
     #[command(subcommand)]
     Auth(AuthCommand),
-    /// Governance and admin workflows.
-    #[command(subcommand)]
-    Admin(AdminCommand),
     /// Data/catalog/read workflows (tools, sync, explorer).
     #[command(subcommand)]
     Data(DataCommand),
@@ -121,9 +118,6 @@ pub enum EdgeplaneCommand {
     /// Runtime fabric workflows (nodes, jobs, leases).
     #[command(subcommand)]
     Runtime(runtime::RuntimeCommand),
-    /// Approval workflow commands (requests, decisions).
-    #[command(subcommand)]
-    Approvals(ApprovalCommand),
     /// Workspace lifecycle helpers (load/heartbeat/artifact/commit/release).
     #[command(subcommand)]
     Workspace(WorkspaceCommand),
@@ -1052,80 +1046,6 @@ impl ExplorerNodeType {
     }
 }
 
-#[derive(Subcommand, Debug)]
-pub enum AdminCommand {
-    /// Governance policy summaries and event feeds.
-    #[command(subcommand)]
-    Policy(AdminPolicyCommand),
-    /// Governance automation helpers (roles, policies, events).
-    #[command(subcommand)]
-    Governance(governance::GovernanceCommand),
-}
-
-#[derive(Subcommand, Debug)]
-pub enum AdminPolicyCommand {
-    /// Show the currently active governance policy.
-    Active,
-    /// List previous policy versions (limit defaults to 50).
-    Versions {
-        #[arg(long)]
-        limit: Option<u32>,
-    },
-    /// Show the recent policy events emitted from approvals.
-    Events {
-        #[arg(long)]
-        limit: Option<u32>,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub enum ApprovalCommand {
-    /// Create an approval request for a domain action.
-    Create {
-        #[arg(long)]
-        domain_id: String,
-        #[arg(long)]
-        action: String,
-        #[arg(long)]
-        channel: Option<String>,
-        #[arg(long)]
-        reason: Option<String>,
-        #[arg(long)]
-        target_entity_type: Option<String>,
-        #[arg(long)]
-        target_entity_id: Option<String>,
-        #[arg(long)]
-        request_context: Option<String>,
-        #[arg(long)]
-        expires_in_seconds: Option<u64>,
-    },
-    /// List approval requests for a domain.
-    List {
-        #[arg(long)]
-        domain_id: String,
-        #[arg(long)]
-        status: Option<String>,
-        #[arg(long)]
-        limit: Option<u32>,
-    },
-    /// Approve a pending request.
-    Approve {
-        #[arg(long)]
-        approval_id: i32,
-        #[arg(long)]
-        expires_in_seconds: Option<u64>,
-        #[arg(long)]
-        note: Option<String>,
-    },
-    /// Reject a pending request.
-    Reject {
-        #[arg(long)]
-        approval_id: i32,
-        #[arg(long)]
-        note: Option<String>,
-    },
-}
-
 pub async fn run(
     command: EdgeplaneCommand,
     client: EdgeplaneClient,
@@ -1152,14 +1072,12 @@ pub async fn run(
         EdgeplaneCommand::Data(cmd) => {
             handle_data(cmd, client, &booster, &config.schema_pack, output_mode).await
         }
-        EdgeplaneCommand::Admin(cmd) => handle_admin(cmd, client).await,
         EdgeplaneCommand::System(cmd) => handle_system(cmd, client, &config).await,
         EdgeplaneCommand::Agent(cmd) => handle_agent(cmd, client, &booster, &config.schema_pack).await,
         EdgeplaneCommand::Runtime(cmd) => handle_runtime(cmd, client, output_mode).await,
         EdgeplaneCommand::Workspace(cmd) => {
             handle_workspace(cmd, client, &booster, &config.schema_pack, output_mode).await
         }
-        EdgeplaneCommand::Approvals(cmd) => handle_approvals(cmd, client, output_mode).await,
         EdgeplaneCommand::Ops(cmd) => ops::run(cmd, &client, &booster, &config.schema_pack).await,
         EdgeplaneCommand::Daemon(cmd) => daemon_ctl::handle(cmd, &client, &config).await,
         EdgeplaneCommand::Update(args) => {
@@ -3601,207 +3519,6 @@ async fn handle_explorer(command: ExplorerCommand, client: EdgeplaneClient) -> R
         }
     }
     Ok(())
-}
-
-async fn handle_admin(command: AdminCommand, client: EdgeplaneClient) -> Result<()> {
-    match command {
-        AdminCommand::Policy(AdminPolicyCommand::Active) => {
-            let response = client.get_json("/governance/policy/active").await?;
-            print_json(&response);
-        }
-        AdminCommand::Policy(AdminPolicyCommand::Versions { limit }) => {
-            let mut serializer = form_urlencoded::Serializer::new(String::new());
-            if let Some(limit) = limit {
-                serializer.append_pair("limit", &limit.to_string());
-            }
-            let path = build_path_with_query("/governance/policy/versions", serializer.finish());
-            let response = client.get_json(&path).await?;
-            print_json(&response);
-        }
-        AdminCommand::Policy(AdminPolicyCommand::Events { limit }) => {
-            let mut serializer = form_urlencoded::Serializer::new(String::new());
-            if let Some(limit) = limit {
-                serializer.append_pair("limit", &limit.to_string());
-            }
-            let path = build_path_with_query("/governance/policy/events", serializer.finish());
-            let response = client.get_json(&path).await?;
-            print_json(&response);
-        }
-        AdminCommand::Governance(cmd) => governance::run(cmd, &client).await?,
-    }
-    Ok(())
-}
-
-async fn handle_approvals(
-    command: ApprovalCommand,
-    client: EdgeplaneClient,
-    output_mode: OutputMode,
-) -> Result<()> {
-    let json_output = output_mode.is_machine();
-    match command {
-        ApprovalCommand::Create {
-            domain_id,
-            action,
-            channel,
-            reason,
-            target_entity_type,
-            target_entity_id,
-            request_context,
-            expires_in_seconds,
-        } => {
-            let mut body = json!({
-                "domain_id": domain_id,
-                "action": action,
-            });
-            if let Some(channel) = channel {
-                body["channel"] = json!(channel);
-            }
-            if let Some(reason) = reason {
-                body["reason"] = json!(reason);
-            }
-            if let Some(target_type) = target_entity_type {
-                body["target_entity_type"] = json!(target_type);
-            }
-            if let Some(target_id) = target_entity_id {
-                body["target_entity_id"] = json!(target_id);
-            }
-            if let Some(req_ctx) = request_context {
-                body["request_context"] =
-                    serde_json::from_str(&req_ctx).unwrap_or_else(|_| json!({ "raw": req_ctx }));
-            }
-            if let Some(expires) = expires_in_seconds {
-                body["expires_in_seconds"] = json!(expires);
-            }
-            let response = client.post_json("/approvals/requests", &body).await?;
-            if json_output {
-                print_json(&response);
-            } else {
-                print_approval_single("Approval Request Created", &response);
-            }
-        }
-        ApprovalCommand::List {
-            domain_id,
-            status,
-            limit,
-        } => {
-            let mut serializer = form_urlencoded::Serializer::new(String::new());
-            serializer.append_pair("domain_id", &domain_id);
-            if let Some(status) = status {
-                serializer.append_pair("status", &status);
-            }
-            if let Some(limit) = limit {
-                serializer.append_pair("limit", &limit.to_string());
-            }
-            let path = build_path_with_query("/approvals", serializer.finish());
-            let response = client.get_json(&path).await?;
-            if json_output {
-                print_json(&response);
-            } else {
-                print_approvals_list_human(&response);
-            }
-        }
-        ApprovalCommand::Approve {
-            approval_id,
-            expires_in_seconds,
-            note,
-        } => {
-            let mut body = json!({});
-            if let Some(expires) = expires_in_seconds {
-                body["expires_in_seconds"] = json!(expires);
-            }
-            if let Some(note) = note {
-                body["note"] = json!(note);
-            }
-            let path = format!("/approvals/{}/approve", approval_id);
-            let response = client.post_json(&path, &body).await?;
-            if json_output {
-                print_json(&response);
-            } else {
-                print_approval_single("Approval Granted", &response);
-            }
-        }
-        ApprovalCommand::Reject { approval_id, note } => {
-            let mut body = json!({});
-            if let Some(note) = note {
-                body["note"] = json!(note);
-            }
-            let path = format!("/approvals/{}/reject", approval_id);
-            let response = client.post_json(&path, &body).await?;
-            if json_output {
-                print_json(&response);
-            } else {
-                print_approval_single("Approval Rejected", &response);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn print_approvals_list_human(value: &Value) {
-    let items: Vec<Value> = match value {
-        Value::Array(arr) => arr.clone(),
-        Value::Object(obj) => obj
-            .get("items")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .or_else(|| obj.get("approvals").and_then(|v| v.as_array()).cloned())
-            .unwrap_or_default(),
-        _ => Vec::new(),
-    };
-    ui_section("Approvals");
-    ui_row("Count", &items.len().to_string(), crate::ui::CYAN);
-    for item in items {
-        let id = item.get("id").and_then(|v| v.as_i64()).unwrap_or_default();
-        let domain_id = item
-            .get("domain_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("-");
-        let action = item.get("action").and_then(|v| v.as_str()).unwrap_or("-");
-        let status = item.get("status").and_then(|v| v.as_str()).unwrap_or("-");
-        let status_color = match status {
-            "approved" => crate::ui::GREEN,
-            "rejected" => crate::ui::RED,
-            "pending" => crate::ui::YELLOW,
-            _ => crate::ui::CYAN,
-        };
-        println!(
-            "  {}#{}{} {}{}{} {}{}{} {}{}{}",
-            crate::ui::DIM,
-            id,
-            crate::ui::RESET,
-            crate::ui::CYAN,
-            domain_id,
-            crate::ui::RESET,
-            crate::ui::BOLD,
-            action,
-            crate::ui::RESET,
-            status_color,
-            status,
-            crate::ui::RESET
-        );
-    }
-}
-
-fn print_approval_single(title: &str, value: &Value) {
-    ui_section(title);
-    if let Some(id) = value.get("id").and_then(|v| v.as_i64()) {
-        ui_row("ID", &id.to_string(), crate::ui::CYAN);
-    }
-    if let Some(status) = value.get("status").and_then(|v| v.as_str()) {
-        let color = match status {
-            "approved" => crate::ui::GREEN,
-            "rejected" => crate::ui::RED,
-            "pending" => crate::ui::YELLOW,
-            _ => crate::ui::CYAN,
-        };
-        ui_row("Status", status, color);
-    }
-    if let Some(action) = value.get("action").and_then(|v| v.as_str()) {
-        ui_row("Action", action, crate::ui::BOLD);
-    }
-    if let Some(domain) = value.get("domain_id").and_then(|v| v.as_str()) {
-        ui_row("Domain", domain, crate::ui::CYAN);
-    }
 }
 
 async fn call_mcp_tool(

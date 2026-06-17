@@ -13,7 +13,7 @@
  *   - Empty state renders when no events
  *   - Disconnected state shows offline indicator
  *   - Rate counter is displayed
- *   - Status bar error/governance/warn counters
+ *   - Status bar error/warn counters
  *   - Row click selects the detail panel
  */
 
@@ -85,7 +85,6 @@ const sampleEvents: MatrixEvent[] = [
     payload: { error: 'boom' },
     receivedAt: NOW - 200,
   }),
-  makeEvent({ type: 'governance', payload: { rule: 'no-delete' }, receivedAt: NOW - 300 }),
   makeEvent({ type: 'overlap_detected', payload: { detail: 'conflict' }, receivedAt: NOW - 400 }),
   makeEvent({ type: 'heartbeat', payload: {}, receivedAt: NOW - 500 }),
   makeEvent({
@@ -174,13 +173,6 @@ describe('FeedPage', () => {
     expect(rows).toHaveLength(2);
   });
 
-  it('Governance chip filter shows only governance events', () => {
-    render(<FeedPage />);
-    fireEvent.click(screen.getByTestId('chip-governance'));
-    const rows = screen.getAllByTestId('feed-row');
-    expect(rows).toHaveLength(1);
-  });
-
   it('Artifacts chip filter shows only artifact events', () => {
     render(<FeedPage />);
     fireEvent.click(screen.getByTestId('chip-artifacts'));
@@ -195,12 +187,12 @@ describe('FeedPage', () => {
     expect(rows).toHaveLength(1);
   });
 
-  it('Alerts-only toggle shows only error/governance/warn events', () => {
+  it('Alerts-only toggle shows only error/warn events', () => {
     render(<FeedPage />);
     fireEvent.click(screen.getByTestId('alerts-toggle'));
-    // step_error (a-err) + governance (a-gov) + overlap_detected (a-warn) = 3
+    // step_error (a-err) + overlap_detected (a-warn) = 2
     const rows = screen.getAllByTestId('feed-row');
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(2);
   });
 
   it('shows LIVE indicator when connected', () => {
@@ -236,11 +228,6 @@ describe('FeedPage', () => {
     render(<FeedPage />);
     // step_error = 1 error
     expect(screen.getByTestId('error-count')).toHaveTextContent('1 error');
-  });
-
-  it('shows governance count in status bar', () => {
-    render(<FeedPage />);
-    expect(screen.getByTestId('gov-count')).toHaveTextContent('1 governance');
   });
 
   it('shows warn count in status bar', () => {

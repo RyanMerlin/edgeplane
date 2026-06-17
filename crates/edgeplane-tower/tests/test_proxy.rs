@@ -20,6 +20,7 @@ async fn test_proxy_forwards_unknown_route() {
         api_proxy: Some(mock_backend.uri()),
         node_id: 1,
         advertise_url: None,
+        admin_emails: Default::default(),
     };
     let app = build_app(test_pool(), config);
     let server = TestServer::new(app);
@@ -34,6 +35,7 @@ async fn test_proxy_does_not_override_health() {
         api_proxy: Some("http://127.0.0.1:1".to_string()),
         node_id: 1,
         advertise_url: None,
+        admin_emails: Default::default(),
     };
     let app = build_app(test_pool(), config);
     let server = TestServer::new(app);
@@ -50,6 +52,7 @@ async fn test_proxy_returns_502_when_upstream_unreachable() {
         api_proxy: Some("http://127.0.0.1:1".to_string()),
         node_id: 1,
         advertise_url: None,
+        admin_emails: Default::default(),
     };
     let app = build_app(test_pool(), config);
     let server = TestServer::new(app);

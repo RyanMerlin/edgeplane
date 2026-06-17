@@ -582,7 +582,7 @@ summary {
 }
 
 /* ─── Page shell primitives — shared across secondary screens ────────────── */
-/* Used by Governance, Onboarding, Feed, and any future full-pane routes.     */
+/* Used by Onboarding, Feed, and any future full-pane routes.                 */
 
 .page-shell {
   display: flex;
@@ -603,20 +603,7 @@ summary {
   border-bottom: 1px solid var(--border);
 }
 
-/* Alias kept for backwards-compat with existing governance.tsx / onboarding.tsx */
-.gov-bar {
-  height: 40px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-
-.page-title,
-.gov-title {
+.page-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--text);

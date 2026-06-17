@@ -64,25 +64,6 @@ pub struct TaskSummary {
     pub description: String,
 }
 
-// ─── approvals ───────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApprovalSummary {
-    pub id: i64,
-    #[serde(default)]
-    pub domain_id: Option<String>,
-    pub action: String,
-    #[serde(default)]
-    pub channel: Option<String>,
-    #[serde(default)]
-    pub reason: Option<String>,
-    #[serde(default)]
-    pub requested_by: Option<String>,
-    pub status: String,
-    #[serde(default)]
-    pub request_context: Option<serde_json::Value>,
-}
-
 // ─── agent summary ───────────────────────────────────────────────────────────
 
 fn id_to_string<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<String, D::Error> {
@@ -152,8 +133,6 @@ pub trait DataClient: Send + Sync {
     async fn list_domains(&self) -> Result<Vec<DomainSummary>>;
     async fn list_missions(&self, domain_id: &str) -> Result<Vec<MissionSummary>>;
     async fn list_tasks(&self, domain_id: &str, mission_id: &str) -> Result<Vec<TaskSummary>>;
-    async fn list_approvals(&self, domain_id: Option<&str>) -> Result<Vec<ApprovalSummary>>;
-    async fn respond_approval(&self, approval_id: &str, decision: &str, note: Option<&str>) -> Result<()>;
     async fn list_agents(&self) -> Result<Vec<AgentSummary>>;
     async fn delete_agent(&self, agent_id: &str) -> Result<()>;
     async fn restart_agent(&self, agent_id: &str) -> Result<()>;
@@ -183,14 +162,6 @@ impl DataClient for FixtureDataClient {
 
     async fn list_tasks(&self, _domain_id: &str, _mission_id: &str) -> Result<Vec<TaskSummary>> {
         Ok(vec![])
-    }
-
-    async fn list_approvals(&self, _domain_id: Option<&str>) -> Result<Vec<ApprovalSummary>> {
-        Ok(vec![])
-    }
-
-    async fn respond_approval(&self, _approval_id: &str, _decision: &str, _note: Option<&str>) -> Result<()> {
-        Ok(())
     }
 
     async fn list_agents(&self) -> Result<Vec<AgentSummary>> {
@@ -281,30 +252,6 @@ impl DataClient for RemoteDataClient {
     // Uses the canonical auth-required path rather than the /missions/:id/t shortcut.
     async fn list_tasks(&self, domain_id: &str, mission_id: &str) -> Result<Vec<TaskSummary>> {
         self.get(&format!("/domains/{domain_id}/m/{mission_id}/t")).await
-    }
-
-    async fn list_approvals(&self, domain_id: Option<&str>) -> Result<Vec<ApprovalSummary>> {
-        let path = if let Some(mid) = domain_id {
-            format!("/approvals?domain_id={mid}&status=pending")
-        } else {
-            "/approvals?status=pending".to_string()
-        };
-        self.get(&path).await
-    }
-
-    async fn respond_approval(&self, approval_id: &str, decision: &str, note: Option<&str>) -> Result<()> {
-        let mut req = self.client.post(self.url(&format!("/approvals/{approval_id}/respond")));
-        if let Some(tok) = &self.token {
-            req = req.bearer_auth(tok);
-        }
-        let body = serde_json::json!({"decision": decision, "note": note.unwrap_or("")});
-        let resp = req.json(&body).send().await?;
-        let status = resp.status();
-        if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("respond_approval returned {status}: {text}");
-        }
-        Ok(())
     }
 
     async fn list_agents(&self) -> Result<Vec<AgentSummary>> {

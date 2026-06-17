@@ -47,7 +47,7 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   };
 });
 
-// Mock the typed API client (same shape as governance.test.tsx)
+// Mock the typed API client (same shape as onboarding.test.tsx)
 vi.mock('@/api/client', () => ({
   apiClient: {
     GET: vi.fn(),

@@ -8,7 +8,6 @@ const SECTION_LABEL: Record<string, string> = {
   '/agents': 'Agents',
   '/domains': 'Domains',
   '/feed': 'Feed',
-  '/governance': 'Governance',
   '/onboarding': 'Onboarding',
 };
 

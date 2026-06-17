@@ -9,10 +9,10 @@ last_reviewed: 2026-05-24
 description: |
   edgeplane-tower is the central API server and persistent state authority
   for Edgeplane. It owns the Postgres-backed schema for Domains, Missions,
-  Tasks, MeshTasks, Agents, Sessions, AgentRuns, Artifacts, and
-  DomainRoleMemberships. It exposes the HTTP API consumed by edgeplane (CLI)
-  and edgeplaned (daemon). OIDC-authenticated, role-gated, real-time
-  SSE-capable for inbox/approval streams.
+  Tasks, MeshTasks, Agents, Sessions, AgentRuns, and Artifacts. It exposes
+  the HTTP API consumed by edgeplane (CLI) and edgeplaned (daemon).
+  OIDC-authenticated, authz via owners/contributors columns + EP_ADMIN_EMAILS
+  override, real-time SSE-capable for inbox streams.
 
 position_in_stack: |
   Stateful core of the Edgeplane control plane. One instance (today) running
@@ -169,9 +169,6 @@ entities_owned:
   - name: AISession / AgentSession / ExecutionSession / AgentRun
     ref: docs/architecture/entities.md#session-entities
     operations: [create, update, end, query]
-  - name: DomainRoleMembership
-    ref: docs/architecture/entities.md#domainrolemembership
-    operations: [create, list, revoke]
 
 external_dependencies:
   - name: postgres
@@ -265,13 +262,14 @@ proposed_changes:
     status: proposed
     target_release: 0.16.0
     summary: |
-      Recurring-task-template mutations gated by DomainRoleMembership on
-      the mission's owning domain. Contributor can create/update templates;
-      Admin can delete. Viewer can list/describe but not mutate.
+      Recurring-task-template mutations gated by domain ownership. Write
+      operations require the caller to appear in the domain's `owners` or
+      `contributors` column (or be an EP_ADMIN_EMAILS admin). Viewers can
+      list/describe but not mutate.
 
     fields_affected:
       - field: api_resource_families
-        change: "add per-method role gates per ADR-0002"
+        change: "add per-method owner/contributor gates per ADR-0002"
 
   - id: ha-tower
     status: proposed

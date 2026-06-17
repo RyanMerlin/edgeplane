@@ -1,5 +1,4 @@
 pub mod agents;
-pub mod approvals;
 pub mod artifacts;
 pub mod auth;
 pub mod budgets;
@@ -7,10 +6,8 @@ pub mod chat_integrations;
 pub mod docs;
 pub mod event_triggers;
 pub mod explorer;
-pub mod family_governance;
 pub mod feedback;
 pub mod google_chat_integrations;
-pub mod governance;
 pub mod health;
 pub mod hooks;
 pub mod ingestion;
@@ -50,9 +47,7 @@ pub fn build_router() -> Router<Arc<AppState>> {
         .merge(agents::router())
         .merge(missions::router())
         .merge(tasks::router())
-        .merge(approvals::router())
         .merge(runs::router())
-        .merge(governance::router())
         .merge(profiles::router())
         .merge(hooks::router())
         .merge(scheduled_jobs::router())
@@ -76,6 +71,5 @@ pub fn build_router() -> Router<Arc<AppState>> {
         .merge(mcp::router())
         .merge(ops::router())
         .merge(slack_integrations::router())
-        .merge(family_governance::router())
         .merge(webhooks_tailscale::router())
 }

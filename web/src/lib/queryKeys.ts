@@ -19,12 +19,6 @@ export const queryKeys = {
     list: () => [...queryKeys.nodes.all, 'list'] as const,
     detail: (nodeId: string) => [...queryKeys.nodes.all, 'detail', nodeId] as const,
   },
-  governance: {
-    all: ['governance'] as const,
-    policy: () => [...queryKeys.governance.all, 'policy'] as const,
-    versions: () => [...queryKeys.governance.all, 'versions'] as const,
-    events: () => [...queryKeys.governance.all, 'events'] as const,
-  },
   agents: {
     all: ['agents'] as const,
     list: () => [...queryKeys.agents.all, 'list'] as const,

@@ -169,13 +169,11 @@ async fn search_missions(
              WHERE (LOWER(k.name) LIKE $1 OR LOWER(COALESCE(k.tags,'')) LIKE $1) \
                AND (m.visibility='public' \
                     OR LOWER(m.owners) LIKE $2 \
-                    OR LOWER(m.contributors) LIKE $2 \
-                    OR EXISTS(SELECT 1 FROM domainrolemembership mrm WHERE mrm.domain_id=m.id AND mrm.subject=$3)) \
-             ORDER BY k.updated_at DESC LIMIT $4",
+                    OR LOWER(m.contributors) LIKE $2) \
+             ORDER BY k.updated_at DESC LIMIT $3",
         )
         .bind(&pattern)
         .bind(format!("%{}%", principal.subject.to_lowercase()))
-        .bind(&principal.subject)
         .bind(limit)
         .fetch_all(&state.db)
         .await
@@ -198,7 +196,7 @@ async fn search_missions(
     Json(serde_json::json!({"results": results})).into_response()
 }
 
-// Returns set of task ids readable by the given subject (via mission → domain membership)
+// Returns set of task ids readable by the given subject (via mission → domain owners/contributors)
 async fn get_readable_task_ids(
     db: &sqlx::PgPool,
     subject: &str,
@@ -217,12 +215,10 @@ async fn get_readable_task_ids(
          WHERE k.id = ANY($1) \
            AND (m.visibility='public' \
                 OR LOWER(m.owners) LIKE $2 \
-                OR LOWER(m.contributors) LIKE $2 \
-                OR EXISTS(SELECT 1 FROM domainrolemembership mrm WHERE mrm.domain_id=m.id AND mrm.subject=$3))",
+                OR LOWER(m.contributors) LIKE $2)",
     )
     .bind(&mission_ids)
     .bind(&like_pat)
-    .bind(subject)
     .fetch_all(db)
     .await
     .unwrap_or_default()
@@ -256,12 +252,10 @@ async fn get_readable_doc_ids(
          WHERE k.id = ANY($1) \
            AND (m.visibility='public' \
                 OR LOWER(m.owners) LIKE $2 \
-                OR LOWER(m.contributors) LIKE $2 \
-                OR EXISTS(SELECT 1 FROM domainrolemembership mrm WHERE mrm.domain_id=m.id AND mrm.subject=$3))",
+                OR LOWER(m.contributors) LIKE $2)",
     )
     .bind(&mission_ids)
     .bind(&like_pat)
-    .bind(subject)
     .fetch_all(db)
     .await
     .unwrap_or_default()
