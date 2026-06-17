@@ -1097,8 +1097,8 @@ pub async fn run(
             // TODO: wire top-level --host global flag here when global flags are added
             cmd::run::run(args, None).await
         }
-        EdgeplaneCommand::Receipts(sub) => cmd::receipts::run(sub).map_err(Into::into),
-        EdgeplaneCommand::MeshSync(sub) => cmd::sync::run(Some(sub)).map_err(Into::into),
+        EdgeplaneCommand::Receipts(sub) => cmd::receipts::run(sub),
+        EdgeplaneCommand::MeshSync(sub) => cmd::sync::run(Some(sub)),
         EdgeplaneCommand::Tui(args) => handle_tui(args, &config),
         EdgeplaneCommand::Context(cmd) => handle_context(cmd).await,
         EdgeplaneCommand::Domain(cmd) => handle_domain(cmd, client, &config, output_mode).await,
@@ -1337,8 +1337,7 @@ async fn handle_use(
     let current = load_active_workspace();
     if let (Some(existing_lease), Some(existing_mission)) =
         (current.lease_id.clone(), current.mission_id.clone())
-    {
-        if existing_mission != mission_id {
+        && existing_mission != mission_id {
             let should_release = if args.auto_release || args.yes {
                 true
             } else {
@@ -1360,7 +1359,6 @@ async fn handle_use(
             .await?;
             clear_active_workspace()?;
         }
-    }
     let mut tool_args = json!({
         "mission_id": mission_id,
         "lease_seconds": args.lease_seconds,
@@ -1587,17 +1585,15 @@ async fn handle_artifact(
                 .unwrap_or("")
                 .to_string();
             let active = load_active_workspace();
-            if lease_id.is_none() {
-                if let Some(active_mission) = active.mission_id.as_deref() {
-                    if !artifact_mission.is_empty() && active_mission != artifact_mission && !yes {
+            if lease_id.is_none()
+                && let Some(active_mission) = active.mission_id.as_deref()
+                    && !artifact_mission.is_empty() && active_mission != artifact_mission && !yes {
                         anyhow::bail!(
                             "cross-mission mutation without --lease-id requires -y (active={}, target={})",
                             active_mission,
                             artifact_mission
                         );
                     }
-                }
-            }
             let detected_mime = artifact
                 .get("mime_type")
                 .and_then(|v| v.as_str())
@@ -1720,17 +1716,15 @@ async fn handle_artifact(
                 .unwrap_or("")
                 .to_string();
             let active = load_active_workspace();
-            if lease_id.is_none() {
-                if let Some(active_mission) = active.mission_id.as_deref() {
-                    if !artifact_mission.is_empty() && active_mission != artifact_mission && !yes {
+            if lease_id.is_none()
+                && let Some(active_mission) = active.mission_id.as_deref()
+                    && !artifact_mission.is_empty() && active_mission != artifact_mission && !yes {
                         anyhow::bail!(
                             "cross-mission mutation without --lease-id requires -y (active={}, target={})",
                             active_mission,
                             artifact_mission
                         );
                     }
-                }
-            }
             let bytes = fs::read(&from_file)
                 .with_context(|| format!("failed reading {}", from_file.display()))?;
             let resolved_mime =
@@ -2459,9 +2453,8 @@ async fn handle_init(
                 print_json(&payload);
             } else {
                 println!(
-                    "{}{}{} profiles already exist; no bootstrap profile created",
+                    "{}⚑ {} profiles already exist; no bootstrap profile created",
                     crate::ui::YELLOW,
-                    "⚑ ",
                     crate::ui::RESET
                 );
             }
@@ -2477,9 +2470,8 @@ async fn handle_init(
             print_json(&payload);
         } else {
             println!(
-                "{}{}{} profile active: {}{}{}",
+                "{}✓ {} profile active: {}{}{}",
                 crate::ui::GREEN,
-                "✓ ",
                 crate::ui::RESET,
                 crate::ui::CYAN,
                 profile_name,
@@ -2525,9 +2517,8 @@ async fn handle_init(
         print_json(&payload);
     } else {
         println!(
-            "{}{}{} profile created + synced: {}{}{}",
+            "{}✓ {} profile created + synced: {}{}{}",
             crate::ui::GREEN,
-            "✓ ",
             crate::ui::RESET,
             crate::ui::CYAN,
             profile_name,
@@ -2755,9 +2746,8 @@ async fn handle_profile(
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
                 println!(
-                    "{}{}{} created profile: {}{}{}",
+                    "{}✓ {} created profile: {}{}{}",
                     crate::ui::GREEN,
-                    "✓ ",
                     crate::ui::RESET,
                     crate::ui::CYAN,
                     shown,
@@ -2800,9 +2790,8 @@ async fn handle_profile(
                     .and_then(|v| v.as_str())
                     .unwrap_or(&name);
                 println!(
-                    "{}{}{} default profile: {}{}{}",
+                    "{}✓ {} default profile: {}{}{}",
                     crate::ui::GREEN,
-                    "✓ ",
                     crate::ui::RESET,
                     crate::ui::CYAN,
                     shown,
@@ -2829,9 +2818,8 @@ async fn handle_profile(
                 print_json(&payload);
             } else {
                 println!(
-                    "{}{}{} downloaded profile {}{}{} -> {}",
+                    "{}✓ {} downloaded profile {}{}{} -> {}",
                     crate::ui::GREEN,
-                    "✓ ",
                     crate::ui::RESET,
                     crate::ui::CYAN,
                     name,
@@ -2890,9 +2878,8 @@ async fn handle_profile(
                     .and_then(|v| v.as_str())
                     .unwrap_or(&name);
                 println!(
-                    "{}{}{} published profile: {}{}{}",
+                    "{}✓ {} published profile: {}{}{}",
                     crate::ui::GREEN,
-                    "✓ ",
                     crate::ui::RESET,
                     crate::ui::CYAN,
                     shown,
@@ -2907,11 +2894,10 @@ async fn handle_profile(
         } => {
             let profile_root = edgeplaned_paths::profiles_dir().join(&name);
             let mut pull_args = json!({ "name": name });
-            if let Some(pinned_sha) = read_local_pinned_sha(&profile_root)? {
-                if !allow_pin_mismatch {
+            if let Some(pinned_sha) = read_local_pinned_sha(&profile_root)?
+                && !allow_pin_mismatch {
                     pull_args["if_sha256"] = json!(pinned_sha);
                 }
-            }
             let response = mcp_profile_call(&client, "download_profile", pull_args).await?;
             let tarball = response
                 .get("tarball_b64")
@@ -2925,8 +2911,8 @@ async fn handle_profile(
                 .and_then(|v| v.get("sha256"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            if let Some(pinned_sha) = read_local_pinned_sha(&profile_root)? {
-                if pinned_sha != sha && !allow_pin_mismatch {
+            if let Some(pinned_sha) = read_local_pinned_sha(&profile_root)?
+                && pinned_sha != sha && !allow_pin_mismatch {
                     anyhow::bail!(
                         "profile '{}' is pinned to sha256 '{}' but remote is '{}'; rerun with --allow-pin-mismatch to override",
                         name,
@@ -2934,7 +2920,6 @@ async fn handle_profile(
                         sha
                     );
                 }
-            }
             let bundles = profile_root.join("bundles");
             fs::create_dir_all(&bundles)?;
             let tar_path = bundles.join(format!("{}.tar", sha));
@@ -2964,9 +2949,8 @@ async fn handle_profile(
                 print_json(&payload);
             } else {
                 println!(
-                    "{}{}{} pulled profile {}{}{} @ {}",
+                    "{}✓ {} pulled profile {}{}{} @ {}",
                     crate::ui::GREEN,
-                    "✓ ",
                     crate::ui::RESET,
                     crate::ui::CYAN,
                     name,
@@ -2992,9 +2976,8 @@ async fn handle_profile(
                 print_json(&payload);
             } else {
                 println!(
-                    "{}{}{} pinned {}{}{} -> {}",
+                    "{}✓ {} pinned {}{}{} -> {}",
                     crate::ui::GREEN,
-                    "✓ ",
                     crate::ui::RESET,
                     crate::ui::CYAN,
                     name,
@@ -3019,9 +3002,8 @@ async fn handle_profile(
                 print_json(&response);
             } else {
                 println!(
-                    "{}{}{} deleted profile: {}{}{}",
+                    "{}✓ {} deleted profile: {}{}{}",
                     crate::ui::GREEN,
-                    "✓ ",
                     crate::ui::RESET,
                     crate::ui::CYAN,
                     name,
@@ -3123,11 +3105,10 @@ async fn handle_profile(
             let mut notified = 0usize;
             for session in &active_sessions {
                 let ep_dir = PathBuf::from(&session.instance_home).join("edgeplane");
-                if ep_dir.exists() {
-                    if fs::write(ep_dir.join("profile-updated"), &marker_json).is_ok() {
+                if ep_dir.exists()
+                    && fs::write(ep_dir.join("profile-updated"), &marker_json).is_ok() {
                         notified += 1;
                     }
-                }
             }
 
             let payload = json!({
@@ -3140,9 +3121,8 @@ async fn handle_profile(
                 print_json(&payload);
             } else {
                 println!(
-                    "{}{}{} switched to profile: {}{}{}",
+                    "{}✓ {} switched to profile: {}{}{}",
                     crate::ui::GREEN,
-                    "✓ ",
                     crate::ui::RESET,
                     crate::ui::CYAN,
                     name,
@@ -3294,9 +3274,8 @@ fn bootstrap_local_profile(
         print_json(&payload);
     } else {
         println!(
-            "{}{}{} local-only profile initialized: {}{}{}",
+            "{}⚑ {} local-only profile initialized: {}{}{}",
             crate::ui::YELLOW,
-            "⚑ ",
             crate::ui::RESET,
             crate::ui::CYAN,
             profile_name,

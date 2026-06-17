@@ -755,7 +755,7 @@ async fn publish_execute(
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let domain_id = payload.get("domain_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-    let limit = payload.get("limit").and_then(|v| v.as_i64()).unwrap_or(500).clamp(1, 500) as i64;
+    let limit = payload.get("limit").and_then(|v| v.as_i64()).unwrap_or(500).clamp(1, 500);
 
     if domain_id.is_empty() {
         return (StatusCode::BAD_REQUEST, Json(json!({"detail": "domain_id is required"}))).into_response();
@@ -1019,11 +1019,10 @@ async fn get_publication_record(
 
     // If record has a domain_id, verify ownership
     let domain_id: Option<String> = row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
-    if let Some(ref mid) = domain_id {
-        if !is_domain_owner(&state.db, &principal, mid).await {
+    if let Some(ref mid) = domain_id
+        && !is_domain_owner(&state.db, &principal, mid).await {
             return StatusCode::FORBIDDEN.into_response();
         }
-    }
 
     Json(json!({"record": row_to_publication_record(&row)})).into_response()
 }

@@ -289,12 +289,11 @@ impl AgentRuntime for ZellijHostedRuntime {
                 .arg("--version")
                 .output()
                 .await;
-            if let Ok(out) = probe {
-                if out.status.success() {
+            if let Ok(out) = probe
+                && out.status.success() {
                     tracing::debug!("ZellijHostedRuntime: found zellij at {}", candidate);
                     return Ok(());
                 }
-            }
         }
         bail!(
             "zellij binary not found in any of the candidate locations \

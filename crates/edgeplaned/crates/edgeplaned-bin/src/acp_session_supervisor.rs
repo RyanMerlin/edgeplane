@@ -174,13 +174,13 @@ async fn pump_session(
             recv = agent_updates.recv() => {
                 match recv {
                     Ok(notif) => {
-                        if let edgeplaned_acp::wire::SessionUpdate::UsageUpdate(ref val) = notif.update {
-                            if !compact_triggered {
-                                if let (Some(used), Some(size)) = (
+                        if let edgeplaned_acp::wire::SessionUpdate::UsageUpdate(ref val) = notif.update
+                            && !compact_triggered
+                                && let (Some(used), Some(size)) = (
                                     val.get("used").and_then(|v| v.as_u64()),
                                     val.get("size").and_then(|v| v.as_u64()),
-                                ) {
-                                    if size > 0 {
+                                )
+                                    && size > 0 {
                                         let ratio = used as f64 / size as f64;
                                         if ratio >= compact_threshold {
                                             compact_triggered = true;
@@ -192,9 +192,6 @@ async fn pump_session(
                                             run_prompt(session, "/compact".into()).await;
                                         }
                                     }
-                                }
-                            }
-                        }
                         updates_broadcast.send(notif);
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {

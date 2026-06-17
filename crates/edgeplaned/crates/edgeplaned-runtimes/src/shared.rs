@@ -101,7 +101,7 @@ pub fn spawn_interactive_pty(
 pub fn merge_capabilities(builtins: Vec<Capability>, extra: Vec<Capability>) -> Vec<Capability> {
     let mut out = Vec::with_capacity(builtins.len() + extra.len());
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for c in builtins.into_iter().chain(extra.into_iter()) {
+    for c in builtins.into_iter().chain(extra) {
         if seen.insert(c.0.clone()) {
             out.push(c);
         }
@@ -173,8 +173,8 @@ pub fn build_prompt(task: &TaskSpec) -> String {
                 ctx.push("You have read-only access — do not write or edit files.".into());
             }
         }
-        if let Some(constraints) = profile.get("constraints").and_then(|v| v.as_array()) {
-            if !constraints.is_empty() {
+        if let Some(constraints) = profile.get("constraints").and_then(|v| v.as_array())
+            && !constraints.is_empty() {
                 ctx.push("Constraints:".to_string());
                 for c in constraints {
                     let line = if let Some(s) = c.as_str() {
@@ -187,7 +187,6 @@ pub fn build_prompt(task: &TaskSpec) -> String {
                     ctx.push(line);
                 }
             }
-        }
 
         parts.push(ctx.join("\n"));
     }

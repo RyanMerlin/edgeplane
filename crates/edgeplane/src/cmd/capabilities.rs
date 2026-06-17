@@ -153,9 +153,7 @@ mod tests {
         let cap = cap.unwrap();
         // The capability name stored in the manifest is the short name (without pack prefix).
         // The full_name in CapabilitySummary is "<pack>.<cap_name>".
-        let short_name = first.full_name
-            .splitn(2, '.')
-            .nth(1)
+        let short_name = first.full_name.split_once('.').map(|x| x.1)
             .unwrap_or(&first.full_name);
         assert_eq!(cap.name, short_name, "manifest name should match the short capability name");
 

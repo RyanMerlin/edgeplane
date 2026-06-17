@@ -4,7 +4,7 @@
 /// `session_mode: persistent`. Owns one interactive PTY per agent, fans
 /// stdout out to N attached viewers (web UI, local socket), accepts stdin
 /// + resize from any single viewer, and processes `AgentSignal`s from the
-/// peer-message relay by injecting the rendered text into the PTY.
+///   peer-message relay by injecting the rendered text into the PTY.
 ///
 /// On PTY exit it relaunches with exponential backoff (1s → 60s, reset on
 /// 30s+ stable runs). The plan is the kubelet-equivalent for agents.
@@ -125,12 +125,11 @@ async fn pump_session(
                     // signal_tx dropped — supervisor itself going away.
                     return Ok(());
                 };
-                if let Some(rendered) = render_signal(sig) {
-                    if session.input.send(rendered.into_bytes()).await.is_err() {
+                if let Some(rendered) = render_signal(sig)
+                    && session.input.send(rendered.into_bytes()).await.is_err() {
                         // PTY input task exited — session is dead.
                         return Ok(());
                     }
-                }
             }
         }
     }

@@ -82,10 +82,12 @@ impl ProfileAuth {
 
     /// Long-lived machine credential — issued by edgeplane-tower at node
     /// registration. Renewed daemon-to-controlplane without user interaction.
+    #[allow(dead_code)]
     pub fn service(token: impl Into<String>) -> Self {
         Self { kind: "service".into(), token: token.into() }
     }
 
+    #[allow(dead_code)]
     #[deprecated(note = "use ProfileAuth::oidc or ProfileAuth::service")]
     pub fn token(token: impl Into<String>) -> Self {
         Self { kind: "token".into(), token: token.into() }
@@ -243,7 +245,7 @@ mod tests {
         let mut profiles = HashMap::new();
         profiles.insert("work".into(), ProfileEntry {
             url: "http://localhost:8008".into(),
-            auth: ProfileAuth::token("tok-abc"),
+            auth: ProfileAuth::service("tok-abc"),
             node_id: Some("n-1".into()),
             attach_secret: "deadbeef".into(),
             registered_at: "2026-05-10T00:00:00Z".into(),

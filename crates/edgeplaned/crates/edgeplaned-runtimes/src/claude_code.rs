@@ -125,8 +125,8 @@ fn parse_stream_line(line: &str) -> Vec<ProgressEvent> {
                     let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
                     match item_type {
                         "text" => {
-                            if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                                if !text.trim().is_empty() {
+                            if let Some(text) = item.get("text").and_then(|t| t.as_str())
+                                && !text.trim().is_empty() {
                                     events.push(ProgressEvent {
                                         event_type: ProgressEventType::StepStarted,
                                         phase: Some("running".into()),
@@ -135,7 +135,6 @@ fn parse_stream_line(line: &str) -> Vec<ProgressEvent> {
                                         payload: serde_json::json!({ "text": text }),
                                     });
                                 }
-                            }
                         }
                         "tool_use" => {
                             let tool_name = item
@@ -340,8 +339,8 @@ impl AgentRuntime for ClaudeCodeRuntime {
                         }
                     }
                     line = stderr_lines.next_line() => {
-                        if let Ok(Some(l)) = line {
-                            if !l.trim().is_empty() {
+                        if let Ok(Some(l)) = line
+                            && !l.trim().is_empty() {
                                 yield ProgressEvent {
                                     event_type: ProgressEventType::Warning,
                                     phase: Some("running".into()),
@@ -350,7 +349,6 @@ impl AgentRuntime for ClaudeCodeRuntime {
                                     payload: serde_json::json!({ "stderr": l }),
                                 };
                             }
-                        }
                     }
                 }
             }

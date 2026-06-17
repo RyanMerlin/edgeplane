@@ -221,11 +221,10 @@ impl EdgeplaneDispatch {
 
     /// Resolve Auto: check EP_MESH_SOCKET → Local; otherwise Backend.
     fn resolve_auto(&self) -> RouteMode {
-        if let Ok(sock) = std::env::var("EP_MESH_SOCKET") {
-            if std::path::Path::new(&sock).exists() {
+        if let Ok(sock) = std::env::var("EP_MESH_SOCKET")
+            && std::path::Path::new(&sock).exists() {
                 return RouteMode::Local;
             }
-        }
         RouteMode::Backend
     }
 }

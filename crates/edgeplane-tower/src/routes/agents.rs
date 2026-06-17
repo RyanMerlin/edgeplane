@@ -706,33 +706,6 @@ async fn send_message(
     }
 }
 
-#[cfg(test)]
-mod reserved_name_tests {
-    use super::is_reserved_agent_name;
-
-    #[test]
-    fn anonymous_is_reserved_any_case() {
-        assert!(is_reserved_agent_name("anonymous"));
-        assert!(is_reserved_agent_name("ANONYMOUS"));
-        assert!(is_reserved_agent_name("Anonymous"));
-        assert!(is_reserved_agent_name("  anonymous  "));
-    }
-
-    #[test]
-    fn system_prefixes_are_reserved() {
-        assert!(is_reserved_agent_name("system:reaper"));
-        assert!(is_reserved_agent_name("system/heartbeat"));
-    }
-
-    #[test]
-    fn ordinary_names_are_not_reserved() {
-        assert!(!is_reserved_agent_name("aria-operator"));
-        assert!(!is_reserved_agent_name("aria-engineer"));
-        assert!(!is_reserved_agent_name("anonymouslab"));
-        assert!(!is_reserved_agent_name("system-agent"));
-    }
-}
-
 async fn list_messages(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
@@ -778,5 +751,32 @@ async fn get_inbox(
     match msgs {
         Ok(m) => Json(m).into_response(),
         Err(e) => { tracing::error!("get_inbox: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+    }
+}
+
+#[cfg(test)]
+mod reserved_name_tests {
+    use super::is_reserved_agent_name;
+
+    #[test]
+    fn anonymous_is_reserved_any_case() {
+        assert!(is_reserved_agent_name("anonymous"));
+        assert!(is_reserved_agent_name("ANONYMOUS"));
+        assert!(is_reserved_agent_name("Anonymous"));
+        assert!(is_reserved_agent_name("  anonymous  "));
+    }
+
+    #[test]
+    fn system_prefixes_are_reserved() {
+        assert!(is_reserved_agent_name("system:reaper"));
+        assert!(is_reserved_agent_name("system/heartbeat"));
+    }
+
+    #[test]
+    fn ordinary_names_are_not_reserved() {
+        assert!(!is_reserved_agent_name("aria-operator"));
+        assert!(!is_reserved_agent_name("aria-engineer"));
+        assert!(!is_reserved_agent_name("anonymouslab"));
+        assert!(!is_reserved_agent_name("system-agent"));
     }
 }

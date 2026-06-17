@@ -93,7 +93,7 @@ pub async fn heartbeat_task(
     let resp = client
         .raw_post_no_throw(&format!("/tasks/{task_id}/heartbeat"), &body)
         .await
-        .map_err(|e| TaskError::Other(e))?;
+        .map_err(TaskError::Other)?;
 
     if resp.status() == reqwest::StatusCode::CONFLICT {
         return Err(TaskError::LeaseMismatch);
@@ -138,7 +138,7 @@ pub async fn complete_task(
     let resp = client
         .raw_post_no_throw(&format!("/tasks/{task_id}/complete"), &body)
         .await
-        .map_err(|e| TaskError::Other(e))?;
+        .map_err(TaskError::Other)?;
 
     if resp.status() == reqwest::StatusCode::CONFLICT {
         return Err(TaskError::LeaseMismatch);
@@ -216,7 +216,7 @@ pub async fn fail_task(
     let resp = client
         .raw_post_no_throw(&format!("/tasks/{task_id}/fail"), &body)
         .await
-        .map_err(|e| TaskError::Other(e))?;
+        .map_err(TaskError::Other)?;
 
     if resp.status() == reqwest::StatusCode::CONFLICT {
         return Err(TaskError::LeaseMismatch);

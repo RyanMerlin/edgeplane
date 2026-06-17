@@ -40,14 +40,13 @@ pub enum OidcPanelState {
 // ── Add-profile form ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum InfisicalAuthMode {
+    #[default]
     UniversalAuth,
     ServiceToken,
 }
 
-impl Default for InfisicalAuthMode {
-    fn default() -> Self { Self::UniversalAuth }
-}
 
 #[derive(Debug, Default, Clone)]
 pub struct InfisicalAddForm {
@@ -65,6 +64,7 @@ pub struct InfisicalAddForm {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
+#[derive(Default)]
 pub struct ConfigScreenState {
     pub nav_selection: usize,
     pub content_focused: bool, // true = ↑↓ drive content panel, false = ↑↓ drive nav
@@ -123,36 +123,6 @@ pub enum DoctorStatus {
     Unknown,
 }
 
-impl Default for ConfigScreenState {
-    fn default() -> Self {
-        Self {
-            nav_selection: 0,
-            content_focused: false,
-            base_url: String::new(),
-            connected: false,
-            latency_ms: None,
-            version: String::new(),
-            context_name: String::new(),
-            token_masked: None,
-            server_version: None,
-            contexts: Vec::new(),
-            context_selection: 0,
-            pending_context_switch: None,
-            infisical_profiles: InfisicalProfileMap::default(),
-            infisical_selection: 0,
-            infisical_form: None,
-            doctor: Vec::new(),
-            controlplane_edit: None,
-            pending_url_test: None,
-            pending_url_apply: None,
-            auth_oidc_state: None,
-            pending_oidc_start: false,
-            auth_focus: 0,
-            token_input: String::new(),
-            pending_token_login: None,
-        }
-    }
-}
 
 impl ConfigScreenState {
     pub fn take_pending_context_switch(&mut self) -> Option<String> {
@@ -207,14 +177,12 @@ impl ConfigScreenState {
 
     pub fn reload_infisical_from_disk(&mut self) {
         let path = dirs::home_dir().map(|h| h.join(".edgeplane").join("infisical_profiles.json"));
-        if let Some(path) = path {
-            if let Ok(s) = std::fs::read_to_string(&path) {
-                if let Ok(map) = serde_json::from_str::<InfisicalProfileMap>(&s) {
+        if let Some(path) = path
+            && let Ok(s) = std::fs::read_to_string(&path)
+                && let Ok(map) = serde_json::from_str::<InfisicalProfileMap>(&s) {
                     self.infisical_profiles = map;
                     return;
                 }
-            }
-        }
         self.infisical_profiles = InfisicalProfileMap::default();
     }
 
@@ -260,7 +228,7 @@ impl ConfigScreenState {
                     match self.nav_selection {
                         0 | 4 => { if self.context_selection > 0 { self.context_selection -= 1; } }
                         1 => { self.auth_focus = 0; }
-                        5 => { if self.infisical_selection > 0 { self.infisical_selection -= 1; } }
+                        5 if self.infisical_selection > 0 => { self.infisical_selection -= 1; }
                         _ => {}
                     }
                 } else {
@@ -337,11 +305,10 @@ impl ConfigScreenState {
                     match self.nav_selection {
                         0 => {
                             // Switch to selected context
-                            if let Some((name, _)) = self.contexts.get(self.context_selection) {
-                                if name != &self.context_name {
+                            if let Some((name, _)) = self.contexts.get(self.context_selection)
+                                && name != &self.context_name {
                                     self.pending_context_switch = Some(name.clone());
                                 }
-                            }
                             true
                         }
                         1 => {
@@ -363,11 +330,10 @@ impl ConfigScreenState {
                             true
                         }
                         4 => {
-                            if let Some((name, _)) = self.contexts.get(self.context_selection) {
-                                if name != &self.context_name {
+                            if let Some((name, _)) = self.contexts.get(self.context_selection)
+                                && name != &self.context_name {
                                     self.pending_context_switch = Some(name.clone());
                                 }
-                            }
                             true
                         }
                         5 => {
@@ -591,14 +557,13 @@ impl ConfigScreenState {
 
     fn save_infisical_map(&self) {
         let path = dirs::home_dir().map(|h| h.join(".edgeplane").join("infisical_profiles.json"));
-        if let Some(path) = path {
-            if let Ok(json) = serde_json::to_string_pretty(&self.infisical_profiles) {
+        if let Some(path) = path
+            && let Ok(json) = serde_json::to_string_pretty(&self.infisical_profiles) {
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent).ok();
                 }
                 std::fs::write(path, json).ok();
             }
-        }
     }
 }
 
@@ -1151,7 +1116,7 @@ fn panel_infisical(state: &ConfigScreenState) -> Vec<Line<'static>> {
 
         lines.push(Line::from(vec![
             Span::styled(format!("  {row_prefix}"), name_style),
-            Span::styled(format!("{bullet}{name}  ", name = name.as_str().to_string()), name_style),
+            Span::styled(format!("{bullet}{name}  ", name = name.as_str()), name_style),
             Span::styled(format!("({auth_kind})  "), theme::dim()),
             Span::styled(cfg.site_url.clone(), theme::dim()),
         ]));
@@ -1329,14 +1294,13 @@ fn panel_doctor(state: &ConfigScreenState) -> Vec<Line<'static>> {
             Span::styled(format!("{:<22}", c.name), theme::normal()),
             Span::styled(c.detail.clone(), theme::dim()),
         ]));
-        if let Some(hint) = c.hint.as_deref() {
-            if !hint.is_empty() {
+        if let Some(hint) = c.hint.as_deref()
+            && !hint.is_empty() {
                 lines.push(Line::from(Span::styled(
                     format!("      → {hint}"),
                     theme::muted(),
                 )));
             }
-        }
     }
 
     lines.push(Line::from(""));

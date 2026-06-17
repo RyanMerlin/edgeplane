@@ -660,8 +660,7 @@ async fn run_node_run(args: NodeAgentRunArgs, client: &EdgeplaneClient) -> Resul
         if let Ok(remote) = client
             .get_json(&format!("/runtime/nodes/{}/config", state.node_id))
             .await
-        {
-            if let Some(spec) = remote.get("spec") {
+            && let Some(spec) = remote.get("spec") {
                 let desired = spec
                     .get("desired_version")
                     .and_then(Value::as_str)
@@ -706,7 +705,6 @@ async fn run_node_run(args: NodeAgentRunArgs, client: &EdgeplaneClient) -> Resul
                     }
                 }
             }
-        }
 
         let claim = client
             .post_json(
@@ -812,6 +810,7 @@ async fn run_node_run(args: NodeAgentRunArgs, client: &EdgeplaneClient) -> Resul
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_job(
     client: &EdgeplaneClient,
     session_id: &str,
@@ -934,13 +933,11 @@ async fn execute_pty_job(
         while let Some(msg) = ws.next().await {
             match msg {
                 Ok(Message::Text(text)) => {
-                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                        if value.get("type").and_then(Value::as_str) == Some("input") {
-                            if let Some(content) = value.get("content").and_then(Value::as_str) {
+                    if let Ok(value) = serde_json::from_str::<Value>(&text)
+                        && value.get("type").and_then(Value::as_str) == Some("input")
+                            && let Some(content) = value.get("content").and_then(Value::as_str) {
                                 let _ = writer.write_all(content.as_bytes());
                             }
-                        }
-                    }
                 }
                 Ok(Message::Binary(bytes)) => {
                     let _ = writer.write_all(&bytes);
@@ -1004,12 +1001,11 @@ async fn attach_session(
     while let Some(msg) = stream.next().await {
         match msg? {
             Message::Text(text) => {
-                if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                    if let Some(content) = value.get("content").and_then(Value::as_str) {
+                if let Ok(value) = serde_json::from_str::<Value>(&text)
+                    && let Some(content) = value.get("content").and_then(Value::as_str) {
                         stdout.write_all(content.as_bytes()).await?;
                         stdout.flush().await?;
                     }
-                }
             }
             Message::Binary(bytes) => {
                 stdout.write_all(&bytes).await?;

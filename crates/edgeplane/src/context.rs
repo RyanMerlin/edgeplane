@@ -47,13 +47,11 @@ pub fn session_file_for(context_name: &str) -> PathBuf {
 /// from the legacy `config.json` without writing anything to disk.
 pub fn load_contexts() -> ContextsFile {
     let path = contexts_file_path();
-    if path.exists() {
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(file) = serde_yaml::from_str::<ContextsFile>(&content) {
+    if path.exists()
+        && let Ok(content) = fs::read_to_string(&path)
+            && let Ok(file) = serde_yaml::from_str::<ContextsFile>(&content) {
                 return file;
             }
-        }
-    }
     migrate_from_legacy()
 }
 

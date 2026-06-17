@@ -18,10 +18,12 @@ use crate::daemon::AgentSpec;
 use crate::local_registry::{AgentLaunchContext, AgentRecord, LocalRegistry};
 
 /// Source tag for agents imported from `fleet-profiles.toml`.
+#[allow(dead_code)]
 pub const SOURCE_FLEET_IMPORT: &str = "fleet_import";
 
 /// One `[[profile]]` block from `fleet-profiles.toml`.
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct Profile {
     pub name: String,
     /// Zellij session name. Required for `zellij_hosted` runtime; ignored
@@ -44,6 +46,7 @@ struct ProfilesFile {
 }
 
 /// Parse a TOML manifest at `path` into a list of profiles.
+#[allow(dead_code)]
 pub fn load_profiles(path: &Path) -> Result<Vec<Profile>> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("reading fleet profiles manifest: {}", path.display()))?;
@@ -54,6 +57,7 @@ pub fn load_profiles(path: &Path) -> Result<Vec<Profile>> {
 
 /// Summary returned by `import_into`.
 #[derive(Debug, Default, PartialEq, Eq)]
+#[allow(dead_code)]
 pub struct ImportSummary {
     /// Number of fresh agents created.
     pub created: usize,
@@ -69,6 +73,7 @@ pub struct ImportSummary {
 /// Supports two runtime kinds:
 /// - `"zellij_hosted"` (default): bridges attach connections to a Zellij PTY pane.
 /// - `"claude_agent_acp"`: spawns `claude --acp-server` via the ACP supervisor.
+#[allow(dead_code)]
 pub fn import_into(registry: &LocalRegistry, profiles: &[Profile]) -> Result<ImportSummary> {
     let mut summary = ImportSummary {
         total: profiles.len(),

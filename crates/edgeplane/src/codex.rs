@@ -626,11 +626,10 @@ fn run_codex_process(
     cmd.env("CODEX_HOME", runtime_home);
     cmd.env("EP_AGENT_PROFILE", profile);
     cmd.env("EP_BASE_URL", config.base_url.as_str());
-    if let Some(token) = &config.token {
-        if !token.trim().is_empty() {
+    if let Some(token) = &config.token
+        && !token.trim().is_empty() {
             cmd.env("EP_AGENT_TOKEN", token);
         }
-    }
 
     cmd.status().context("failed to execute codex")
 }
@@ -645,6 +644,7 @@ pub fn resolved_command(name: &str) -> std::process::Command {
 }
 
 /// Blocking launch helper for SoloSupervisor — sets EP_MESH_AGENT_ID / EP_RUN_ID env vars.
+#[allow(clippy::too_many_arguments)]
 pub fn launch_codex_blocking(
     args: &[String],
     runtime_home: &Path,
@@ -670,11 +670,10 @@ pub fn launch_codex_blocking(
     if let Some(p) = task_md_path {
         cmd.env("EP_TASK_MD_PATH", p);
     }
-    if let Some(token) = &config.token {
-        if !token.trim().is_empty() {
+    if let Some(token) = &config.token
+        && !token.trim().is_empty() {
             cmd.env("EP_AGENT_TOKEN", token);
         }
-    }
     cmd.status().context("failed to execute codex")
 }
 

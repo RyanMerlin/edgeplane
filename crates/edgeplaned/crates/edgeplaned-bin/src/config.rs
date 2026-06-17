@@ -370,11 +370,10 @@ impl DaemonConfig {
             paths::mcd_config_path(),
         ];
         for path in &candidates {
-            if path.exists() {
-                if let Ok(cfg) = Self::from_path(path) {
+            if path.exists()
+                && let Ok(cfg) = Self::from_path(path) {
                     return Some(cfg);
                 }
-            }
         }
         None
     }

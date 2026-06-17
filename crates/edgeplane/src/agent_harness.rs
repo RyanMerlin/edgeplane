@@ -228,14 +228,13 @@ fn render_json_mcp_entry(
         .replace("__TOKEN__", token);
     let mut full: serde_json::Value = serde_json::from_str(&rendered)
         .unwrap_or_else(|_| panic!("{} must be valid JSON", tmpl_name));
-    if !embed_token {
-        if let Some(env_obj) = full
+    if !embed_token
+        && let Some(env_obj) = full
             .pointer_mut("/mcpServers/edgeplane/env")
             .and_then(|v| v.as_object_mut())
         {
             env_obj.remove("EP_AGENT_TOKEN");
         }
-    }
     full["mcpServers"]["edgeplane"].clone()
 }
 
@@ -563,15 +562,12 @@ pub async fn run_driver_agent(
 async fn mcp_connectivity_preflight(client: &EdgeplaneClient) {
     let mut tools_count: usize = 0;
     // Health check.
-    match client.get_json("/mcp/health").await {
-        Err(e) => {
-            ep_warn!("MCP preflight: backend unreachable ({})", e);
-            ep_warn!(
-                "MCP preflight: tools will load once backend is available (retry loop active)"
-            );
-            return;
-        }
-        Ok(_) => {}
+    if let Err(e) = client.get_json("/mcp/health").await {
+        ep_warn!("MCP preflight: backend unreachable ({})", e);
+        ep_warn!(
+            "MCP preflight: tools will load once backend is available (retry loop active)"
+        );
+        return;
     }
 
     // Tools count.
@@ -610,11 +606,10 @@ async fn mcp_connectivity_preflight(client: &EdgeplaneClient) {
     );
     eprintln!("{}{}{}", ui::GRAY, "─".repeat(56), ui::RESET);
     eprintln!(
-        "  {}Backend:{} {}{}{}",
+        "  {}Backend:{} {}reachable{}",
         ui::DIM,
         ui::RESET,
         ui::GREEN,
-        "reachable",
         ui::RESET
     );
     eprintln!(
@@ -1052,6 +1047,7 @@ async fn fetch_and_stage_agent_config(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn exec_agent(
     driver: &dyn AgentDriver,
     extra_args: &[String],

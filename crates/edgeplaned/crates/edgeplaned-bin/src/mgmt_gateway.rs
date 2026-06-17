@@ -43,6 +43,7 @@ pub struct MgmtGateway {
 /// `registry_path` as the address.
 pub struct AgentOpsHandle {
     pub supervisor: Arc<Supervisor>,
+    #[allow(dead_code)]
     pub runtime_map: RuntimeMap,
     pub registry_path: PathBuf,
     /// Cron handle for `agent.cron.reload`. `None` when the daemon
@@ -281,15 +282,14 @@ where
         // hijacks the connection — after ack, the gateway pushes
         // newline-delimited event frames until the client disconnects.
         // No further JSON-RPC requests are processed on this connection.
-        if let Some(req) = serde_json::from_str::<Value>(trimmed).ok() {
-            if req.get("method").and_then(|v| v.as_str()) == Some("events.subscribe") {
+        if let Ok(req) = serde_json::from_str::<Value>(trimmed)
+            && req.get("method").and_then(|v| v.as_str()) == Some("events.subscribe") {
                 let id = req.get("id").cloned().unwrap_or(Value::Null);
                 let sender = agent_ops.and_then(|ops| ops.supervisor_events.as_ref());
                 stream_supervisor_events(sender, id, &mut writer).await?;
                 // Connection is done after a stream ends (always EOF or fatal lag).
                 break;
             }
-        }
 
         let response = dispatch_jsonrpc(dispatcher, registry, agent_ops, trimmed).await;
         let mut response_bytes = serde_json::to_vec(&response)

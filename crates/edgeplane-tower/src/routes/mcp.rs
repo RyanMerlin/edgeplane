@@ -130,7 +130,7 @@ fn not_impl() -> Value {
 }
 
 fn uri_encode_path(s: &str) -> String {
-    s.split('/').map(|seg| uri_encode(seg)).collect::<Vec<_>>().join("/")
+    s.split('/').map(uri_encode).collect::<Vec<_>>().join("/")
 }
 
 fn uri_encode(s: &str) -> String {
@@ -185,7 +185,7 @@ async fn dispatch(
 
         "get_overlap_suggestions" => {
             let task_id = match int_arg(args, "task_id") { Some(v) => v as i32, None => return err_result("task_id is required") };
-            let limit = int_arg(args, "limit").unwrap_or(10).min(50) as i64;
+            let limit = int_arg(args, "limit").unwrap_or(10).min(50);
             match sqlx::query(
                 "SELECT id, task_id, candidate_task_id, similarity_score, evidence, suggested_action \
                  FROM overlapsuggestion WHERE task_id=$1 ORDER BY similarity_score DESC LIMIT $2"
@@ -234,7 +234,7 @@ async fn dispatch(
         "list_mesh_tasks" => {
             let mission_id = str_arg(args, "mission_id");
             let status_filter = args.get("status").and_then(|v| v.as_str());
-            let limit = int_arg(args, "limit").unwrap_or(50).min(200) as i64;
+            let limit = int_arg(args, "limit").unwrap_or(50).min(200);
             match sqlx::query(
                 "SELECT id, mission_id, domain_id, title, description, status, priority, \
                  claimed_by_agent_id, created_at, updated_at \
@@ -397,7 +397,7 @@ async fn dispatch(
 
         "list_mesh_messages" => {
             let agent_id = str_arg(args, "agent_id");
-            let limit = int_arg(args, "limit").unwrap_or(20).min(100) as i64;
+            let limit = int_arg(args, "limit").unwrap_or(20).min(100);
             if agent_id.is_empty() { return err_result("agent_id is required"); }
             match sqlx::query(
                 "SELECT id, domain_id, from_agent_id, to_agent_id, channel, body_json, created_at, read_at \
@@ -686,8 +686,8 @@ async fn dispatch(
             let path_tpl: String = route.get("path_template");
 
             // Resolve credential: "env:VAR_NAME" → token from env
-            let token = if credential_ref.starts_with("env:") {
-                std::env::var(&credential_ref[4..]).unwrap_or_default()
+            let token = if let Some(var_name) = credential_ref.strip_prefix("env:") {
+                std::env::var(var_name).unwrap_or_default()
             } else {
                 std::env::var("GIT_PUBLISH_TOKEN").unwrap_or_default()
             };
@@ -851,13 +851,11 @@ async fn dispatch(
 
             // Canonical query string — params sorted lexicographically
             let signed_headers = "host";
-            let mut qparams = vec![
-                ("X-Amz-Algorithm", algorithm.to_string()),
+            let mut qparams = [("X-Amz-Algorithm", algorithm.to_string()),
                 ("X-Amz-Credential", credential.clone()),
                 ("X-Amz-Date", amz_date.clone()),
                 ("X-Amz-Expires", expires.to_string()),
-                ("X-Amz-SignedHeaders", signed_headers.to_string()),
-            ];
+                ("X-Amz-SignedHeaders", signed_headers.to_string())];
             qparams.sort_by(|a, b| a.0.cmp(b.0));
             let canonical_qs: String = qparams
                 .iter()
@@ -1225,11 +1223,11 @@ async fn dispatch(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn str_arg<'a>(args: &'a Value, key: &str) -> String {
+fn str_arg(args: &Value, key: &str) -> String {
     args.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
 }
 
-fn str_arg_or<'a>(args: &'a Value, key: &str, default: &str) -> String {
+fn str_arg_or(args: &Value, key: &str, default: &str) -> String {
     let v = args.get(key).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     if v.is_empty() { default.to_string() } else { v }
 }

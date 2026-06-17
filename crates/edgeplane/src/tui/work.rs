@@ -436,13 +436,11 @@ async fn oidc_flow_worker(
         }
         match client.get(&poll_url).send().await {
             Ok(r) if r.status().is_success() => {
-                if let Ok(v) = r.json::<serde_json::Value>().await {
-                    if v["status"].as_str() == Some("ready") {
-                        if let Some(gid) = v["grant_id"].as_str() {
+                if let Ok(v) = r.json::<serde_json::Value>().await
+                    && v["status"].as_str() == Some("ready")
+                        && let Some(gid) = v["grant_id"].as_str() {
                             break gid.to_string();
                         }
-                    }
-                }
             }
             _ => {} // transient error or still pending — keep polling
         }

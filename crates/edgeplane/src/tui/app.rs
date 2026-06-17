@@ -261,13 +261,11 @@ impl App {
     pub fn try_reauth_from_disk(&mut self, force: bool) -> bool {
         const POLL_INTERVAL: Duration = Duration::from_secs(2);
         let now = Instant::now();
-        if !force {
-            if let Some(last) = self.auth_last_check {
-                if now.duration_since(last) < POLL_INTERVAL {
+        if !force
+            && let Some(last) = self.auth_last_check
+                && now.duration_since(last) < POLL_INTERVAL {
                     return false;
                 }
-            }
-        }
         self.auth_last_check = Some(now);
 
         // Only useful when we're NOT currently authenticated — there's no
@@ -580,15 +578,14 @@ impl App {
                 WorkResult::WhoamiComplete { subject, .. } => {
                     // Resolve the real identity for token-auth sessions so the
                     // header shows the actual subject instead of "--token".
-                    if matches!(self.auth_state, AuthState::SessionFromFlag) {
-                        if let Some(sub) = subject {
+                    if matches!(self.auth_state, AuthState::SessionFromFlag)
+                        && let Some(sub) = subject {
                             self.auth_state = AuthState::SessionValid {
                                 subject: sub,
                                 email: None,
                                 expires_at: String::new(),
                             };
                         }
-                    }
                 }
             }
         }
@@ -1251,7 +1248,7 @@ impl App {
         let (badge_text, badge_color) = match &self.auth_state {
             AuthState::SessionValid { subject, email, .. } => {
                 let who = email.as_deref().unwrap_or(subject.as_str());
-                (format!("{who}"), theme::OK)
+                (who.to_string(), theme::OK)
             }
             AuthState::SessionFromFlag => ("--token".to_string(), theme::ACCENT),
             AuthState::SessionExpired => ("✗ session expired".to_string(), theme::ERR),

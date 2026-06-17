@@ -273,15 +273,14 @@ impl SecretsTree {
             }
 
             KeyCode::Char(' ') => {
-                if let Some(row) = self.visible.get(self.cursor) {
-                    if row.kind == NodeKind::Secret {
+                if let Some(row) = self.visible.get(self.cursor)
+                    && row.kind == NodeKind::Secret {
                         if self.selected.contains(&self.cursor) {
                             self.selected.remove(&self.cursor);
                         } else {
                             self.selected.insert(self.cursor);
                         }
                     }
-                }
             }
 
             KeyCode::Char('a') => {

@@ -659,15 +659,13 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<Option<String>> {
                     // Active profile wins over yaml for all identity fields.
                     if let (Some(yaml_node_id), Some(profile_node_id)) =
                         (cfg.node_id.as_ref(), profile.node_id.as_ref())
-                    {
-                        if yaml_node_id != profile_node_id {
+                        && yaml_node_id != profile_node_id {
                             tracing::warn!(
                                 "yaml has node_id={yaml_node_id} but active state profile has {}; \
                                  state wins. Remove node_id from yaml.",
                                 profile_node_id
                             );
                         }
-                    }
                     if cfg.attach_secret.is_some() {
                         tracing::warn!(
                             "yaml carries an `attach_secret`; state file is the source of truth — \
@@ -863,7 +861,7 @@ async fn persist_and_resolve_specs(
 /// `local_overrides` is a slice of `(agent_id, runtime_kind)` for all
 /// non-controlplane sources in the local registry (returned by
 /// `LocalRegistry::list_local_runtime_overrides`).
-fn apply_runtime_overrides(specs: &mut Vec<AgentSpec>, local_overrides: &[(String, String)]) {
+fn apply_runtime_overrides(specs: &mut [AgentSpec], local_overrides: &[(String, String)]) {
     use edgeplaned_core::types::StateDirSpec;
 
     let override_map: HashMap<&str, &str> = local_overrides
@@ -893,11 +891,10 @@ fn apply_runtime_overrides(specs: &mut Vec<AgentSpec>, local_overrides: &[(Strin
         spec.launch_overrides.zellij_session = None;
 
         // ACP supervisor uses profile_path as cwd so claude loads the right CLAUDE.md.
-        if local_rt == "claude_agent_acp" && spec.profile_path.is_none() {
-            if let Some(StateDirSpec::Persistent { path }) = &spec.launch_overrides.state_dir_spec {
+        if local_rt == "claude_agent_acp" && spec.profile_path.is_none()
+            && let Some(StateDirSpec::Persistent { path }) = &spec.launch_overrides.state_dir_spec {
                 spec.profile_path = Some(path.clone());
             }
-        }
     }
 }
 
@@ -942,7 +939,7 @@ fn apply_runtime_overrides(specs: &mut Vec<AgentSpec>, local_overrides: &[(Strin
 ///
 /// This function is pure (no I/O) and is unit-tested independently.
 pub(crate) fn merge_federated_overrides(
-    specs: &mut Vec<AgentSpec>,
+    specs: &mut [AgentSpec],
     local_ctxs: &[crate::local_registry::AgentLaunchContext],
 ) {
     use crate::config::SessionMode;
@@ -1142,8 +1139,8 @@ impl Spawner {
         // Persistent agents with a webhook_url are already running as
         // systemd/tmux sessions. We relay messages to them via HTTP webhook
         // instead of spawning a competing ACP process.
-        if spec.session_mode == SessionMode::Persistent {
-            if let Some(ref webhook_url) = spec.webhook_url {
+        if spec.session_mode == SessionMode::Persistent
+            && let Some(ref webhook_url) = spec.webhook_url {
                 tracing::info!(
                     "Agent {} is persistent with webhook_url={webhook_url}; \
                      using webhook relay (no ACP spawn)",
@@ -1156,7 +1153,6 @@ impl Spawner {
                 ));
                 return Some(RunningAgent::new(spec.clone(), vec![relay_jh]));
             }
-        }
 
         let extra_caps: Vec<edgeplaned_core::types::Capability> = spec
             .capabilities

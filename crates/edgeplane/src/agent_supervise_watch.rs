@@ -301,8 +301,8 @@ fn render_loop(state: Arc<Mutex<State>>) -> Result<()> {
 
             // Poll keyboard with 100ms timeout so the screen refreshes
             // even when the user isn't typing.
-            if cevent::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = cevent::read()? {
+            if cevent::poll(Duration::from_millis(100))?
+                && let Event::Key(key) = cevent::read()? {
                     if key.kind != KeyEventKind::Press {
                         continue;
                     }
@@ -318,7 +318,6 @@ fn render_loop(state: Arc<Mutex<State>>) -> Result<()> {
                         _ => {}
                     }
                 }
-            }
         }
         Ok(())
     })();

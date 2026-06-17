@@ -220,8 +220,8 @@ where
     let mut ready_queue: VecDeque<String> = VecDeque::new();
     if let Ok(missions) = client.get_json(&format!("/domains/{domain_id}/m")).await {
         for k in missions.as_array().unwrap_or(&vec![]) {
-            if let Some(kid) = k["id"].as_str() {
-                if let Ok(tasks) = client
+            if let Some(kid) = k["id"].as_str()
+                && let Ok(tasks) = client
                     .get_json(&format!("/work/missions/{kid}/tasks?status=ready"))
                     .await
                 {
@@ -231,7 +231,6 @@ where
                         }
                     }
                 }
-            }
         }
     }
 
@@ -295,13 +294,11 @@ where
                 while let Some(msg) = ws.next().await {
                     match msg {
                         Ok(Message::Text(text)) => {
-                            if let Ok(event) = serde_json::from_str::<Value>(&text) {
-                                if event["event"].as_str() == Some("task_ready") {
-                                    if let Some(tid) = event["task_id"].as_str() {
+                            if let Ok(event) = serde_json::from_str::<Value>(&text)
+                                && event["event"].as_str() == Some("task_ready")
+                                    && let Some(tid) = event["task_id"].as_str() {
                                         ready_queue.push_back(tid.to_string());
                                     }
-                                }
-                            }
                             // Process one task per iteration to stay responsive to the stream.
                             if let Some(task_id) = ready_queue.pop_front() {
                                 attempt_claim_and_run(

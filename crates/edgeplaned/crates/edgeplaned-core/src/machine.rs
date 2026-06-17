@@ -92,13 +92,11 @@ fn uname_r() -> String {
 
 fn cpu_cores() -> u32 {
     // Try nproc, then /proc/cpuinfo, then sysctl (macOS).
-    if let Ok(out) = std::process::Command::new("nproc").output() {
-        if let Ok(s) = String::from_utf8(out.stdout) {
-            if let Ok(n) = s.trim().parse::<u32>() {
+    if let Ok(out) = std::process::Command::new("nproc").output()
+        && let Ok(s) = String::from_utf8(out.stdout)
+            && let Ok(n) = s.trim().parse::<u32>() {
                 return n;
             }
-        }
-    }
     if let Ok(contents) = std::fs::read_to_string("/proc/cpuinfo") {
         let count = contents.lines().filter(|l| l.starts_with("processor")).count();
         if count > 0 {
@@ -126,13 +124,10 @@ fn ram_gb() -> f64 {
     if let Ok(out) = std::process::Command::new("sysctl")
         .args(["-n", "hw.memsize"])
         .output()
-    {
-        if let Ok(s) = String::from_utf8(out.stdout) {
-            if let Ok(bytes) = s.trim().parse::<u64>() {
+        && let Ok(s) = String::from_utf8(out.stdout)
+            && let Ok(bytes) = s.trim().parse::<u64>() {
                 return (bytes as f64) / 1_073_741_824.0;
             }
-        }
-    }
     0.0
 }
 
@@ -142,8 +137,8 @@ fn disk_free_gb(path: &std::path::Path) -> f64 {
         .args(["-B1", "--output=avail"])
         .arg(path)
         .output();
-    if let Ok(o) = out {
-        if let Ok(s) = String::from_utf8(o.stdout) {
+    if let Ok(o) = out
+        && let Ok(s) = String::from_utf8(o.stdout) {
             // Output is header + value
             let bytes: u64 = s
                 .lines()
@@ -152,7 +147,6 @@ fn disk_free_gb(path: &std::path::Path) -> f64 {
                 .unwrap_or(0);
             return (bytes as f64) / 1_073_741_824.0;
         }
-    }
     0.0
 }
 

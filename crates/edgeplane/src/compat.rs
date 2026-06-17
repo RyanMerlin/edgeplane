@@ -234,7 +234,7 @@ fn is_executable_path(path: &Path) -> bool {
         let Ok(meta) = fs::metadata(path) else {
             return false;
         };
-        return meta.permissions().mode() & 0o111 != 0;
+        meta.permissions().mode() & 0o111 != 0
     }
 
     #[cfg(not(unix))]

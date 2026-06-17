@@ -440,6 +440,7 @@ impl CronLoop {
 
     /// Read the loaded config (for `agent.cron.list` and friends).
     /// Returns a snapshot — caller doesn't hold the lock.
+    #[allow(dead_code)]
     pub fn config_snapshot(&self) -> impl std::future::Future<Output = CronConfig> + use<> {
         let cfg = self.config.clone();
         async move { cfg.lock().await.clone() }
@@ -502,6 +503,7 @@ pub async fn gc_task(
 /// Convenience: snapshot of the live config + state for `agent.cron.list`.
 /// Joins `cron.toml` jobs against `agent_cron_state` so callers see jobs
 /// even before they've fired.
+#[allow(dead_code)]
 pub async fn config_with_state(
     config_path: &std::path::Path,
     registry_path: PathBuf,

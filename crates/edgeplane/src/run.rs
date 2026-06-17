@@ -119,6 +119,7 @@ pub async fn run(args: RunArgs, client: &EdgeplaneClient, config: &EdgeplaneConf
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_launch(
     runtime: String,
     profile: String,

@@ -60,6 +60,7 @@ pub async fn run_exec(
 
 /// Blocking launch helper for SoloSupervisor — reads the task MD, builds a prompt, and
 /// runs Goose headlessly against the cluster LiteLLM.
+#[allow(clippy::too_many_arguments)]
 pub fn launch_goose_blocking(
     passthrough: &[String],
     runtime_home: &Path,
@@ -140,6 +141,7 @@ fn goose_model() -> String {
         .unwrap_or_else(|_| "local-agent".to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_env(
     cmd: &mut std::process::Command,
     runtime_home: &Path,
@@ -156,18 +158,16 @@ fn apply_env(
     cmd.env("GOOSE_MODEL", goose_model());
     cmd.env("GOOSE_MODE", "Auto");
 
-    if let Ok(api_key) = std::env::var("EP_LITELLM_API_KEY") {
-        if !api_key.is_empty() {
+    if let Ok(api_key) = std::env::var("EP_LITELLM_API_KEY")
+        && !api_key.is_empty() {
             cmd.env("LITELLM_API_KEY", api_key);
         }
-    }
 
     cmd.env("EP_BASE_URL", config.base_url.as_str());
-    if let Some(token) = &config.token {
-        if !token.trim().is_empty() {
+    if let Some(token) = &config.token
+        && !token.trim().is_empty() {
             cmd.env("EP_AGENT_TOKEN", token);
         }
-    }
     cmd.env("EP_AGENT_PROFILE", profile);
 
     if let Some(id) = agent_id {

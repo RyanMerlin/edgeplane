@@ -51,11 +51,10 @@ fn parse_args(args: &[String]) -> Result<serde_json::Value> {
     }
 
     // Try as a single JSON string first.
-    if args.len() == 1 {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&args[0]) {
+    if args.len() == 1
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(&args[0]) {
             return Ok(v);
         }
-    }
 
     // Parse as key=value pairs.
     let mut map = serde_json::Map::new();

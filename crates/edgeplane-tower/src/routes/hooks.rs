@@ -172,8 +172,8 @@ async fn session_end(
         .to_string();
     let now = Utc::now().naive_utc();
 
-    if let Ok(Some(agent_id)) = find_or_create_agent(&state, &subject, "").await {
-        if !session_id.is_empty() {
+    if let Ok(Some(agent_id)) = find_or_create_agent(&state, &subject, "").await
+        && !session_id.is_empty() {
             let result = sqlx::query(
                 "UPDATE agentsession SET ended_at=$3, end_reason=$4 \
                  WHERE claude_session_id=$1 AND agent_id=$2 AND ended_at IS NULL",
@@ -193,7 +193,6 @@ async fn session_end(
                     .await;
             }
         }
-    }
 
     Json(serde_json::json!({"ok": true}))
 }
@@ -218,8 +217,8 @@ async fn tool_audit(
     });
     let entry_line = format!("{}\n", serde_json::to_string(&entry).unwrap_or_default());
 
-    if let Ok(Some(agent_id)) = find_or_create_agent(&state, &subject, "").await {
-        if !session_id.is_empty() {
+    if let Ok(Some(agent_id)) = find_or_create_agent(&state, &subject, "").await
+        && !session_id.is_empty() {
             let _ = sqlx::query(
                 "UPDATE agentsession SET audit_log = COALESCE(audit_log,'') || $3 \
                  WHERE claude_session_id=$1 AND agent_id=$2 AND ended_at IS NULL",
@@ -230,7 +229,6 @@ async fn tool_audit(
             .execute(&state.db)
             .await;
         }
-    }
 
     Json(serde_json::json!({"ok": true}))
 }

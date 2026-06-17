@@ -164,11 +164,9 @@ async fn check_one_port(name: &str, addr: &str, mcd_running: bool) -> Finding {
                 Finding {
                     severity: Severity::Warn,
                     title: format!("port {name} ({addr})"),
-                    detail: format!(
-                        "port is free but a daemon appears to be running per the singleton lock.\n\
+                    detail: "port is free but a daemon appears to be running per the singleton lock.\n\
                          The daemon may have failed to bind this port. \
-                         Check `journalctl --user -u edgeplaned.service` for bind errors."
-                    ),
+                         Check `journalctl --user -u edgeplaned.service` for bind errors.".to_string(),
                 }
             } else {
                 Finding {
@@ -267,16 +265,13 @@ fn check_registry() -> Finding {
 }
 
 fn check_runtimes() -> Vec<Finding> {
-    let mut out = Vec::new();
-
-    out.push(check_binary("node", &["--version"]));
-    out.push(check_binary("claude", &["--version"]));
-
     // claude-agent-acp lives as a node module — look for its dist/index.js
     // in the npm global root. Best-effort.
-    out.push(check_acp_module());
-
-    out
+    vec![
+        check_binary("node", &["--version"]),
+        check_binary("claude", &["--version"]),
+        check_acp_module(),
+    ]
 }
 
 fn check_binary(name: &str, args: &[&str]) -> Finding {
@@ -305,8 +300,8 @@ fn check_binary(name: &str, args: &[&str]) -> Finding {
 
 fn check_acp_module() -> Finding {
     let pkg = "@agentclientprotocol/claude-agent-acp";
-    if let Ok(out) = std::process::Command::new("npm").args(["root", "-g"]).output() {
-        if out.status.success() {
+    if let Ok(out) = std::process::Command::new("npm").args(["root", "-g"]).output()
+        && out.status.success() {
             let root = String::from_utf8_lossy(&out.stdout).trim().to_string();
             let p = std::path::PathBuf::from(&root).join(format!("{pkg}/dist/index.js"));
             if p.exists() {
@@ -317,7 +312,6 @@ fn check_acp_module() -> Finding {
                 };
             }
         }
-    }
     Finding {
         severity: Severity::Warn,
         title: format!("runtime: {pkg}"),

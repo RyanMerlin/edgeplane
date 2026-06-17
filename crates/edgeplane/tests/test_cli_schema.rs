@@ -28,7 +28,7 @@ fn discover_includes_agent_subcommand() {
     let subcommands = parsed["root"]["subcommands"].as_array().unwrap();
     let agent = subcommands.iter().find(|s| s["name"] == "agent");
     assert!(agent.is_some(), "should have 'agent' in top-level subcommands");
-    assert!(agent.unwrap()["subcommands"].as_array().unwrap().len() > 0);
+    assert!(!agent.unwrap()["subcommands"].as_array().unwrap().is_empty());
 }
 
 #[test]
