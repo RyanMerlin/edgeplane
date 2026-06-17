@@ -46,6 +46,25 @@ jobs:
           git diff --exit-code docs/reference/COMMAND-MAP.md site/src/content/docs/reference/command-map.md \
             || { echo "::error::docs/reference/COMMAND-MAP.md is stale — run 'make docs' and commit the result"; exit 1; }
 
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Cache Cargo registry
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-clippy-
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
   launch-regression:
     name: Launch regression
     runs-on: ubuntu-latest
