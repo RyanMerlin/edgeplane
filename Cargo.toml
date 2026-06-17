@@ -47,3 +47,12 @@ serde_yaml = "0.9"
 keyring = { version = "3", features = ["async-secret-service", "async-io", "crypto-rust"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 which = "6"
+
+# Dev build size: dependencies carry no debuginfo (you never step into them), which
+# keeps target/debug/deps small; first-party crates keep line-level info for backtraces.
+# Added 2026-06-17 alongside sccache + cargo-sweep to bound shared /workspace/cargo-target.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
