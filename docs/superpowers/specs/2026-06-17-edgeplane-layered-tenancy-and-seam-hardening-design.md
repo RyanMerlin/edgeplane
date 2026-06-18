@@ -62,10 +62,14 @@ Per `entities.md § Domain`, a Domain is "a policy surface; a permission boundar
 > ```
 > authorized_for_domain(principal, domain) :=
 >     principal.is_admin
+>     OR principal.auth_type == "node"          // first-party infra; full-trust in P0 (node→managed-domains scoping deferred, §5)
+>     OR domain.id ∈ principal.domain_scope     // per-agent JWT home domain(s) — Seam 2
 >     OR principal.subject ∈ domain.owners
 >     OR principal.subject ∈ domain.contributors
 > ```
 > Default deny. One shared helper in `auth.rs`, reused at every privileged site.
+>
+> **Node = full-trust (decided 2026-06-18, §9).** The daemon authenticates as a `node` principal (node JWT). Without the `auth_type == "node"` clause, the corrected predicate denies the daemon every domain → it cannot enroll agents, claim, dispatch, or run triage (a fleet-wide outage caught in adversarial review). In single-operator, the node *is* the operator's infrastructure, so it is first-party full-trust. Scoping a node to only its managed domains is the multi-tenant refinement, deferred to §5.
 
 ---
 
@@ -74,11 +78,11 @@ Per `entities.md § Domain`, a Domain is "a policy surface; a permission boundar
 Each seam states: **what**, **current state**, **single-operator behavior** (must stay zero-ceremony), **multi-tenant behavior** (what switches on later), and **design notes**.
 
 ### Seam 1 — Authorization (P0; closes the live RCE hole)
-- **What:** the `authorized_for_domain` helper above, applied before every privileged dispatch/ledger action; plus a **principal trust-tier split**: full-trust principals (human/admin sessions) may create free-form tasks in their domains; **service-account / dispatch tokens may only instantiate server-registered templates** with constrained params. Infra-grade templates create in a non-claimable `pending_approval` state.
-- **Current state:** NOT-STARTED (designed in 2026-06-14 spec, corrected here for 0009).
-- **Single-operator:** you are owner/admin of your domains → authorized for everything; you create tasks freely. No ceremony.
-- **Multi-tenant:** other principals are scoped to their domains; the template allowlist means a compromised edge/dispatch token can only fire `{run-ceph-doctor}`, never `{reboot the cluster}`.
-- **Design notes:** this is the 2026-06-14 spec, minus the dropped table. It is the highest-priority item because the hole is live. Service-account identity (Seam 2) makes the trust-tier split meaningful, so 1 and 2 ship together.
+- **What:** the `authorized_for_domain` helper above, applied before **every** privileged dispatch/ledger/stream action — the full list (verified 2026-06-18) is carried in the implementation plan and includes the task mutators (create/claim/complete/fail/cancel/retry/block/unblock/heartbeat/progress/**dispatch**), agent mutators, `create_gate`/`resolve_gate`, both ledger streams, `agent_notify_ws`, `global_sse` (currently *unauthenticated* — a cross-domain leak), and the MCP arms (mesh task variants, `submit_mesh_task`, `send_mesh_message`, `load_mission_workspace`, `progress_mesh_task`, `provision_domain_persistence`, `publish_pending_ledger_events`). Plus **per-task ownership enforcement** (decided 2026-06-18, §9): lifecycle mutations (complete/fail/block/heartbeat) require the caller to hold the task's `claim_lease_id` / be its `claimed_by_agent_id`, unless full-trust/admin — so a compromised agent is bounded to its own tasks, not the whole domain.
+- **Current state:** NOT-STARTED (designed in 2026-06-14 spec, corrected here for 0009 and the 2026-06-18 review).
+- **Single-operator:** you (session/admin) and your node/daemon are full-trust → authorized for everything; you create tasks freely. No ceremony.
+- **Multi-tenant:** other principals are scoped to their domains; agents are bounded to their home domain *and* their own tasks.
+- **Design notes:** this is the 2026-06-14 spec, minus the dropped table, plus the node-full-trust clause and per-task lease check. The **principal trust-tier split** (full-trust humans vs. template-restricted service-account/dispatch tokens, with infra-grade → `pending_approval`) is **deferred to §5** — it had no real consumer at P0 (the daemon is full-trust, agents only claim/progress, humans are full-trust), broke the daemon, and added an empty-allowlist outage hazard. It returns when a genuinely untrusted edge/dispatch token exists.
 
 ### Seam 2 — Agent identity (P0/P1; coupled to Seam 1)
 - **What:** an agent acts under its **own** scoped identity, not the operator's token. On enrollment, mint a per-agent credential (per-agent service account or per-enrollment JWT) scoped to the agent's home domain(s). `claim_task`/`append_progress` record the *authenticated* agent_id.
@@ -106,6 +110,8 @@ Each seam states: **what**, **current state**, **single-operator behavior** (mus
 
 Do **not** build these now. Each is justified-deferred by the research (Appendix B):
 
+- **Principal trust-tier split + template allowlist** (full-trust humans vs. template-restricted service-account/dispatch tokens; `[dispatch_templates]` TOML config; infra-grade → non-claimable `pending_approval` + approve endpoint). Moved here from Seam 1 after the 2026-06-18 review: no untrusted dispatch-token consumer exists yet, so it is premature. Build it when one does. The seam (`authorized_for_domain` + the `auth_type`-aware predicate) already exists, so adding the restricted tier later is additive.
+- **Node → managed-domains scoping.** In P0 a node is full-trust across all domains (first-party infra). Restricting a node to only the domains it manages (so a tenant's node can't act in another tenant's domains) is a multi-tenant refinement — add a node→domains mapping (or domain claim in the node JWT) when a second tenant arrives.
 - Per-tenant storage isolation / sharding.
 - Resource quotas / noisy-neighbor controls (beyond finishing Seam 3's cgroup hooks for single-operator safety).
 - SSO / SCIM / IdP-group→role mapping.
@@ -157,8 +163,18 @@ This is true and *demonstrable* once Seams 1–3 land: a single binary that runs
 
 1. **Agent identity mechanism** (Seam 2): **per-agent JWT**, reusing the node-JWT pattern in `jwt.rs`, minted per-enrollment and scoped to the agent's home domain(s). (Rejected: extending the global `mcs_sa_*` service-account path.)
 2. **Sandbox wiring model** (Seam 3): **launcher/pre-exec wrapper** — a thin wrapper enters the jail then `exec`s the agent, so raw CLI agents that never call `enter_jail()` are still jailed. **Finish cgroup limits now** (single-operator safety); **defer nftables egress** to multi-tenant. (Rejected: fork-in-parent.)
-3. **Template registry** (Seam 1): **config file (TOML)** — declarative, version-controlled allowlist, no migration; restart-to-change is acceptable for one operator. (Rejected: DB table — revisit only if runtime mutation / per-domain scoping is needed.)
+3. **Template registry** (Seam 1): **config file (TOML)** — *superseded below*: the entire template tier was deferred to §5 in the post-review revision, so no registry is built at P0. The TOML decision stands if/when it returns.
 4. **Sequencing:** **land P0 (Seams 1 + 2) first** as a dedicated security release; freeze other feature work until it ships, because the dispatch/ledger authz hole is live.
+
+### Revised after adversarial review (2026-06-18)
+
+A four-lens adversarial review (codebase-accuracy, security-soundness, spec-coverage, Rust-hazard) against `main` found two design-level holes and a coverage gap. Resulting decisions:
+
+5. **Node = full-trust in P0.** The daemon is a `node` principal; the corrected predicate denied it every domain (fleet-wide outage). Node principals are first-party infrastructure → authorized for all domains and exempt from any tier restriction. Node→managed-domains scoping deferred (§5). (Updates §3, §4 Seam 1.)
+6. **Trust-tier template split deferred to §5** (see §5) — premature; no untrusted dispatch-token consumer; broke the daemon; empty-allowlist outage hazard. P0 Seam 1 = `authorized_for_domain` on every site + per-task lease enforcement only.
+7. **Per-task ownership enforcement added to Seam 1.** Lifecycle mutations require the caller's `claim_lease_id` / `claimed_by_agent_id` (unless full-trust/admin), so a compromised agent is bounded to its own tasks within its domain.
+8. **Mint endpoint re-gated.** `POST /work/agents/{id}/token` must be restricted to full-trust/admin or the owning node — *not* mere domain membership, which would let any agent mint (impersonate) a co-domain peer's token.
+9. **Coverage corrected.** The guarded-handler set was incomplete (missing `dispatch_task`, `create_gate`/`resolve_gate`, `agent_notify_ws`, unauthenticated `global_sse`, MCP `progress_mesh_task`/`provision_domain_persistence`/`publish_pending_ledger_events`, and MCP-side `agent_id` attribution). The implementation plan now carries the full verified list.
 
 ---
 
