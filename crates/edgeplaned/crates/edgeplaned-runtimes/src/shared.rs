@@ -28,7 +28,7 @@ pub fn spawn_interactive_pty(
 
     let mut cmd = CommandBuilder::new(binary);
     cmd.cwd(work_dir);
-    let _child = pair.slave.spawn_command(cmd)?;
+    let mut child = pair.slave.spawn_command(cmd)?;
     drop(pair.slave);
 
     let mut master_reader = pair.master.try_clone_reader()?;
@@ -69,9 +69,12 @@ pub fn spawn_interactive_pty(
         }
     });
 
-    // Resize loop holds the master alive for the lifetime of the session.
-    // When the resize channel closes (PtySession dropped) the master drops,
-    // which closes the slave and reaps the child.
+    // Resize loop holds the master (and the child) alive for the lifetime of
+    // the session. When the resize channel closes (PtySession dropped) the
+    // master drops, which closes the PTY and the child exits — but closing the
+    // PTY does not wait() the child, so we reap it explicitly here to avoid a
+    // <defunct> zombie. `child` moves into this thread; `kill`/`wait` are
+    // blocking, which is fine on a spawn_blocking thread.
     let master = pair.master;
     tokio::task::spawn_blocking(move || {
         while let Some((rows, cols)) = resize_rx.blocking_recv() {
@@ -82,8 +85,10 @@ pub fn spawn_interactive_pty(
                 pixel_height: 0,
             });
         }
-        // Drop the master here, which closes the PTY.
+        // Drop the master here, which closes the PTY, then reap the child.
         drop(master);
+        let _ = child.kill();
+        let _ = child.wait();
     });
 
     Ok(PtySession {

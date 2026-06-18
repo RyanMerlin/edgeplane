@@ -93,7 +93,7 @@ async fn run_one_bridge(
     cmd.env_remove("ZELLIJ_SESSION_NAME");
     cmd.env("TERM", "xterm-256color");
 
-    let _child = pair.slave.spawn_command(cmd).context("spawn zellij attach")?;
+    let mut child = pair.slave.spawn_command(cmd).context("spawn zellij attach")?;
     drop(pair.slave);
 
     let mut master_reader = pair.master.try_clone_reader()?;
@@ -167,6 +167,19 @@ async fn run_one_bridge(
     let result = pump(&mut out_rx, &stdout_broadcast, &mut signal_rx, &signal_in_tx).await;
 
     registry.unregister(agent_id).await;
+
+    // Reap the `zellij attach` child so it doesn't linger as a <defunct> zombie.
+    // `std::process::Child` (which `portable_pty::Child` wraps) does not kill or
+    // reap on drop, so without this every bridge exit leaks one zombie and the
+    // supervise loop accumulates them. `kill`/`wait` are blocking → run off the
+    // async runtime. `kill` first in case `pump` returned for a non-EOF reason
+    // (e.g. signal channel closed) and the attach process is still alive.
+    let _ = tokio::task::spawn_blocking(move || {
+        let _ = child.kill();
+        let _ = child.wait();
+    })
+    .await;
+
     tracing::info!("Zellij bridge unregistered for agent {agent_id}");
     result
 }
