@@ -117,6 +117,50 @@ async fn domain_stream_denied_for_outsider() {
 }
 
 #[tokio::test]
+async fn agent_cannot_complete_unassigned_task() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    // Seed a task claimed by "agent-A" — member_sa is a domain contributor so
+    // the domain guard passes, but it is NOT agent-A, so the owner guard fires.
+    let task_id = common::seed_claimed_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "agent-A",
+    )
+    .await;
+    let s = server(pool.clone());
+
+    // A domain-member SA that is not the claimer must get 403.
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert_eq!(res.status_code(), 403);
+
+    // A full-trust session owner can complete it.
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    // 200 means finished; waiting_review (200) is also acceptable if gates exist.
+    assert!(
+        res.status_code().is_success(),
+        "owner session should complete task, got {}",
+        res.status_code()
+    );
+}
+
+#[tokio::test]
 async fn global_sse_denied_for_non_admin() {
     let Some((pool, ctx)) = setup().await else {
         return;

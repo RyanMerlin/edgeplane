@@ -1052,6 +1052,16 @@ async fn heartbeat_task(
     {
         return resp;
     }
+    if let Err(resp) = crate::routes::authz::authz_task_owner(
+        &state.db,
+        &principal,
+        &task_id,
+        body.claim_lease_id.as_deref(),
+    )
+    .await
+    {
+        return resp;
+    }
 
     let status: String = task_row.get("status");
     if status != "claimed" && status != "running" {
@@ -1200,6 +1210,16 @@ async fn complete_task(
     {
         return resp;
     }
+    if let Err(resp) = crate::routes::authz::authz_task_owner(
+        &state.db,
+        &principal,
+        &task_id,
+        body.claim_lease_id.as_deref(),
+    )
+    .await
+    {
+        return resp;
+    }
 
     let status: String = task_row.get("status");
     if status != "claimed" && status != "running" && status != "waiting_review" {
@@ -1306,6 +1326,16 @@ async fn fail_task(
     {
         return resp;
     }
+    if let Err(resp) = crate::routes::authz::authz_task_owner(
+        &state.db,
+        &principal,
+        &task_id,
+        body.claim_lease_id.as_deref(),
+    )
+    .await
+    {
+        return resp;
+    }
 
     let status: String = task_row.get("status");
     if status != "claimed" && status != "running" && status != "waiting_review" {
@@ -1363,6 +1393,11 @@ async fn block_task(
     };
     if let Err(resp) =
         crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+    if let Err(resp) =
+        crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
     {
         return resp;
     }

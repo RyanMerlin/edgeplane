@@ -491,6 +491,10 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
+            let lease_opt = if claim_lease_id.is_empty() { None } else { Some(claim_lease_id.as_str()) };
+            if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, lease_opt).await.is_err() {
+                return err_result("not the task's claimer");
+            }
             let expires_at = now + chrono::Duration::seconds(300);
             match sqlx::query(
                 "UPDATE meshtask SET lease_expires_at=$3, updated_at=NOW() \
@@ -554,6 +558,11 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
+            }
+            let lease_str = str_arg(args, "claim_lease_id");
+            let lease_opt = if lease_str.is_empty() { None } else { Some(lease_str.as_str()) };
+            if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, lease_opt).await.is_err() {
+                return err_result("not the task's claimer");
             }
             let new_status = match tool {
                 "complete_mesh_task" => "finished",

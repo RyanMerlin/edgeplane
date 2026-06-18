@@ -93,6 +93,41 @@ pub async fn domain_id_for_agent(db: &PgPool, agent_id: &str) -> Result<String, 
     .await
 }
 
+/// After domain authz: a non-full-trust caller may only act on a task it holds.
+/// Full-trust (session/node) and admin bypass. `lease_id` is the caller-presented
+/// claim_lease_id (None for endpoints that don't take one).
+pub async fn authz_task_owner(
+    db: &PgPool,
+    p: &Principal,
+    task_id: &str,
+    lease_id: Option<&str>,
+) -> Result<(), Response> {
+    if crate::auth::is_full_trust(p) || p.is_admin {
+        return Ok(());
+    }
+    let row = sqlx::query("SELECT claimed_by_agent_id, claim_lease_id FROM meshtask WHERE id=$1")
+        .bind(task_id)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("authz_task_owner {task_id}: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
+    let Some(row) = row else {
+        return Err(deny(StatusCode::NOT_FOUND, "Task not found"));
+    };
+    let claimed: Option<String> = row.get("claimed_by_agent_id");
+    let lease: Option<String> = row.get("claim_lease_id");
+    let subject_id = p.subject.strip_prefix("agent:").unwrap_or(&p.subject);
+    let owns = claimed.as_deref() == Some(subject_id)
+        || (lease_id.is_some() && lease.as_deref() == lease_id);
+    if owns {
+        Ok(())
+    } else {
+        Err(deny(StatusCode::FORBIDDEN, "not the task's claimer"))
+    }
+}
+
 pub async fn domain_id_for_gate(db: &PgPool, gate_id: &str) -> Result<String, Response> {
     // reviewgate.mesh_task_id → meshtask.domain_id
     // (schema: reviewgate FK column is `mesh_task_id`, not `task_id`)

@@ -77,6 +77,36 @@ pub async fn mint_sa(db: &PgPool, name: &str) -> String {
     token
 }
 
+/// Insert a meshtask row with `status='running'` and a specific `claimed_by_agent_id`.
+///
+/// meshtask NOT-NULL columns (0001_initial_schema.sql):
+///   id, mission_id, domain_id, title, claim_policy, status,
+///   priority, version_counter, created_by_subject, created_at, updated_at.
+/// Returns the inserted task id.
+pub async fn seed_claimed_task(db: &PgPool, mission_id: &str, domain_id: &str, claimed_by: &str) -> String {
+    let task_id = format!("task-{}", Uuid::new_v4().simple());
+    // Supplying empty-string defaults for all text columns that row_to_task reads
+    // as non-Option &str (description, depends_on, produces, consumes,
+    // required_capabilities, input_json) to avoid UnexpectedNullError panics.
+    sqlx::query(
+        "INSERT INTO meshtask \
+         (id, mission_id, domain_id, title, description, input_json, claim_policy, \
+          depends_on, produces, consumes, required_capabilities, \
+          status, priority, version_counter, created_by_subject, claimed_by_agent_id, \
+          created_at, updated_at) \
+         VALUES ($1, $2, $3, 'test-task', '', '{}', 'any', '[]', '{}', '{}', '[]', \
+                 'running', 0, 1, 'harness', $4, now(), now())",
+    )
+    .bind(&task_id)
+    .bind(mission_id)
+    .bind(domain_id)
+    .bind(claimed_by)
+    .execute(db)
+    .await
+    .expect("insert meshtask");
+    task_id
+}
+
 pub async fn setup() -> Option<(PgPool, Ctx)> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = PgPool::connect(&url)
