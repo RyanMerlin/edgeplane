@@ -11,6 +11,7 @@ use sqlx::Row;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::models::domain::Domain;
 use crate::state::AppState;
 
 /// Pure admin-policy check: `true` when `email` (case-insensitive) is present
@@ -300,6 +301,104 @@ pub async fn require_auth(
             next.run(req).await
         }
         Err(rejection) => rejection.into_response(),
+    }
+}
+
+/// Split a comma-separated string into lowercased, trimmed, non-empty tokens.
+pub fn split_csv(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|x| x.trim().to_lowercase())
+        .filter(|x| !x.is_empty())
+        .collect()
+}
+
+/// Pure core of the domain authorization predicate. Default deny.
+///
+/// Authorization order (first match wins):
+/// 1. Admin flag — unrestricted access everywhere.
+/// 2. Node auth_type — first-party infra is full-trust (scope restriction comes in a later phase).
+/// 3. Per-agent domain_scope JWT claim — explicit domain enrollment.
+/// 4. Owners/contributors membership — lowercased subject match.
+pub fn authorized_for(
+    domain_id: &str,
+    owners: &str,
+    contributors: &str,
+    p: &Principal,
+) -> bool {
+    if p.is_admin {
+        return true;
+    }
+    if p.auth_type == "node" {
+        return true; // first-party infra, full-trust (P0; §5 scopes later)
+    }
+    if p.domain_scope.iter().any(|d| d == domain_id) {
+        return true;
+    }
+    let id = p.subject.to_lowercase();
+    split_csv(owners).contains(&id) || split_csv(contributors).contains(&id)
+}
+
+/// Wrapper for `authorized_for` that takes a full `Domain` record.
+pub fn authorized_for_domain(domain: &Domain, p: &Principal) -> bool {
+    authorized_for(&domain.id, &domain.owners, &domain.contributors, p)
+}
+
+/// Full-trust principals: interactive human/admin sessions and first-party nodes.
+/// They bypass the per-task lease check and may act on behalf of other agents.
+pub fn is_full_trust(p: &Principal) -> bool {
+    p.auth_type == "session" || p.auth_type == "node"
+}
+
+#[cfg(test)]
+mod authz_tests {
+    use super::*;
+
+    fn principal(subject: &str, is_admin: bool, auth_type: &str, scope: &[&str]) -> Principal {
+        Principal {
+            subject: subject.into(),
+            is_admin,
+            session_id: None,
+            auth_type: auth_type.into(),
+            domain_scope: scope.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn admin_authorized_anywhere() {
+        assert!(authorized_for("d1", "", "", &principal("x@x.com", true, "session", &[])));
+    }
+    #[test]
+    fn node_is_full_trust_authorized_anywhere() {
+        let p = principal("node:excalibur", false, "node", &[]);
+        assert!(authorized_for("d1", "", "", &p));
+        assert!(is_full_trust(&p));
+    }
+    #[test]
+    fn owner_authorized_case_insensitive() {
+        let p = principal("Alice@Example.COM", false, "session", &[]);
+        assert!(authorized_for("d1", "alice@example.com", "", &p));
+    }
+    #[test]
+    fn contributor_authorized() {
+        let p = principal("sa:worker", false, "service_account", &[]);
+        assert!(authorized_for("d1", "alice@x.com", "sa:worker", &p));
+    }
+    #[test]
+    fn domain_scope_match_authorized() {
+        let p = principal("agent:w7", false, "agent", &["d1", "d2"]);
+        assert!(authorized_for("d2", "", "", &p));
+    }
+    #[test]
+    fn outsider_denied() {
+        let p = principal("sa:mallory", false, "service_account", &["d9"]);
+        assert!(!authorized_for("d1", "alice@x.com", "sa:bob", &p));
+    }
+    #[test]
+    fn only_sessions_and_nodes_are_full_trust() {
+        assert!(!is_full_trust(&principal("sa:x", false, "service_account", &[])));
+        assert!(!is_full_trust(&principal("agent:x", false, "agent", &[])));
+        assert!(is_full_trust(&principal("u@x.com", false, "session", &[])));
+        assert!(is_full_trust(&principal("node:n", false, "node", &[])));
     }
 }
 
