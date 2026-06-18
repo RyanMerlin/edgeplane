@@ -1190,6 +1190,15 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                     return err_result("database_error");
                 }
             };
+            // ── Domain authz: resolve mission → domain, then check membership ──
+            let art_mission_id: String = artifact.try_get("mission_id").unwrap_or_default();
+            let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &art_mission_id).await {
+                Ok(d) => d,
+                Err(_) => return err_result("Artifact mission not found"),
+            };
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
+            }
             let storage_backend: String = artifact.try_get("storage_backend").unwrap_or_default();
             let uri: String = artifact.try_get("uri").unwrap_or_default();
             if storage_backend != "s3" || !uri.starts_with("s3://") {

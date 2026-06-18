@@ -107,6 +107,31 @@ pub async fn seed_claimed_task(db: &PgPool, mission_id: &str, domain_id: &str, c
     task_id
 }
 
+/// Insert an artifact row linked to a mission. Returns the inserted id.
+///
+/// artifact NOT-NULL columns (0001_initial_schema.sql):
+///   id, mission_id, name, artifact_type, uri, storage_backend,
+///   content_sha256, size_bytes, mime_type, storage_class,
+///   external_pointer, external_uri, status, version, provenance,
+///   created_at, updated_at.
+pub async fn seed_artifact(db: &PgPool, mission_id: &str) -> i32 {
+    let id: i32 = sqlx::query_scalar(
+        "INSERT INTO artifact \
+         (mission_id, name, artifact_type, uri, storage_backend, content_sha256, \
+          size_bytes, mime_type, storage_class, external_pointer, external_uri, \
+          status, version, provenance, created_at, updated_at) \
+         VALUES ($1, 'test.txt', 'file', 's3://bucket/key', 's3', \
+                 'abc123', 0, 'text/plain', 'standard', false, '', \
+                 'ready', 1, 'test', now(), now()) \
+         RETURNING id",
+    )
+    .bind(mission_id)
+    .fetch_one(db)
+    .await
+    .expect("insert artifact");
+    id
+}
+
 pub async fn setup() -> Option<(PgPool, Ctx)> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = PgPool::connect(&url)

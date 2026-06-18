@@ -161,6 +161,28 @@ async fn agent_cannot_complete_unassigned_task() {
 }
 
 #[tokio::test]
+async fn mcp_get_artifact_download_url_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let artifact_id = common::seed_artifact(&pool, &ctx.mission_id).await;
+    let s = server(pool);
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.outsider_sa_token),
+        )
+        .json(&serde_json::json!({
+            "tool": "get_artifact_download_url",
+            "args": { "artifact_id": artifact_id }
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["error"], "forbidden");
+}
+
+#[tokio::test]
 async fn global_sse_denied_for_non_admin() {
     let Some((pool, ctx)) = setup().await else {
         return;
