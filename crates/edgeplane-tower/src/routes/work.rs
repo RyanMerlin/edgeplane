@@ -3,7 +3,7 @@ use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{IntoResponse, sse::Event, sse::Sse},
+    response::{IntoResponse, Response, sse::Event, sse::Sse},
     routing::{get, patch, post},
 };
 use chrono::Utc;
@@ -1765,9 +1765,16 @@ async fn resolve_gate(
 async fn agent_notify_ws(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(agent_id): Path<String>,
-) -> impl IntoResponse {
+) -> Response {
+    let domain_id = match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
+        return resp;
+    }
     ws.on_upgrade(move |socket| handle_agent_notify(socket, state, agent_id))
 }
 
@@ -2523,16 +2530,28 @@ async fn send_mission_message(
 async fn mission_stream(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Path(mission_id): Path<String>,
-) -> impl IntoResponse {
+) -> Response {
+    let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
+        return resp;
+    }
     ws.on_upgrade(move |socket| poll_ledger_stream(socket, state, "mission_id".into(), mission_id))
 }
 
 async fn domain_stream(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Path(domain_id): Path<String>,
-) -> impl IntoResponse {
+) -> Response {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
+        return resp;
+    }
     ws.on_upgrade(move |socket| poll_ledger_stream(socket, state, "domain_id".into(), domain_id))
 }
 
@@ -2603,7 +2622,14 @@ async fn poll_ledger_stream(
 // Streams meshprogressevent rows for all tasks/agents. Heartbeat every 30s.
 // Polls every 2 seconds for rows with id > last_seen.
 
-async fn global_sse(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+async fn global_sse(State(state): State<Arc<AppState>>, principal: Principal) -> Response {
+    if !principal.is_admin {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "admin required"})),
+        )
+            .into_response();
+    }
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, std::convert::Infallible>>(64);
     let db = state.db.clone();
 
