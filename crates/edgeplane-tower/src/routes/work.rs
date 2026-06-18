@@ -1,17 +1,20 @@
 use axum::{
-    extract::{Path, Query, State},
-    extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    http::StatusCode,
-    response::{sse::Event, sse::Sse, IntoResponse},
-    routing::{get, patch, post},
     Json, Router,
+    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::{IntoResponse, sse::Event, sse::Sse},
+    routing::{get, patch, post},
 };
-use tokio_stream::wrappers::ReceiverStream;
 use chrono::Utc;
 use sqlx::Row;
-use std::{collections::HashMap, sync::{Arc, OnceLock}};
 use std::time::Duration;
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock},
+};
 use tokio::sync::broadcast;
+use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
 use crate::{auth::Principal, state::AppState};
@@ -64,10 +67,7 @@ pub fn node_notify_registry() -> &'static NotifyRegistry {
 /// Notify the daemon at `runtime_node_id` that one of its agents was newly
 /// assigned, removed, or reassigned. Best-effort — silent when no daemon is
 /// currently subscribed for that node.
-pub async fn broadcast_assignment_changed(
-    runtime_node_id: &str,
-    payload: serde_json::Value,
-) {
+pub async fn broadcast_assignment_changed(runtime_node_id: &str, payload: serde_json::Value) {
     let reg = node_notify_registry().lock().await;
     if let Some(tx) = reg.get(runtime_node_id) {
         let _ = tx.send(payload.to_string());
@@ -77,36 +77,63 @@ pub async fn broadcast_assignment_changed(
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         // Tasks
-        .route("/work/missions/{mission_id}/tasks", get(list_tasks).post(create_task))
+        .route(
+            "/work/missions/{mission_id}/tasks",
+            get(list_tasks).post(create_task),
+        )
         .route("/work/missions/{mission_id}/graph", get(task_graph))
         .route("/work/tasks/{task_id}", get(get_task))
         .route("/work/tasks/{task_id}/cancel", post(cancel_task))
         .route("/work/tasks/{task_id}/retry", post(retry_task))
         .route("/work/tasks/{task_id}/claim", post(claim_task))
         .route("/work/tasks/{task_id}/heartbeat", post(heartbeat_task))
-        .route("/work/tasks/{task_id}/progress", get(get_task_progress).post(append_progress))
+        .route(
+            "/work/tasks/{task_id}/progress",
+            get(get_task_progress).post(append_progress),
+        )
         .route("/work/tasks/{task_id}/complete", post(complete_task))
         .route("/work/tasks/{task_id}/fail", post(fail_task))
         .route("/work/tasks/{task_id}/block", post(block_task))
         .route("/work/tasks/{task_id}/unblock", post(unblock_task))
         .route("/work/tasks/{task_id}/dispatched", post(dispatch_task))
-        .route("/work/tasks/{task_id}/gates", get(list_gates).post(create_gate))
-        .route("/work/tasks/{task_id}/gates/{gate_id}/resolve", post(resolve_gate))
+        .route(
+            "/work/tasks/{task_id}/gates",
+            get(list_gates).post(create_gate),
+        )
+        .route(
+            "/work/tasks/{task_id}/gates/{gate_id}/resolve",
+            post(resolve_gate),
+        )
         // Domains
-        .route("/work/domains/{domain_id}/agents/enroll", post(enroll_agent))
+        .route(
+            "/work/domains/{domain_id}/agents/enroll",
+            post(enroll_agent),
+        )
         .route("/work/domains/{domain_id}/agents", get(list_domain_agents))
-        .route("/work/domains/{domain_id}/messages", get(list_domain_messages).post(send_domain_message))
+        .route(
+            "/work/domains/{domain_id}/messages",
+            get(list_domain_messages).post(send_domain_message),
+        )
         .route("/work/domains/{domain_id}/roster", get(domain_roster))
         .route("/work/domains/{domain_id}/stream", get(domain_stream))
         // Agents
         .route("/work/agents/{agent_id}/heartbeat", post(agent_heartbeat))
         .route("/work/agents/{agent_id}/status", post(set_agent_status))
-        .route("/work/agents/{agent_id}/profile", patch(update_agent_profile))
-        .route("/work/agents/{agent_id}", get(get_agent).delete(delete_agent))
+        .route(
+            "/work/agents/{agent_id}/profile",
+            patch(update_agent_profile),
+        )
+        .route(
+            "/work/agents/{agent_id}",
+            get(get_agent).delete(delete_agent),
+        )
         .route("/work/agents/{agent_id}/messages", get(get_agent_messages))
         .route("/work/agents/{agent_id}/notify", get(agent_notify_ws))
         // Mission messages + stream
-        .route("/work/missions/{mission_id}/messages", get(list_mission_messages).post(send_mission_message))
+        .route(
+            "/work/missions/{mission_id}/messages",
+            get(list_mission_messages).post(send_mission_message),
+        )
         .route("/work/missions/{mission_id}/stream", get(mission_stream))
         // Global SSE feed — TUI agent feed; polls meshprogressevent for all agents
         .route("/sse", get(global_sse))
@@ -115,13 +142,25 @@ pub fn router() -> Router<Arc<AppState>> {
 // ── Error helpers ──────────────────────────────────────────────────────────────
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 fn conflict(msg: &str) -> axum::response::Response {
-    (StatusCode::CONFLICT, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::CONFLICT,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 fn bad_request(msg: &str) -> axum::response::Response {
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 // ── Row helpers ────────────────────────────────────────────────────────────────
@@ -151,11 +190,14 @@ fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 }
 
 pub fn row_to_agent(row: &sqlx::postgres::PgRow) -> serde_json::Value {
-    let profile: Option<serde_json::Value> = row.get::<Option<&str>, _>("profile_json")
+    let profile: Option<serde_json::Value> = row
+        .get::<Option<&str>, _>("profile_json")
         .and_then(|s| serde_json::from_str(s).ok());
-    let machine: Option<serde_json::Value> = row.get::<Option<&str>, _>("machine_json")
+    let machine: Option<serde_json::Value> = row
+        .get::<Option<&str>, _>("machine_json")
         .and_then(|s| serde_json::from_str(s).ok());
-    let runtime: Option<serde_json::Value> = row.get::<Option<&str>, _>("runtime_json")
+    let runtime: Option<serde_json::Value> = row
+        .get::<Option<&str>, _>("runtime_json")
         .and_then(|s| serde_json::from_str(s).ok());
     let discovered_capabilities: serde_json::Value = row
         .try_get::<Option<&str>, _>("discovered_capabilities")
@@ -174,7 +216,9 @@ pub fn row_to_agent(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         .try_get::<Option<String>, _>("agent_public_id")
         .ok()
         .flatten();
-    let public_id = agent_public_id.clone().unwrap_or_else(|| meshagent_id.clone());
+    let public_id = agent_public_id
+        .clone()
+        .unwrap_or_else(|| meshagent_id.clone());
     serde_json::json!({
         "id": &meshagent_id,
         "public_id": public_id,
@@ -218,8 +262,8 @@ fn row_to_gate(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 }
 
 fn row_to_message(row: &sqlx::postgres::PgRow) -> serde_json::Value {
-    let body_json: serde_json::Value = serde_json::from_str(row.get::<&str, _>("body_json"))
-        .unwrap_or(serde_json::json!({}));
+    let body_json: serde_json::Value =
+        serde_json::from_str(row.get::<&str, _>("body_json")).unwrap_or(serde_json::json!({}));
     serde_json::json!({
         "id": row.get::<i64, _>("id"),
         "domain_id": row.get::<String, _>("domain_id"),
@@ -258,8 +302,12 @@ struct TaskCreate {
     priority: i32,
     parent_task_id: Option<String>,
 }
-fn default_input_json() -> String { "{}".to_string() }
-fn default_first_claim() -> String { "first_claim".to_string() }
+fn default_input_json() -> String {
+    "{}".to_string()
+}
+fn default_first_claim() -> String {
+    "first_claim".to_string()
+}
 
 #[derive(serde::Deserialize, Default)]
 struct HeartbeatBody {
@@ -303,8 +351,12 @@ struct MessageCreate {
     body_json: String,
     in_reply_to: Option<i64>,
 }
-fn default_coordination() -> String { "coordination".to_string() }
-fn default_empty_obj() -> String { "{}".to_string() }
+fn default_coordination() -> String {
+    "coordination".to_string()
+}
+fn default_empty_obj() -> String {
+    "{}".to_string()
+}
 
 #[derive(serde::Deserialize)]
 struct AgentEnroll {
@@ -338,7 +390,9 @@ struct GateCreate {
     run_id: Option<String>,
     approval_request_id: Option<String>,
 }
-fn default_human() -> String { "human".to_string() }
+fn default_human() -> String {
+    "human".to_string()
+}
 
 #[derive(serde::Deserialize)]
 struct GateResolve {
@@ -376,7 +430,9 @@ struct ProgressQuery {
     #[serde(default = "default_neg_one")]
     since_seq: i32,
 }
-fn default_neg_one() -> i32 { -1 }
+fn default_neg_one() -> i32 {
+    -1
+}
 
 #[derive(serde::Deserialize)]
 struct AgentMessagesQuery {
@@ -546,6 +602,12 @@ async fn create_task(
         }
     };
 
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+
     // Validate depends_on tasks exist
     for dep_id in &body.depends_on {
         let exists: Option<i32> =
@@ -598,10 +660,8 @@ async fn create_task(
     let now = Utc::now().naive_utc();
     let depends_on_json =
         serde_json::to_string(&body.depends_on).unwrap_or_else(|_| "[]".to_string());
-    let produces_json =
-        serde_json::to_string(&body.produces).unwrap_or_else(|_| "{}".to_string());
-    let consumes_json =
-        serde_json::to_string(&body.consumes).unwrap_or_else(|_| "{}".to_string());
+    let produces_json = serde_json::to_string(&body.produces).unwrap_or_else(|_| "{}".to_string());
+    let consumes_json = serde_json::to_string(&body.consumes).unwrap_or_else(|_| "{}".to_string());
     let req_caps_json =
         serde_json::to_string(&body.required_capabilities).unwrap_or_else(|_| "[]".to_string());
 
@@ -653,10 +713,11 @@ async fn task_graph(
     _principal: Principal,
     Path(mission_id): Path<String>,
 ) -> impl IntoResponse {
-    let rows = sqlx::query("SELECT id, title, status, depends_on FROM meshtask WHERE mission_id=$1")
-        .bind(&mission_id)
-        .fetch_all(&state.db)
-        .await;
+    let rows =
+        sqlx::query("SELECT id, title, status, depends_on FROM meshtask WHERE mission_id=$1")
+            .bind(&mission_id)
+            .fetch_all(&state.db)
+            .await;
 
     match rows {
         Ok(rows) => {
@@ -711,7 +772,7 @@ async fn get_task(
 
 async fn cancel_task(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
     let row = sqlx::query("SELECT * FROM meshtask WHERE id=$1")
@@ -727,6 +788,13 @@ async fn cancel_task(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
+
+    let domain_id: String = task_row.get("domain_id");
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
 
     let status: String = task_row.get("status");
     if status == "finished" || status == "cancelled" {
@@ -753,7 +821,7 @@ async fn cancel_task(
 
 async fn retry_task(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
     let row = sqlx::query("SELECT * FROM meshtask WHERE id=$1")
@@ -769,6 +837,13 @@ async fn retry_task(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
+
+    let domain_id: String = task_row.get("domain_id");
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
 
     let status: String = task_row.get("status");
     if status != "failed" && status != "cancelled" {
@@ -820,6 +895,13 @@ async fn claim_task(
         }
     };
 
+    let domain_id: String = task_row.get("domain_id");
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+
     let claim_policy: String = task_row.get("claim_policy");
     let status: String = task_row.get("status");
 
@@ -832,8 +914,7 @@ async fn claim_task(
     }
 
     let now = Utc::now().naive_utc();
-    let lease_expires =
-        now + chrono::Duration::seconds(LEASE_TTL_SECS);
+    let lease_expires = now + chrono::Duration::seconds(LEASE_TTL_SECS);
     let lease_id = Uuid::new_v4().to_string();
 
     // Broadcast: no locking needed, just update status to running
@@ -879,12 +960,11 @@ async fn claim_task(
         }
     };
 
-    let locked = sqlx::query(
-        "SELECT * FROM meshtask WHERE id=$1 AND status='ready' FOR UPDATE SKIP LOCKED",
-    )
-    .bind(&task_id)
-    .fetch_optional(&mut *tx)
-    .await;
+    let locked =
+        sqlx::query("SELECT * FROM meshtask WHERE id=$1 AND status='ready' FOR UPDATE SKIP LOCKED")
+            .bind(&task_id)
+            .fetch_optional(&mut *tx)
+            .await;
 
     let locked_row = match locked {
         Ok(Some(r)) => r,
@@ -946,7 +1026,7 @@ async fn claim_task(
 
 async fn heartbeat_task(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(task_id): Path<String>,
     body: Option<Json<HeartbeatBody>>,
 ) -> impl IntoResponse {
@@ -966,6 +1046,13 @@ async fn heartbeat_task(
         }
     };
 
+    let domain_id: String = task_row.get("domain_id");
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+
     let status: String = task_row.get("status");
     if status != "claimed" && status != "running" {
         return conflict(&format!("Task is not in a claimable state: {status}"));
@@ -975,13 +1062,14 @@ async fn heartbeat_task(
     if let Some(caller_lease) = &body.claim_lease_id {
         let task_lease: Option<String> = task_row.get("claim_lease_id");
         if let Some(tl) = task_lease
-            && &tl != caller_lease {
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(serde_json::json!({"detail": "Lease ID mismatch"})),
-                )
-                    .into_response();
-            }
+            && &tl != caller_lease
+        {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"detail": "Lease ID mismatch"})),
+            )
+                .into_response();
+        }
     }
 
     let now = Utc::now().naive_utc();
@@ -1006,7 +1094,7 @@ async fn heartbeat_task(
 
 async fn append_progress(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(task_id): Path<String>,
     Json(body): Json<ProgressCreate>,
 ) -> impl IntoResponse {
@@ -1018,6 +1106,16 @@ async fn append_progress(
         .unwrap_or(None);
     if exists.is_none() {
         return not_found("Task not found");
+    }
+
+    let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
     }
 
     // Get next sequence number
@@ -1077,7 +1175,7 @@ async fn append_progress(
 
 async fn complete_task(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(task_id): Path<String>,
     body: Option<Json<CompleteBody>>,
 ) -> impl IntoResponse {
@@ -1096,6 +1194,13 @@ async fn complete_task(
         }
     };
 
+    let domain_id: String = task_row.get("domain_id");
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+
     let status: String = task_row.get("status");
     if status != "claimed" && status != "running" && status != "waiting_review" {
         return conflict(&format!("Task cannot be completed from status: {status}"));
@@ -1105,36 +1210,38 @@ async fn complete_task(
     if let Some(caller_lease) = &body.claim_lease_id {
         let task_lease: Option<String> = task_row.get("claim_lease_id");
         if let Some(tl) = task_lease
-            && &tl != caller_lease {
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(serde_json::json!({"detail": "Lease ID mismatch"})),
-                )
-                    .into_response();
-            }
+            && &tl != caller_lease
+        {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"detail": "Lease ID mismatch"})),
+            )
+                .into_response();
+        }
     }
 
     let mission_id: String = task_row.get("mission_id");
     let now = Utc::now().naive_utc();
 
     // Check for pending review gates
-    let pending_gates = sqlx::query(
-        "SELECT id FROM reviewgate WHERE mesh_task_id=$1 AND status='pending'",
-    )
-    .bind(&task_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let pending_gates =
+        sqlx::query("SELECT id FROM reviewgate WHERE mesh_task_id=$1 AND status='pending'")
+            .bind(&task_id)
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
 
     if !pending_gates.is_empty() {
-        let gate_ids: Vec<String> = pending_gates.iter().map(|r| r.get::<String, _>("id")).collect();
-        let _ = sqlx::query(
-            "UPDATE meshtask SET status='waiting_review', updated_at=$2 WHERE id=$1",
-        )
-        .bind(&task_id)
-        .bind(now)
-        .execute(&state.db)
-        .await;
+        let gate_ids: Vec<String> = pending_gates
+            .iter()
+            .map(|r| r.get::<String, _>("id"))
+            .collect();
+        let _ =
+            sqlx::query("UPDATE meshtask SET status='waiting_review', updated_at=$2 WHERE id=$1")
+                .bind(&task_id)
+                .bind(now)
+                .execute(&state.db)
+                .await;
 
         return Json(serde_json::json!({
             "status": "waiting_review",
@@ -1174,7 +1281,7 @@ async fn complete_task(
 
 async fn fail_task(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(task_id): Path<String>,
     body: Option<Json<FailBody>>,
 ) -> impl IntoResponse {
@@ -1193,6 +1300,13 @@ async fn fail_task(
         }
     };
 
+    let domain_id: String = task_row.get("domain_id");
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+
     let status: String = task_row.get("status");
     if status != "claimed" && status != "running" && status != "waiting_review" {
         return conflict(&format!("Task cannot be failed from status: {status}"));
@@ -1202,13 +1316,14 @@ async fn fail_task(
     if let Some(caller_lease) = &body.claim_lease_id {
         let task_lease: Option<String> = task_row.get("claim_lease_id");
         if let Some(tl) = task_lease
-            && &tl != caller_lease {
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(serde_json::json!({"detail": "Lease ID mismatch"})),
-                )
-                    .into_response();
-            }
+            && &tl != caller_lease
+        {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"detail": "Lease ID mismatch"})),
+            )
+                .into_response();
+        }
     }
 
     let now = Utc::now().naive_utc();
@@ -1230,7 +1345,7 @@ async fn fail_task(
 
 async fn block_task(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
     let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1")
@@ -1242,14 +1357,22 @@ async fn block_task(
         return not_found("Task not found");
     }
 
+    let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+
     let now = Utc::now().naive_utc();
-    match sqlx::query(
-        "UPDATE meshtask SET status='blocked', updated_at=$2 WHERE id=$1 RETURNING *",
-    )
-    .bind(&task_id)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await
+    match sqlx::query("UPDATE meshtask SET status='blocked', updated_at=$2 WHERE id=$1 RETURNING *")
+        .bind(&task_id)
+        .bind(now)
+        .fetch_one(&state.db)
+        .await
     {
         Ok(r) => Json(row_to_task(&r)).into_response(),
         Err(e) => {
@@ -1275,18 +1398,27 @@ async fn dispatch_task(
     principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let row = sqlx::query("SELECT status, created_by_subject FROM meshtask WHERE id=$1")
+    let row = sqlx::query("SELECT status, created_by_subject, domain_id FROM meshtask WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await;
-    let (status, created_by): (String, String) = match row {
-        Ok(Some(r)) => (r.get("status"), r.get("created_by_subject")),
+    let (status, created_by, domain_id): (String, String, String) = match row {
+        Ok(Some(r)) => (
+            r.get("status"),
+            r.get("created_by_subject"),
+            r.get("domain_id"),
+        ),
         Ok(None) => return not_found("Task not found"),
         Err(e) => {
             tracing::error!("dispatch_task lookup: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
     if created_by != principal.subject && !principal.is_admin {
         return StatusCode::FORBIDDEN.into_response();
     }
@@ -1298,7 +1430,10 @@ async fn dispatch_task(
             .await;
         return match r {
             Ok(row) => Json(row_to_task(&row)).into_response(),
-            Err(e) => { tracing::error!("dispatch_task re-fetch: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+            Err(e) => {
+                tracing::error!("dispatch_task re-fetch: {e}");
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            }
         };
     }
     if status != "ready" {
@@ -1326,7 +1461,7 @@ async fn dispatch_task(
 
 async fn unblock_task(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
     let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1")
@@ -1338,14 +1473,22 @@ async fn unblock_task(
         return not_found("Task not found");
     }
 
+    let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+
     let now = Utc::now().naive_utc();
-    match sqlx::query(
-        "UPDATE meshtask SET status='ready', updated_at=$2 WHERE id=$1 RETURNING *",
-    )
-    .bind(&task_id)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await
+    match sqlx::query("UPDATE meshtask SET status='ready', updated_at=$2 WHERE id=$1 RETURNING *")
+        .bind(&task_id)
+        .bind(now)
+        .fetch_one(&state.db)
+        .await
     {
         Ok(r) => Json(row_to_task(&r)).into_response(),
         Err(e) => {
@@ -1424,6 +1567,16 @@ async fn create_gate(
         return not_found("Task not found");
     }
 
+    let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+
     let gate_id = Uuid::new_v4().to_string();
     let now = Utc::now().naive_utc();
 
@@ -1490,14 +1643,22 @@ async fn resolve_gate(
         return bad_request("decision must be 'approved' or 'rejected'");
     }
 
+    let domain_id = match crate::routes::authz::domain_id_for_gate(&state.db, &gate_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+
     // Fetch gate and verify it belongs to this task and owner
-    let gate_row = match sqlx::query(
-        "SELECT * FROM reviewgate WHERE id=$1 AND mesh_task_id=$2",
-    )
-    .bind(&gate_id)
-    .bind(&task_id)
-    .fetch_optional(&state.db)
-    .await
+    let gate_row = match sqlx::query("SELECT * FROM reviewgate WHERE id=$1 AND mesh_task_id=$2")
+        .bind(&gate_id)
+        .bind(&task_id)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(r)) => r,
         Ok(None) => return not_found("Gate not found"),
@@ -1524,14 +1685,13 @@ async fn resolve_gate(
     let now = Utc::now().naive_utc();
 
     // Update the gate
-    let updated_gate = sqlx::query(
-        "UPDATE reviewgate SET status=$2, resolved_at=$3 WHERE id=$1 RETURNING *",
-    )
-    .bind(&gate_id)
-    .bind(&body.decision)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await;
+    let updated_gate =
+        sqlx::query("UPDATE reviewgate SET status=$2, resolved_at=$3 WHERE id=$1 RETURNING *")
+            .bind(&gate_id)
+            .bind(&body.decision)
+            .bind(now)
+            .fetch_one(&state.db)
+            .await;
 
     let gate_val = match updated_gate {
         Ok(r) => row_to_gate(&r),
@@ -1569,21 +1729,17 @@ async fn resolve_gate(
         let any_rejected = all_gates
             .iter()
             .any(|r| r.get::<String, _>("status") == "rejected");
-        let all_resolved = all_gates
-            .iter()
-            .all(|r| {
-                let s: String = r.get("status");
-                s == "approved" || s == "expired"
-            });
+        let all_resolved = all_gates.iter().all(|r| {
+            let s: String = r.get("status");
+            s == "approved" || s == "expired"
+        });
 
         if any_rejected {
-            let _ = sqlx::query(
-                "UPDATE meshtask SET status='failed', updated_at=$2 WHERE id=$1",
-            )
-            .bind(&task_id)
-            .bind(now)
-            .execute(&state.db)
-            .await;
+            let _ = sqlx::query("UPDATE meshtask SET status='failed', updated_at=$2 WHERE id=$1")
+                .bind(&task_id)
+                .bind(now)
+                .execute(&state.db)
+                .await;
         } else if all_resolved {
             let _ = sqlx::query(
                 "UPDATE meshtask SET status='finished', lease_expires_at=NULL, updated_at=$2 WHERE id=$1",
@@ -1617,16 +1773,15 @@ async fn agent_notify_ws(
 
 async fn handle_agent_notify(mut socket: WebSocket, state: Arc<AppState>, agent_id: String) {
     // Look up the agent's domain so we can subscribe to the right channel.
-    let domain_id = match sqlx::query_scalar::<_, String>(
-        "SELECT domain_id FROM meshagent WHERE id=$1",
-    )
-    .bind(&agent_id)
-    .fetch_optional(&state.db)
-    .await
-    {
-        Ok(Some(m)) => m,
-        _ => return,
-    };
+    let domain_id =
+        match sqlx::query_scalar::<_, String>("SELECT domain_id FROM meshagent WHERE id=$1")
+            .bind(&agent_id)
+            .fetch_optional(&state.db)
+            .await
+        {
+            Ok(Some(m)) => m,
+            _ => return,
+        };
 
     // Subscribe to the domain's broadcast channel, creating it on demand.
     let mut rx = {
@@ -1679,6 +1834,12 @@ async fn enroll_agent(
         return not_found("Domain not found");
     }
 
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+
     // If runtime_node_id provided, validate it exists and belongs to principal
     if let Some(ref rn_id) = body.runtime_node_id {
         let rn_row = sqlx::query("SELECT id, owner_subject FROM runtimenode WHERE id=$1")
@@ -1701,8 +1862,7 @@ async fn enroll_agent(
     let now = Utc::now().naive_utc();
 
     let caps_json = serde_json::to_string(&body.capabilities).unwrap_or_else(|_| "[]".to_string());
-    let labels_json =
-        serde_json::to_string(&body.labels).unwrap_or_else(|_| "{}".to_string());
+    let labels_json = serde_json::to_string(&body.labels).unwrap_or_else(|_| "{}".to_string());
     let profile_json = body
         .profile
         .as_ref()
@@ -1721,8 +1881,7 @@ async fn enroll_agent(
     // enrollment cleanly rather than orphan a meshagent row.
     let agent_public_id = match &body.agent_name {
         Some(n) if !n.trim().is_empty() => {
-            match crate::routes::agents::upsert_agent_by_name(&state.db, n.trim(), &caps_json)
-                .await
+            match crate::routes::agents::upsert_agent_by_name(&state.db, n.trim(), &caps_json).await
             {
                 Ok(pid) => Some(pid),
                 Err(e) => {
@@ -1816,7 +1975,7 @@ async fn list_domain_agents(
 
 async fn agent_heartbeat(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(agent_id): Path<String>,
 ) -> impl IntoResponse {
     let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshagent WHERE id=$1")
@@ -1828,14 +1987,23 @@ async fn agent_heartbeat(
         return not_found("Agent not found");
     }
 
+    let domain_id =
+        match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
+            Ok(d) => d,
+            Err(resp) => return resp,
+        };
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+
     let now = Utc::now().naive_utc();
-    match sqlx::query(
-        "UPDATE meshagent SET last_heartbeat_at=$2 WHERE id=$1 RETURNING *",
-    )
-    .bind(&agent_id)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await
+    match sqlx::query("UPDATE meshagent SET last_heartbeat_at=$2 WHERE id=$1 RETURNING *")
+        .bind(&agent_id)
+        .bind(now)
+        .fetch_one(&state.db)
+        .await
     {
         Ok(r) => Json(row_to_agent(&r)).into_response(),
         Err(e) => {
@@ -1858,12 +2026,11 @@ async fn delete_agent(
     principal: Principal,
     Path(agent_id): Path<String>,
 ) -> impl IntoResponse {
-    let row = sqlx::query(
-        "SELECT enrolled_by_subject, node_id, domain_id FROM meshagent WHERE id=$1",
-    )
-    .bind(&agent_id)
-    .fetch_optional(&state.db)
-    .await;
+    let row =
+        sqlx::query("SELECT enrolled_by_subject, node_id, domain_id FROM meshagent WHERE id=$1")
+            .bind(&agent_id)
+            .fetch_optional(&state.db)
+            .await;
     let (enrolled_by, node_id, domain_id): (String, Option<String>, String) = match row {
         Ok(Some(r)) => (
             r.get("enrolled_by_subject"),
@@ -1876,6 +2043,12 @@ async fn delete_agent(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
+
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
 
     if enrolled_by != principal.subject && !principal.is_admin {
         return StatusCode::FORBIDDEN.into_response();
@@ -1907,13 +2080,16 @@ async fn delete_agent(
 
 async fn set_agent_status(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(agent_id): Path<String>,
     Query(q): Query<AgentStatusQuery>,
 ) -> impl IntoResponse {
     let valid = ["online", "busy", "idle", "offline", "errored"];
     if !valid.contains(&q.status.as_str()) {
-        return bad_request(&format!("Invalid status: {}. Must be one of: online, busy, idle, offline, errored", q.status));
+        return bad_request(&format!(
+            "Invalid status: {}. Must be one of: online, busy, idle, offline, errored",
+            q.status
+        ));
     }
 
     let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshagent WHERE id=$1")
@@ -1923,6 +2099,17 @@ async fn set_agent_status(
         .unwrap_or(None);
     if exists.is_none() {
         return not_found("Agent not found");
+    }
+
+    let domain_id =
+        match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
+            Ok(d) => d,
+            Err(resp) => return resp,
+        };
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
     }
 
     match sqlx::query("UPDATE meshagent SET status=$2 WHERE id=$1 RETURNING *")
@@ -1941,7 +2128,7 @@ async fn set_agent_status(
 
 async fn update_agent_profile(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(agent_id): Path<String>,
     Json(body): Json<AgentProfileUpdate>,
 ) -> impl IntoResponse {
@@ -1952,6 +2139,17 @@ async fn update_agent_profile(
         .unwrap_or(None);
     if exists.is_none() {
         return not_found("Agent not found");
+    }
+
+    let domain_id =
+        match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
+            Ok(d) => d,
+            Err(resp) => return resp,
+        };
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
     }
 
     let profile_json = body
@@ -2055,11 +2253,13 @@ async fn get_agent_messages(
                 .collect();
             if !direct_ids.is_empty() {
                 let now = Utc::now().naive_utc();
-                let _ = sqlx::query("UPDATE meshmessage SET read_at=$2 WHERE id = ANY($1) AND read_at IS NULL")
-                    .bind(direct_ids.as_slice())
-                    .bind(now)
-                    .execute(&state.db)
-                    .await;
+                let _ = sqlx::query(
+                    "UPDATE meshmessage SET read_at=$2 WHERE id = ANY($1) AND read_at IS NULL",
+                )
+                .bind(direct_ids.as_slice())
+                .bind(now)
+                .execute(&state.db)
+                .await;
             }
             Json(rows.iter().map(row_to_message).collect::<Vec<_>>()).into_response()
         }
@@ -2100,13 +2300,11 @@ async fn list_domain_messages(
         .fetch_all(&state.db)
         .await
     } else {
-        sqlx::query(
-            "SELECT * FROM meshmessage WHERE domain_id=$1 AND id > $2 ORDER BY id ASC",
-        )
-        .bind(&domain_id)
-        .bind(since_id)
-        .fetch_all(&state.db)
-        .await
+        sqlx::query("SELECT * FROM meshmessage WHERE domain_id=$1 AND id > $2 ORDER BY id ASC")
+            .bind(&domain_id)
+            .bind(since_id)
+            .fetch_all(&state.db)
+            .await
     };
 
     match rows {
@@ -2131,6 +2329,12 @@ async fn send_domain_message(
         .unwrap_or(None);
     if domain_exists.is_none() {
         return not_found("Domain not found");
+    }
+
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
     }
 
     let body_json_str = if let Some(ref v) = body.body {
@@ -2239,13 +2443,11 @@ async fn list_mission_messages(
         .fetch_all(&state.db)
         .await
     } else {
-        sqlx::query(
-            "SELECT * FROM meshmessage WHERE mission_id=$1 AND id > $2 ORDER BY id ASC",
-        )
-        .bind(&mission_id)
-        .bind(since_id)
-        .fetch_all(&state.db)
-        .await
+        sqlx::query("SELECT * FROM meshmessage WHERE mission_id=$1 AND id > $2 ORDER BY id ASC")
+            .bind(&mission_id)
+            .bind(since_id)
+            .fetch_all(&state.db)
+            .await
     };
 
     match rows {
@@ -2263,19 +2465,17 @@ async fn send_mission_message(
     Path(mission_id): Path<String>,
     Json(body): Json<MessageCreate>,
 ) -> impl IntoResponse {
-    let mission_row = sqlx::query("SELECT id, domain_id FROM mission WHERE id=$1")
-        .bind(&mission_id)
-        .fetch_optional(&state.db)
-        .await;
+    let domain_id =
+        match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
+            Ok(d) => d,
+            Err(resp) => return resp,
+        };
 
-    let domain_id = match mission_row {
-        Ok(Some(r)) => r.get::<Option<String>, _>("domain_id").unwrap_or_default(),
-        Ok(None) => return not_found("Mission not found"),
-        Err(e) => {
-            tracing::error!("send_mission_message fetch mission: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
 
     let body_json_str = if let Some(ref v) = body.body {
         serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string())
@@ -2359,7 +2559,9 @@ async fn poll_ledger_stream(
 
         for row in &rows {
             let id: i32 = row.get("id");
-            if id > last_id { last_id = id; }
+            if id > last_id {
+                last_id = id;
+            }
             let evt = serde_json::json!({
                 "type": "event",
                 "id": id,
@@ -2371,7 +2573,11 @@ async fn poll_ledger_stream(
                 "created_at": row.get::<chrono::NaiveDateTime, _>("created_at"),
                 filter_col.as_str(): filter_val,
             });
-            if socket.send(Message::Text(evt.to_string().into())).await.is_err() {
+            if socket
+                .send(Message::Text(evt.to_string().into()))
+                .await
+                .is_err()
+            {
                 return;
             }
         }
@@ -2380,7 +2586,11 @@ async fn poll_ledger_stream(
         if ticks_since_ping >= 15 {
             ticks_since_ping = 0;
             let ping = serde_json::json!({"type": "ping"});
-            if socket.send(Message::Text(ping.to_string().into())).await.is_err() {
+            if socket
+                .send(Message::Text(ping.to_string().into()))
+                .await
+                .is_err()
+            {
                 return;
             }
         }
@@ -2393,9 +2603,7 @@ async fn poll_ledger_stream(
 // Streams meshprogressevent rows for all tasks/agents. Heartbeat every 30s.
 // Polls every 2 seconds for rows with id > last_seen.
 
-async fn global_sse(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn global_sse(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, std::convert::Infallible>>(64);
     let db = state.db.clone();
 
@@ -2408,7 +2616,7 @@ async fn global_sse(
 
             let rows = sqlx::query(
                 "SELECT id, task_id, agent_id, seq, event_type, phase, step, summary, occurred_at \
-                 FROM meshprogressevent WHERE id > $1 ORDER BY id ASC LIMIT 100"
+                 FROM meshprogressevent WHERE id > $1 ORDER BY id ASC LIMIT 100",
             )
             .bind(last_id)
             .fetch_all(&db)
@@ -2417,7 +2625,9 @@ async fn global_sse(
 
             for row in &rows {
                 let id: i32 = row.get("id");
-                if id > last_id { last_id = id; }
+                if id > last_id {
+                    last_id = id;
+                }
                 let data = serde_json::json!({
                     "id": id,
                     "task_id": row.get::<String, _>("task_id"),

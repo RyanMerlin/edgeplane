@@ -1,6 +1,4 @@
 //! Shared domain-authorization guard for privileged dispatch/ledger/stream handlers.
-// Callers land in Tasks 5–8; suppress dead_code until then.
-#![allow(dead_code)]
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
