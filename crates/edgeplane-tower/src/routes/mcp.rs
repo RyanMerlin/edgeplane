@@ -1,12 +1,12 @@
 use axum::{
+    Json, Router,
     extract::State,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::Row;
 use std::sync::Arc;
 
@@ -39,38 +39,130 @@ async fn list_tools() -> impl IntoResponse {
     // Total: 25. Management tools are served via REST API or the edgeplane CLI.
     let tools = vec![
         // ── Core mesh work (14) ────────────────────────────────────────────────
-        tool_def("submit_mesh_task", "Create a task in a mission (mesh work model)", json!({"type":"object","properties":{"mission_id":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"kind":{"type":"string"},"input_json":{"type":"string"},"priority":{"type":"integer"},"domain_id":{"type":"string"}}})),
-        tool_def("list_mesh_tasks", "List tasks in a mission (mesh work model)", json!({"type":"object","properties":{"mission_id":{"type":"string"},"status":{"type":"string"},"limit":{"type":"integer"}}})),
-        tool_def("claim_mesh_task", "Claim a mesh task for an agent; returns claim_lease_id", json!({"type":"object","properties":{"task_id":{"type":"string"},"agent_id":{"type":"string"},"lease_seconds":{"type":"integer"}}})),
-        tool_def("heartbeat_mesh_task", "Renew a mesh task lease to prevent expiry", json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"}}})),
-        tool_def("progress_mesh_task", "Post a typed progress event for a mesh task", json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"},"event_type":{"type":"string"},"payload_json":{"type":"string"}}})),
-        tool_def("complete_mesh_task", "Mark a mesh task as complete", json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"},"output_json":{"type":"string"}}})),
-        tool_def("fail_mesh_task", "Mark a mesh task as failed", json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"},"error":{"type":"string"}}})),
-        tool_def("block_mesh_task", "Mark a mesh task as blocked", json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"},"reason":{"type":"string"}}})),
-        tool_def("load_mission_workspace", "Load/sync a mission workspace and acquire a lease", json!({"type":"object","properties":{"mission_id":{"type":"string"},"workspace_label":{"type":"string"},"agent_id":{"type":"string"},"lease_seconds":{"type":"integer"}},"required":["mission_id"]})),
-        tool_def("heartbeat_workspace_lease", "Extend a workspace lease heartbeat", json!({"type":"object","properties":{"lease_id":{"type":"string"}},"required":["lease_id"]})),
-        tool_def("commit_mission_workspace", "Commit workspace changes with optimistic conflict checks", json!({"type":"object","properties":{"lease_id":{"type":"string"},"change_set":{"type":"array"},"validation_mode":{"type":"string"}},"required":["lease_id","change_set"]})),
-        tool_def("release_mission_workspace", "Release an active workspace lease", json!({"type":"object","properties":{"lease_id":{"type":"string"},"reason":{"type":"string"}},"required":["lease_id"]})),
-        tool_def("send_mesh_message", "Send a message in a mission or domain channel", json!({"type":"object","properties":{"mission_id":{"type":"string"},"domain_id":{"type":"string"},"content":{"type":"string"},"sender_agent_id":{"type":"string"},"recipient_agent_id":{"type":"string"}}})),
-        tool_def("list_mesh_messages", "List messages for an agent inbox", json!({"type":"object","properties":{"agent_id":{"type":"string"},"mission_id":{"type":"string"},"limit":{"type":"integer"}}})),
+        tool_def(
+            "submit_mesh_task",
+            "Create a task in a mission (mesh work model)",
+            json!({"type":"object","properties":{"mission_id":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"kind":{"type":"string"},"input_json":{"type":"string"},"priority":{"type":"integer"},"domain_id":{"type":"string"}}}),
+        ),
+        tool_def(
+            "list_mesh_tasks",
+            "List tasks in a mission (mesh work model)",
+            json!({"type":"object","properties":{"mission_id":{"type":"string"},"status":{"type":"string"},"limit":{"type":"integer"}}}),
+        ),
+        tool_def(
+            "claim_mesh_task",
+            "Claim a mesh task for an agent; returns claim_lease_id",
+            json!({"type":"object","properties":{"task_id":{"type":"string"},"agent_id":{"type":"string"},"lease_seconds":{"type":"integer"}}}),
+        ),
+        tool_def(
+            "heartbeat_mesh_task",
+            "Renew a mesh task lease to prevent expiry",
+            json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"}}}),
+        ),
+        tool_def(
+            "progress_mesh_task",
+            "Post a typed progress event for a mesh task",
+            json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"},"event_type":{"type":"string"},"payload_json":{"type":"string"}}}),
+        ),
+        tool_def(
+            "complete_mesh_task",
+            "Mark a mesh task as complete",
+            json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"},"output_json":{"type":"string"}}}),
+        ),
+        tool_def(
+            "fail_mesh_task",
+            "Mark a mesh task as failed",
+            json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"},"error":{"type":"string"}}}),
+        ),
+        tool_def(
+            "block_mesh_task",
+            "Mark a mesh task as blocked",
+            json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"},"reason":{"type":"string"}}}),
+        ),
+        tool_def(
+            "load_mission_workspace",
+            "Load/sync a mission workspace and acquire a lease",
+            json!({"type":"object","properties":{"mission_id":{"type":"string"},"workspace_label":{"type":"string"},"agent_id":{"type":"string"},"lease_seconds":{"type":"integer"}},"required":["mission_id"]}),
+        ),
+        tool_def(
+            "heartbeat_workspace_lease",
+            "Extend a workspace lease heartbeat",
+            json!({"type":"object","properties":{"lease_id":{"type":"string"}},"required":["lease_id"]}),
+        ),
+        tool_def(
+            "commit_mission_workspace",
+            "Commit workspace changes with optimistic conflict checks",
+            json!({"type":"object","properties":{"lease_id":{"type":"string"},"change_set":{"type":"array"},"validation_mode":{"type":"string"}},"required":["lease_id","change_set"]}),
+        ),
+        tool_def(
+            "release_mission_workspace",
+            "Release an active workspace lease",
+            json!({"type":"object","properties":{"lease_id":{"type":"string"},"reason":{"type":"string"}},"required":["lease_id"]}),
+        ),
+        tool_def(
+            "send_mesh_message",
+            "Send a message in a mission or domain channel",
+            json!({"type":"object","properties":{"mission_id":{"type":"string"},"domain_id":{"type":"string"},"content":{"type":"string"},"sender_agent_id":{"type":"string"},"recipient_agent_id":{"type":"string"}}}),
+        ),
+        tool_def(
+            "list_mesh_messages",
+            "List messages for an agent inbox",
+            json!({"type":"object","properties":{"agent_id":{"type":"string"},"mission_id":{"type":"string"},"limit":{"type":"integer"}}}),
+        ),
         // ── Borderline keep (3) ────────────────────────────────────────────────
-        tool_def("get_overlap_suggestions", "Get overlap suggestions for a task", json!({"type":"object","properties":{"task_id":{"type":"string"},"limit":{"type":"integer"}}})),
-        tool_def("fetch_workspace_artifact", "Fetch artifact bytes or signed download URL while a lease is active", json!({"type":"object","properties":{"lease_id":{"type":"string"},"artifact_id":{"type":"integer"},"mode":{"type":"string"},"expires_seconds":{"type":"integer"}},"required":["lease_id","artifact_id"]})),
-        tool_def("get_mesh_task", "Get a single mesh task by ID", json!({"type":"object","properties":{"task_id":{"type":"string"}}})),
+        tool_def(
+            "get_overlap_suggestions",
+            "Get overlap suggestions for a task",
+            json!({"type":"object","properties":{"task_id":{"type":"string"},"limit":{"type":"integer"}}}),
+        ),
+        tool_def(
+            "fetch_workspace_artifact",
+            "Fetch artifact bytes or signed download URL while a lease is active",
+            json!({"type":"object","properties":{"lease_id":{"type":"string"},"artifact_id":{"type":"integer"},"mode":{"type":"string"},"expires_seconds":{"type":"integer"}},"required":["lease_id","artifact_id"]}),
+        ),
+        tool_def(
+            "get_mesh_task",
+            "Get a single mesh task by ID",
+            json!({"type":"object","properties":{"task_id":{"type":"string"}}}),
+        ),
         // ── Extract-first (7): kept here until REST routes exist ───────────────
-        tool_def("get_artifact_download_url", "Get a short-lived download URL for an S3-backed artifact", json!({"type":"object","properties":{"artifact_id":{"type":"integer"},"expires_seconds":{"type":"integer"}}})),
-        tool_def("publish_pending_ledger_events", "Publish pending domain-scoped ledger events to Git", json!({"type":"object","properties":{"domain_id":{"type":"string"}}})),
-        tool_def("provision_domain_persistence", "Create/update connection, binding, and domain policy routes in one call", json!({"type":"object","properties":{"domain_id":{"type":"string"}}})),
-        tool_def("resolve_publish_plan", "Resolve publish route (binding/repo/branch/path) for an entity", json!({"type":"object","properties":{"entity_type":{"type":"string"},"entity_id":{"type":"string"},"domain_id":{"type":"string"}}})),
-        tool_def("get_publication_status", "List recent publication records", json!({"type":"object","properties":{"domain_id":{"type":"string"},"limit":{"type":"integer"}}})),
+        tool_def(
+            "get_artifact_download_url",
+            "Get a short-lived download URL for an S3-backed artifact",
+            json!({"type":"object","properties":{"artifact_id":{"type":"integer"},"expires_seconds":{"type":"integer"}}}),
+        ),
+        tool_def(
+            "publish_pending_ledger_events",
+            "Publish pending domain-scoped ledger events to Git",
+            json!({"type":"object","properties":{"domain_id":{"type":"string"}}}),
+        ),
+        tool_def(
+            "provision_domain_persistence",
+            "Create/update connection, binding, and domain policy routes in one call",
+            json!({"type":"object","properties":{"domain_id":{"type":"string"}}}),
+        ),
+        tool_def(
+            "resolve_publish_plan",
+            "Resolve publish route (binding/repo/branch/path) for an entity",
+            json!({"type":"object","properties":{"entity_type":{"type":"string"},"entity_id":{"type":"string"},"domain_id":{"type":"string"}}}),
+        ),
+        tool_def(
+            "get_publication_status",
+            "List recent publication records",
+            json!({"type":"object","properties":{"domain_id":{"type":"string"},"limit":{"type":"integer"}}}),
+        ),
         // ── Domain context (1) ─────────────────────────────────────────────────
-        tool_def("get_domain_northstar", "Load the Northstar narrative for a domain — describes the domain's purpose, scope, and direction", json!({
-            "type": "object",
-            "properties": {
-                "domain_id": {"type": "string", "description": "The domain id"}
-            },
-            "required": ["domain_id"]
-        })),
+        tool_def(
+            "get_domain_northstar",
+            "Load the Northstar narrative for a domain — describes the domain's purpose, scope, and direction",
+            json!({
+                "type": "object",
+                "properties": {
+                    "domain_id": {"type": "string", "description": "The domain id"}
+                },
+                "required": ["domain_id"]
+            }),
+        ),
     ];
     Json(tools)
 }
@@ -79,15 +171,28 @@ async fn list_tools() -> impl IntoResponse {
 /// Used by the parity test to ensure catalogue ↔ dispatch stay in sync.
 pub fn advertised_tool_names() -> Vec<&'static str> {
     vec![
-        "submit_mesh_task", "list_mesh_tasks", "claim_mesh_task",
-        "heartbeat_mesh_task", "progress_mesh_task", "complete_mesh_task",
-        "fail_mesh_task", "block_mesh_task", "load_mission_workspace",
-        "heartbeat_workspace_lease", "commit_mission_workspace",
-        "release_mission_workspace", "send_mesh_message", "list_mesh_messages",
-        "get_overlap_suggestions", "fetch_workspace_artifact", "get_mesh_task",
+        "submit_mesh_task",
+        "list_mesh_tasks",
+        "claim_mesh_task",
+        "heartbeat_mesh_task",
+        "progress_mesh_task",
+        "complete_mesh_task",
+        "fail_mesh_task",
+        "block_mesh_task",
+        "load_mission_workspace",
+        "heartbeat_workspace_lease",
+        "commit_mission_workspace",
+        "release_mission_workspace",
+        "send_mesh_message",
+        "list_mesh_messages",
+        "get_overlap_suggestions",
+        "fetch_workspace_artifact",
+        "get_mesh_task",
         "get_artifact_download_url",
-        "publish_pending_ledger_events", "provision_domain_persistence",
-        "resolve_publish_plan", "get_publication_status",
+        "publish_pending_ledger_events",
+        "provision_domain_persistence",
+        "resolve_publish_plan",
+        "get_publication_status",
         "get_domain_northstar",
     ]
 }
@@ -96,16 +201,28 @@ pub fn advertised_tool_names() -> Vec<&'static str> {
 /// Used by the parity test to ensure catalogue ↔ dispatch stay in sync.
 pub fn dispatch_handled_names() -> Vec<&'static str> {
     vec![
-        "submit_mesh_task", "list_mesh_tasks", "get_mesh_task",
-        "claim_mesh_task", "heartbeat_mesh_task", "progress_mesh_task",
-        "complete_mesh_task", "fail_mesh_task", "block_mesh_task",
-        "send_mesh_message", "list_mesh_messages",
-        "get_overlap_suggestions", "fetch_workspace_artifact",
-        "load_mission_workspace", "heartbeat_workspace_lease",
-        "commit_mission_workspace", "release_mission_workspace",
+        "submit_mesh_task",
+        "list_mesh_tasks",
+        "get_mesh_task",
+        "claim_mesh_task",
+        "heartbeat_mesh_task",
+        "progress_mesh_task",
+        "complete_mesh_task",
+        "fail_mesh_task",
+        "block_mesh_task",
+        "send_mesh_message",
+        "list_mesh_messages",
+        "get_overlap_suggestions",
+        "fetch_workspace_artifact",
+        "load_mission_workspace",
+        "heartbeat_workspace_lease",
+        "commit_mission_workspace",
+        "release_mission_workspace",
         "get_artifact_download_url",
-        "publish_pending_ledger_events", "provision_domain_persistence",
-        "resolve_publish_plan", "get_publication_status",
+        "publish_pending_ledger_events",
+        "provision_domain_persistence",
+        "resolve_publish_plan",
+        "get_publication_status",
         "get_domain_northstar",
     ]
 }
@@ -172,19 +289,16 @@ async fn call_tool(
     Json(result)
 }
 
-async fn dispatch(
-    state: &AppState,
-    principal: &Principal,
-    tool: &str,
-    args: &Value,
-) -> Value {
+async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Value) -> Value {
     let now = Utc::now().naive_utc();
 
     match tool {
         // ── Overlap ───────────────────────────────────────────────────────────
-
         "get_overlap_suggestions" => {
-            let task_id = match int_arg(args, "task_id") { Some(v) => v as i32, None => return err_result("task_id is required") };
+            let task_id = match int_arg(args, "task_id") {
+                Some(v) => v as i32,
+                None => return err_result("task_id is required"),
+            };
             let limit = int_arg(args, "limit").unwrap_or(10).min(50);
             match sqlx::query(
                 "SELECT id, task_id, candidate_task_id, similarity_score, evidence, suggested_action \
@@ -205,7 +319,6 @@ async fn dispatch(
         }
 
         // ── Mesh tasks ────────────────────────────────────────────────────────
-
         "submit_mesh_task" => {
             let mission_id = str_arg(args, "mission_id");
             let domain_id = str_arg(args, "domain_id");
@@ -220,14 +333,27 @@ async fn dispatch(
             match sqlx::query(
                 "INSERT INTO meshtask (id, mission_id, domain_id, title, description, input_json, \
                  priority, status, created_by_subject, created_at, updated_at) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,'ready',$8,$9,$9)"
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,'ready',$8,$9,$9)",
             )
-            .bind(&id).bind(&mission_id).bind(&domain_id).bind(&title).bind(&description)
-            .bind(input_json.to_string()).bind(priority).bind(&principal.subject).bind(now)
-            .execute(&state.db).await
+            .bind(&id)
+            .bind(&mission_id)
+            .bind(&domain_id)
+            .bind(&title)
+            .bind(&description)
+            .bind(input_json.to_string())
+            .bind(priority)
+            .bind(&principal.subject)
+            .bind(now)
+            .execute(&state.db)
+            .await
             {
-                Ok(_) => ok_result(json!({"task_id": id, "mission_id": mission_id, "domain_id": domain_id, "title": title, "status": "ready"})),
-                Err(e) => { tracing::error!("mcp submit_mesh_task: {e}"); err_result("database_error") }
+                Ok(_) => ok_result(
+                    json!({"task_id": id, "mission_id": mission_id, "domain_id": domain_id, "title": title, "status": "ready"}),
+                ),
+                Err(e) => {
+                    tracing::error!("mcp submit_mesh_task: {e}");
+                    err_result("database_error")
+                }
             }
         }
 
@@ -261,13 +387,17 @@ async fn dispatch(
 
         "get_mesh_task" => {
             let task_id = str_arg(args, "task_id");
-            if task_id.is_empty() { return err_result("task_id is required"); }
+            if task_id.is_empty() {
+                return err_result("task_id is required");
+            }
             match sqlx::query(
                 "SELECT id, mission_id, domain_id, title, description, status, priority, \
                  input_json, claimed_by_agent_id, claim_lease_id, lease_expires_at, \
-                 created_at, updated_at FROM meshtask WHERE id=$1"
+                 created_at, updated_at FROM meshtask WHERE id=$1",
             )
-            .bind(&task_id).fetch_optional(&state.db).await
+            .bind(&task_id)
+            .fetch_optional(&state.db)
+            .await
             {
                 Ok(Some(r)) => ok_result(json!({
                     "id": r.get::<String,_>("id"),
@@ -282,46 +412,72 @@ async fn dispatch(
                     "lease_expires_at": r.get::<Option<chrono::NaiveDateTime>,_>("lease_expires_at"),
                 })),
                 Ok(None) => err_result("mesh_task_not_found"),
-                Err(e) => { tracing::error!("mcp get_mesh_task: {e}"); err_result("database_error") }
+                Err(e) => {
+                    tracing::error!("mcp get_mesh_task: {e}");
+                    err_result("database_error")
+                }
             }
         }
 
         "claim_mesh_task" => {
             let task_id = str_arg(args, "task_id");
             let agent_id = str_arg(args, "agent_id");
-            if task_id.is_empty() || agent_id.is_empty() { return err_result("task_id and agent_id are required"); }
+            if task_id.is_empty() || agent_id.is_empty() {
+                return err_result("task_id and agent_id are required");
+            }
             let lease_seconds = int_arg(args, "lease_seconds").unwrap_or(300);
             let lease_id = uuid::Uuid::new_v4().to_string();
             let expires_at = now + chrono::Duration::seconds(lease_seconds);
             match sqlx::query(
                 "UPDATE meshtask SET status='claimed', claimed_by_agent_id=$2, claim_lease_id=$3, \
                  lease_expires_at=$4, version_counter=version_counter+1, updated_at=NOW() \
-                 WHERE id=$1 AND status='ready' RETURNING id"
+                 WHERE id=$1 AND status='ready' RETURNING id",
             )
-            .bind(&task_id).bind(&agent_id).bind(&lease_id).bind(expires_at)
-            .fetch_optional(&state.db).await
+            .bind(&task_id)
+            .bind(&agent_id)
+            .bind(&lease_id)
+            .bind(expires_at)
+            .fetch_optional(&state.db)
+            .await
             {
-                Ok(Some(_)) => ok_result(json!({"task_id": task_id, "claim_lease_id": lease_id, "lease_expires_at": expires_at})),
-                Ok(None) => json!({"ok": false, "error": "conflict", "detail": "task not found or already claimed"}),
-                Err(e) => { tracing::error!("mcp claim_mesh_task: {e}"); err_result("database_error") }
+                Ok(Some(_)) => ok_result(
+                    json!({"task_id": task_id, "claim_lease_id": lease_id, "lease_expires_at": expires_at}),
+                ),
+                Ok(None) => {
+                    json!({"ok": false, "error": "conflict", "detail": "task not found or already claimed"})
+                }
+                Err(e) => {
+                    tracing::error!("mcp claim_mesh_task: {e}");
+                    err_result("database_error")
+                }
             }
         }
 
         "heartbeat_mesh_task" => {
             let task_id = str_arg(args, "task_id");
             let claim_lease_id = str_arg(args, "claim_lease_id");
-            if task_id.is_empty() || claim_lease_id.is_empty() { return err_result("task_id and claim_lease_id are required"); }
+            if task_id.is_empty() || claim_lease_id.is_empty() {
+                return err_result("task_id and claim_lease_id are required");
+            }
             let expires_at = now + chrono::Duration::seconds(300);
             match sqlx::query(
                 "UPDATE meshtask SET lease_expires_at=$3, updated_at=NOW() \
-                 WHERE id=$1 AND claim_lease_id=$2 RETURNING id"
+                 WHERE id=$1 AND claim_lease_id=$2 RETURNING id",
             )
-            .bind(&task_id).bind(&claim_lease_id).bind(expires_at)
-            .fetch_optional(&state.db).await
+            .bind(&task_id)
+            .bind(&claim_lease_id)
+            .bind(expires_at)
+            .fetch_optional(&state.db)
+            .await
             {
-                Ok(Some(_)) => ok_result(json!({"task_id": task_id, "lease_expires_at": expires_at})),
+                Ok(Some(_)) => {
+                    ok_result(json!({"task_id": task_id, "lease_expires_at": expires_at}))
+                }
                 Ok(None) => err_result("invalid_task_or_lease"),
-                Err(e) => { tracing::error!("mcp heartbeat_mesh_task: {e}"); err_result("database_error") }
+                Err(e) => {
+                    tracing::error!("mcp heartbeat_mesh_task: {e}");
+                    err_result("database_error")
+                }
             }
         }
 
@@ -329,7 +485,9 @@ async fn dispatch(
             let task_id = str_arg(args, "task_id");
             let agent_id = str_arg(args, "agent_id");
             let event_type = str_arg(args, "event_type");
-            if task_id.is_empty() || event_type.is_empty() { return err_result("task_id and event_type are required"); }
+            if task_id.is_empty() || event_type.is_empty() {
+                return err_result("task_id and event_type are required");
+            }
             let payload_json = args.get("payload_json").cloned().unwrap_or(json!({}));
             let phase = args.get("phase").and_then(|v| v.as_str());
             let step = args.get("step").and_then(|v| v.as_str());
@@ -348,12 +506,14 @@ async fn dispatch(
 
         "complete_mesh_task" | "fail_mesh_task" | "block_mesh_task" => {
             let task_id = str_arg(args, "task_id");
-            if task_id.is_empty() { return err_result("task_id is required"); }
+            if task_id.is_empty() {
+                return err_result("task_id is required");
+            }
             let new_status = match tool {
                 "complete_mesh_task" => "finished",
-                "fail_mesh_task"     => "failed",
-                "block_mesh_task"    => "blocked",
-                _                    => return err_result("unknown_tool"),
+                "fail_mesh_task" => "failed",
+                "block_mesh_task" => "blocked",
+                _ => return err_result("unknown_tool"),
             };
             match sqlx::query(
                 "UPDATE meshtask SET status=$2, updated_at=NOW(), \
@@ -370,18 +530,21 @@ async fn dispatch(
         }
 
         // ── Mesh messages ─────────────────────────────────────────────────────
-
         "send_mesh_message" => {
             let domain_id = str_arg(args, "domain_id");
             let from_agent_id = str_arg(args, "sender_agent_id");
             let body = args.get("content").cloned().unwrap_or(json!({}));
-            if domain_id.is_empty() || from_agent_id.is_empty() { return err_result("domain_id and sender_agent_id are required"); }
+            if domain_id.is_empty() || from_agent_id.is_empty() {
+                return err_result("domain_id and sender_agent_id are required");
+            }
             let to_agent_id = args.get("recipient_agent_id").and_then(|v| v.as_str());
             let mission_id = args.get("mission_id").and_then(|v| v.as_str());
             let channel = str_arg_or(args, "channel", "coordination");
             let body_json = if body.is_string() {
                 json!({"text": body.as_str().unwrap_or("")})
-            } else { body };
+            } else {
+                body
+            };
             match sqlx::query(
                 "INSERT INTO meshmessage (domain_id, mission_id, from_agent_id, to_agent_id, channel, body_json, created_at) \
                  VALUES ($1,$2,$3,$4,$5,$6,NOW()) RETURNING id"
@@ -398,7 +561,9 @@ async fn dispatch(
         "list_mesh_messages" => {
             let agent_id = str_arg(args, "agent_id");
             let limit = int_arg(args, "limit").unwrap_or(20).min(100);
-            if agent_id.is_empty() { return err_result("agent_id is required"); }
+            if agent_id.is_empty() {
+                return err_result("agent_id is required");
+            }
             match sqlx::query(
                 "SELECT id, domain_id, from_agent_id, to_agent_id, channel, body_json, created_at, read_at \
                  FROM meshmessage WHERE (to_agent_id=$1 OR to_agent_id IS NULL) \
@@ -420,7 +585,6 @@ async fn dispatch(
         }
 
         // ── Publication ───────────────────────────────────────────────────────
-
         "resolve_publish_plan" => {
             let domain_id = str_arg(args, "domain_id");
             let entity_kind = str_arg(args, "entity_kind");
@@ -437,10 +601,13 @@ async fn dispatch(
                  JOIN repoconnection c ON c.id = b.connection_id \
                  WHERE r.domain_id=$1 AND r.entity_kind=$2 AND r.active=true \
                  AND (r.event_kind=$3 OR r.event_kind='') \
-                 ORDER BY r.event_kind DESC LIMIT 1"
+                 ORDER BY r.event_kind DESC LIMIT 1",
             )
-            .bind(&domain_id).bind(&entity_kind).bind(&event_kind)
-            .fetch_optional(&state.db).await;
+            .bind(&domain_id)
+            .bind(&entity_kind)
+            .bind(&event_kind)
+            .fetch_optional(&state.db)
+            .await;
             match row {
                 Ok(Some(r)) => ok_result(json!({
                     "binding_id": r.get::<i32,_>("binding_id"),
@@ -454,7 +621,10 @@ async fn dispatch(
                     "format": r.get::<Option<String>,_>("format"),
                 })),
                 Ok(None) => err_result("no_publish_plan_found"),
-                Err(e) => { tracing::error!("mcp resolve_publish_plan: {e}"); err_result("database_error") }
+                Err(e) => {
+                    tracing::error!("mcp resolve_publish_plan: {e}");
+                    err_result("database_error")
+                }
             }
         }
 
@@ -469,44 +639,93 @@ async fn dispatch(
                     .bind(&principal.subject).bind(&domain_id).bind(limit).fetch_all(&state.db).await
             };
             match rows {
-                Ok(rows) => ok_result(json!(rows.iter().map(|r| json!({
-                    "id": r.get::<i32,_>("id"),
-                    "owner_subject": r.get::<String,_>("owner_subject"),
-                    "domain_id": r.get::<Option<String>,_>("domain_id"),
-                    "entity_kind": r.get::<String,_>("entity_kind"),
-                    "entity_id": r.get::<String,_>("entity_id"),
-                    "event_kind": r.get::<Option<String>,_>("event_kind"),
-                    "binding_id": r.get::<Option<i32>,_>("binding_id"),
-                    "status": r.get::<String,_>("status"),
-                    "error": r.get::<Option<String>,_>("error"),
-                    "commit_sha": r.get::<Option<String>,_>("commit_sha"),
-                    "created_at": r.get::<chrono::NaiveDateTime,_>("created_at"),
-                    "updated_at": r.get::<chrono::NaiveDateTime,_>("updated_at"),
-                })).collect::<Vec<_>>())),
-                Err(e) => { tracing::error!("mcp get_publication_status: {e}"); err_result("database_error") }
+                Ok(rows) => ok_result(json!(
+                    rows.iter()
+                        .map(|r| json!({
+                            "id": r.get::<i32,_>("id"),
+                            "owner_subject": r.get::<String,_>("owner_subject"),
+                            "domain_id": r.get::<Option<String>,_>("domain_id"),
+                            "entity_kind": r.get::<String,_>("entity_kind"),
+                            "entity_id": r.get::<String,_>("entity_id"),
+                            "event_kind": r.get::<Option<String>,_>("event_kind"),
+                            "binding_id": r.get::<Option<i32>,_>("binding_id"),
+                            "status": r.get::<String,_>("status"),
+                            "error": r.get::<Option<String>,_>("error"),
+                            "commit_sha": r.get::<Option<String>,_>("commit_sha"),
+                            "created_at": r.get::<chrono::NaiveDateTime,_>("created_at"),
+                            "updated_at": r.get::<chrono::NaiveDateTime,_>("updated_at"),
+                        }))
+                        .collect::<Vec<_>>()
+                )),
+                Err(e) => {
+                    tracing::error!("mcp get_publication_status: {e}");
+                    err_result("database_error")
+                }
             }
         }
 
         // ── Provision persistence ─────────────────────────────────────────────
-
         "provision_domain_persistence" => {
             let domain_id = str_arg(args, "domain_id");
-            if domain_id.is_empty() { return err_result("domain_id is required"); }
+            if domain_id.is_empty() {
+                return err_result("domain_id is required");
+            }
 
-            let conn_input = args.get("connection").and_then(|v| v.as_object()).cloned().unwrap_or_default();
-            let bind_input = args.get("binding").and_then(|v| v.as_object()).cloned().unwrap_or_default();
-            let routes_input = args.get("routes").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let conn_input = args
+                .get("connection")
+                .and_then(|v| v.as_object())
+                .cloned()
+                .unwrap_or_default();
+            let bind_input = args
+                .get("binding")
+                .and_then(|v| v.as_object())
+                .cloned()
+                .unwrap_or_default();
+            let routes_input = args
+                .get("routes")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
 
-            let conn_name = conn_input.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-            let repo_path = conn_input.get("repo_path").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            let conn_name = conn_input
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let repo_path = conn_input
+                .get("repo_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if conn_name.is_empty() || repo_path.is_empty() {
                 return err_result("connection.name and connection.repo_path are required");
             }
-            let provider = conn_input.get("provider").and_then(|v| v.as_str()).unwrap_or("github_app").to_string();
-            let host = conn_input.get("host").and_then(|v| v.as_str()).unwrap_or("github.com").to_string();
-            let default_branch = conn_input.get("default_branch").and_then(|v| v.as_str()).unwrap_or("main").to_string();
-            let credential_ref = conn_input.get("credential_ref").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let options_json = conn_input.get("options").map(|v| v.to_string()).unwrap_or_else(|| "{}".into());
+            let provider = conn_input
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or("github_app")
+                .to_string();
+            let host = conn_input
+                .get("host")
+                .and_then(|v| v.as_str())
+                .unwrap_or("github.com")
+                .to_string();
+            let default_branch = conn_input
+                .get("default_branch")
+                .and_then(|v| v.as_str())
+                .unwrap_or("main")
+                .to_string();
+            let credential_ref = conn_input
+                .get("credential_ref")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let options_json = conn_input
+                .get("options")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "{}".into());
 
             // Upsert RepoConnection
             let conn_row = sqlx::query(
@@ -521,16 +740,38 @@ async fn dispatch(
             .fetch_one(&state.db).await;
             let conn_row = match conn_row {
                 Ok(r) => r,
-                Err(e) => { tracing::error!("mcp provision conn: {e}"); return err_result("database_error"); }
+                Err(e) => {
+                    tracing::error!("mcp provision conn: {e}");
+                    return err_result("database_error");
+                }
             };
             let conn_id: i32 = conn_row.get("id");
 
             // Upsert RepoBinding
-            let bind_name = bind_input.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-            if bind_name.is_empty() { return err_result("binding.name is required"); }
-            let branch_override = bind_input.get("branch_override").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let base_path = bind_input.get("base_path").and_then(|v| v.as_str()).unwrap_or("domains").trim_matches('/').to_string();
-            let bind_active = bind_input.get("active").and_then(|v| v.as_bool()).unwrap_or(true);
+            let bind_name = bind_input
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if bind_name.is_empty() {
+                return err_result("binding.name is required");
+            }
+            let branch_override = bind_input
+                .get("branch_override")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let base_path = bind_input
+                .get("base_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("domains")
+                .trim_matches('/')
+                .to_string();
+            let bind_active = bind_input
+                .get("active")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
 
             let bind_row = sqlx::query(
                 "INSERT INTO repobinding (owner_subject, name, connection_id, branch_override, base_path, active, created_at, updated_at) \
@@ -544,13 +785,19 @@ async fn dispatch(
             .fetch_one(&state.db).await;
             let bind_row = match bind_row {
                 Ok(r) => r,
-                Err(e) => { tracing::error!("mcp provision binding: {e}"); return err_result("database_error"); }
+                Err(e) => {
+                    tracing::error!("mcp provision binding: {e}");
+                    return err_result("database_error");
+                }
             };
             let bind_id: i32 = bind_row.get("id");
 
             // Upsert DomainPersistencePolicy
             let fallback_mode = str_arg_or(args, "fallback_mode", "fail_closed");
-            let require_approval = args.get("require_approval").and_then(|v| v.as_bool()).unwrap_or(false);
+            let require_approval = args
+                .get("require_approval")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let _ = sqlx::query(
                 "INSERT INTO domainpersistencepolicy (domain_id, default_binding_id, fallback_mode, require_approval, created_at, updated_at) \
                  VALUES ($1,$2,$3,$4,$5,$5) \
@@ -562,27 +809,57 @@ async fn dispatch(
 
             // Replace routes
             let _ = sqlx::query("DELETE FROM domainpersistenceroute WHERE domain_id=$1")
-                .bind(&domain_id).execute(&state.db).await;
+                .bind(&domain_id)
+                .execute(&state.db)
+                .await;
 
             for route in &routes_input {
-                let target_name = route.get("binding_name")
-                    .and_then(|v| v.as_str()).unwrap_or(&bind_name);
+                let target_name = route
+                    .get("binding_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&bind_name);
                 let target_id: Option<i32> = if target_name == bind_name {
                     Some(bind_id)
                 } else {
-                    sqlx::query_scalar("SELECT id FROM repobinding WHERE owner_subject=$1 AND name=$2")
-                        .bind(&principal.subject).bind(target_name)
-                        .fetch_optional(&state.db).await.unwrap_or(None)
+                    sqlx::query_scalar(
+                        "SELECT id FROM repobinding WHERE owner_subject=$1 AND name=$2",
+                    )
+                    .bind(&principal.subject)
+                    .bind(target_name)
+                    .fetch_optional(&state.db)
+                    .await
+                    .unwrap_or(None)
                 };
-                let Some(tid) = target_id else { continue; };
-                let entity_kind = route.get("entity_kind").and_then(|v| v.as_str()).unwrap_or("");
-                if entity_kind.is_empty() { continue; }
-                let event_kind = route.get("event_kind").and_then(|v| v.as_str()).unwrap_or("");
-                let route_branch = route.get("branch_override").and_then(|v| v.as_str()).unwrap_or("");
-                let path_tpl = route.get("path_template").and_then(|v| v.as_str())
+                let Some(tid) = target_id else {
+                    continue;
+                };
+                let entity_kind = route
+                    .get("entity_kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if entity_kind.is_empty() {
+                    continue;
+                }
+                let event_kind = route
+                    .get("event_kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let route_branch = route
+                    .get("branch_override")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let path_tpl = route
+                    .get("path_template")
+                    .and_then(|v| v.as_str())
                     .unwrap_or("domains/{domain_id}/{entity_kind}/{entity_id}.json");
-                let format = route.get("format").and_then(|v| v.as_str()).unwrap_or("json_v1");
-                let active = route.get("active").and_then(|v| v.as_bool()).unwrap_or(true);
+                let format = route
+                    .get("format")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("json_v1");
+                let active = route
+                    .get("active")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
                 let _ = sqlx::query(
                     "INSERT INTO domainpersistenceroute \
                      (domain_id, entity_kind, event_kind, binding_id, branch_override, path_template, format, active, created_at, updated_at) \
@@ -639,23 +916,31 @@ async fn dispatch(
         }
 
         // ── Git ledger publish ────────────────────────────────────────────────
-
         "publish_pending_ledger_events" => {
             let domain_id = str_arg(args, "domain_id");
-            if domain_id.is_empty() { return err_result("domain_id is required"); }
+            if domain_id.is_empty() {
+                return err_result("domain_id is required");
+            }
 
             // Fetch pending events
             let events = sqlx::query(
                 "SELECT * FROM ledgerevent WHERE domain_id=$1 AND state='pending' \
-                 ORDER BY created_at ASC LIMIT 500"
+                 ORDER BY created_at ASC LIMIT 500",
             )
-            .bind(&domain_id).fetch_all(&state.db).await;
+            .bind(&domain_id)
+            .fetch_all(&state.db)
+            .await;
             let events = match events {
                 Ok(e) => e,
-                Err(e) => { tracing::error!("mcp publish_ledger fetch: {e}"); return err_result("database_error"); }
+                Err(e) => {
+                    tracing::error!("mcp publish_ledger fetch: {e}");
+                    return err_result("database_error");
+                }
             };
             if events.is_empty() {
-                return ok_result(json!({"published_count": 0, "commit_sha": "", "branch": "", "repo_url": ""}));
+                return ok_result(
+                    json!({"published_count": 0, "commit_sha": "", "branch": "", "repo_url": ""}),
+                );
             }
 
             // Get routing: binding + connection
@@ -667,21 +952,28 @@ async fn dispatch(
                  JOIN repobinding b ON b.id = r.binding_id \
                  JOIN repoconnection c ON c.id = b.connection_id \
                  WHERE r.domain_id=$1 AND r.active=true \
-                 ORDER BY r.id ASC LIMIT 1"
+                 ORDER BY r.id ASC LIMIT 1",
             )
-            .bind(&domain_id).fetch_optional(&state.db).await;
+            .bind(&domain_id)
+            .fetch_optional(&state.db)
+            .await;
             let route = match route {
                 Ok(Some(r)) => r,
                 Ok(None) => return err_result("no publish route configured for domain"),
-                Err(e) => { tracing::error!("mcp publish_ledger route: {e}"); return err_result("database_error"); }
+                Err(e) => {
+                    tracing::error!("mcp publish_ledger route: {e}");
+                    return err_result("database_error");
+                }
             };
 
             let host: String = route.get("host");
             let repo_path: String = route.get("repo_path");
             let default_branch: String = route.get("default_branch");
             let credential_ref: String = route.get("credential_ref");
-            let branch: String = route.try_get("branch_override")
-                .ok().filter(|s: &String| !s.is_empty())
+            let branch: String = route
+                .try_get("branch_override")
+                .ok()
+                .filter(|s: &String| !s.is_empty())
                 .unwrap_or_else(|| default_branch.clone());
             let path_tpl: String = route.get("path_template");
 
@@ -701,14 +993,27 @@ async fn dispatch(
             // Clone to tempdir and write files
             let tmpdir = match tempfile::TempDir::new() {
                 Ok(d) => d,
-                Err(e) => { tracing::error!("mcp publish_ledger tempdir: {e}"); return err_result("internal_error"); }
+                Err(e) => {
+                    tracing::error!("mcp publish_ledger tempdir: {e}");
+                    return err_result("internal_error");
+                }
             };
             let repo_dir = tmpdir.path().to_string_lossy().to_string();
 
             let clone_out = std::process::Command::new("git")
-                .args(["clone", "--depth=1", "--branch", &branch, &repo_url, &repo_dir])
+                .args([
+                    "clone",
+                    "--depth=1",
+                    "--branch",
+                    &branch,
+                    &repo_url,
+                    &repo_dir,
+                ])
                 .output();
-            if let Err(e) = clone_out { tracing::error!("mcp publish_ledger clone: {e}"); return err_result("git_clone_failed"); }
+            if let Err(e) = clone_out {
+                tracing::error!("mcp publish_ledger clone: {e}");
+                return err_result("git_clone_failed");
+            }
 
             // Write entity files
             for event in &events {
@@ -730,15 +1035,32 @@ async fn dispatch(
             }
 
             // Commit and push
-            let commit_msg = format!("edgeplane-tower: publish {} ledger events for {}", events.len(), domain_id);
+            let commit_msg = format!(
+                "edgeplane-tower: publish {} ledger events for {}",
+                events.len(),
+                domain_id
+            );
             let _ = std::process::Command::new("git")
-                .args(["-C", &repo_dir, "config", "user.email", "git@ryanmerlin.com"])
+                .args([
+                    "-C",
+                    &repo_dir,
+                    "config",
+                    "user.email",
+                    "git@ryanmerlin.com",
+                ])
                 .output();
             let _ = std::process::Command::new("git")
                 .args(["-C", &repo_dir, "config", "user.name", "edgeplane-tower"])
                 .output();
             let commit_out = std::process::Command::new("git")
-                .args(["-C", &repo_dir, "commit", "--allow-empty", "-m", &commit_msg])
+                .args([
+                    "-C",
+                    &repo_dir,
+                    "commit",
+                    "--allow-empty",
+                    "-m",
+                    &commit_msg,
+                ])
                 .output();
             let commit_sha = if let Ok(_out) = commit_out {
                 // Extract SHA from "git rev-parse HEAD"
@@ -754,7 +1076,9 @@ async fn dispatch(
             let push_out = std::process::Command::new("git")
                 .args(["-C", &repo_dir, "push", "origin", &branch])
                 .output();
-            if let Err(e) = push_out { tracing::error!("mcp publish_ledger push: {e}"); }
+            if let Err(e) = push_out {
+                tracing::error!("mcp publish_ledger push: {e}");
+            }
 
             // Update ledger events state
             let published_count = events.len() as i64;
@@ -774,22 +1098,33 @@ async fn dispatch(
             }
 
             let clean_repo_url = format!("https://{host}/{repo_path}");
-            ok_result(json!({"published_count": published_count, "commit_sha": commit_sha, "branch": branch, "repo_url": clean_repo_url}))
+            ok_result(
+                json!({"published_count": published_count, "commit_sha": commit_sha, "branch": branch, "repo_url": clean_repo_url}),
+            )
         }
 
         // ── get_artifact_download_url — SigV4 presigned S3 URL ──────────────────
         "get_artifact_download_url" => {
             let artifact_id = int_arg(args, "artifact_id").unwrap_or(0) as i32;
-            let expires: u64 = int_arg(args, "expires_seconds").unwrap_or(60).clamp(1, 3600) as u64;
-            if artifact_id <= 0 { return err_result("artifact_id is required"); }
+            let expires: u64 = int_arg(args, "expires_seconds")
+                .unwrap_or(60)
+                .clamp(1, 3600) as u64;
+            if artifact_id <= 0 {
+                return err_result("artifact_id is required");
+            }
 
             // Look up artifact
             let artifact = sqlx::query("SELECT * FROM artifact WHERE id=$1")
-                .bind(artifact_id).fetch_optional(&state.db).await;
+                .bind(artifact_id)
+                .fetch_optional(&state.db)
+                .await;
             let artifact = match artifact {
                 Ok(Some(r)) => r,
                 Ok(None) => return err_result("Artifact not found"),
-                Err(e) => { tracing::error!("get_artifact_download_url artifact: {e}"); return err_result("database_error"); }
+                Err(e) => {
+                    tracing::error!("get_artifact_download_url artifact: {e}");
+                    return err_result("database_error");
+                }
             };
             let storage_backend: String = artifact.try_get("storage_backend").unwrap_or_default();
             let uri: String = artifact.try_get("uri").unwrap_or_default();
@@ -809,7 +1144,8 @@ async fn dispatch(
 
             // Read config from env
             let endpoint = std::env::var("EP_OBJECT_STORAGE_ENDPOINT").unwrap_or_default();
-            let region = std::env::var("EP_OBJECT_STORAGE_REGION").unwrap_or_else(|_| "us-east-1".into());
+            let region =
+                std::env::var("EP_OBJECT_STORAGE_REGION").unwrap_or_else(|_| "us-east-1".into());
             let access_key = std::env::var("EP_OBJECT_STORAGE_ACCESS_KEY")
                 .or_else(|_| std::env::var("EP_OBJECT_STORAGE_KEY"))
                 .unwrap_or_default();
@@ -851,11 +1187,13 @@ async fn dispatch(
 
             // Canonical query string — params sorted lexicographically
             let signed_headers = "host";
-            let mut qparams = [("X-Amz-Algorithm", algorithm.to_string()),
+            let mut qparams = [
+                ("X-Amz-Algorithm", algorithm.to_string()),
                 ("X-Amz-Credential", credential.clone()),
                 ("X-Amz-Date", amz_date.clone()),
                 ("X-Amz-Expires", expires.to_string()),
-                ("X-Amz-SignedHeaders", signed_headers.to_string())];
+                ("X-Amz-SignedHeaders", signed_headers.to_string()),
+            ];
             qparams.sort_by(|a, b| a.0.cmp(b.0));
             let canonical_qs: String = qparams
                 .iter()
@@ -887,29 +1225,36 @@ async fn dispatch(
             } else {
                 "https"
             };
-            let presigned_url = format!(
-                "{scheme}://{host}{url_path}?{canonical_qs}&X-Amz-Signature={signature}"
-            );
+            let presigned_url =
+                format!("{scheme}://{host}{url_path}?{canonical_qs}&X-Amz-Signature={signature}");
 
             ok_result(json!({"url": presigned_url, "expires_seconds": expires}))
         }
 
         // ── Workspace leases ──────────────────────────────────────────────────
-
         "load_mission_workspace" => {
             let mission_id = str_arg(args, "mission_id");
-            if mission_id.is_empty() { return err_result("mission_id is required"); }
-            let lease_seconds = int_arg(args, "lease_seconds").unwrap_or(900).clamp(60, 3600) as i32;
+            if mission_id.is_empty() {
+                return err_result("mission_id is required");
+            }
+            let lease_seconds = int_arg(args, "lease_seconds")
+                .unwrap_or(900)
+                .clamp(60, 3600) as i32;
             let workspace_label = str_arg(args, "workspace_label");
             let agent_id = str_arg(args, "agent_id");
 
             // Verify mission exists and get its domain_id
             let mission = sqlx::query("SELECT id, domain_id FROM mission WHERE id=$1")
-                .bind(&mission_id).fetch_optional(&state.db).await;
+                .bind(&mission_id)
+                .fetch_optional(&state.db)
+                .await;
             let mission = match mission {
                 Ok(Some(r)) => r,
                 Ok(None) => return err_result("Mission not found"),
-                Err(e) => { tracing::error!("mcp load_mission_workspace mission: {e}"); return err_result("database_error"); }
+                Err(e) => {
+                    tracing::error!("mcp load_mission_workspace mission: {e}");
+                    return err_result("database_error");
+                }
             };
             let domain_id: Option<String> = mission.get("domain_id");
             let domain_id = match domain_id {
@@ -921,47 +1266,74 @@ async fn dispatch(
             let snapshot = build_workspace_snapshot(&state.db, &domain_id, &mission_id).await;
 
             // Create lease
-            let lease_id = format!("wl-{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..12]);
+            let lease_id = format!(
+                "wl-{}",
+                &uuid::Uuid::new_v4().to_string().replace('-', "")[..12]
+            );
             let expires_at = now + chrono::Duration::seconds(lease_seconds as i64);
-            let snapshot_index = serde_json::to_string(&snapshot.get("index").cloned().unwrap_or(json!({}))).unwrap_or_default();
+            let snapshot_index =
+                serde_json::to_string(&snapshot.get("index").cloned().unwrap_or(json!({})))
+                    .unwrap_or_default();
 
             let lease = sqlx::query(
                 "INSERT INTO workspacelease \
                  (id, domain_id, mission_id, actor_subject, agent_id, workspace_label, \
                   status, base_snapshot_json, lease_seconds, last_heartbeat_at, expires_at, \
                   release_reason, created_at, updated_at) \
-                 VALUES ($1,$2,$3,$4,$5,$6,'active',$7,$8,$9,$10,'',$9,$9) RETURNING *"
+                 VALUES ($1,$2,$3,$4,$5,$6,'active',$7,$8,$9,$10,'',$9,$9) RETURNING *",
             )
-            .bind(&lease_id).bind(&domain_id).bind(&mission_id)
-            .bind(&principal.subject).bind(&agent_id).bind(&workspace_label)
-            .bind(&snapshot_index).bind(lease_seconds).bind(now).bind(expires_at)
-            .fetch_one(&state.db).await;
+            .bind(&lease_id)
+            .bind(&domain_id)
+            .bind(&mission_id)
+            .bind(&principal.subject)
+            .bind(&agent_id)
+            .bind(&workspace_label)
+            .bind(&snapshot_index)
+            .bind(lease_seconds)
+            .bind(now)
+            .bind(expires_at)
+            .fetch_one(&state.db)
+            .await;
 
             match lease {
                 Ok(r) => ok_result(json!({
                     "lease": lease_row_to_json(&r),
                     "workspace_snapshot": snapshot,
                 })),
-                Err(e) => { tracing::error!("mcp load_mission_workspace insert: {e}"); err_result("database_error") }
+                Err(e) => {
+                    tracing::error!("mcp load_mission_workspace insert: {e}");
+                    err_result("database_error")
+                }
             }
         }
 
         "heartbeat_workspace_lease" => {
             let lease_id = str_arg(args, "lease_id");
-            if lease_id.is_empty() { return err_result("lease_id is required"); }
+            if lease_id.is_empty() {
+                return err_result("lease_id is required");
+            }
 
             let lease = sqlx::query("SELECT * FROM workspacelease WHERE id=$1")
-                .bind(&lease_id).fetch_optional(&state.db).await;
+                .bind(&lease_id)
+                .fetch_optional(&state.db)
+                .await;
             let lease = match lease {
                 Ok(Some(r)) => r,
                 Ok(None) => return err_result("Workspace lease not found"),
-                Err(e) => { tracing::error!("mcp heartbeat lease: {e}"); return err_result("database_error"); }
+                Err(e) => {
+                    tracing::error!("mcp heartbeat lease: {e}");
+                    return err_result("database_error");
+                }
             };
 
             let owner: String = lease.get("actor_subject");
-            if owner != principal.subject && !principal.is_admin { return err_result("forbidden"); }
+            if owner != principal.subject && !principal.is_admin {
+                return err_result("forbidden");
+            }
             let status: String = lease.get("status");
-            if status != "active" { return err_result("Workspace lease is not active"); }
+            if status != "active" {
+                return err_result("Workspace lease is not active");
+            }
             let lease_seconds: i32 = lease.try_get("lease_seconds").unwrap_or(900);
             let new_expires = now + chrono::Duration::seconds(lease_seconds as i64);
 
@@ -984,31 +1356,51 @@ async fn dispatch(
             let lease_id = str_arg(args, "lease_id");
             let artifact_id = int_arg(args, "artifact_id").unwrap_or(0) as i32;
             let mode = str_arg_or(args, "mode", "content");
-            if lease_id.is_empty() { return err_result("lease_id is required"); }
-            if artifact_id <= 0 { return err_result("artifact_id is required"); }
+            if lease_id.is_empty() {
+                return err_result("lease_id is required");
+            }
+            if artifact_id <= 0 {
+                return err_result("artifact_id is required");
+            }
 
             let lease = sqlx::query("SELECT * FROM workspacelease WHERE id=$1")
-                .bind(&lease_id).fetch_optional(&state.db).await;
+                .bind(&lease_id)
+                .fetch_optional(&state.db)
+                .await;
             let lease = match lease {
                 Ok(Some(r)) => r,
                 Ok(None) => return err_result("Workspace lease not found"),
-                Err(e) => { tracing::error!("mcp fetch_workspace_artifact lease: {e}"); return err_result("database_error"); }
+                Err(e) => {
+                    tracing::error!("mcp fetch_workspace_artifact lease: {e}");
+                    return err_result("database_error");
+                }
             };
             let owner: String = lease.get("actor_subject");
-            if owner != principal.subject && !principal.is_admin { return err_result("forbidden"); }
+            if owner != principal.subject && !principal.is_admin {
+                return err_result("forbidden");
+            }
             let lease_status: String = lease.get("status");
-            if lease_status != "active" { return err_result("Workspace lease is not active"); }
+            if lease_status != "active" {
+                return err_result("Workspace lease is not active");
+            }
             let lease_mission: String = lease.get("mission_id");
 
             let artifact = sqlx::query("SELECT * FROM artifact WHERE id=$1")
-                .bind(artifact_id).fetch_optional(&state.db).await;
+                .bind(artifact_id)
+                .fetch_optional(&state.db)
+                .await;
             let artifact = match artifact {
                 Ok(Some(r)) => r,
                 Ok(None) => return err_result("Artifact not found"),
-                Err(e) => { tracing::error!("mcp fetch_workspace_artifact artifact: {e}"); return err_result("database_error"); }
+                Err(e) => {
+                    tracing::error!("mcp fetch_workspace_artifact artifact: {e}");
+                    return err_result("database_error");
+                }
             };
             let art_mission: String = artifact.get("mission_id");
-            if art_mission != lease_mission { return err_result("Artifact is outside lease mission scope"); }
+            if art_mission != lease_mission {
+                return err_result("Artifact is outside lease mission scope");
+            }
 
             let storage_backend: String = artifact.try_get("storage_backend").unwrap_or_default();
             let content_b64: Option<String> = artifact.try_get("content_b64").ok().flatten();
@@ -1022,8 +1414,10 @@ async fn dispatch(
                 match content_b64 {
                     Some(b64) if !b64.is_empty() => {
                         use base64::Engine;
-                        let size = base64::engine::general_purpose::STANDARD.decode(b64.as_bytes())
-                            .map(|b| b.len()).unwrap_or(0);
+                        let size = base64::engine::general_purpose::STANDARD
+                            .decode(b64.as_bytes())
+                            .map(|b| b.len())
+                            .unwrap_or(0);
                         ok_result(json!({
                             "artifact_id": artifact_id,
                             "mode": "content",
@@ -1037,7 +1431,9 @@ async fn dispatch(
             } else {
                 // download_url mode
                 if storage_backend != "s3" {
-                    return err_result("Artifact is not S3-backed — use content mode or Python API for download URL");
+                    return err_result(
+                        "Artifact is not S3-backed — use content mode or Python API for download URL",
+                    );
                 }
                 err_result("S3 presigned URL generation requires Python API")
             }
@@ -1045,23 +1441,34 @@ async fn dispatch(
 
         "commit_mission_workspace" => {
             let lease_id = str_arg(args, "lease_id");
-            if lease_id.is_empty() { return err_result("lease_id is required"); }
+            if lease_id.is_empty() {
+                return err_result("lease_id is required");
+            }
             let changes = match args.get("change_set").and_then(|v| v.as_array()) {
                 Some(c) if !c.is_empty() => c.clone(),
                 _ => return err_result("change_set must be a non-empty array"),
             };
 
             let lease = sqlx::query("SELECT * FROM workspacelease WHERE id=$1")
-                .bind(&lease_id).fetch_optional(&state.db).await;
+                .bind(&lease_id)
+                .fetch_optional(&state.db)
+                .await;
             let lease = match lease {
                 Ok(Some(r)) => r,
                 Ok(None) => return err_result("Workspace lease not found"),
-                Err(e) => { tracing::error!("mcp commit_workspace lease: {e}"); return err_result("database_error"); }
+                Err(e) => {
+                    tracing::error!("mcp commit_workspace lease: {e}");
+                    return err_result("database_error");
+                }
             };
             let owner: String = lease.get("actor_subject");
-            if owner != principal.subject && !principal.is_admin { return err_result("forbidden"); }
+            if owner != principal.subject && !principal.is_admin {
+                return err_result("forbidden");
+            }
             let lease_status: String = lease.get("status");
-            if lease_status != "active" { return err_result("Workspace lease is not active"); }
+            if lease_status != "active" {
+                return err_result("Workspace lease is not active");
+            }
             let mission_id: String = lease.get("mission_id");
             let domain_id: String = lease.get("domain_id");
 
@@ -1069,60 +1476,114 @@ async fn dispatch(
             let mut applied: Vec<serde_json::Value> = vec![];
 
             for change in &changes {
-                let entity_type = change.get("entity_type").and_then(|v| v.as_str()).unwrap_or("");
-                let entity_id = change.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
+                let entity_type = change
+                    .get("entity_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let entity_id = change
+                    .get("entity_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
                 match entity_type {
                     "doc" => {
-                        let doc_id: i32 = match entity_id.parse() { Ok(v) => v, Err(_) => continue };
+                        let doc_id: i32 = match entity_id.parse() {
+                            Ok(v) => v,
+                            Err(_) => continue,
+                        };
                         let doc = sqlx::query("SELECT * FROM doc WHERE id=$1 AND mission_id=$2")
-                            .bind(doc_id).bind(&mission_id).fetch_optional(&state.db).await;
-                        let doc = match doc { Ok(Some(r)) => r, _ => continue };
+                            .bind(doc_id)
+                            .bind(&mission_id)
+                            .fetch_optional(&state.db)
+                            .await;
+                        let doc = match doc {
+                            Ok(Some(r)) => r,
+                            _ => continue,
+                        };
                         let mut sets: Vec<String> = vec![];
                         let mut new_title: Option<String> = None;
                         let mut new_body: Option<String> = None;
                         let mut new_doc_type: Option<String> = None;
                         let mut new_status: Option<String> = None;
                         if let Some(v) = change.get("content").and_then(|v| v.as_str()) {
-                            new_body = Some(v.to_string()); sets.push("body=$IDX".to_string());
+                            new_body = Some(v.to_string());
+                            sets.push("body=$IDX".to_string());
                         }
                         if let Some(v) = change.get("title").and_then(|v| v.as_str()) {
-                            new_title = Some(v.to_string()); sets.push("title=$IDX".to_string());
+                            new_title = Some(v.to_string());
+                            sets.push("title=$IDX".to_string());
                         }
                         if let Some(v) = change.get("doc_type").and_then(|v| v.as_str()) {
-                            new_doc_type = Some(v.to_string()); sets.push("doc_type=$IDX".to_string());
+                            new_doc_type = Some(v.to_string());
+                            sets.push("doc_type=$IDX".to_string());
                         }
                         if let Some(v) = change.get("status").and_then(|v| v.as_str()) {
-                            new_status = Some(v.to_string()); sets.push("status=$IDX".to_string());
+                            new_status = Some(v.to_string());
+                            sets.push("status=$IDX".to_string());
                         }
-                        if sets.is_empty() { continue; }
+                        if sets.is_empty() {
+                            continue;
+                        }
                         let cur_version: i32 = doc.try_get("version").unwrap_or(1);
                         let sql = format!(
                             "UPDATE doc SET version={}, updated_at=$1, {} WHERE id=$2",
                             cur_version + 1,
-                            sets.iter().enumerate().map(|(i, s)| s.replace("$IDX", &format!("${}", i + 3))).collect::<Vec<_>>().join(", ")
+                            sets.iter()
+                                .enumerate()
+                                .map(|(i, s)| s.replace("$IDX", &format!("${}", i + 3)))
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         );
                         let mut q = sqlx::query(&sql).bind(now).bind(doc_id);
-                        if let Some(v) = &new_body  { q = q.bind(v); }
-                        if let Some(v) = &new_title { q = q.bind(v); }
-                        if let Some(v) = &new_doc_type { q = q.bind(v); }
-                        if let Some(v) = &new_status { q = q.bind(v); }
+                        if let Some(v) = &new_body {
+                            q = q.bind(v);
+                        }
+                        if let Some(v) = &new_title {
+                            q = q.bind(v);
+                        }
+                        if let Some(v) = &new_doc_type {
+                            q = q.bind(v);
+                        }
+                        if let Some(v) = &new_status {
+                            q = q.bind(v);
+                        }
                         let _ = q.execute(&state.db).await;
                         applied.push(json!({"entity_type": "doc", "entity_id": doc_id, "version": cur_version + 1}));
                         applied_count += 1;
                     }
                     "artifact" => {
-                        let art_id: i32 = match entity_id.parse() { Ok(v) => v, Err(_) => continue };
-                        let art = sqlx::query("SELECT * FROM artifact WHERE id=$1 AND mission_id=$2")
-                            .bind(art_id).bind(&mission_id).fetch_optional(&state.db).await;
-                        let art = match art { Ok(Some(r)) => r, _ => continue };
+                        let art_id: i32 = match entity_id.parse() {
+                            Ok(v) => v,
+                            Err(_) => continue,
+                        };
+                        let art =
+                            sqlx::query("SELECT * FROM artifact WHERE id=$1 AND mission_id=$2")
+                                .bind(art_id)
+                                .bind(&mission_id)
+                                .fetch_optional(&state.db)
+                                .await;
+                        let art = match art {
+                            Ok(Some(r)) => r,
+                            _ => continue,
+                        };
                         let cur_version: i32 = art.try_get("version").unwrap_or(1);
                         // Only field updates — skip S3 content_b64 upload
                         let fields = change.get("fields").and_then(|v| v.as_object());
                         let mut parts: Vec<String> = vec![];
                         let mut vals: Vec<String> = vec![];
-                        for key in ["name","artifact_type","uri","storage_backend","content_sha256","mime_type","status","provenance"] {
-                            if let Some(v) = fields.and_then(|f| f.get(key)).and_then(|v| v.as_str()) {
+                        for key in [
+                            "name",
+                            "artifact_type",
+                            "uri",
+                            "storage_backend",
+                            "content_sha256",
+                            "mime_type",
+                            "status",
+                            "provenance",
+                        ] {
+                            if let Some(v) =
+                                fields.and_then(|f| f.get(key)).and_then(|v| v.as_str())
+                            {
                                 parts.push(format!("{}=$IDX", key));
                                 vals.push(v.to_string());
                             }
@@ -1130,11 +1591,18 @@ async fn dispatch(
                         let sql = format!(
                             "UPDATE artifact SET version={}, updated_at=$1, {} WHERE id=$2",
                             cur_version + 1,
-                            parts.iter().enumerate().map(|(i, s)| s.replace("$IDX", &format!("${}", i + 3))).collect::<Vec<_>>().join(", ")
+                            parts
+                                .iter()
+                                .enumerate()
+                                .map(|(i, s)| s.replace("$IDX", &format!("${}", i + 3)))
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         );
                         if !parts.is_empty() {
                             let mut q = sqlx::query(&sql).bind(now).bind(art_id);
-                            for v in &vals { q = q.bind(v); }
+                            for v in &vals {
+                                q = q.bind(v);
+                            }
                             let _ = q.execute(&state.db).await;
                         }
                         applied.push(json!({"entity_type": "artifact", "entity_id": art_id, "version": cur_version + 1}));
@@ -1144,7 +1612,10 @@ async fn dispatch(
                 }
 
                 // Enqueue ledger event
-                let event_id = format!("le-{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..12]);
+                let event_id = format!(
+                    "le-{}",
+                    &uuid::Uuid::new_v4().to_string().replace('-', "")[..12]
+                );
                 let _ = sqlx::query(
                     "INSERT INTO ledgerevent (event_id, domain_id, mission_id, entity_type, entity_id, \
                      action, payload_json, state, created_by_subject, created_at, updated_at) \
@@ -1156,23 +1627,34 @@ async fn dispatch(
             }
 
             let snapshot = build_workspace_snapshot(&state.db, &domain_id, &mission_id).await;
-            ok_result(json!({"applied_count": applied_count, "applied": applied, "workspace_snapshot": snapshot}))
+            ok_result(
+                json!({"applied_count": applied_count, "applied": applied, "workspace_snapshot": snapshot}),
+            )
         }
 
         "release_mission_workspace" => {
             let lease_id = str_arg(args, "lease_id");
             let reason = str_arg(args, "reason");
-            if lease_id.is_empty() { return err_result("lease_id is required"); }
+            if lease_id.is_empty() {
+                return err_result("lease_id is required");
+            }
 
             let lease = sqlx::query("SELECT * FROM workspacelease WHERE id=$1")
-                .bind(&lease_id).fetch_optional(&state.db).await;
+                .bind(&lease_id)
+                .fetch_optional(&state.db)
+                .await;
             let lease = match lease {
                 Ok(Some(r)) => r,
                 Ok(None) => return err_result("Workspace lease not found"),
-                Err(e) => { tracing::error!("mcp release_workspace lease: {e}"); return err_result("database_error"); }
+                Err(e) => {
+                    tracing::error!("mcp release_workspace lease: {e}");
+                    return err_result("database_error");
+                }
             };
             let owner: String = lease.get("actor_subject");
-            if owner != principal.subject && !principal.is_admin { return err_result("forbidden"); }
+            if owner != principal.subject && !principal.is_admin {
+                return err_result("forbidden");
+            }
             let current_status: String = lease.get("status");
             if current_status == "released" || current_status == "expired" {
                 return ok_result(json!({"lease": lease_row_to_json(&lease)}));
@@ -1194,26 +1676,29 @@ async fn dispatch(
         }
 
         // ── Domain context ────────────────────────────────────────────────────
-
         "get_domain_northstar" => {
             let domain_id = str_arg(args, "domain_id");
             if domain_id.is_empty() {
                 return err_result("domain_id is required");
             }
-            let row = sqlx::query(
-                "SELECT northstar_md, northstar_version FROM domain WHERE id = $1"
-            )
-            .bind(&domain_id)
-            .fetch_optional(&state.db)
-            .await;
+            let row =
+                sqlx::query("SELECT northstar_md, northstar_version FROM domain WHERE id = $1")
+                    .bind(&domain_id)
+                    .fetch_optional(&state.db)
+                    .await;
             match row {
                 Ok(Some(r)) => {
                     let content: String = r.get("northstar_md");
                     let version: i32 = r.get("northstar_version");
-                    ok_result(json!({ "domain_id": domain_id, "content": content, "version": version }))
+                    ok_result(
+                        json!({ "domain_id": domain_id, "content": content, "version": version }),
+                    )
                 }
                 Ok(None) => err_result(&format!("domain '{}' not found", domain_id)),
-                Err(e) => { tracing::error!("mcp get_domain_northstar: {e}"); err_result("database_error") }
+                Err(e) => {
+                    tracing::error!("mcp get_domain_northstar: {e}");
+                    err_result("database_error")
+                }
             }
         }
 
@@ -1224,11 +1709,19 @@ async fn dispatch(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn str_arg(args: &Value, key: &str) -> String {
-    args.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 fn str_arg_or(args: &Value, key: &str, default: &str) -> String {
-    let v = args.get(key).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let v = args
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
     if v.is_empty() { default.to_string() } else { v }
 }
 
@@ -1316,4 +1809,3 @@ async fn build_workspace_snapshot(db: &sqlx::PgPool, domain_id: &str, mission_id
         "index": index,
     })
 }
-
