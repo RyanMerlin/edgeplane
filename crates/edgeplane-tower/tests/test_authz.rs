@@ -64,3 +64,24 @@ async fn create_task_allowed_for_member_sa_contributor() {
         .await;
     assert_eq!(res.status_code(), 201);
 }
+
+#[tokio::test]
+async fn mcp_submit_mesh_task_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool);
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.outsider_sa_token),
+        )
+        .json(&serde_json::json!({
+            "tool": "submit_mesh_task",
+            "args": { "mission_id": ctx.mission_id, "title": "pwn" }
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["error"], "forbidden");
+}

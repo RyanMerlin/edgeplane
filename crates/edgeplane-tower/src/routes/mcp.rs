@@ -289,6 +289,16 @@ async fn call_tool(
     Json(result)
 }
 
+async fn mcp_authz_domain(state: &AppState, p: &Principal, domain_id: &str) -> Result<(), Value> {
+    match crate::routes::authz::authz_domain(&state.db, p, domain_id).await {
+        Ok(()) => Ok(()),
+        Err(resp) if resp.status() == axum::http::StatusCode::INTERNAL_SERVER_ERROR => {
+            Err(json!({ "ok": false, "error": "database_error" }))
+        }
+        Err(_) => Err(json!({ "ok": false, "error": "forbidden", "detail": "not authorized for domain" })),
+    }
+}
+
 async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Value) -> Value {
     let now = Utc::now().naive_utc();
 
@@ -321,10 +331,17 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
         // ── Mesh tasks ────────────────────────────────────────────────────────
         "submit_mesh_task" => {
             let mission_id = str_arg(args, "mission_id");
-            let domain_id = str_arg(args, "domain_id");
             let title = str_arg(args, "title");
-            if mission_id.is_empty() || domain_id.is_empty() || title.is_empty() {
-                return err_result("mission_id, domain_id, and title are required");
+            if mission_id.is_empty() || title.is_empty() {
+                return err_result("mission_id and title are required");
+            }
+            // Resolve the canonical domain from the mission (closes client-supplied-domain mismatch).
+            let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
+                Ok(d) => d,
+                Err(_) => return err_result("mission not found"),
+            };
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
             }
             let description = str_arg(args, "description");
             let input_json = args.get("input_json").cloned().unwrap_or(json!({}));
@@ -425,6 +442,14 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() || agent_id.is_empty() {
                 return err_result("task_id and agent_id are required");
             }
+            // resolve domain and guard
+            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+                Ok(d) => d,
+                Err(_) => return err_result("task not found"),
+            };
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
+            }
             let lease_seconds = int_arg(args, "lease_seconds").unwrap_or(300);
             let lease_id = uuid::Uuid::new_v4().to_string();
             let expires_at = now + chrono::Duration::seconds(lease_seconds);
@@ -459,6 +484,13 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() || claim_lease_id.is_empty() {
                 return err_result("task_id and claim_lease_id are required");
             }
+            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+                Ok(d) => d,
+                Err(_) => return err_result("task not found"),
+            };
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
+            }
             let expires_at = now + chrono::Duration::seconds(300);
             match sqlx::query(
                 "UPDATE meshtask SET lease_expires_at=$3, updated_at=NOW() \
@@ -488,6 +520,13 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() || event_type.is_empty() {
                 return err_result("task_id and event_type are required");
             }
+            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+                Ok(d) => d,
+                Err(_) => return err_result("task not found"),
+            };
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
+            }
             let payload_json = args.get("payload_json").cloned().unwrap_or(json!({}));
             let phase = args.get("phase").and_then(|v| v.as_str());
             let step = args.get("step").and_then(|v| v.as_str());
@@ -508,6 +547,13 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let task_id = str_arg(args, "task_id");
             if task_id.is_empty() {
                 return err_result("task_id is required");
+            }
+            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+                Ok(d) => d,
+                Err(_) => return err_result("task not found"),
+            };
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
             }
             let new_status = match tool {
                 "complete_mesh_task" => "finished",
@@ -536,6 +582,9 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let body = args.get("content").cloned().unwrap_or(json!({}));
             if domain_id.is_empty() || from_agent_id.is_empty() {
                 return err_result("domain_id and sender_agent_id are required");
+            }
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
             }
             let to_agent_id = args.get("recipient_agent_id").and_then(|v| v.as_str());
             let mission_id = args.get("mission_id").and_then(|v| v.as_str());
@@ -669,6 +718,9 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let domain_id = str_arg(args, "domain_id");
             if domain_id.is_empty() {
                 return err_result("domain_id is required");
+            }
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
             }
 
             let conn_input = args
@@ -920,6 +972,9 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let domain_id = str_arg(args, "domain_id");
             if domain_id.is_empty() {
                 return err_result("domain_id is required");
+            }
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
             }
 
             // Fetch pending events
@@ -1261,6 +1316,9 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                 Some(m) if !m.is_empty() => m,
                 _ => return err_result("Mission is not linked to a domain"),
             };
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
+            }
 
             // Build workspace snapshot from DB
             let snapshot = build_workspace_snapshot(&state.db, &domain_id, &mission_id).await;
