@@ -438,9 +438,19 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
 
         "claim_mesh_task" => {
             let task_id = str_arg(args, "task_id");
-            let agent_id = str_arg(args, "agent_id");
-            if task_id.is_empty() || agent_id.is_empty() {
-                return err_result("task_id and agent_id are required");
+            if task_id.is_empty() {
+                return err_result("task_id is required");
+            }
+            // Full-trust callers may supply an explicit agent_id; restricted
+            // callers (agents, SA) are always attributed to themselves.
+            let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+            let agent_id = if crate::auth::is_full_trust(principal) || principal.is_admin {
+                str_arg(args, "agent_id")
+            } else {
+                self_id.to_string()
+            };
+            if agent_id.is_empty() {
+                return err_result("agent_id is required (or authenticate as an agent)");
             }
             // resolve domain and guard
             let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
@@ -519,8 +529,15 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
 
         "progress_mesh_task" => {
             let task_id = str_arg(args, "task_id");
-            let agent_id = str_arg(args, "agent_id");
             let event_type = str_arg(args, "event_type");
+            // Full-trust callers may supply an explicit agent_id; restricted
+            // callers (agents, SA) are always attributed to themselves.
+            let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+            let agent_id = if crate::auth::is_full_trust(principal) || principal.is_admin {
+                str_arg(args, "agent_id")
+            } else {
+                self_id.to_string()
+            };
             if task_id.is_empty() || event_type.is_empty() {
                 return err_result("task_id and event_type are required");
             }

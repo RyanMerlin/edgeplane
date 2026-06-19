@@ -875,12 +875,20 @@ async fn claim_task(
     Path(task_id): Path<String>,
     body: Option<Json<serde_json::Value>>,
 ) -> impl IntoResponse {
-    let agent_id = body
-        .as_ref()
-        .and_then(|b| b.get("agent_id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or(&principal.subject)
-        .to_string();
+    // Full-trust callers (session / node) and admins may supply an explicit
+    // agent_id in the body to claim on behalf of another agent. Restricted
+    // callers (agents, service accounts) are always attributed to themselves —
+    // the body field is ignored so a compromised agent cannot spoof another's id.
+    let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+    let agent_id = if crate::auth::is_full_trust(&principal) || principal.is_admin {
+        body.as_ref()
+            .and_then(|b| b.get("agent_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(self_id)
+            .to_string()
+    } else {
+        self_id.to_string()
+    };
 
     // First fetch the task to check claim_policy
     let task_row = match sqlx::query("SELECT * FROM meshtask WHERE id=$1")
@@ -1139,8 +1147,10 @@ async fn append_progress(
     .unwrap_or(0);
 
     let now = Utc::now().naive_utc();
-    // agent_id from body optional field or empty
-    let agent_id = ""; // caller may pass agent_id in body; using empty default
+    // Attribute progress to the authenticated caller. Full-trust and admin may
+    // supply an explicit agent_id via the (future) body field; restricted
+    // callers (agents, SA) are always attributed to their own subject.
+    let agent_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject).to_string();
 
     let row = sqlx::query(
         "INSERT INTO meshprogressevent (task_id, agent_id, seq, event_type, phase, step, summary, \

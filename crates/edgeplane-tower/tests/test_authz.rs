@@ -198,6 +198,106 @@ async fn global_sse_denied_for_non_admin() {
     assert_eq!(res.status_code(), 403);
 }
 
+// ── T5: attribution — claim/progress attributed to authenticated agent ─────────
+
+#[tokio::test]
+async fn agent_token_attributes_progress_to_self() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Enroll an agent and seed a task it owns.
+    let (agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimed_task(&pool, &ctx.mission_id, &ctx.domain_id, &agent_id).await;
+
+    // POST progress with the agent's token — no agent_id in body.
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/progress"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({"event_type": "status", "summary": "working"}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "progress should succeed: {}",
+        res.text()
+    );
+    let body: serde_json::Value = res.json();
+    // The agent_id in the response must equal the enrolled agent_id (not empty, not the full subject).
+    assert_eq!(
+        body["agent_id"].as_str().unwrap_or(""),
+        agent_id,
+        "progress agent_id must be attributed to the caller's agent_id"
+    );
+}
+
+#[tokio::test]
+async fn agent_cannot_spoof_claim_agent_id() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Enroll two agents.
+    let (agent_a_id, agent_a_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let (agent_b_id, _) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+
+    // Create a ready task in the domain.
+    let task_id = {
+        use uuid::Uuid;
+        let tid = format!("task-{}", Uuid::new_v4().simple());
+        sqlx::query(
+            "INSERT INTO meshtask \
+             (id, mission_id, domain_id, title, description, input_json, claim_policy, \
+              depends_on, produces, consumes, required_capabilities, \
+              status, priority, version_counter, created_by_subject, \
+              created_at, updated_at) \
+             VALUES ($1, $2, $3, 'spoof-test', '', '{}', 'any', '[]', '{}', '{}', '[]', \
+                     'ready', 0, 1, 'harness', now(), now())",
+        )
+        .bind(&tid)
+        .bind(&ctx.mission_id)
+        .bind(&ctx.domain_id)
+        .execute(&pool)
+        .await
+        .expect("insert task");
+        tid
+    };
+
+    // Agent-A tries to claim the task on behalf of Agent-B (agent_id spoofing).
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .json(&serde_json::json!({"agent_id": agent_b_id}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "claim should succeed (agent-A is a domain member): {}",
+        res.text()
+    );
+    let body: serde_json::Value = res.json();
+    // The claimed_by_agent_id must be agent-A's own id, not the spoofed agent-B.
+    let claimed = body["claimed_by_agent_id"].as_str().unwrap_or("");
+    assert_eq!(
+        claimed, agent_a_id,
+        "claim must be attributed to the caller (agent-A), not the spoofed agent-B"
+    );
+    assert_ne!(
+        claimed, agent_b_id,
+        "spoofed agent-B must not appear as claimer"
+    );
+}
+
 // ── T4: per-agent JWT — mint endpoint + enrollment ────────────────────────────
 
 /// Enroll an agent (as owner session) and return the enrolled agent_id +
