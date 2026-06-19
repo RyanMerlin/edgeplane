@@ -30,6 +30,12 @@ pub struct ClaudeCodeRuntime {
     /// Tracks whether RTK hooks have already been verified/installed for this runtime
     /// instance. Avoids running a subprocess on every task injection.
     rtk_hooks_done: OnceLock<()>,
+    /// This agent's own per-agent token, captured from `LaunchContext` in
+    /// `launch()` and injected as `EP_AGENT_TOKEN` on each `inject_task` spawn.
+    /// `None` (unset) means the spawned process inherits the daemon's
+    /// `EP_AGENT_TOKEN` from the environment — the graceful fallback. Written
+    /// once in `launch()` before any `inject_task()`, mirroring `with_rtk`.
+    agent_token: OnceLock<String>,
 }
 
 impl ClaudeCodeRuntime {
@@ -56,6 +62,7 @@ impl ClaudeCodeRuntime {
             install_done: OnceLock::new(),
             with_rtk: AtomicBool::new(false),
             rtk_hooks_done: OnceLock::new(),
+            agent_token: OnceLock::new(),
         }
     }
 
@@ -214,6 +221,13 @@ impl AgentRuntime for ClaudeCodeRuntime {
         // Capture rtk preference from launch context.
         self.with_rtk.store(ctx.with_rtk, Ordering::Relaxed);
 
+        // Capture this agent's own per-agent token (if the daemon minted one).
+        // Applied as EP_AGENT_TOKEN on each inject_task spawn; absence falls
+        // back to the daemon's inherited EP_AGENT_TOKEN.
+        if let Some(tok) = ctx.agent_token {
+            let _ = self.agent_token.set(tok);
+        }
+
         // Quick check that `claude` is on PATH.
         let output = std::process::Command::new("claude")
             .arg("--version")
@@ -304,6 +318,13 @@ impl AgentRuntime for ClaudeCodeRuntime {
         // Propagate the edgeplaned capability socket path so agents can reach `edgeplaned run`.
         if let Ok(socket) = std::env::var("EP_MESH_SOCKET") {
             cmd.env("EP_MESH_SOCKET", socket);
+        }
+
+        // Inject this agent's own per-agent token as EP_AGENT_TOKEN so it
+        // authenticates to the tower as itself. When unset, the child inherits
+        // the daemon's EP_AGENT_TOKEN from the environment (graceful fallback).
+        if let Some(tok) = self.agent_token.get() {
+            cmd.env("EP_AGENT_TOKEN", tok);
         }
 
         // Inject edgeplane binary dir so agents can invoke `edgeplane` without an absolute path.

@@ -1225,6 +1225,11 @@ impl Spawner {
             .await
             .insert(spec.agent_id.clone(), rt.clone());
 
+        // Per-agent token for supervised agents is minted in Task 7b
+        // (`mint_agent_token`); until then this is `None`, so the agent
+        // inherits the daemon's shared EP_AGENT_TOKEN as before.
+        let agent_token: Option<String> = None;
+
         if let Err(e) = self
             .supervisor
             .spawn(
@@ -1233,6 +1238,7 @@ impl Spawner {
                 rt.clone(),
                 vec![],
                 spec.launch_overrides.clone(),
+                agent_token,
             )
             .await
         {
