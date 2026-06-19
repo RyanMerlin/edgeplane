@@ -1232,17 +1232,30 @@ impl Spawner {
         // failure we fall back to `None`, and the runtime lets the agent
         // inherit the daemon's shared EP_AGENT_TOKEN (current behavior), so a
         // mint hiccup degrades gracefully rather than breaking the fleet.
-        let agent_token: Option<String> = match self.client.mint_agent_token(&spec.agent_id).await {
-            Ok(tok) => Some(tok),
-            Err(e) => {
-                tracing::warn!(
-                    "mint_agent_token failed for {}: {e:#}. \
-                     Falling back to shared daemon EP_AGENT_TOKEN.",
-                    spec.agent_id
-                );
+        //
+        // Only mint for runtimes that actually consume the token (claude_code,
+        // goose apply it via LaunchContext.agent_token → EP_AGENT_TOKEN). Other
+        // kinds ignore it, so minting would be a wasted round-trip — and for
+        // node-runtime profile agents (e.g. zellij_hosted) it 404s, since the
+        // mint endpoint resolves the agent's domain via the meshagent table
+        // where they have no row. Skipping keeps those agents on the shared
+        // daemon token exactly as before. (See issue #57.)
+        let agent_token: Option<String> =
+            if matches!(spec.runtime_kind.as_str(), "claude_code" | "goose") {
+                match self.client.mint_agent_token(&spec.agent_id).await {
+                    Ok(tok) => Some(tok),
+                    Err(e) => {
+                        tracing::warn!(
+                            "mint_agent_token failed for {}: {e:#}. \
+                             Falling back to shared daemon EP_AGENT_TOKEN.",
+                            spec.agent_id
+                        );
+                        None
+                    }
+                }
+            } else {
                 None
-            }
-        };
+            };
 
         if let Err(e) = self
             .supervisor
