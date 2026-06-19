@@ -139,6 +139,14 @@ pub struct LaunchContext {
     pub backend_url: String,
     /// Bearer token for authenticating to the backend.
     pub backend_token: String,
+    /// This agent's *own* per-agent JWT (domain-scoped principal), minted by
+    /// the tower at enrollment or by the daemon via the full-trust-gated
+    /// `POST /work/agents/{agent_id}/token` endpoint. When `Some`, the runtime
+    /// injects it as the spawned process's `EP_AGENT_TOKEN` so the agent
+    /// authenticates as itself (not the shared daemon credential). `None` means
+    /// the agent inherits the daemon's `EP_AGENT_TOKEN` from the environment —
+    /// the graceful-degradation fallback if minting/capture fails.
+    pub agent_token: Option<String>,
     /// Environment variables to inject.
     pub env: Vec<(String, String)>,
     /// This agent's profile (name, role, instructions, scope, constraints).

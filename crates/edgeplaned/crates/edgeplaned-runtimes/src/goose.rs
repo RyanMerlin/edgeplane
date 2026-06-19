@@ -29,6 +29,11 @@ pub struct GooseRuntime {
     capabilities: Vec<Capability>,
     version: String,
     install_done: OnceLock<()>,
+    /// This agent's own per-agent token, captured from `LaunchContext` in
+    /// `launch()` and injected as `EP_AGENT_TOKEN` on each `inject_task` spawn.
+    /// `None` (unset) means the spawned process inherits the daemon's
+    /// `EP_AGENT_TOKEN` from the environment — the graceful fallback.
+    agent_token: OnceLock<String>,
 }
 
 impl GooseRuntime {
@@ -47,6 +52,7 @@ impl GooseRuntime {
             capabilities: merge_capabilities(builtins, extra),
             version: detect_version(),
             install_done: OnceLock::new(),
+            agent_token: OnceLock::new(),
         }
     }
 
@@ -219,6 +225,13 @@ impl AgentRuntime for GooseRuntime {
         // Launch just validates the binary exists and creates the work dir.
         std::fs::create_dir_all(&ctx.work_dir)?;
 
+        // Capture this agent's own per-agent token (if the daemon minted one).
+        // Applied as EP_AGENT_TOKEN on each inject_task spawn; absence falls
+        // back to the daemon's inherited EP_AGENT_TOKEN.
+        if let Some(tok) = ctx.agent_token {
+            let _ = self.agent_token.set(tok);
+        }
+
         // Quick check that `goose` is on PATH.
         let output = std::process::Command::new("goose")
             .arg("--version")
@@ -296,6 +309,13 @@ impl AgentRuntime for GooseRuntime {
         // Propagate the edgeplaned capability socket path so agents can reach `edgeplaned run`.
         if let Ok(socket) = std::env::var("EP_MESH_SOCKET") {
             cmd.env("EP_MESH_SOCKET", socket);
+        }
+
+        // Inject this agent's own per-agent token as EP_AGENT_TOKEN so it
+        // authenticates to the tower as itself. When unset, the child inherits
+        // the daemon's EP_AGENT_TOKEN from the environment (graceful fallback).
+        if let Some(tok) = self.agent_token.get() {
+            cmd.env("EP_AGENT_TOKEN", tok);
         }
 
         // Inject edgeplane binary dir so agents can invoke `edgeplane` without an absolute path.

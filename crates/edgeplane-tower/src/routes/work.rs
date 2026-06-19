@@ -129,6 +129,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/work/agents/{agent_id}/messages", get(get_agent_messages))
         .route("/work/agents/{agent_id}/notify", get(agent_notify_ws))
+        .route("/work/agents/{agent_id}/token", post(mint_agent_token))
         // Mission messages + stream
         .route(
             "/work/missions/{mission_id}/messages",
@@ -874,12 +875,20 @@ async fn claim_task(
     Path(task_id): Path<String>,
     body: Option<Json<serde_json::Value>>,
 ) -> impl IntoResponse {
-    let agent_id = body
-        .as_ref()
-        .and_then(|b| b.get("agent_id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or(&principal.subject)
-        .to_string();
+    // Full-trust callers (session / node) and admins may supply an explicit
+    // agent_id in the body to claim on behalf of another agent. Restricted
+    // callers (agents, service accounts) are always attributed to themselves —
+    // the body field is ignored so a compromised agent cannot spoof another's id.
+    let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+    let agent_id = if crate::auth::is_full_trust(&principal) || principal.is_admin {
+        body.as_ref()
+            .and_then(|b| b.get("agent_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(self_id)
+            .to_string()
+    } else {
+        self_id.to_string()
+    };
 
     // First fetch the task to check claim_policy
     let task_row = match sqlx::query("SELECT * FROM meshtask WHERE id=$1")
@@ -1138,8 +1147,10 @@ async fn append_progress(
     .unwrap_or(0);
 
     let now = Utc::now().naive_utc();
-    // agent_id from body optional field or empty
-    let agent_id = ""; // caller may pass agent_id in body; using empty default
+    // Attribute progress to the authenticated caller. Full-trust and admin may
+    // supply an explicit agent_id via the (future) body field; restricted
+    // callers (agents, SA) are always attributed to their own subject.
+    let agent_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject).to_string();
 
     let row = sqlx::query(
         "INSERT INTO meshprogressevent (task_id, agent_id, seq, event_type, phase, step, summary, \
@@ -1860,6 +1871,65 @@ async fn handle_agent_notify(mut socket: WebSocket, state: Arc<AppState>, agent_
 
 // ── Agent handlers ─────────────────────────────────────────────────────────────
 
+/// Mint and persist a fresh agent JWT. Returns the compact token string.
+/// Errors propagate via `?` — callers decide whether to fail-hard or log.
+async fn issue_agent_token(
+    state: &AppState,
+    agent_id: &str,
+    domain_id: &str,
+) -> anyhow::Result<String> {
+    const TTL_HOURS: i64 = 12;
+    let (token, jti) = crate::jwt::sign_agent_jwt(agent_id, domain_id, &state.jwt_encoding_key, TTL_HOURS)?;
+    let expires_at = (Utc::now() + chrono::Duration::hours(TTL_HOURS)).naive_utc();
+    sqlx::query(
+        "INSERT INTO agenttoken (jti, agent_id, domain_id, revoked, expires_at, created_at) \
+         VALUES ($1,$2,$3,false,$4,$5)",
+    )
+    .bind(&jti)
+    .bind(agent_id)
+    .bind(domain_id)
+    .bind(expires_at)
+    .bind(Utc::now().naive_utc())
+    .execute(&state.db)
+    .await?;
+    Ok(token)
+}
+
+/// POST /work/agents/{agent_id}/token — mint a new agent JWT.
+/// Requires full-trust (session/node) or admin. Denies agent principals to
+/// prevent peer-impersonation.
+async fn mint_agent_token(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(agent_id): Path<String>,
+) -> impl IntoResponse {
+    if !(crate::auth::is_full_trust(&principal) || principal.is_admin) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "full-trust principal required to mint agent tokens"})),
+        )
+            .into_response();
+    }
+    let domain_id = match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
+        return resp;
+    }
+    match issue_agent_token(&state, &agent_id, &domain_id).await {
+        Ok(tok) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"agent_token": tok, "expires_in": 12 * 3600})),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("mint_agent_token {agent_id}: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
 async fn enroll_agent(
     State(state): State<Arc<AppState>>,
     principal: Principal,
@@ -1965,7 +2035,7 @@ async fn enroll_agent(
 
     match row {
         Ok(r) => {
-            let agent_json = row_to_agent(&r);
+            let mut agent_json = row_to_agent(&r);
             // Notify the daemon for this node, if any, so it can spawn the
             // supervisor live. No-op when no `runtime_node_id` was set.
             if let Some(rn_id) = body.runtime_node_id.as_deref() {
@@ -1978,6 +2048,15 @@ async fn enroll_agent(
                     }),
                 )
                 .await;
+            }
+            // Best-effort token mint — log on failure, don't fail the enroll.
+            match issue_agent_token(&state, &agent_id, &domain_id).await {
+                Ok(tok) => {
+                    agent_json["agent_token"] = serde_json::Value::String(tok);
+                }
+                Err(e) => {
+                    tracing::error!("enroll_agent token mint for {agent_id}: {e}");
+                }
             }
             (StatusCode::CREATED, Json(agent_json)).into_response()
         }

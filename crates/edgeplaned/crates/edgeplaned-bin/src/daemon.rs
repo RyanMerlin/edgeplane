@@ -1225,6 +1225,25 @@ impl Spawner {
             .await
             .insert(spec.agent_id.clone(), rt.clone());
 
+        // Mint this agent's own per-agent token so it authenticates to the
+        // tower as itself. Supervised agents are fetched (not enrolled), so
+        // there is no enroll-response token — the daemon mints one with its own
+        // full-trust node credential (authorized by the token endpoint). On
+        // failure we fall back to `None`, and the runtime lets the agent
+        // inherit the daemon's shared EP_AGENT_TOKEN (current behavior), so a
+        // mint hiccup degrades gracefully rather than breaking the fleet.
+        let agent_token: Option<String> = match self.client.mint_agent_token(&spec.agent_id).await {
+            Ok(tok) => Some(tok),
+            Err(e) => {
+                tracing::warn!(
+                    "mint_agent_token failed for {}: {e:#}. \
+                     Falling back to shared daemon EP_AGENT_TOKEN.",
+                    spec.agent_id
+                );
+                None
+            }
+        };
+
         if let Err(e) = self
             .supervisor
             .spawn(
@@ -1233,6 +1252,7 @@ impl Spawner {
                 rt.clone(),
                 vec![],
                 spec.launch_overrides.clone(),
+                agent_token,
             )
             .await
         {

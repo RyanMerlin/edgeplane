@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 /// Claims embedded in a node JWT.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NodeClaims {
     /// `node:{node_id}` — the node's identity
     pub sub: String,
@@ -49,6 +50,57 @@ pub fn verify_node_jwt(token: &str, decoding_key: &DecodingKey) -> anyhow::Resul
     Ok(data.claims)
 }
 
+/// Claims embedded in an agent JWT.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentClaims {
+    /// `agent:{agent_id}` — the agent's identity
+    pub sub: String,
+    /// The raw agent_id without prefix (convenience field)
+    pub agent_id: String,
+    /// Home domain scope — the agent is bound to this domain
+    pub domain_id: String,
+    /// JWT ID — used for revocation lookups
+    pub jti: String,
+    /// Issued at (Unix timestamp)
+    pub iat: i64,
+    /// Expires at (Unix timestamp)
+    pub exp: i64,
+}
+
+/// Sign an agent JWT with the given TTL in hours.
+/// Returns `(compact_jwt, jti)`.
+pub fn sign_agent_jwt(
+    agent_id: &str,
+    domain_id: &str,
+    encoding_key: &EncodingKey,
+    ttl_hours: i64,
+) -> anyhow::Result<(String, String)> {
+    let now = chrono::Utc::now().timestamp();
+    let jti = Uuid::new_v4().to_string();
+    let claims = AgentClaims {
+        sub: format!("agent:{agent_id}"),
+        agent_id: agent_id.into(),
+        domain_id: domain_id.into(),
+        jti: jti.clone(),
+        iat: now,
+        exp: now + ttl_hours * 3600,
+    };
+    let token = encode(&Header::new(Algorithm::RS256), &claims, encoding_key)
+        .map_err(|e| anyhow::anyhow!("agent JWT sign error: {e}"))?;
+    Ok((token, jti))
+}
+
+/// Verify an agent JWT. Returns the claims on success.
+pub fn verify_agent_jwt(token: &str, decoding_key: &DecodingKey) -> anyhow::Result<AgentClaims> {
+    let mut v = Validation::new(Algorithm::RS256);
+    v.validate_exp = true;
+    v.leeway = 0;
+    Ok(decode::<AgentClaims>(token, decoding_key, &v)
+        .map_err(|e| anyhow::anyhow!("agent JWT verify error: {e}"))?
+        .claims)
+}
+
 /// Generate a new RSA-2048 keypair. Returns `(private_pkcs8_pem, public_pem)`.
 pub fn generate_rsa_keypair() -> anyhow::Result<(String, String)> {
     let mut rng = rand::thread_rng();
@@ -75,6 +127,35 @@ pub fn encoding_key_from_pem(pem: &str) -> anyhow::Result<EncodingKey> {
 pub fn decoding_key_from_pem(pem: &str) -> anyhow::Result<DecodingKey> {
     DecodingKey::from_rsa_pem(pem.as_bytes())
         .map_err(|e| anyhow::anyhow!("DecodingKey error: {e}"))
+}
+
+#[cfg(test)]
+mod agent_jwt_tests {
+    use super::*;
+
+    fn keys() -> (EncodingKey, DecodingKey) {
+        let (pr, pu) = generate_rsa_keypair().unwrap();
+        (encoding_key_from_pem(&pr).unwrap(), decoding_key_from_pem(&pu).unwrap())
+    }
+
+    #[test]
+    fn round_trip() {
+        let (e, d) = keys();
+        let (t, jti) = sign_agent_jwt("w7", "dom-1", &e, 1).unwrap();
+        let c = verify_agent_jwt(&t, &d).unwrap();
+        assert_eq!(
+            (c.sub.as_str(), c.agent_id.as_str(), c.domain_id.as_str()),
+            ("agent:w7", "w7", "dom-1")
+        );
+        assert_eq!(c.jti, jti);
+    }
+
+    #[test]
+    fn agent_token_not_decodable_as_node() {
+        let (e, d) = keys();
+        let (t, _) = sign_agent_jwt("w7", "dom-1", &e, 1).unwrap();
+        assert!(verify_node_jwt(&t, &d).is_err()); // NodeClaims requires node_id
+    }
 }
 
 #[cfg(test)]

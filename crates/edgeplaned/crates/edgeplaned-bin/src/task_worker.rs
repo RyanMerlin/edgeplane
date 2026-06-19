@@ -403,6 +403,22 @@ async fn run_task_lifecycle(client: &BackendClient, config: &DaemonConfig, task:
         }
     };
 
+    // Capture this ephemeral agent's own per-agent token from the enroll
+    // response. The tower mints it at enrollment (Seam 2). When present, it is
+    // injected as the subprocess's EP_AGENT_TOKEN so the agent authenticates as
+    // itself; when absent (older tower, or mint disabled) the subprocess
+    // inherits the daemon's shared EP_AGENT_TOKEN — graceful fallback.
+    let agent_token = enroll_resp
+        .get("agent_token")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    if agent_token.is_none() {
+        tracing::warn!(
+            "task_worker: enroll response for task {task_id} has no 'agent_token'; \
+             subprocess will inherit the daemon's shared EP_AGENT_TOKEN"
+        );
+    }
+
     tracing::debug!(
         "task_worker: enrolled ephemeral agent={agent_id} for task={task_id}"
     );
@@ -567,6 +583,14 @@ async fn run_task_lifecycle(client: &BackendClient, config: &DaemonConfig, task:
         // gateway binding; see CLAUDE.md feedback on claude-code-acp runtime.
         .env_remove("EP_SECRETS_SOCKET")
         .env_remove("EP_SECRETS_SESSION");
+
+    // Inject this ephemeral agent's own per-agent token so it authenticates to
+    // the tower as itself rather than as the shared daemon. When the enroll
+    // response carried no token, leave EP_AGENT_TOKEN inherited from the daemon
+    // environment (graceful fallback).
+    if let Some(ref tok) = agent_token {
+        cmd.env("EP_AGENT_TOKEN", tok);
+    }
 
     // Add --allowed-tools only when the capability set is non-empty.
     // An empty set (task declared `required_capabilities = []`) means no tools

@@ -148,4 +148,24 @@ impl BackendClient {
     ) -> Result<serde_json::Value> {
         self.patch(&format!("/agents/{agent_id}/profile"), profile).await
     }
+
+    /// Mint a fresh per-agent JWT for `agent_id` via the full-trust-gated
+    /// `POST /work/agents/{agent_id}/token` endpoint. The daemon authenticates
+    /// with its own node credential (full-trust → authorized) and injects the
+    /// returned token as that agent's `EP_AGENT_TOKEN`, so the agent acts as a
+    /// domain-scoped principal rather than the shared daemon.
+    ///
+    /// The path mirrors the enroll call's convention (bare `/work/...`; the
+    /// configured `api_prefix` is prepended by `url()`). The endpoint takes no
+    /// request body and responds with `{"agent_token": "...", "expires_in": ...}`.
+    pub async fn mint_agent_token(&self, agent_id: &str) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct MintTokenResponse {
+            agent_token: String,
+        }
+        let resp: MintTokenResponse = self
+            .post_empty(&format!("/work/agents/{agent_id}/token"))
+            .await?;
+        Ok(resp.agent_token)
+    }
 }

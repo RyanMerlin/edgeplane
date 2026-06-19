@@ -55,6 +55,11 @@ impl Supervisor {
     }
 
     /// Launch an agent runtime and register it.
+    ///
+    /// `agent_token` is this agent's own per-agent JWT (minted by the daemon
+    /// via the full-trust-gated token endpoint). When `Some`, runtimes inject
+    /// it as the agent process's `EP_AGENT_TOKEN`; `None` falls back to the
+    /// daemon's inherited token (graceful degradation on a mint failure).
     pub async fn spawn(
         &self,
         agent_id: String,
@@ -62,6 +67,7 @@ impl Supervisor {
         runtime: Arc<DynAgentRuntime>,
         env: Vec<(String, String)>,
         overrides: SpawnOverrides,
+        agent_token: Option<String>,
     ) -> Result<()> {
         let work_dir = self.work_dir.join(&agent_id);
         std::fs::create_dir_all(&work_dir)?;
@@ -72,6 +78,7 @@ impl Supervisor {
             work_dir,
             backend_url: self.backend_url.clone(),
             backend_token: self.token.clone(),
+            agent_token,
             env,
             // Profile and roster are injected per-task in the task loop, not at launch time.
             profile: None,
