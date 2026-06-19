@@ -107,6 +107,67 @@ pub async fn seed_claimed_task(db: &PgPool, mission_id: &str, domain_id: &str, c
     task_id
 }
 
+/// Insert a ready meshtask (no claimer). Returns the inserted task id.
+pub async fn seed_ready_task(db: &PgPool, mission_id: &str, domain_id: &str) -> String {
+    let task_id = format!("task-{}", Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO meshtask \
+         (id, mission_id, domain_id, title, description, input_json, claim_policy, \
+          depends_on, produces, consumes, required_capabilities, \
+          status, priority, version_counter, created_by_subject, \
+          created_at, updated_at) \
+         VALUES ($1, $2, $3, 'test-task', '', '{}', 'any', '[]', '{}', '{}', '[]', \
+                 'ready', 0, 1, 'harness', now(), now())",
+    )
+    .bind(&task_id)
+    .bind(mission_id)
+    .bind(domain_id)
+    .execute(db)
+    .await
+    .expect("insert ready meshtask");
+    task_id
+}
+
+/// Insert a meshmessage (broadcast when to_agent_id is None). Returns the id.
+pub async fn seed_mesh_message(
+    db: &PgPool,
+    domain_id: &str,
+    from_agent_id: &str,
+    to_agent_id: Option<&str>,
+) -> i32 {
+    let id: i32 = sqlx::query_scalar(
+        "INSERT INTO meshmessage \
+         (domain_id, from_agent_id, to_agent_id, channel, body_json, created_at) \
+         VALUES ($1, $2, $3, 'coordination', '{\"text\":\"hello\"}', now()) \
+         RETURNING id",
+    )
+    .bind(domain_id)
+    .bind(from_agent_id)
+    .bind(to_agent_id)
+    .fetch_one(db)
+    .await
+    .expect("insert meshmessage");
+    id
+}
+
+/// Insert a meshagent row enrolled in a domain. Returns the agent id.
+pub async fn seed_agent(db: &PgPool, domain_id: &str, agent_id: &str) -> String {
+    sqlx::query(
+        "INSERT INTO meshagent \
+         (id, domain_id, runtime_kind, runtime_version, status, enrolled_by_subject, \
+          capabilities, labels, profile_json, machine_json, runtime_json, enrolled_at) \
+         VALUES ($1, $2, 'test', '', 'online', 'harness', '[]', '{}', '{}', '{}', '{}', \
+                 now()) \
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(agent_id)
+    .bind(domain_id)
+    .execute(db)
+    .await
+    .expect("insert meshagent");
+    agent_id.to_string()
+}
+
 /// Insert an artifact row linked to a mission. Returns the inserted id.
 ///
 /// artifact NOT-NULL columns (0001_initial_schema.sql):

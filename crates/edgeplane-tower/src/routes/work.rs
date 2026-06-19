@@ -1136,6 +1136,13 @@ async fn append_progress(
     {
         return resp;
     }
+    // Change 8: ownership check — only the task's claimer (or full-trust/admin) may post progress.
+    // ProgressCreate has no claim_lease_id field; pass None (ownership via claimed_by_agent_id).
+    if let Err(resp) =
+        crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
+    {
+        return resp;
+    }
 
     // Get next sequence number
     let seq: i64 = sqlx::query_scalar(
@@ -1528,6 +1535,12 @@ async fn unblock_task(
     {
         return resp;
     }
+    // Change 9: symmetric ownership check with block_task (which already calls authz_task_owner).
+    if let Err(resp) =
+        crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
+    {
+        return resp;
+    }
 
     let now = Utc::now().naive_utc();
     match sqlx::query("UPDATE meshtask SET status='ready', updated_at=$2 WHERE id=$1 RETURNING *")
@@ -1619,6 +1632,12 @@ async fn create_gate(
     };
     if let Err(resp) =
         crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
+        return resp;
+    }
+    // Change 10: only the task's claimer (or full-trust/admin) may attach a blocking gate.
+    if let Err(resp) =
+        crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
     {
         return resp;
     }
@@ -2118,6 +2137,13 @@ async fn agent_heartbeat(
     {
         return resp;
     }
+    // Change 11a: non-full-trust callers may only heartbeat their own agent.
+    if !crate::auth::is_full_trust(&principal) && !principal.is_admin {
+        let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+        if self_id != agent_id.as_str() {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
 
     let now = Utc::now().naive_utc();
     match sqlx::query("UPDATE meshagent SET last_heartbeat_at=$2 WHERE id=$1 RETURNING *")
@@ -2232,6 +2258,13 @@ async fn set_agent_status(
     {
         return resp;
     }
+    // Change 11b: non-full-trust callers may only set their own agent's status.
+    if !crate::auth::is_full_trust(&principal) && !principal.is_admin {
+        let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+        if self_id != agent_id.as_str() {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
 
     match sqlx::query("UPDATE meshagent SET status=$2 WHERE id=$1 RETURNING *")
         .bind(&agent_id)
@@ -2271,6 +2304,13 @@ async fn update_agent_profile(
         crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
     {
         return resp;
+    }
+    // Change 11c: non-full-trust callers may only update their own agent's profile.
+    if !crate::auth::is_full_trust(&principal) && !principal.is_admin {
+        let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+        if self_id != agent_id.as_str() {
+            return StatusCode::FORBIDDEN.into_response();
+        }
     }
 
     let profile_json = body

@@ -596,6 +596,12 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
+            // Change 7: ownership check (mirrors heartbeat_mesh_task); use caller-presented lease.
+            let claim_lease_str = str_arg(args, "claim_lease_id");
+            let claim_lease_opt = if claim_lease_str.is_empty() { None } else { Some(claim_lease_str.as_str()) };
+            if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, claim_lease_opt).await.is_err() {
+                return err_result("not the task's claimer");
+            }
             let payload_json = args.get("payload_json").cloned().unwrap_or(json!({}));
             let phase = args.get("phase").and_then(|v| v.as_str());
             let step = args.get("step").and_then(|v| v.as_str());
@@ -652,13 +658,28 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
         // ── Mesh messages ─────────────────────────────────────────────────────
         "send_mesh_message" => {
             let domain_id = str_arg(args, "domain_id");
-            let from_agent_id = str_arg(args, "sender_agent_id");
             let body = args.get("content").cloned().unwrap_or(json!({}));
-            if domain_id.is_empty() || from_agent_id.is_empty() {
-                return err_result("domain_id and sender_agent_id are required");
+            if domain_id.is_empty() {
+                return err_result("domain_id is required");
             }
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
+            }
+            // Change 12: anti-spoof sender attribution (mirrors claim_mesh_task pattern).
+            // Full-trust/admin may supply an explicit sender; restricted callers are
+            // always attributed to their own identity, ignoring caller-supplied sender_agent_id.
+            let from_agent_id = if crate::auth::is_full_trust(principal) || principal.is_admin {
+                let supplied = str_arg(args, "sender_agent_id");
+                if supplied.is_empty() {
+                    principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject).to_string()
+                } else {
+                    supplied
+                }
+            } else {
+                principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject).to_string()
+            };
+            if from_agent_id.is_empty() {
+                return err_result("sender_agent_id is required (or authenticate as an agent)");
             }
             let to_agent_id = args.get("recipient_agent_id").and_then(|v| v.as_str());
             let mission_id = args.get("mission_id").and_then(|v| v.as_str());

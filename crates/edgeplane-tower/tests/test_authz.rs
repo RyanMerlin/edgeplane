@@ -422,3 +422,315 @@ async fn full_trust_session_can_mint_agent_token() {
     );
     assert_eq!(body["expires_in"], 12 * 3600);
 }
+
+// ── Seam-4 / red-team fixes: read-side cross-domain deny ─────────────────────
+
+#[tokio::test]
+async fn mcp_get_domain_northstar_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool);
+    // Outsider requests the OTHER domain's northstar — must be forbidden.
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.outsider_sa_token),
+        )
+        .json(&serde_json::json!({
+            "tool": "get_domain_northstar",
+            "args": { "domain_id": ctx.other_domain_id }
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(
+        body["error"], "forbidden",
+        "outsider must not read foreign domain northstar: {body}"
+    );
+}
+
+#[tokio::test]
+async fn mcp_resolve_publish_plan_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool);
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.outsider_sa_token),
+        )
+        .json(&serde_json::json!({
+            "tool": "resolve_publish_plan",
+            "args": { "domain_id": ctx.other_domain_id, "entity_kind": "task" }
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(
+        body["error"], "forbidden",
+        "outsider must not read foreign domain publish plan: {body}"
+    );
+}
+
+#[tokio::test]
+async fn mcp_list_mesh_tasks_requires_mission_id() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool);
+    // Omitting mission_id should now return an error.
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({
+            "tool": "list_mesh_tasks",
+            "args": {}
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert!(
+        body["ok"] == false || body["error"].is_string(),
+        "list_mesh_tasks without mission_id must return an error: {body}"
+    );
+}
+
+#[tokio::test]
+async fn mcp_list_mesh_tasks_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool);
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.outsider_sa_token),
+        )
+        .json(&serde_json::json!({
+            "tool": "list_mesh_tasks",
+            "args": { "mission_id": ctx.mission_id }
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(
+        body["error"], "forbidden",
+        "outsider must not list tasks in foreign mission: {body}"
+    );
+}
+
+#[tokio::test]
+async fn mcp_get_mesh_task_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    // Seed a task in our domain; the outsider must not be able to read it.
+    let task_id = common::seed_ready_task(&pool, &ctx.mission_id, &ctx.domain_id).await;
+    let s = server(pool);
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.outsider_sa_token),
+        )
+        .json(&serde_json::json!({
+            "tool": "get_mesh_task",
+            "args": { "task_id": task_id }
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(
+        body["error"], "forbidden",
+        "outsider must not read foreign domain task: {body}"
+    );
+}
+
+#[tokio::test]
+async fn mcp_list_mesh_messages_broadcast_scoped_to_domain() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    // Seed an agent in domain A with a known id (so we can query it).
+    let agent_a_id = format!("agent-a-{}", uuid::Uuid::new_v4().simple());
+    common::seed_agent(&pool, &ctx.domain_id, &agent_a_id).await;
+    // Seed a broadcast in OTHER domain (domain B) — domain A's agent must NOT see it.
+    common::seed_mesh_message(&pool, &ctx.other_domain_id, "agent-b", None).await;
+    // Seed a broadcast in OUR domain (domain A) — domain A's agent SHOULD see it.
+    common::seed_mesh_message(&pool, &ctx.domain_id, "agent-b", None).await;
+
+    let s = server(pool);
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({
+            "tool": "list_mesh_messages",
+            "args": { "agent_id": agent_a_id, "limit": 100 }
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["ok"], true, "list_mesh_messages failed: {body}");
+    let messages = body["result"].as_array().expect("result must be array");
+    // None of the returned messages should belong to the other domain.
+    for msg in messages {
+        assert_ne!(
+            msg["domain_id"].as_str().unwrap_or(""),
+            ctx.other_domain_id.as_str(),
+            "domain B broadcast must not appear in domain A's message list"
+        );
+    }
+    // At least one message from domain A should appear.
+    let domain_a_msgs: Vec<_> = messages
+        .iter()
+        .filter(|m| m["domain_id"] == ctx.domain_id)
+        .collect();
+    assert!(
+        !domain_a_msgs.is_empty(),
+        "domain A broadcast should appear in message list"
+    );
+}
+
+// ── IDOR: per-task owner checks ───────────────────────────────────────────────
+
+#[tokio::test]
+async fn domain_peer_cannot_unblock_foreign_task() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    // Seed a task claimed by "agent-A"; domain member (member_sa) is NOT the claimer.
+    let task_id =
+        common::seed_claimed_task(&pool, &ctx.mission_id, &ctx.domain_id, "agent-A").await;
+    // Mark it blocked so unblock makes sense.
+    sqlx::query("UPDATE meshtask SET status='blocked' WHERE id=$1")
+        .bind(&task_id)
+        .execute(&pool)
+        .await
+        .expect("set blocked");
+
+    let s = server(pool);
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/unblock"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "domain peer must not unblock another agent's task: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn mcp_progress_mesh_task_denied_for_non_owner() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    // Enroll agent A (the real claimer) and agent B (the non-owner).
+    let (agent_a_id, _agent_a_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let (_agent_b_id, agent_b_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimed_task(&pool, &ctx.mission_id, &ctx.domain_id, &agent_a_id).await;
+
+    // Agent B (domain peer, not the claimer) tries to post progress — must fail.
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_b_token}"),
+        )
+        .json(&serde_json::json!({
+            "tool": "progress_mesh_task",
+            "args": { "task_id": task_id, "event_type": "status" }
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(
+        body["ok"], false,
+        "non-owner must not post progress on another agent's task: {body}"
+    );
+}
+
+#[tokio::test]
+async fn domain_peer_cannot_create_gate_on_foreign_task() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    // Seed a task claimed by "agent-A"; domain member is NOT the claimer.
+    let task_id =
+        common::seed_claimed_task(&pool, &ctx.mission_id, &ctx.domain_id, "agent-A").await;
+    let s = server(pool);
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({
+            "gate_type": "review",
+            "required_approvals": "1"
+        }))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "domain peer must not attach gate to another agent's task: {}",
+        res.text()
+    );
+}
+
+// ── send_mesh_message sender anti-spoof ──────────────────────────────────────
+
+#[tokio::test]
+async fn send_mesh_message_spoof_rejected_for_restricted_caller() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Enroll agent A; it will try to send as "agent-B" (spoof).
+    let (agent_a_id, agent_a_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .json(&serde_json::json!({
+            "tool": "send_mesh_message",
+            "args": {
+                "domain_id": ctx.domain_id,
+                "sender_agent_id": "agent-B-spoof",
+                "content": "hello"
+            }
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["ok"], true, "send should succeed: {body}");
+
+    // Verify the persisted from_agent_id is agent_a_id, not the spoofed value.
+    let from: String = sqlx::query_scalar(
+        "SELECT from_agent_id FROM meshmessage WHERE domain_id=$1 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(&ctx.domain_id)
+    .fetch_one(&pool)
+    .await
+    .expect("fetch message");
+    assert_eq!(
+        from, agent_a_id,
+        "from_agent_id must be the caller's own id, not the spoofed value"
+    );
+}
