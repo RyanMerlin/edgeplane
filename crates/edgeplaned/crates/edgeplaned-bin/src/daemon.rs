@@ -63,6 +63,33 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     let _singleton = crate::singleton::SingletonLock::acquire(&lock_path, cli.kill_existing)?;
     tracing::info!("singleton lock acquired at {}", lock_path.display());
 
+    // Security belt-and-suspenders: warn loudly if EP_AGENT_TOKEN is present in
+    // the daemon's own environment. Spawned agents that fail per-agent token
+    // minting have their EP_AGENT_TOKEN explicitly stripped at spawn time (see
+    // claude_code.rs / goose.rs), so inheritance is already blocked. However, if
+    // someone adds an EnvironmentFile= line or launches the daemon from a shell
+    // that exports EP_AGENT_TOKEN, any child process that bypasses the runtime
+    // injection path (e.g. a future runtime kind, a shell helper) would silently
+    // inherit a full-trust credential. Emit a hard warning so the condition is
+    // visible in logs and triggerable by monitoring.
+    //
+    // We intentionally do NOT call std::env::remove_var here: `run` executes
+    // inside the tokio multi-threaded runtime, so other threads may concurrently
+    // read the process environment; mutating it here would be a data race (UB
+    // under the `unsafe` contract). The per-spawn env_remove in the runtime
+    // implementations is the correct, race-free fix.
+    if std::env::var("EP_AGENT_TOKEN").is_ok() {
+        tracing::warn!(
+            "SECURITY: EP_AGENT_TOKEN is set in the daemon's environment. \
+             This is a privilege-escalation footgun: any spawned child that does \
+             not receive a per-agent token could inherit this full-trust credential. \
+             Remove EP_AGENT_TOKEN from the daemon's environment (EnvironmentFile, \
+             shell export, etc.). Per-spawn stripping in the runtimes mitigates \
+             inheritance for claude_code and goose agents, but this env exposure \
+             should be eliminated at the source."
+        );
+    }
+
     let mut cfg = DaemonConfig::load_or_default();
 
     // Phase 5b/d: state file is the source of truth for node identity + active
@@ -1229,9 +1256,9 @@ impl Spawner {
         // tower as itself. Supervised agents are fetched (not enrolled), so
         // there is no enroll-response token — the daemon mints one with its own
         // full-trust node credential (authorized by the token endpoint). On
-        // failure we fall back to `None`, and the runtime lets the agent
-        // inherit the daemon's shared EP_AGENT_TOKEN (current behavior), so a
-        // mint hiccup degrades gracefully rather than breaking the fleet.
+        // failure we fall back to `None`; the runtime then strips EP_AGENT_TOKEN
+        // from the child env (fail-closed: the agent will 401 on tower calls
+        // rather than silently inheriting any ambient full-trust credential).
         //
         // Only mint for runtimes that actually consume the token (claude_code,
         // goose apply it via LaunchContext.agent_token → EP_AGENT_TOKEN). Other

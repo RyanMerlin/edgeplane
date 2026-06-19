@@ -321,10 +321,20 @@ impl AgentRuntime for ClaudeCodeRuntime {
         }
 
         // Inject this agent's own per-agent token as EP_AGENT_TOKEN so it
-        // authenticates to the tower as itself. When unset, the child inherits
-        // the daemon's EP_AGENT_TOKEN from the environment (graceful fallback).
+        // authenticates to the tower as itself. When no per-agent token is
+        // available (mint failure), explicitly remove the variable from the
+        // child's environment so it can never inherit an ambient full-trust
+        // token from the daemon. The child will 401 on its first tower call
+        // (fail-closed by design) rather than silently escalating.
         if let Some(tok) = self.agent_token.get() {
             cmd.env("EP_AGENT_TOKEN", tok);
+        } else {
+            tracing::warn!(
+                "No per-agent token available for this claude_code agent; \
+                 EP_AGENT_TOKEN stripped from child env. Agent will run without \
+                 a token and fail closed (401) on tower calls — this is intentional."
+            );
+            cmd.env_remove("EP_AGENT_TOKEN");
         }
 
         // Inject edgeplane binary dir so agents can invoke `edgeplane` without an absolute path.
