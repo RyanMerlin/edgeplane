@@ -136,7 +136,31 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                         }
                     }
                 }
-                // JWT present but invalid/revoked/unknown — fall through to reject.
+                // Agent JWT — same RS256 key as node tokens, distinguished by claim shape.
+                if let Ok(claims) = crate::jwt::verify_agent_jwt(token, &state.jwt_decoding_key) {
+                    let row = sqlx::query(
+                        "SELECT revoked FROM agenttoken WHERE jti=$1 AND expires_at > $2",
+                    )
+                    .bind(&claims.jti)
+                    .bind(now)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten();
+                    if let Some(row) = row {
+                        let revoked: bool = row.get("revoked");
+                        if !revoked {
+                            return Ok(Principal {
+                                subject: claims.sub,
+                                is_admin: false,
+                                session_id: None,
+                                auth_type: "agent".into(),
+                                domain_scope: vec![claims.domain_id],
+                            });
+                        }
+                    }
+                }
+                // Neither a valid node nor a valid/non-revoked agent token → reject.
                 return Err(AuthRejection::Unauthenticated);
             }
 
