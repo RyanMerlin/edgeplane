@@ -309,6 +309,26 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                 Some(v) => v as i32,
                 None => return err_result("task_id is required"),
             };
+            // Change 4: resolve domain via task→mission→domain and authz before the SELECT.
+            // overlapsuggestion.task_id is integer FK to task.id (workspace task model).
+            let domain_id: Option<String> = sqlx::query_scalar(
+                "SELECT m.domain_id FROM overlapsuggestion o \
+                 JOIN task t ON t.id = o.task_id \
+                 JOIN mission m ON m.id = t.mission_id \
+                 WHERE o.task_id = $1 LIMIT 1"
+            )
+            .bind(task_id)
+            .fetch_optional(&state.db)
+            .await
+            .unwrap_or(None)
+            .flatten();
+            let domain_id = match domain_id {
+                Some(d) => d,
+                None => return err_result("task not found"),
+            };
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
+            }
             let limit = int_arg(args, "limit").unwrap_or(10).min(50);
             match sqlx::query(
                 "SELECT id, task_id, candidate_task_id, similarity_score, evidence, suggested_action \
@@ -375,14 +395,25 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
         }
 
         "list_mesh_tasks" => {
+            // Change 5: mission_id is now required; resolve domain and authz before the SELECT.
             let mission_id = str_arg(args, "mission_id");
+            if mission_id.is_empty() {
+                return err_result("mission_id is required");
+            }
+            let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
+                Ok(d) => d,
+                Err(_) => return err_result("mission not found"),
+            };
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
+            }
             let status_filter = args.get("status").and_then(|v| v.as_str());
             let limit = int_arg(args, "limit").unwrap_or(50).min(200);
             match sqlx::query(
                 "SELECT id, mission_id, domain_id, title, description, status, priority, \
                  claimed_by_agent_id, created_at, updated_at \
                  FROM meshtask \
-                 WHERE ($1::text = '' OR mission_id=$1) \
+                 WHERE mission_id=$1 \
                    AND ($2::text IS NULL OR status=$2) \
                  ORDER BY priority DESC, created_at ASC LIMIT $3"
             )
@@ -407,6 +438,14 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() {
                 return err_result("task_id is required");
             }
+            // Change 6: resolve domain and authz before the SELECT.
+            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+                Ok(d) => d,
+                Err(_) => return err_result("mesh_task_not_found"),
+            };
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
+            }
             match sqlx::query(
                 "SELECT id, mission_id, domain_id, title, description, status, priority, \
                  input_json, claimed_by_agent_id, claim_lease_id, lease_expires_at, \
@@ -416,18 +455,27 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             .fetch_optional(&state.db)
             .await
             {
-                Ok(Some(r)) => ok_result(json!({
-                    "id": r.get::<String,_>("id"),
-                    "mission_id": r.get::<String,_>("mission_id"),
-                    "domain_id": r.get::<String,_>("domain_id"),
-                    "title": r.get::<String,_>("title"),
-                    "description": r.get::<String,_>("description"),
-                    "status": r.get::<String,_>("status"),
-                    "priority": r.get::<i32,_>("priority"),
-                    "claimed_by_agent_id": r.get::<Option<String>,_>("claimed_by_agent_id"),
-                    "claim_lease_id": r.get::<Option<String>,_>("claim_lease_id"),
-                    "lease_expires_at": r.get::<Option<chrono::NaiveDateTime>,_>("lease_expires_at"),
-                })),
+                Ok(Some(r)) => {
+                    // Drop claim_lease_id for non-owners to avoid live-lease exposure.
+                    let claimed_by: Option<String> = r.get("claimed_by_agent_id");
+                    let lease_id: Option<String> = r.get("claim_lease_id");
+                    let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+                    let is_owner = crate::auth::is_full_trust(principal)
+                        || principal.is_admin
+                        || claimed_by.as_deref() == Some(self_id);
+                    ok_result(json!({
+                        "id": r.get::<String,_>("id"),
+                        "mission_id": r.get::<String,_>("mission_id"),
+                        "domain_id": r.get::<String,_>("domain_id"),
+                        "title": r.get::<String,_>("title"),
+                        "description": r.get::<String,_>("description"),
+                        "status": r.get::<String,_>("status"),
+                        "priority": r.get::<i32,_>("priority"),
+                        "claimed_by_agent_id": claimed_by,
+                        "claim_lease_id": if is_owner { lease_id } else { None },
+                        "lease_expires_at": r.get::<Option<chrono::NaiveDateTime>,_>("lease_expires_at"),
+                    }))
+                }
                 Ok(None) => err_result("mesh_task_not_found"),
                 Err(e) => {
                     tracing::error!("mcp get_mesh_task: {e}");
@@ -639,12 +687,29 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if agent_id.is_empty() {
                 return err_result("agent_id is required");
             }
+            // Change 1: resolve the agent's domain, authz the caller for it, and
+            // restrict direct-message reads to the agent's own identity.
+            let domain_id = match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
+                Ok(d) => d,
+                Err(_) => return err_result("agent not found"),
+            };
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
+            }
+            // Non-full-trust callers may only read their own agent's messages.
+            if !crate::auth::is_full_trust(principal) && !principal.is_admin {
+                let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+                if self_id != agent_id.as_str() {
+                    return json!({ "ok": false, "error": "forbidden", "detail": "may only read own agent's messages" });
+                }
+            }
             match sqlx::query(
                 "SELECT id, domain_id, from_agent_id, to_agent_id, channel, body_json, created_at, read_at \
-                 FROM meshmessage WHERE (to_agent_id=$1 OR to_agent_id IS NULL) \
-                 ORDER BY created_at DESC LIMIT $2"
+                 FROM meshmessage \
+                 WHERE (to_agent_id=$1 OR (to_agent_id IS NULL AND domain_id=$2)) \
+                 ORDER BY created_at DESC LIMIT $3"
             )
-            .bind(&agent_id).bind(limit).fetch_all(&state.db).await
+            .bind(&agent_id).bind(&domain_id).bind(limit).fetch_all(&state.db).await
             {
                 Ok(rows) => ok_result(Value::Array(rows.iter().map(|r| json!({
                     "id": r.get::<i32,_>("id"),
@@ -666,6 +731,10 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let event_kind = str_arg(args, "event_kind");
             if domain_id.is_empty() || entity_kind.is_empty() {
                 return err_result("domain_id and entity_kind are required");
+            }
+            // Change 3: authz before the SELECT — leaks publishing infra config.
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
             }
             let row = sqlx::query(
                 "SELECT r.id AS route_id, r.format, r.branch, r.rel_path_template, \
@@ -1773,6 +1842,10 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let domain_id = str_arg(args, "domain_id");
             if domain_id.is_empty() {
                 return err_result("domain_id is required");
+            }
+            // Change 2: authz before the SELECT — northstar_md is sensitive strategy content.
+            if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
+                return e;
             }
             let row =
                 sqlx::query("SELECT northstar_md, northstar_version FROM domain WHERE id = $1")
