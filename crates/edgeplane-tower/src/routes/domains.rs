@@ -1,18 +1,18 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
-use sqlx::postgres::PgRow;
 use sqlx::Row;
+use sqlx::postgres::PgRow;
 use std::sync::Arc;
 
 use crate::{
-    auth::Principal,
+    auth::{Principal, authorized_for_domain, split_csv},
     models::domain::{Domain, DomainCreate, DomainUpdate, NorthstarUpdate},
     state::AppState,
 };
@@ -20,8 +20,14 @@ use crate::{
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/domains", get(list_domains).post(create_domain))
-        .route("/domains/{domain_id}", get(get_domain).patch(update_domain).delete(delete_domain))
-        .route("/domains/{domain_id}/northstar", get(get_domain_northstar_handler).put(put_domain_northstar_handler))
+        .route(
+            "/domains/{domain_id}",
+            get(get_domain).patch(update_domain).delete(delete_domain),
+        )
+        .route(
+            "/domains/{domain_id}/northstar",
+            get(get_domain_northstar_handler).put(put_domain_northstar_handler),
+        )
         .route("/domains/{domain_id}/owner", post(transfer_owner))
 }
 
@@ -30,27 +36,16 @@ fn new_hash_id() -> String {
     hex::encode(bytes)
 }
 
-fn split_csv(s: &str) -> Vec<String> {
-    s.split(',').map(|x| x.trim().to_lowercase()).filter(|x| !x.is_empty()).collect()
-}
-
 fn can_read(domain: &Domain, p: &Principal) -> bool {
-    if p.is_admin { return true; }
     if domain.visibility.to_lowercase() == "public" { return true; }
-    let id = p.subject.to_lowercase();
-    split_csv(&domain.owners).contains(&id) || split_csv(&domain.contributors).contains(&id)
+    authorized_for_domain(domain, p)
 }
 
-fn can_write(domain: &Domain, p: &Principal) -> bool {
-    if p.is_admin { return true; }
-    let id = p.subject.to_lowercase();
-    split_csv(&domain.owners).contains(&id) || split_csv(&domain.contributors).contains(&id)
-}
+fn can_write(domain: &Domain, p: &Principal) -> bool { authorized_for_domain(domain, p) }
 
 fn can_own(domain: &Domain, p: &Principal) -> bool {
     if p.is_admin { return true; }
-    let id = p.subject.to_lowercase();
-    split_csv(&domain.owners).contains(&id)
+    split_csv(&domain.owners).contains(&p.subject.to_lowercase())
 }
 
 fn row_to_domain(row: &PgRow) -> Domain {
@@ -76,10 +71,18 @@ fn row_to_domain(row: &PgRow) -> Domain {
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 fn unprocessable(msg: &str) -> axum::response::Response {
-    (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -101,10 +104,14 @@ async fn list_domains(
         .await;
 
     match rows {
-        Err(e) => { tracing::error!("list_domains: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("list_domains: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
         Ok(rows) => {
             let domains: Vec<Domain> = rows.iter().map(row_to_domain).collect();
-            let visible: Vec<&Domain> = domains.iter().filter(|m| can_read(m, &principal)).collect();
+            let visible: Vec<&Domain> =
+                domains.iter().filter(|m| can_read(m, &principal)).collect();
             Json(visible).into_response()
         }
     }
@@ -136,7 +143,9 @@ async fn create_domain(
             .fetch_optional(&state.db)
             .await
             .unwrap_or(None);
-        if exists.is_none() { break; }
+        if exists.is_none() {
+            break;
+        }
         id = new_hash_id();
     }
 
@@ -149,19 +158,30 @@ async fn create_domain(
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'',1,'','',NULL,NULL,$9,$10)
            RETURNING *"#,
     )
-    .bind(&id).bind(payload.name.trim()).bind(&payload.description)
-    .bind(&owners).bind(&payload.contributors).bind(&payload.tags)
-    .bind(&payload.visibility).bind(&payload.status)
-    .bind(now).bind(now)
+    .bind(&id)
+    .bind(payload.name.trim())
+    .bind(&payload.description)
+    .bind(&owners)
+    .bind(&payload.contributors)
+    .bind(&payload.tags)
+    .bind(&payload.visibility)
+    .bind(&payload.status)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await;
 
     match result {
         Ok(row) => (StatusCode::OK, Json(row_to_domain(&row))).into_response(),
-        Err(e) if e.to_string().contains("unique") || e.to_string().contains("duplicate") => {
-            (StatusCode::CONFLICT, Json(serde_json::json!({"detail": "Domain name already exists"}))).into_response()
+        Err(e) if e.to_string().contains("unique") || e.to_string().contains("duplicate") => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"detail": "Domain name already exists"})),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("create_domain: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
-        Err(e) => { tracing::error!("create_domain: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
 }
 
@@ -178,10 +198,17 @@ async fn get_domain(
     match row {
         Ok(Some(r)) => {
             let m = row_to_domain(&r);
-            if can_read(&m, &principal) { Json(m).into_response() } else { StatusCode::FORBIDDEN.into_response() }
+            if can_read(&m, &principal) {
+                Json(m).into_response()
+            } else {
+                StatusCode::FORBIDDEN.into_response()
+            }
         }
         Ok(None) => not_found("Domain not found"),
-        Err(e) => { tracing::error!("get_domain: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("get_domain: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -199,33 +226,49 @@ async fn update_domain(
     let domain = match existing {
         Ok(Some(r)) => row_to_domain(&r),
         Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("update_domain fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("update_domain fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
-    if !can_write(&domain, &principal) { return StatusCode::FORBIDDEN.into_response(); }
+    if !can_write(&domain, &principal) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
 
     let owners = payload.owners.unwrap_or(domain.owners);
-    if split_csv(&owners).is_empty() { return unprocessable("owners must include at least one owner"); }
+    if split_csv(&owners).is_empty() {
+        return unprocessable("owners must include at least one owner");
+    }
 
-    let description  = payload.description.unwrap_or(domain.description);
+    let description = payload.description.unwrap_or(domain.description);
     let contributors = payload.contributors.unwrap_or(domain.contributors);
-    let tags         = payload.tags.unwrap_or(domain.tags);
-    let visibility   = payload.visibility.unwrap_or(domain.visibility);
-    let status       = payload.status.unwrap_or(domain.status);
+    let tags = payload.tags.unwrap_or(domain.tags);
+    let visibility = payload.visibility.unwrap_or(domain.visibility);
+    let status = payload.status.unwrap_or(domain.status);
     let now = Utc::now().naive_utc();
 
     let result = sqlx::query(
         "UPDATE domain SET description=$2, owners=$3, contributors=$4, tags=$5, \
-         visibility=$6, status=$7, updated_at=$8 WHERE id=$1 RETURNING *"
+         visibility=$6, status=$7, updated_at=$8 WHERE id=$1 RETURNING *",
     )
-    .bind(&domain_id).bind(&description).bind(&owners).bind(&contributors)
-    .bind(&tags).bind(&visibility).bind(&status).bind(now)
+    .bind(&domain_id)
+    .bind(&description)
+    .bind(&owners)
+    .bind(&contributors)
+    .bind(&tags)
+    .bind(&visibility)
+    .bind(&status)
+    .bind(now)
     .fetch_one(&state.db)
     .await;
 
     match result {
         Ok(row) => Json(row_to_domain(&row)).into_response(),
-        Err(e) => { tracing::error!("update_domain: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("update_domain: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -242,22 +285,30 @@ async fn delete_domain(
     let domain = match existing {
         Ok(Some(r)) => row_to_domain(&r),
         Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("delete_domain fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("delete_domain fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
-    if !can_own(&domain, &principal) { return StatusCode::FORBIDDEN.into_response(); }
+    if !can_own(&domain, &principal) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
 
-    let linked: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE domain_id = $1 LIMIT 1")
-        .bind(&domain_id)
-        .fetch_optional(&state.db)
-        .await
-        .unwrap_or(None);
+    let linked: Option<i32> =
+        sqlx::query_scalar("SELECT 1 FROM mission WHERE domain_id = $1 LIMIT 1")
+            .bind(&domain_id)
+            .fetch_optional(&state.db)
+            .await
+            .unwrap_or(None);
     if linked.is_some() {
         return (StatusCode::CONFLICT, Json(serde_json::json!({"detail": "Domain has linked missions; move or delete missions first"}))).into_response();
     }
 
     let _ = sqlx::query("DELETE FROM domain WHERE id = $1")
-        .bind(&domain_id).execute(&state.db).await;
+        .bind(&domain_id)
+        .execute(&state.db)
+        .await;
 
     Json(serde_json::json!({"ok": true, "deleted_id": domain_id})).into_response()
 }
@@ -269,21 +320,36 @@ async fn transfer_owner(
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     if !principal.is_admin {
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"detail": "admin required"}))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "admin required"})),
+        )
+            .into_response();
     }
     let new_owner = match payload.get("new_owner").and_then(|v| v.as_str()) {
         Some(o) if !o.is_empty() => o.to_string(),
-        _ => return (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({"detail": "new_owner is required"}))).into_response(),
+        _ => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"detail": "new_owner is required"})),
+            )
+                .into_response();
+        }
     };
     let now = chrono::Utc::now().naive_utc();
-    match sqlx::query(
-        "UPDATE domain SET owners=$2, updated_at=$3 WHERE id=$1 RETURNING *"
-    )
-    .bind(&domain_id).bind(&new_owner).bind(now)
-    .fetch_optional(&state.db).await {
+    match sqlx::query("UPDATE domain SET owners=$2, updated_at=$3 WHERE id=$1 RETURNING *")
+        .bind(&domain_id)
+        .bind(&new_owner)
+        .bind(now)
+        .fetch_optional(&state.db)
+        .await
+    {
         Ok(Some(row)) => Json(row_to_domain(&row)).into_response(),
         Ok(None) => not_found("Domain not found"),
-        Err(e) => { tracing::error!("transfer_owner: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("transfer_owner: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -310,10 +376,14 @@ async fn get_domain_northstar_handler(
                 "version": domain.northstar_version,
                 "modified_by": domain.northstar_modified_by,
                 "modified_at": domain.northstar_modified_at,
-            })).into_response()
+            }))
+            .into_response()
         }
         Ok(None) => not_found("Domain not found"),
-        Err(e) => { tracing::error!("get_domain_northstar: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("get_domain_northstar: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -331,7 +401,10 @@ async fn put_domain_northstar_handler(
     let domain = match row {
         Ok(Some(r)) => row_to_domain(&r),
         Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("put_domain_northstar fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("put_domain_northstar fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
     if !can_write(&domain, &principal) {
@@ -346,7 +419,7 @@ async fn put_domain_northstar_handler(
              northstar_modified_at = NOW(), \
              updated_at = NOW() \
          WHERE id = $3 \
-         RETURNING northstar_md, northstar_version, northstar_modified_by, northstar_modified_at"
+         RETURNING northstar_md, northstar_version, northstar_modified_by, northstar_modified_at",
     )
     .bind(&payload.content)
     .bind(&principal.subject)
@@ -360,8 +433,12 @@ async fn put_domain_northstar_handler(
             "version": r.get::<i32, _>("northstar_version"),
             "modified_by": r.get::<String, _>("northstar_modified_by"),
             "modified_at": r.get::<Option<chrono::NaiveDateTime>, _>("northstar_modified_at"),
-        })).into_response(),
+        }))
+        .into_response(),
         Ok(None) => not_found("Domain not found"),
-        Err(e) => { tracing::error!("put_domain_northstar update: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("put_domain_northstar update: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }

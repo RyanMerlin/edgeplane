@@ -1,16 +1,17 @@
-use axum::extract::FromRequestParts;
-use axum::http::request::Parts;
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
 use axum::Json;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use axum::extract::FromRequestParts;
+use axum::http::StatusCode;
+use axum::http::request::Parts;
+use axum::response::{IntoResponse, Response};
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::models::domain::Domain;
 use crate::state::AppState;
 
 /// Pure admin-policy check: `true` when `email` (case-insensitive) is present
@@ -25,10 +26,10 @@ pub(crate) fn is_admin_email(email: Option<&str>, admin_emails: &HashSet<String>
 
 /// Caller identity extracted from request headers.
 ///
-/// Note: `auth_type` is one of `"session"`, `"service_account"`, or `"node"`.
+/// Note: `auth_type` is one of `"session"`, `"service_account"`, `"node"`, or `"agent"`.
 /// The `"static"` EP_TOKEN path was removed — all callers authenticate via
-/// OIDC session tokens (mcs_*), service-account tokens (mcs_sa_*), or
-/// RS256 node JWTs. The extractor reads from request extensions (where the
+/// OIDC session tokens (mcs_*), service-account tokens (mcs_sa_*),
+/// RS256 node JWTs, or agent JWTs. The extractor reads from request extensions (where the
 /// `require_auth` middleware caches the resolved Principal) before falling
 /// back to a full lookup, so handlers can still take `principal: Principal`
 /// without a second DB round-trip per request.
@@ -37,8 +38,11 @@ pub struct Principal {
     pub subject: String,
     pub is_admin: bool,
     pub session_id: Option<i32>,
-    /// One of: "session", "service_account", "node"
+    /// One of: "session", "service_account", "node", "agent".
     pub auth_type: String,
+    /// Domain ids this principal is intrinsically authorized for (per-agent JWT).
+    /// Empty for session/service_account/node.
+    pub domain_scope: Vec<String>,
 }
 
 /// Rejection returned by the `Principal` extractor when no valid credential
@@ -65,7 +69,10 @@ impl IntoResponse for AuthRejection {
 impl FromRequestParts<Arc<AppState>> for Principal {
     type Rejection = AuthRejection;
 
-    async fn from_request_parts(parts: &mut Parts, state: &Arc<AppState>) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
         // Phase 1.6: the `require_auth` middleware resolves the principal
         // once per request and stashes it in extensions. Handlers that
         // extract `Principal` read it from there rather than re-running the
@@ -124,6 +131,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                                 is_admin: false,
                                 session_id: None,
                                 auth_type: "node".into(),
+                                domain_scope: Vec::new(),
                             });
                         }
                     }
@@ -139,7 +147,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                      FROM serviceaccounttoken sat \
                      JOIN serviceaccount sa ON sa.id = sat.service_account_id \
                      WHERE sat.token_hash = $1 AND sat.revoked = false AND sa.revoked = false \
-                     AND (sat.expires_at IS NULL OR sat.expires_at > $2)"
+                     AND (sat.expires_at IS NULL OR sat.expires_at > $2)",
                 )
                 .bind(&hash)
                 .bind(now)
@@ -167,13 +175,14 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                         is_admin: false,
                         session_id: Some(token_id),
                         auth_type: "service_account".into(),
+                        domain_scope: Vec::new(),
                     });
                 }
             } else if token.starts_with("mcs_") {
                 // User session token — validate against usersession
                 let row = sqlx::query(
                     "SELECT id, subject, email FROM usersession \
-                     WHERE token_hash = $1 AND revoked = false AND expires_at > $2"
+                     WHERE token_hash = $1 AND revoked = false AND expires_at > $2",
                 )
                 .bind(&hash)
                 .bind(now)
@@ -190,7 +199,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                     let h = hash.clone();
                     tokio::spawn(async move {
                         let _ = sqlx::query(
-                            "UPDATE usersession SET last_used_at = NOW() WHERE token_hash = $1"
+                            "UPDATE usersession SET last_used_at = NOW() WHERE token_hash = $1",
                         )
                         .bind(&h)
                         .execute(&db)
@@ -201,6 +210,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                         is_admin: is_admin_email(email.as_deref(), &state.admin_emails),
                         session_id: Some(session_id),
                         auth_type: "session".into(),
+                        domain_scope: Vec::new(),
                     });
                 }
             }
@@ -217,7 +227,6 @@ impl FromRequestParts<Arc<AppState>> for Principal {
 pub fn hash_token(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
-
 
 /// Generate a new token with the given prefix (e.g. `"mcs_"`, `"mcs_sa_"`).
 /// Suffix is 32 random bytes base64url-encoded (no padding), same entropy as
@@ -245,8 +254,7 @@ pub fn make_token(prefix: &str) -> String {
 pub fn is_public_path(path: &str) -> bool {
     matches!(
         path,
-        "/"
-            | "/health"
+        "/" | "/health"
             | "/mcp/health"
             | "/mcp/tools"
             | "/raft/status"
@@ -293,6 +301,104 @@ pub async fn require_auth(
             next.run(req).await
         }
         Err(rejection) => rejection.into_response(),
+    }
+}
+
+/// Split a comma-separated string into lowercased, trimmed, non-empty tokens.
+pub fn split_csv(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|x| x.trim().to_lowercase())
+        .filter(|x| !x.is_empty())
+        .collect()
+}
+
+/// Pure core of the domain authorization predicate. Default deny.
+///
+/// Authorization order (first match wins):
+/// 1. Admin flag — unrestricted access everywhere.
+/// 2. Node auth_type — first-party infra is full-trust (scope restriction comes in a later phase).
+/// 3. Per-agent domain_scope JWT claim — explicit domain enrollment.
+/// 4. Owners/contributors membership — lowercased subject match.
+pub fn authorized_for(
+    domain_id: &str,
+    owners: &str,
+    contributors: &str,
+    p: &Principal,
+) -> bool {
+    if p.is_admin {
+        return true;
+    }
+    if p.auth_type == "node" {
+        return true; // first-party infra, full-trust (P0; §5 scopes later)
+    }
+    if p.domain_scope.iter().any(|d| d == domain_id) {
+        return true;
+    }
+    let id = p.subject.to_lowercase();
+    split_csv(owners).contains(&id) || split_csv(contributors).contains(&id)
+}
+
+/// Wrapper for `authorized_for` that takes a full `Domain` record.
+pub fn authorized_for_domain(domain: &Domain, p: &Principal) -> bool {
+    authorized_for(&domain.id, &domain.owners, &domain.contributors, p)
+}
+
+/// Full-trust principals: interactive human/admin sessions and first-party nodes.
+/// They bypass the per-task lease check and may act on behalf of other agents.
+pub fn is_full_trust(p: &Principal) -> bool {
+    p.auth_type == "session" || p.auth_type == "node"
+}
+
+#[cfg(test)]
+mod authz_tests {
+    use super::*;
+
+    fn principal(subject: &str, is_admin: bool, auth_type: &str, scope: &[&str]) -> Principal {
+        Principal {
+            subject: subject.into(),
+            is_admin,
+            session_id: None,
+            auth_type: auth_type.into(),
+            domain_scope: scope.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn admin_authorized_anywhere() {
+        assert!(authorized_for("d1", "", "", &principal("x@x.com", true, "session", &[])));
+    }
+    #[test]
+    fn node_is_full_trust_authorized_anywhere() {
+        let p = principal("node:excalibur", false, "node", &[]);
+        assert!(authorized_for("d1", "", "", &p));
+        assert!(is_full_trust(&p));
+    }
+    #[test]
+    fn owner_authorized_case_insensitive() {
+        let p = principal("Alice@Example.COM", false, "session", &[]);
+        assert!(authorized_for("d1", "alice@example.com", "", &p));
+    }
+    #[test]
+    fn contributor_authorized() {
+        let p = principal("sa:worker", false, "service_account", &[]);
+        assert!(authorized_for("d1", "alice@x.com", "sa:worker", &p));
+    }
+    #[test]
+    fn domain_scope_match_authorized() {
+        let p = principal("agent:w7", false, "agent", &["d1", "d2"]);
+        assert!(authorized_for("d2", "", "", &p));
+    }
+    #[test]
+    fn outsider_denied() {
+        let p = principal("sa:mallory", false, "service_account", &["d9"]);
+        assert!(!authorized_for("d1", "alice@x.com", "sa:bob", &p));
+    }
+    #[test]
+    fn only_sessions_and_nodes_are_full_trust() {
+        assert!(!is_full_trust(&principal("sa:x", false, "service_account", &[])));
+        assert!(!is_full_trust(&principal("agent:x", false, "agent", &[])));
+        assert!(is_full_trust(&principal("u@x.com", false, "session", &[])));
+        assert!(is_full_trust(&principal("node:n", false, "node", &[])));
     }
 }
 
