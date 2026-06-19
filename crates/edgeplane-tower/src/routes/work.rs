@@ -2210,6 +2210,17 @@ async fn delete_agent(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
+    // Change 13: revoke outstanding agent tokens immediately on delete so the
+    // per-agent JWT is invalidated rather than remaining valid up to 12 h TTL.
+    if let Err(e) = sqlx::query("UPDATE agenttoken SET revoked = true WHERE agent_id = $1")
+        .bind(&agent_id)
+        .execute(&state.db)
+        .await
+    {
+        // Non-fatal: the agent row is already gone; log and continue.
+        tracing::warn!("delete_agent token revoke: {e}");
+    }
+
     if let Some(node) = node_id {
         broadcast_assignment_changed(
             &node,
