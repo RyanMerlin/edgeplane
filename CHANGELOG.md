@@ -6,6 +6,34 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-06-19
+
+P0 security release — the two seams of the layered-tenancy hardening.
+
+### Security
+
+- **Seam 1 — domain authorization.** Default-deny `authorized_for_domain` on every
+  privileged dispatch/ledger/stream handler in edgeplane-tower (REST + MCP), plus
+  per-task lease ownership enforcement on lifecycle mutations and admin-gating of
+  the previously-unauthenticated `global_sse` stream. Closes the hole where any
+  authenticated token could dispatch or mutate work in any domain. Also closed an
+  artifact-exfil gap in `get_artifact_download_url`.
+- **Seam 2 — per-agent identity.** Each enrolled agent now gets its own
+  short-lived, domain-scoped per-agent JWT (`AgentClaims`, the `agenttoken`
+  revocation table via migration `0010`, fail-closed auth extractor) instead of
+  the shared `EP_AGENT_TOKEN`. Tokens are minted at enrollment and via a
+  full-trust-gated `POST /work/agents/{agent_id}/token` endpoint — agents cannot
+  mint peer tokens. `claim`/`progress` are attributed to the authenticated agent
+  (REST + MCP), and the daemon injects each agent's own token as its
+  `EP_AGENT_TOKEN`, falling back to the shared daemon token if minting is
+  unavailable so a mint hiccup degrades gracefully rather than breaking the fleet.
+
+### Changed
+
+- The daemon only mints per-agent tokens for runtimes that consume them
+  (`claude_code`, `goose`); other runtime kinds keep using the shared daemon token,
+  avoiding wasted mint round-trips and 404s for node-runtime agents (#57).
+
 ## [0.14.1] — 2026-06-15
 
 ### Changed
