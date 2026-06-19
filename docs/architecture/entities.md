@@ -11,11 +11,13 @@ Every entity below cites both the philosophy doc (definition) and the schema (st
 
 ## Domain
 
-**A bounded organizational objective.** The high-level "what we are doing and why." Carries the northstar narrative, owners, governance scope.
+**A bounded organizational objective and the authorization boundary.** The high-level "what we are doing and why." Carries the northstar narrative, owners, governance scope.
 
 - Philosophy: line 98–106 ("A Mission is: A bounded objective; A scoped knowledge domain; A policy surface; A permission boundary; A tool/skill profile") — now refers to Domain
 - Schema: `public.domain` (0001, renamed in 0012) — has `northstar_md`, `owners`, `contributors`, `visibility`, `status`
 - Owns: many missions (`mission.domain_id`)
+
+**Authorization boundary (shipped v0.15.0, Seam 1):** every privileged dispatch/ledger/stream action enforces a default-deny `authorized_for_domain` check before acting. Access is granted if the principal is admin, is a `node` (full-trust infra), holds the domain in its `domain_scope` (per-agent JWT), or is listed in `domain.owners`/`domain.contributors`. Lifecycle mutations additionally require per-task lease ownership (`authz_task_owner`) unless full-trust/admin.
 
 > **DEPRECATED:** `Domain.kind` (migration 0006, values `'work'` | `'home'`) is soft-deprecated as of 2026-05-21. The column was set in exactly one code path (`provision_home_for_node` in `routes/runtime.rs`) and read by zero — a write-only tag that leaked an Aria-specific operational pattern into the schema. New code MUST NOT write or filter on `kind`. The column stays for now (migrations are forward-only); a future migration may drop it. Operational coordination domains are just regular domains; edgeplaned's bootstrap creates a default domain named `home` (per `bootstrap::DEFAULT_HOME_DOMAIN_NAME`, overridable via `EP_HOME_DOMAIN_NAME` env). `Agent.home_domain_id` still points at home domains as before — that FK was never constrained to `kind='home'` anyway.
 
@@ -83,6 +85,8 @@ Whether `task` and `meshtask` will converge is an open architecture question —
 - Migration 0007 adds: `archived_at`, `display_name`, `node_id`, `last_seen_at` (lifecycle + presence metadata; reserved-name enforcement happens in code, not as a CHECK constraint)
 - Migration 0008 adds: `public_id` (`{name}-{8-char-suffix}`) — the stable, human-readable identifier used by `/agents/{public_id}/messages` and the unified `edgeplane agent` surface. Immutable after creation
 - Migration 0010 adds: `home_domain_id` (permanent anchor — set once at registration, never cleared) and `current_domain_id` (active attachment — follows the agent's working context, resets to home on detach). Both nullable FKs to `domain(id)`. (Renamed in 0012 from `home_mission_id`/`current_mission_id`.)
+
+**Per-agent JWT identity (shipped v0.15.0, Seam 2):** each enrolled agent authenticates with its own short-lived (12 h), domain-scoped JWT (`AgentClaims`). The token is minted at enrollment, stored in the `agenttoken` revocation table (migration `0010`), and injected by the daemon as the agent's `EP_AGENT_TOKEN`. The auth extractor recognizes agent JWTs by claim shape (`deny_unknown_fields`), checks revocation, and returns `Principal{auth_type:"agent", domain_scope:[home_domain_id]}` — honored by the Seam 1 `authorized_for_domain` predicate. Agents cannot mint peer tokens; revoking an agent also revokes its token.
 
 **Note:** there is no separate `agent_identity` table. Migration 0007 only adds columns to `agent`. Earlier doc revisions claimed a distinct table — that was inaccurate.
 
