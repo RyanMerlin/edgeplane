@@ -865,7 +865,7 @@ async fn agent_cannot_set_peer_status() {
             axum::http::header::AUTHORIZATION,
             format!("Bearer {agent_a_token}"),
         )
-        .add_query_params(&[("status", "idle")])
+        .add_query_params([("status", "idle")])
         .await;
     assert_eq!(
         res.status_code(),
@@ -881,7 +881,7 @@ async fn agent_cannot_set_peer_status() {
             axum::http::header::AUTHORIZATION,
             format!("Bearer {agent_a_token}"),
         )
-        .add_query_params(&[("status", "idle")])
+        .add_query_params([("status", "idle")])
         .await;
     assert!(
         res.status_code().is_success(),
