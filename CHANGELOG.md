@@ -6,6 +6,10 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-06-19
+
+Red-team hardening of the v0.15.0 P0 security release — closes read-side cross-domain authz gaps and intra-domain IDORs (no cross-domain *mutation* bypass or token escalation existed; the model held). Ships the daemon fail-closed token fallback to the fleet.
+
 ### Security
 
 - **Read-side cross-domain authz closed (#62).** Domain authorization now enforces on all
