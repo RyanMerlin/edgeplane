@@ -193,6 +193,46 @@ pub async fn seed_artifact(db: &PgPool, mission_id: &str) -> i32 {
     id
 }
 
+/// Insert a workspace `task` row linked to `mission_id`. Returns the integer `id`.
+///
+/// task NOT-NULL columns: public_id, mission_id, title, description, status,
+///   owner, contributors, dependencies, definition_of_done, related_artifacts,
+///   created_at, updated_at. `epic_id` is nullable.
+pub async fn seed_task(db: &PgPool, mission_id: &str) -> i32 {
+    let public_id = format!("task-{}", Uuid::new_v4().simple());
+    let id: i32 = sqlx::query_scalar(
+        "INSERT INTO task \
+         (public_id, mission_id, title, description, status, owner, contributors, \
+          dependencies, definition_of_done, related_artifacts, created_at, updated_at) \
+         VALUES ($1, $2, 'test-task', '', 'open', 'harness', '', '', '', '', now(), now()) \
+         RETURNING id",
+    )
+    .bind(&public_id)
+    .bind(mission_id)
+    .fetch_one(db)
+    .await
+    .expect("insert task");
+    id
+}
+
+/// Insert an `overlapsuggestion` row for `task_id` (integer FK to task.id).
+/// Returns the inserted overlap suggestion `id`.
+pub async fn seed_overlap_suggestion(db: &PgPool, task_id: i32) -> i32 {
+    // candidate_task_id must reference a real task row; reuse task_id itself
+    // (self-reference is valid for testing purposes).
+    let id: i32 = sqlx::query_scalar(
+        "INSERT INTO overlapsuggestion \
+         (task_id, candidate_task_id, similarity_score, evidence, suggested_action, created_at) \
+         VALUES ($1, $1, 0.9, 'test evidence', 'merge', now()) \
+         RETURNING id",
+    )
+    .bind(task_id)
+    .fetch_one(db)
+    .await
+    .expect("insert overlapsuggestion");
+    id
+}
+
 pub async fn setup() -> Option<(PgPool, Ctx)> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = PgPool::connect(&url)

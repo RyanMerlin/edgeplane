@@ -273,32 +273,43 @@ async fn create_agent(
 pub async fn provision_home_domain(db: &sqlx::PgPool, agent_id: i32, agent_name: &str) -> anyhow::Result<String> {
     let now = chrono::Utc::now().naive_utc();
 
-    // Generate a unique domain id (6-byte hex, same pattern as domains.rs).
-    let mut domain_id = hex_id();
+    // Generate a candidate domain id (6-byte hex, same pattern as domains.rs).
+    let mut candidate_id = hex_id();
     for _ in 0..5 {
         let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
-            .bind(&domain_id).fetch_optional(db).await.unwrap_or(None);
+            .bind(&candidate_id).fetch_optional(db).await.unwrap_or(None);
         if exists.is_none() { break; }
-        domain_id = hex_id();
+        candidate_id = hex_id();
     }
 
     let mut tx = db.begin().await?;
 
+    // ON CONFLICT (name) DO NOTHING makes this idempotent: if a domain with
+    // this agent's name already exists (e.g. from a prior boot), the INSERT is
+    // silently skipped and we fetch the pre-existing id below.
     sqlx::query(
         "INSERT INTO domain \
             (id, name, description, owners, contributors, tags, visibility, status, \
              northstar_md, northstar_version, northstar_created_by, northstar_modified_by, \
              northstar_created_at, northstar_modified_at, created_at, updated_at) \
-         VALUES ($1,$2,$3,$4,'','','public','active','',1,'','',NULL,NULL,$5,$5)"
+         VALUES ($1,$2,$3,$4,'','','public','active','',1,'','',NULL,NULL,$5,$5) \
+         ON CONFLICT (name) DO NOTHING"
     )
-    .bind(&domain_id)
+    .bind(&candidate_id)
     .bind(agent_name)
     .bind(format!("Home domain for {agent_name}"))
     .bind(agent_name)
     .bind(now)
     .execute(&mut *tx).await?;
 
-    // Inbox mission under the home domain.
+    // Resolve the actual domain_id — may differ from candidate_id if the domain
+    // already existed and the INSERT was a no-op.
+    let domain_id: String = sqlx::query_scalar("SELECT id FROM domain WHERE name=$1")
+        .bind(agent_name)
+        .fetch_one(&mut *tx)
+        .await?;
+
+    // Inbox mission under the home domain (non-conflicting; no unique constraint).
     let mission_id = hex_id();
     sqlx::query(
         "INSERT INTO mission \

@@ -311,7 +311,7 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             };
             // Change 4: resolve domain via task→mission→domain and authz before the SELECT.
             // overlapsuggestion.task_id is integer FK to task.id (workspace task model).
-            let domain_id: Option<String> = sqlx::query_scalar(
+            let domain_id_result = sqlx::query_scalar::<_, Option<String>>(
                 "SELECT m.domain_id FROM overlapsuggestion o \
                  JOIN task t ON t.id = o.task_id \
                  JOIN mission m ON m.id = t.mission_id \
@@ -319,12 +319,16 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             )
             .bind(task_id)
             .fetch_optional(&state.db)
-            .await
-            .unwrap_or(None)
-            .flatten();
-            let domain_id = match domain_id {
-                Some(d) => d,
-                None => return err_result("task not found"),
+            .await;
+            let domain_id = match domain_id_result {
+                Err(e) => {
+                    tracing::error!("mcp get_overlap_suggestions domain resolve (task_id={task_id}): {e}");
+                    return err_result("task not found");
+                }
+                Ok(row) => match row.flatten() {
+                    Some(d) => d,
+                    None => return err_result("task not found"),
+                },
             };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
