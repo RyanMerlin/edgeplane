@@ -1,5 +1,7 @@
 # EdgePlane Seam 2 — Per-Agent Identity Implementation Plan
 
+> **STATUS: SHIPPED in v0.15.0 (2026-06-19)** — PR #53 (Seam 1) / #56 (Seam 2), released #59. Live-validated. Read-side authz hardening followed in #62.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **Revised 2026-06-18 after adversarial review.** Changes from v1: the mint endpoint is re-gated to full-trust/admin only (v1 let any co-domain agent mint a peer's token = impersonation); MCP `claim_mesh_task`/`progress_mesh_task` attribution hardened (v1 only fixed REST); the auth-extractor insertion point is now unambiguous (v1's snippet risked dead-coding the agent path); `deny_unknown_fields` added to both claim structs; the daemon tasks (6–7) are redesigned around the real stateless `AgentRuntime` trait — v1 targeted "spawn functions" that are actually trait-impl `inject_task` methods, and `LaunchContext.env`/`backend_token` are never applied to spawned processes.

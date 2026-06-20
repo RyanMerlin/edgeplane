@@ -1,5 +1,7 @@
 # EdgePlane Seam 1 — Domain Authorization Implementation Plan
 
+> **STATUS: SHIPPED in v0.15.0 (2026-06-19)** — PR #53 (Seam 1) / #56 (Seam 2), released #59. Live-validated. Read-side authz hardening followed in #62.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **Revised 2026-06-18 after adversarial review.** Changes from v1: node principals are full-trust (was a fleet-outage bug); the trust-tier template allowlist is removed from P0 (deferred to spec §5); per-task lease enforcement added; the guarded-handler list is now complete (v1 missed `dispatch_task`, gates, `agent_notify_ws`, the unauthenticated `global_sse`, and several MCP arms); `authz_domain` uses the house `query + row` pattern (not `query_as`); a real test harness (Task 0) is added because the one v1 referenced (`crate::common::setup()`) never existed.

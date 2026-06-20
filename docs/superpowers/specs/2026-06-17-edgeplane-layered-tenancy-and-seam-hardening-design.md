@@ -8,6 +8,43 @@
 
 ---
 
+## Implementation status (2026-06-19)
+
+| Seam | Status | PRs |
+|------|--------|-----|
+| Seam 1 — domain authorization | **Shipped** (v0.15.0) | #53 |
+| Seam 2 — per-agent identity | **Shipped** (v0.15.0) | #56 |
+| Read-side authz (6 MCP arms + intra-domain owner checks, formerly "Seam 4 prep") | **Shipped** (#62) | #62 |
+| Seam 3 — execution isolation (nftables egress + cgroup enforcement) | Deferred | — |
+| §5 trust-tier dispatch-template split | Deferred | — |
+| `expires_at` `timestamp without time zone` → `timestamptz` nit | Deferred (no live bug) | — |
+
+### Red-team (2026-06-19)
+
+Three adversarial lenses reviewed the v0.15.0 model before the #62 hardening pass.
+
+**Verified sound — no bypass found:**
+- No cross-domain *mutation* bypass: `authorized_for_domain` is enforced before every privileged write; node/agent token types are mutually non-decodable (`deny_unknown_fields`, RS256-pinned).
+- No token forgery or escalation: per-agent JWTs are RS256-signed; `is_admin` is hardcoded `false` for agent/node tokens; revocation is fail-closed including on DB error.
+- No lease bypass: lifecycle mutations check `claim_lease_id` / `claimed_by_agent_id` unless the principal is full-trust/admin.
+- No SQLi or panic-DoS in the auth extractor or authz paths.
+- Daemon fallback path fails closed (`cmd.env_remove` on mint failure, not a silent no-op).
+
+**Gaps found and closed in #62:**
+- **HIGH** — `list_mesh_messages` was unauthenticated: system-wide message body broadcast readable by any valid token. Closed: domain-authz guard added.
+- Six additional read-side MCP arms (`get_domain_northstar`, `resolve_publish_plan`, `get_overlap_suggestions`, `list_mesh_tasks`, `get_mesh_task`) lacked domain authorization. Closed.
+- `progress_mesh_task`, `append_progress`, `unblock_task`, `create_gate`, `agent_heartbeat`/`set_agent_status`/`update_agent_profile` lacked `authz_task_owner`/self-identity checks. Closed.
+- `send_mesh_message` allowed sender-spoof (no sender-identity verification). Closed.
+- Agent-delete did not revoke the agent's JWT. Closed (revoke-on-agent-delete).
+
+**Open follow-up issues:**
+- #55 — mid-life token refresh (supervised agents alive >12 h without respawn will 401 at lease expiry; fail-safe, heals on respawn)
+- #60 — non-idempotent home-domain backfill produces a WARN on first run
+- #61 — test coverage for the #62 hardening
+- #54 — progress owner-gate: **RESOLVED** by #62
+
+---
+
 ## Separation invariant (non-negotiable)
 
 Every change here lives in the **edgeplane** project. Nothing references, imports, calls, or requires aria-rs.

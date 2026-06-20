@@ -24,6 +24,44 @@
 5. Publisher writes canonical file(s) to Git and records commit provenance.
 6. Ledger/publication records are marked and queryable via API/MCP.
 
+## Security Model (shipped v0.15.0)
+
+### Principal types
+
+Four principal types, two trust tiers:
+
+| Principal | `auth_type` | Trust tier |
+|-----------|-------------|------------|
+| Human session (OIDC) | `session` | Full-trust |
+| Node / daemon (node JWT) | `node` | Full-trust — first-party infrastructure |
+| Service account | `service_account` | Scoped |
+| Agent (per-agent JWT) | `agent` | Scoped — domain-bound |
+
+Full-trust principals (`session`, `node`) pass all domain authorization checks unconditionally. Scoped principals must satisfy `authorized_for_domain`.
+
+### Domain authorization (Seam 1)
+
+`Domain` is the authorization boundary. Every privileged dispatch, ledger, and stream handler enforces a default-deny `authorized_for_domain` predicate before acting:
+
+```
+authorized_for_domain(principal, domain) :=
+    principal.is_admin
+    OR principal.auth_type == "node"
+    OR domain.id ∈ principal.domain_scope      // per-agent JWT home domain
+    OR principal.subject ∈ domain.owners
+    OR principal.subject ∈ domain.contributors
+```
+
+In addition, lifecycle mutations on a `MeshTask` require the caller to hold the task's `claim_lease_id` / be its `claimed_by_agent_id` (`authz_task_owner`), unless full-trust or admin. A compromised agent is therefore bounded to its own tasks within its domain.
+
+### Per-agent JWT identity (Seam 2)
+
+Each enrolled agent receives its own short-lived (12 h), domain-scoped JWT (`AgentClaims`). Tokens are RS256-signed, carried in the `agenttoken` revocation table (migration `0010`), and injected by the daemon as each agent's `EP_AGENT_TOKEN`. Agents cannot mint peer tokens — the mint endpoint (`POST /work/agents/{id}/token`) is full-trust/admin-gated. `claim` and `progress` actions are attributed to the authenticated agent identity in both the REST and MCP surfaces.
+
+Token minting is restricted to runtimes that consume them (`claude_code`, `goose`); other runtime kinds use the shared daemon token.
+
+---
+
 ## Ephemeral Task Subagents (edgeplaned task_worker)
 - **`edgeplaned::task_worker`** runs two long-running loops per node: a *claim* loop and a *triage* loop. See `docs/design/ephemeral-task-subagents.md` for the full identity model.
 - **Bootstrap** (edgeplaned startup): ensures a default `home` domain (overridable via `EP_HOME_DOMAIN_NAME`) and an `intake` mission under it. Idempotent, soft-fail. The `home` domain is a regular domain — no special `kind` — that serves as the default container for operational scaffolding (the intake mission, optionally agents' `home_domain_id`).

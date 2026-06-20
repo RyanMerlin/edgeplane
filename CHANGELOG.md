@@ -6,6 +6,23 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
 
 ## [Unreleased]
 
+### Security
+
+- **Read-side cross-domain authz closed (#62).** Domain authorization now enforces on all
+  read-side MCP arms: `list_mesh_messages` (was a HIGH system-wide message-body broadcast
+  accessible to any valid token), `get_domain_northstar`, `resolve_publish_plan`,
+  `get_overlap_suggestions`, `list_mesh_tasks`, and `get_mesh_task`.
+- **Intra-domain owner and self-identity checks (#62).** `authz_task_owner`/self-identity
+  enforcement added to `progress_mesh_task`, `append_progress`, `unblock_task`, `create_gate`,
+  and agent self-mutation paths (`agent_heartbeat`, `set_agent_status`, `update_agent_profile`).
+  A compromised agent is now bounded to its own tasks and its own identity within its domain.
+- **`send_mesh_message` sender-spoof closed (#62).** Sender identity is now verified against
+  the authenticated principal; a token cannot impersonate a different sender.
+- **Daemon token fallback explicitly fail-closed (#62).** On per-agent token mint failure the
+  daemon removes the env var rather than leaving the previous value; no silent open fallback.
+- **Revoke-on-agent-delete (#62).** Deleting an agent immediately revokes its active JWT,
+  closing the window between deletion and natural token expiry.
+
 ## [0.15.0] — 2026-06-19
 
 P0 security release — the two seams of the layered-tenancy hardening.
