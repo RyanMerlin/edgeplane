@@ -734,3 +734,203 @@ async fn send_mesh_message_spoof_rejected_for_restricted_caller() {
         "from_agent_id must be the caller's own id, not the spoofed value"
     );
 }
+
+// ── #61: get_overlap_suggestions authz ───────────────────────────────────────
+
+/// An outsider calling get_overlap_suggestions on a task from a foreign domain
+/// must receive a "forbidden" error, not the data.
+#[tokio::test]
+async fn mcp_get_overlap_suggestions_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    // Seed a workspace task + overlap suggestion in ctx.domain's mission.
+    let task_id = common::seed_task(&pool, &ctx.mission_id).await;
+    let _ = common::seed_overlap_suggestion(&pool, task_id).await;
+
+    let s = server(pool);
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.outsider_sa_token),
+        )
+        .json(&serde_json::json!({
+            "tool": "get_overlap_suggestions",
+            "args": { "task_id": task_id }
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(
+        body["error"], "forbidden",
+        "outsider must not read overlap suggestions from foreign domain task: {body}"
+    );
+}
+
+/// An authorized caller (domain owner) can retrieve overlap suggestions.
+#[tokio::test]
+async fn mcp_get_overlap_suggestions_allowed_for_owner() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let task_id = common::seed_task(&pool, &ctx.mission_id).await;
+    let _ = common::seed_overlap_suggestion(&pool, task_id).await;
+
+    let s = server(pool);
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({
+            "tool": "get_overlap_suggestions",
+            "args": { "task_id": task_id }
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(
+        body["ok"], true,
+        "owner must be able to read overlap suggestions: {body}"
+    );
+    let results = body["result"].as_array().expect("result must be array");
+    assert!(
+        !results.is_empty(),
+        "at least one overlap suggestion must be returned"
+    );
+}
+
+// ── #61: agent self-identity tests ───────────────────────────────────────────
+
+/// An enrolled agent may not heartbeat a different agent's id (peer heartbeat).
+#[tokio::test]
+async fn agent_cannot_heartbeat_peer() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool);
+
+    let (agent_a_id, agent_a_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let (agent_b_id, _agent_b_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+
+    // Agent A tries to heartbeat Agent B — must be denied.
+    let res = s
+        .post(&format!("/api/work/agents/{agent_b_id}/heartbeat"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "agent {agent_a_id} must not heartbeat peer {agent_b_id}: {}",
+        res.text()
+    );
+
+    // Agent A can heartbeat its own id.
+    let res = s
+        .post(&format!("/api/work/agents/{agent_a_id}/heartbeat"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "agent {agent_a_id} must be able to heartbeat itself: {}",
+        res.text()
+    );
+}
+
+/// An enrolled agent may not set status on a different agent's id.
+#[tokio::test]
+async fn agent_cannot_set_peer_status() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool);
+
+    let (agent_a_id, agent_a_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let (agent_b_id, _agent_b_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+
+    // Agent A tries to set Agent B's status — must be denied.
+    let res = s
+        .post(&format!("/api/work/agents/{agent_b_id}/status"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .add_query_params(&[("status", "idle")])
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "agent {agent_a_id} must not set status on peer {agent_b_id}: {}",
+        res.text()
+    );
+
+    // Agent A can set its own status.
+    let res = s
+        .post(&format!("/api/work/agents/{agent_a_id}/status"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .add_query_params(&[("status", "idle")])
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "agent {agent_a_id} must be able to set its own status: {}",
+        res.text()
+    );
+}
+
+/// An enrolled agent may not update a different agent's profile.
+#[tokio::test]
+async fn agent_cannot_update_peer_profile() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool);
+
+    let (agent_a_id, agent_a_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let (agent_b_id, _agent_b_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+
+    // Agent A tries to update Agent B's profile — must be denied.
+    let res = s
+        .patch(&format!("/api/work/agents/{agent_b_id}/profile"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "agent {agent_a_id} must not update profile of peer {agent_b_id}: {}",
+        res.text()
+    );
+
+    // Full-trust session can update any agent's profile.
+    let res = s
+        .patch(&format!("/api/work/agents/{agent_b_id}/profile"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "full-trust session must be able to update any agent profile: {}",
+        res.text()
+    );
+}
