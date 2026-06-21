@@ -1,5 +1,5 @@
 ---
-title: ACP — Agent Connection Protocol
+title: ACP — Agent Client Protocol
 description: How EdgePlane manages persistent agent sessions — the transport model, session lifecycle, and supported runtimes.
 ---
 
