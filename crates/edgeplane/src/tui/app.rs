@@ -1006,12 +1006,10 @@ impl App {
         // Always re-check profile on entry — user may have just added one in Config
         self.secrets.no_profile_error = None;
 
-        let profile_path = dirs::home_dir()
-            .map(|h| h.join(".edgeplane").join("infisical_profiles.json"));
-
-        let map: Option<edgeplaned_secrets::InfisicalProfileMap> = profile_path
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str(&s).ok());
+        let map: Option<edgeplaned_secrets::InfisicalProfileMap> =
+            std::fs::read_to_string(edgeplaned_paths::infisical_profiles_path())
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok());
 
         let cfg = map.as_ref().and_then(|m| m.active_profile().cloned());
 

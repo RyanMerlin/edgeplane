@@ -90,18 +90,6 @@ async fn write_backup_records(records: &[serde_json::Value]) -> std::io::Result<
     Ok(())
 }
 
-fn ep_home() -> std::path::PathBuf {
-    let val = std::env::var("EP_HOME").unwrap_or_default();
-    if !val.is_empty() {
-        return std::path::PathBuf::from(val);
-    }
-    dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/root")).join(".edgeplane")
-}
-
-fn profile_secrets_path(profile: &str) -> std::path::PathBuf {
-    ep_home().join("profiles").join(profile).join("secrets.json")
-}
-
 fn load_profile_data(path: &std::path::Path) -> serde_json::Value {
     match std::fs::read_to_string(path) {
         Ok(s) => serde_json::from_str(&s).unwrap_or(serde_json::json!({})),
@@ -265,7 +253,7 @@ async fn get_secrets_status(
         }
     };
     let profile_name = if profile_name.trim().is_empty() { "default".to_string() } else { profile_name.trim().to_string() };
-    let path = profile_secrets_path(&profile_name);
+    let path = edgeplaned_paths::profile_secrets_path(&profile_name);
     let provider_env = {
         let raw = std::env::var("EP_SECRETS_PROVIDER").unwrap_or_default();
         if raw.trim().eq_ignore_ascii_case("infisical") { "infisical" } else { "env" }
@@ -315,7 +303,7 @@ async fn post_secrets_bootstrap(
     let infisical_env = payload.infisical_env.filter(|s| !s.is_empty());
     let infisical_path = payload.infisical_path.filter(|s| !s.is_empty());
 
-    let path = profile_secrets_path(&profile_name);
+    let path = edgeplaned_paths::profile_secrets_path(&profile_name);
     let existing = load_profile_data(&path);
 
     let mut refs: serde_json::Map<String, serde_json::Value> = existing
@@ -378,7 +366,7 @@ async fn post_secrets_rotate(
     };
     let generator = payload.generator.filter(|s| !s.is_empty()).unwrap_or_else(|| "token".into());
 
-    let path = profile_secrets_path(&profile_name);
+    let path = edgeplaned_paths::profile_secrets_path(&profile_name);
     let data = load_profile_data(&path);
 
     let ref_val = data.get("refs")

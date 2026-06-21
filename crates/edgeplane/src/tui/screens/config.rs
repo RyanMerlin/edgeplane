@@ -176,7 +176,7 @@ impl ConfigScreenState {
     }
 
     pub fn reload_infisical_from_disk(&mut self) {
-        let path = dirs::home_dir().map(|h| h.join(".edgeplane").join("infisical_profiles.json"));
+        let path = Some(edgeplaned_paths::infisical_profiles_path());
         if let Some(path) = path
             && let Ok(s) = std::fs::read_to_string(&path)
                 && let Ok(map) = serde_json::from_str::<InfisicalProfileMap>(&s) {
@@ -556,7 +556,7 @@ impl ConfigScreenState {
     }
 
     fn save_infisical_map(&self) {
-        let path = dirs::home_dir().map(|h| h.join(".edgeplane").join("infisical_profiles.json"));
+        let path = Some(edgeplaned_paths::infisical_profiles_path());
         if let Some(path) = path
             && let Ok(json) = serde_json::to_string_pretty(&self.infisical_profiles) {
                 if let Some(parent) = path.parent() {
