@@ -28,7 +28,7 @@ It is infrastructure that enables parallel, governed, auditable AI execution ins
 
 **Tasks** are units of work inside a mission. They have owners, dependencies, definitions of done, and status.
 
-**Artifacts** are persisted outputs bound to a mission — documents, binaries, skill bundles, agent results. Stored in S3-compatible object storage.
+**Artifacts** are persisted outputs bound to a mission — documents, binaries, and agent results. Stored in S3-compatible object storage.
 
 **Agents** are identities (human or AI) that perform work. They carry capabilities, status, and a domain anchor.
 
@@ -40,7 +40,7 @@ It is infrastructure that enables parallel, governed, auditable AI execution ins
 | **Artifact Ledger** | Every mutation recorded in Postgres, vector-indexed for search, committed to Git with full provenance |
 | **MCP-Native Interface** | Standard MCP stdio tools — works with any MCP-compatible agent runtime |
 | **Governance & Approvals** | Versioned policy lifecycle, role-based access, approval tokens |
-| **Agent Connection Protocol (ACP)** | Persistent agent sessions — `edgeplaned` manages agent processes; sessions survive crashes and reconnect automatically |
+| **Agent Client Protocol (ACP)** | Persistent agent sessions — `edgeplaned` manages agent processes; sessions survive crashes and reconnect automatically |
 | **Web Dashboard** | React UI for fleet monitoring, live event feed, domain/task drill-down, and ACP conversation panes |
 | **Mesh Execution** | Agents claim and execute `MeshTask` units from a shared queue — distributed work without a central scheduler |
 | **Semantic Search** | Tasks, docs, and missions are vector-indexed (pgvector) for similarity and hybrid search |
@@ -73,6 +73,6 @@ Agents request actions. EdgePlane authorizes and records them.
 - [Philosophy](/concepts/philosophy/) — the design principles behind these decisions
 - [Domains, Missions & Tasks](/concepts/domains-missions-tasks/) — the organizational model in detail
 - [Entity Reference](/concepts/entity-reference/) — canonical definitions for every entity
-- [ACP — Agent Connection Protocol](/concepts/acp/) — how persistent agent sessions work
+- [ACP — Agent Client Protocol](/concepts/acp/) — how persistent agent sessions work
 - [MeshTask System](/concepts/mesh-tasks/) — distributed agent-to-agent task execution
 - [Profiles](/concepts/profiles/) — personal operator profiles and how they travel

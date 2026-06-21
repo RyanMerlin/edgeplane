@@ -25,7 +25,7 @@ pgvector enables hybrid search across all entities — tasks, documents, and mis
 
 ### S3-Compatible Object Storage — Working File Store
 
-Artifact bytes, document content, workspace files, and skill bundles are stored in S3-compatible object storage, not inline in the database.
+Artifact bytes, document content, and workspace files are stored in S3-compatible object storage, not inline in the database.
 
 Storage path layout:
 
