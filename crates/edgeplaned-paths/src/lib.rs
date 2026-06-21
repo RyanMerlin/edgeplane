@@ -27,24 +27,33 @@ fn unified_home() -> PathBuf {
 ///
 /// NOTE: the bucket directories (config/state/run/work) MAY diverge from
 /// `ep_home_dir().join(bucket)` when an `XDG_*` var is set and `EP_HOME` is not.
-/// Always use the bucket accessors below — never `ep_home_dir().join("config")`.
+/// Always use the bucket accessors below — never `ep_home_dir().join(...)` for
+/// the config/state/run/work buckets (non-bucket items like `schema_packs_dir`
+/// legitimately use `ep_home_dir().join(...)`).
 pub fn ep_home_dir() -> PathBuf {
     ep_home_override().unwrap_or_else(unified_home)
+}
+
+/// Pure bucket resolver — no env access, so it is unit-testable without
+/// mutating process-global state. `ep_home`/`xdg` are raw env values
+/// (`None` or empty string both mean "unset").
+fn resolve_bucket(ep_home: Option<&str>, xdg: Option<&str>, bucket: &str) -> PathBuf {
+    if let Some(root) = ep_home.filter(|v| !v.is_empty()) {
+        return expand_home(root).join(bucket);
+    }
+    if let Some(x) = xdg.filter(|v| !v.is_empty()) {
+        return PathBuf::from(x).join("edgeplane");
+    }
+    unified_home().join(bucket)
 }
 
 /// Resolve a bucket dir: `EP_HOME/<bucket>` when EP_HOME is set; else
 /// `$<xdg_var>/edgeplane` when that XDG var is set non-empty; else
 /// `~/.edgeplane/<bucket>`. Buckets resolve independently.
 fn bucket_dir(xdg_var: &str, bucket: &str) -> PathBuf {
-    if let Some(root) = ep_home_override() {
-        return root.join(bucket);
-    }
-    if let Ok(val) = std::env::var(xdg_var)
-        && !val.is_empty()
-    {
-        return PathBuf::from(val).join("edgeplane");
-    }
-    unified_home().join(bucket)
+    let ep = std::env::var("EP_HOME").ok();
+    let xdg = std::env::var(xdg_var).ok();
+    resolve_bucket(ep.as_deref(), xdg.as_deref(), bucket)
 }
 
 pub fn config_dir() -> PathBuf {
@@ -126,6 +135,12 @@ pub fn profile_secrets_path(profile: &str) -> PathBuf {
 
 /// User-provided schema-pack override dir: `<ep-home>/schema-packs`.
 /// Top-level home item (not a bucket); honors `EP_HOME`.
+///
+/// NOTE (Axis 1 behavior change, intentional): pre-Axis-1 this read the
+/// *literal* `~/.edgeplane/schema-packs` and ignored `EP_HOME`. It now honors
+/// `EP_HOME`, so under a per-instance `EP_HOME` (e.g. a spawned agent) the
+/// lookup is the instance home, not the login user's `~`. Per-instance homes
+/// get per-instance packs.
 pub fn schema_packs_dir() -> PathBuf {
     ep_home_dir().join("schema-packs")
 }
@@ -182,74 +197,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn buckets_are_children_of_home() {
-        // SAFETY: tests in this crate run single-threaded (--test-threads=1).
-        unsafe { std::env::set_var("EP_HOME", "/tmp/ep-test-home") };
-        assert_eq!(config_dir(), PathBuf::from("/tmp/ep-test-home/config"));
-        assert_eq!(state_dir(), PathBuf::from("/tmp/ep-test-home/state"));
-        assert_eq!(run_dir(), PathBuf::from("/tmp/ep-test-home/run"));
-        assert_eq!(work_dir(), PathBuf::from("/tmp/ep-test-home/work"));
-        unsafe { std::env::remove_var("EP_HOME") };
-    }
-
-    #[test]
     fn ep_home_overrides_all_buckets_ignoring_xdg() {
-        // SAFETY: crate tests run single-threaded / process-isolated.
-        unsafe {
-            std::env::set_var("EP_HOME", "/srv/ep");
-            std::env::set_var("XDG_CONFIG_HOME", "/x/cfg");
-        }
-        assert_eq!(config_dir(), PathBuf::from("/srv/ep/config"));
-        assert_eq!(state_dir(), PathBuf::from("/srv/ep/state"));
-        assert_eq!(run_dir(), PathBuf::from("/srv/ep/run"));
-        assert_eq!(work_dir(), PathBuf::from("/srv/ep/work"));
-        unsafe {
-            std::env::remove_var("EP_HOME");
-            std::env::remove_var("XDG_CONFIG_HOME");
+        // EP_HOME present → every bucket under that one root, XDG ignored.
+        assert_eq!(resolve_bucket(Some("/srv/ep"), Some("/x/cfg"), "config"), PathBuf::from("/srv/ep/config"));
+        assert_eq!(resolve_bucket(Some("/srv/ep"), None, "state"), PathBuf::from("/srv/ep/state"));
+        assert_eq!(resolve_bucket(Some("/srv/ep"), None, "run"), PathBuf::from("/srv/ep/run"));
+        assert_eq!(resolve_bucket(Some("/srv/ep"), None, "work"), PathBuf::from("/srv/ep/work"));
+    }
+
+    #[test]
+    fn buckets_are_children_of_home() {
+        assert_eq!(resolve_bucket(Some("/tmp/ep-test-home"), None, "config"), PathBuf::from("/tmp/ep-test-home/config"));
+        assert_eq!(resolve_bucket(Some("/tmp/ep-test-home"), None, "state"), PathBuf::from("/tmp/ep-test-home/state"));
+        assert_eq!(resolve_bucket(Some("/tmp/ep-test-home"), None, "run"), PathBuf::from("/tmp/ep-test-home/run"));
+        assert_eq!(resolve_bucket(Some("/tmp/ep-test-home"), None, "work"), PathBuf::from("/tmp/ep-test-home/work"));
+    }
+
+    #[test]
+    fn xdg_sets_bucket_when_ep_home_absent() {
+        assert_eq!(resolve_bucket(None, Some("/x/cfg"), "config"), PathBuf::from("/x/cfg/edgeplane"));
+    }
+
+    #[test]
+    fn empty_env_is_treated_as_unset() {
+        assert!(resolve_bucket(Some(""), Some(""), "state").ends_with(".edgeplane/state"));
+        assert!(resolve_bucket(None, None, "state").ends_with(".edgeplane/state"));
+    }
+
+    #[test]
+    fn ep_home_tilde_is_expanded() {
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(resolve_bucket(Some("~/ep"), None, "config"), home.join("ep").join("config"));
         }
     }
 
     #[test]
-    fn xdg_moves_only_its_own_bucket() {
-        unsafe {
-            std::env::remove_var("EP_HOME");
-            std::env::set_var("XDG_CONFIG_HOME", "/x/cfg");
-            std::env::remove_var("XDG_STATE_HOME");
-        }
-        assert_eq!(config_dir(), PathBuf::from("/x/cfg/edgeplane"));
-        // state has no XDG var set -> falls back under the unified ~/.edgeplane home
-        assert!(state_dir().ends_with(".edgeplane/state"));
-        unsafe { std::env::remove_var("XDG_CONFIG_HOME") };
+    fn profile_secrets_path_composes_under_state_profiles() {
+        assert_eq!(profile_secrets_path("work"), state_dir().join("profiles").join("work").join("secrets.json"));
     }
 
     #[test]
-    fn empty_xdg_var_is_treated_as_unset() {
-        unsafe {
-            std::env::remove_var("EP_HOME");
-            std::env::set_var("XDG_STATE_HOME", "");
-        }
-        assert!(state_dir().ends_with(".edgeplane/state"));
-        unsafe { std::env::remove_var("XDG_STATE_HOME") };
-    }
-
-    #[test]
-    fn profile_secrets_path_under_state_profiles() {
-        unsafe {
-            std::env::set_var("EP_HOME", "/srv/ep");
-            std::env::remove_var("XDG_STATE_HOME");
-        }
-        assert_eq!(
-            profile_secrets_path("work"),
-            PathBuf::from("/srv/ep/state/profiles/work/secrets.json")
-        );
-        unsafe { std::env::remove_var("EP_HOME") };
-    }
-
-    #[test]
-    fn schema_packs_dir_under_home_root() {
-        unsafe { std::env::set_var("EP_HOME", "/srv/ep") };
-        assert_eq!(schema_packs_dir(), PathBuf::from("/srv/ep/schema-packs"));
-        unsafe { std::env::remove_var("EP_HOME") };
+    fn schema_packs_dir_composes_under_home_root() {
+        assert_eq!(schema_packs_dir(), ep_home_dir().join("schema-packs"));
     }
 
     #[test]
