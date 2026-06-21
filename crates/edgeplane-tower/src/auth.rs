@@ -393,7 +393,7 @@ mod authz_tests {
     }
     #[test]
     fn node_is_full_trust_authorized_anywhere() {
-        let p = principal("node:excalibur", false, "node", &[]);
+        let p = principal("node:node-0", false, "node", &[]);
         assert!(authorized_for("d1", "", "", &p));
         assert!(is_full_trust(&p));
     }
@@ -468,7 +468,7 @@ mod public_path_tests {
         for p in &[
             "/agents",
             "/agents/4",
-            "/agents/aria-work-e88c006e",
+            "/agents/my-agent-work-e88c006e",
             "/domains",
             "/mcp/call",
             "/auth/me",

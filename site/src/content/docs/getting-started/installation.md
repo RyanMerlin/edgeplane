@@ -24,13 +24,13 @@ curl -fsSL https://edgeplane.ai/install.sh | bash
 Or directly from the repo:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/install-edgeplane.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/edgeplane/edgeplane/main/scripts/install-edgeplane.sh)
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.ps1 | iex
+irm https://raw.githubusercontent.com/edgeplane/edgeplane/main/scripts/bootstrap-edgeplane.ps1 | iex
 ```
 
 By default installs to `~/.local/bin/edgeplane`. Ensure `~/.local/bin` is on `PATH`.
@@ -40,7 +40,7 @@ By default installs to `~/.local/bin/edgeplane`. Ensure `~/.local/bin` is on `PA
 Requires a working [Rust toolchain](https://rustup.rs) (stable).
 
 ```bash
-git clone https://github.com/RyanMerlin/edgeplane.git
+git clone https://github.com/edgeplane/edgeplane.git
 cd edgeplane
 
 # Build all three binaries from the workspace root

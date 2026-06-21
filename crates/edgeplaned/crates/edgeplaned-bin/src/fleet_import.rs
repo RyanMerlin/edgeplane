@@ -29,7 +29,7 @@ pub struct Profile {
     /// Zellij session name. Required for `zellij_hosted` runtime; ignored
     /// (but still parsed) for ACP profiles so existing TOML files need no change.
     pub zellij_session: Option<String>,
-    /// systemd `--user` unit name (e.g. `aria-work.service`). Used by
+    /// systemd `--user` unit name (e.g. `my-agent-work.service`). Used by
     /// the Phase 5 unit-health loop to monitor + restart.
     pub service: String,
     pub state_dir: String,
@@ -154,14 +154,14 @@ mod tests {
 [[profile]]
 name           = "operator"
 zellij_session = "operator"
-service        = "aria.service"
-state_dir      = "/home/merlin/.claude/profiles/operator"
+service        = "my-agent-operator.service"
+state_dir      = "/tmp/test-profiles/operator"
 
 [[profile]]
 name           = "work"
 zellij_session = "work"
-service        = "aria-work.service"
-state_dir      = "/home/merlin/.claude/profiles/work"
+service        = "my-agent-work.service"
+state_dir      = "/tmp/test-profiles/work"
 "#
     }
 
@@ -170,14 +170,14 @@ state_dir      = "/home/merlin/.claude/profiles/work"
 [[profile]]
 name           = "operator"
 zellij_session = "operator"
-service        = "aria.service"
-state_dir      = "/home/merlin/.claude/profiles/operator"
+service        = "my-agent-operator.service"
+state_dir      = "/tmp/test-profiles/operator"
 
 [[profile]]
 name           = "work"
 runtime        = "claude_agent_acp"
-service        = "aria-work.service"
-state_dir      = "/home/merlin/.claude/profiles/work"
+service        = "my-agent-work.service"
+state_dir      = "/tmp/test-profiles/work"
 "#
     }
 
@@ -190,7 +190,7 @@ state_dir      = "/home/merlin/.claude/profiles/work"
         assert_eq!(profiles.len(), 2);
         assert_eq!(profiles[0].name, "operator");
         assert_eq!(profiles[1].zellij_session.as_deref(), Some("work"));
-        assert_eq!(profiles[1].state_dir, "/home/merlin/.claude/profiles/work");
+        assert_eq!(profiles[1].state_dir, "/tmp/test-profiles/work");
     }
 
     #[test]
@@ -210,8 +210,8 @@ state_dir      = "/home/merlin/.claude/profiles/work"
         let profiles = vec![Profile {
             name: "operator".into(),
             zellij_session: Some("operator".into()),
-            service: "aria.service".into(),
-            state_dir: "/home/merlin/.claude/profiles/operator".into(),
+            service: "my-agent-operator.service".into(),
+            state_dir: "/tmp/test-profiles/operator".into(),
             runtime: None,
         }];
         let summary = import_into(&registry, &profiles).unwrap();
@@ -232,7 +232,7 @@ state_dir      = "/home/merlin/.claude/profiles/work"
         assert_eq!(ctx.zellij_session.as_deref(), Some("operator"));
         match ctx.state_dir_spec {
             Some(StateDirSpec::Persistent { path }) => {
-                assert_eq!(path, PathBuf::from("/home/merlin/.claude/profiles/operator"));
+                assert_eq!(path, PathBuf::from("/tmp/test-profiles/operator"));
             }
             other => panic!("expected Persistent, got {other:?}"),
         }
@@ -245,8 +245,8 @@ state_dir      = "/home/merlin/.claude/profiles/work"
         let profiles = vec![Profile {
             name: "work".into(),
             zellij_session: None,
-            service: "aria-work.service".into(),
-            state_dir: "/home/merlin/.claude/profiles/work".into(),
+            service: "my-agent-work.service".into(),
+            state_dir: "/tmp/test-profiles/work".into(),
             runtime: Some("claude_agent_acp".into()),
         }];
         let summary = import_into(&registry, &profiles).unwrap();
@@ -264,7 +264,7 @@ state_dir      = "/home/merlin/.claude/profiles/work"
         // state_dir is still set.
         match ctx.state_dir_spec {
             Some(StateDirSpec::Persistent { path }) => {
-                assert_eq!(path, PathBuf::from("/home/merlin/.claude/profiles/work"));
+                assert_eq!(path, PathBuf::from("/tmp/test-profiles/work"));
             }
             other => panic!("expected Persistent, got {other:?}"),
         }
@@ -277,8 +277,8 @@ state_dir      = "/home/merlin/.claude/profiles/work"
         let profiles = vec![Profile {
             name: "operator".into(),
             zellij_session: Some("operator".into()),
-            service: "aria.service".into(),
-            state_dir: "/home/merlin/.claude/profiles/operator".into(),
+            service: "my-agent-operator.service".into(),
+            state_dir: "/tmp/test-profiles/operator".into(),
             runtime: None,
         }];
         let _ = import_into(&registry, &profiles).unwrap();
@@ -295,7 +295,7 @@ state_dir      = "/home/merlin/.claude/profiles/work"
         let mut profiles = vec![Profile {
             name: "work".into(),
             zellij_session: Some("work".into()),
-            service: "aria-work.service".into(),
+            service: "my-agent-work.service".into(),
             state_dir: "/old/path".into(),
             runtime: None,
         }];

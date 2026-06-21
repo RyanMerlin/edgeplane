@@ -6,12 +6,12 @@
 
 **Linux / macOS** (downloads prebuilt binary, falls back to source build):
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/install-edgeplane.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/edgeplane/edgeplane/main/scripts/install-edgeplane.sh)
 ```
 
 **Windows** (PowerShell):
 ```powershell
-irm https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.ps1 | iex
+irm https://raw.githubusercontent.com/edgeplane/edgeplane/main/scripts/bootstrap-edgeplane.ps1 | iex
 ```
 
 **Step 2 — Authenticate:**

@@ -24,8 +24,8 @@
 //! | `shell:write`| Full Bash (Bash(*))                         |
 //! | `fs:read`    | Read, Glob, Grep                            |
 //! | `fs:write`   | Read, Write, Edit, Glob, Grep               |
-//! | `vault:read` | aria vault note read/list/search            |
-//! | `vault:write`| vault:read + write/create/patch/append      |
+//! | `vault:read` | vault note read/list/search (via configured vault CLI) |
+//! | `vault:write`| vault:read + write/create/patch/append                 |
 //! | `edgeplane:read`    | edgeplane agent/daemon read commands               |
 //! | `edgeplane:write`   | edgeplane:read + submit/enroll/signal              |
 //! | `web:fetch`  | WebFetch, WebSearch                         |
@@ -107,13 +107,13 @@ fn capability_vocabulary() -> HashMap<&'static str, Vec<&'static str>> {
     // fs:write — all fs:read plus Write and Edit.
     m.insert("fs:write", vec!["Read", "Write", "Edit", "Glob", "Grep"]);
 
-    // vault:read — aria vault note read / list / search.
+    // vault:read — vault note read / list / search via the configured vault CLI.
     m.insert(
         "vault:read",
         vec![
-            "Bash(aria vault note read *)",
-            "Bash(aria vault note list *)",
-            "Bash(aria vault search *)",
+            "Bash(vault note read *)",
+            "Bash(vault note list *)",
+            "Bash(vault search *)",
         ],
     );
 
@@ -121,13 +121,13 @@ fn capability_vocabulary() -> HashMap<&'static str, Vec<&'static str>> {
     m.insert(
         "vault:write",
         vec![
-            "Bash(aria vault note read *)",
-            "Bash(aria vault note list *)",
-            "Bash(aria vault search *)",
-            "Bash(aria vault note write *)",
-            "Bash(aria vault note create *)",
-            "Bash(aria vault note patch *)",
-            "Bash(aria vault note append *)",
+            "Bash(vault note read *)",
+            "Bash(vault note list *)",
+            "Bash(vault search *)",
+            "Bash(vault note write *)",
+            "Bash(vault note create *)",
+            "Bash(vault note patch *)",
+            "Bash(vault note append *)",
         ],
     );
 

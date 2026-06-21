@@ -1221,7 +1221,7 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                     &repo_dir,
                     "config",
                     "user.email",
-                    "git@ryanmerlin.com",
+                    "edgeplane-tower@localhost",
                 ])
                 .output();
             let _ = std::process::Command::new("git")

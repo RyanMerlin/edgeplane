@@ -542,7 +542,7 @@ mod tests {
         let mut s = State::default();
         s.agents.push(AgentRow {
             agent_id: "work".to_string(),
-            systemd_service: "aria-work.service".to_string(),
+            systemd_service: "my-agent-work.service".to_string(),
             unit_state: "active".to_string(),
             supervise_paused: false,
             last_event_label: None,

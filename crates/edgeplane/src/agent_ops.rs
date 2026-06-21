@@ -87,7 +87,7 @@ pub struct RegisterArgs {
     /// Comma-separated capability tags (e.g. `fleet-management,code-editing`).
     #[arg(long, default_value = "")]
     pub capabilities: String,
-    /// Optional JSON metadata string (e.g. `{"runtime":"claude-code","node_id":"excalibur"}`).
+    /// Optional JSON metadata string (e.g. `{"runtime":"claude-code","node_id":"node-0"}`).
     #[arg(long)]
     pub metadata: Option<String>,
     /// Emit raw JSON instead of a human-readable summary.

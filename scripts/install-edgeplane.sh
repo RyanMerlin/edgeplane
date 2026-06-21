@@ -88,9 +88,9 @@ install_binary() {
   local base_url
 
   if [[ "$VERSION" = "latest" ]]; then
-    base_url="https://github.com/RyanMerlin/edgeplane/releases/latest/download"
+    base_url="https://github.com/edgeplane/edgeplane/releases/latest/download"
   else
-    base_url="https://github.com/RyanMerlin/edgeplane/releases/download/${VERSION}"
+    base_url="https://github.com/edgeplane/edgeplane/releases/download/${VERSION}"
   fi
 
   if [[ -n "$PLATFORM" ]] && curl -fsSL --max-time 30 -o "${target_path}.tmp" "${base_url}/${artifact}" 2>/dev/null; then

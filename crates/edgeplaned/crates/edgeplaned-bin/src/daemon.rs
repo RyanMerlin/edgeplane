@@ -331,7 +331,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         // Federated boot dedup (Gap 3 fix — double-attach prevention).
         //
         // After merge_federated_overrides, each controlplane spec (opaque id like
-        // `aria-engineer-<hash>`) has `local_alias_id = Some("engineer")` when it
+        // `my-agent-engineer-<hash>`) has `local_alias_id = Some("engineer")` when it
         // matched a local launch-context. The additive layer in resolve_agent_specs
         // also appended a separate spec with agent_id="engineer" — the dedup check
         // there used base_ids (controlplane ids) and didn't know the alias yet.
@@ -767,7 +767,7 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<Option<String>> {
 /// read them back so the reconciler always reads from the local registry.
 /// After the read-back, merge local launch overrides into any spec that lacks
 /// them (federated zellij_hosted attach fix). Reads ALL sources so that
-/// agents registered via `edgeplane daemon agent import --source aria` (the
+/// agents registered via `edgeplane daemon agent import --source fleet` (the
 /// live source the fleet actually uses) are visible — not just the defunct
 /// `fleet_import` source.
 ///
@@ -840,9 +840,9 @@ async fn persist_and_resolve_specs(
     //
     // We use list_all_launch_contexts() (source-agnostic) rather than the
     // defunct list_launch_contexts_by_source("fleet_import") because the live
-    // fleet agents are registered with source "aria" — the fleet_import source
-    // is dead code and would always return an empty slice, silently disabling
-    // the attach feature.
+    // fleet agents are registered with a custom source tag — the fleet_import
+    // source is dead code and would always return an empty slice, silently
+    // disabling the attach feature.
     if let Ok(db_path_for_merge) = LocalRegistry::default_path() {
         match tokio::task::spawn_blocking(move || {
             let reg = LocalRegistry::open(&db_path_for_merge)?;
@@ -935,20 +935,20 @@ fn apply_runtime_overrides(specs: &mut [AgentSpec], local_overrides: &[(String, 
 ///
 /// `local_ctxs` is source-agnostic — the caller should pass the full result of
 /// `list_all_launch_contexts()` (not a source-filtered slice) so that agents
-/// registered under any source (e.g. `"aria"`, the live fleet source) are
+/// registered under any source (e.g. `"fleet"`, the live fleet source) are
 /// visible. The `source` field of each context is not examined here.
 ///
 /// ## Matching rule
 ///
 /// We match on a *key* derived from the controlplane spec. Preferred: the agent
-/// `name` field (e.g. `"aria-engineer"`). Live fleet agents come back from
+/// `name` field (e.g. `"my-agent-engineer"`). Live fleet agents come back from
 /// `GET /runtime/nodes/{id}/agents` with `name: null`, so when `name` is absent
 /// the key falls back to the profile embedded in the public_id via
-/// [`profile_from_public_id`] (e.g. `"aria-research-22e6cd17"` → `"research"`).
+/// [`profile_from_public_id`] (e.g. `"my-agent-research-22e6cd17"` → `"research"`).
 /// The local context's `agent_id` is the short profile name (e.g. `"engineer"`).
 /// We consider a match when **exactly one** context satisfies one of:
 ///   - The key **is** the profile name (exact), OR
-///   - The key **ends with** `"-{profile_name}"` (e.g. `"aria-engineer"` →
+///   - The key **ends with** `"-{profile_name}"` (e.g. `"my-agent-engineer"` →
 ///     suffix match against `"engineer"`) — **name-based keys only**. A profile
 ///     recovered from a public_id is already bare and matches by exact equality
 ///     only (the suffix clause is gated off for it), so a hyphenated derived
@@ -956,7 +956,7 @@ fn apply_runtime_overrides(specs: &mut [AgentSpec], local_overrides: &[(String, 
 ///
 /// **Uniqueness is enforced.** If two contexts both match (possible if one
 /// profile name is a suffix of another, e.g. `"work"` and `"a-work"` where
-/// cp_name is `"aria-work"`), the spec is left unchanged — ambiguity is safer
+/// cp_name is `"fleet-work"`), the spec is left unchanged — ambiguity is safer
 /// than a wrong assignment. The collision will be logged as a warning.
 ///
 /// This is intentionally conservative: we only merge when there is a single
@@ -981,14 +981,14 @@ pub(crate) fn merge_federated_overrides(
             continue;
         }
         // Key to match against local context agent_ids (short profile names).
-        // Prefer the controlplane `name` (e.g. "aria-engineer"). Live fleet
+        // Prefer the controlplane `name` (e.g. "my-agent-engineer"). Live fleet
         // agents come back from GET /runtime/nodes/{id}/agents with `name: null`,
         // so fall back to the profile embedded in the public_id (`agent_id`),
-        // shaped "<prefix>-<profile>-<hex>" (e.g. "aria-research-22e6cd17").
+        // shaped "<prefix>-<profile>-<hex>" (e.g. "my-agent-research-22e6cd17").
         // Without this fallback, federated zellij agents never get a PTY bridge
-        // and web attach stays dormant (the bug Phase 7 closes).
+        // and web attach stays dormant.
         // `allow_suffix` gates the suffix clause below to name-based keys only.
-        // A name like "aria-engineer" legitimately suffix-matches "engineer".
+        // A name like "my-agent-engineer" legitimately suffix-matches "engineer".
         // A profile recovered from a public_id is already bare, so it must match
         // by exact equality — otherwise a hyphenated derived profile ("foo-bar")
         // would wrongly suffix-match an unrelated lone context ("bar"), silently
@@ -1057,9 +1057,9 @@ pub(crate) fn merge_federated_overrides(
 /// Extract the profile segment from a controlplane agent `public_id`.
 ///
 /// Federated public_ids are shaped `<prefix>-<profile>-<hex>` (e.g.
-/// `"aria-research-22e6cd17"`). The profile is everything between the first and
-/// last `-`, so a hyphenated profile is preserved (`"aria-foo-bar-9f"` →
-/// `"foo-bar"`). Returns `None` when the id has fewer than three
+/// `"my-agent-research-22e6cd17"`). The profile is everything between the
+/// first and last `-`, so a hyphenated profile is preserved
+/// (`"my-agent-foo-bar-9f"` → `"foo-bar"`). Returns `None` when the id has fewer than three
 /// `-`-separated segments (no embedded profile to recover).
 fn profile_from_public_id(public_id: &str) -> Option<&str> {
     let (_prefix, rest) = public_id.split_once('-')?;

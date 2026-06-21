@@ -16,7 +16,7 @@ edgeplane / edgeplaned / edgeplane-tower ship in lockstep off a single git tag.
 3. **Tag the merged commit `vX.Y.Z` (annotated) and push it.** The tag push fires:
    - `release-edgeplane.yml` → CLI + daemon binaries, the GitHub Release, and the
      `latest.json` self-update manifest.
-   - `build-image.yml` → the `ghcr.io/ryanmerlin/edgeplane:X.Y.Z` tower image.
+   - `build-image.yml` → the `ghcr.io/<your-org>/edgeplane:X.Y.Z` tower image.
 
 > **Watch the tower image / workspace drift.** `build-image.yml` runs only on main-push and
 > tags, **not on PRs**. A new `[workspace]` member that isn't added to

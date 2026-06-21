@@ -15,9 +15,9 @@ description: |
   override, real-time SSE-capable for inbox streams.
 
 position_in_stack: |
-  Stateful core of the Edgeplane control plane. One instance (today) running
-  on excalibur, reachable via Tailscale at edgeplane:8008. All durable state
-  funnels through this binary; everything else is a client.
+  Stateful core of the Edgeplane control plane. Typically runs as a single
+  instance reachable at edgeplane:8008. All durable state funnels through
+  this binary; everything else is a client.
 
 runtime:
   kind: long_running

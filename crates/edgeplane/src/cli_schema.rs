@@ -2,7 +2,7 @@
 //!
 //! Spec: docs/superpowers/specs/2026-05-25-cli-schema-federated-discovery-design.md
 //!
-//! The schema is intentionally self-contained: no shared crate with aria-rs.
+//! The schema is intentionally self-contained: no shared crate with external tooling.
 //! The node structs are duplicated by design so both tools can evolve independently.
 //!
 //! Exposed as `edgeplane discover [path...] [--deep]`.

@@ -32,7 +32,7 @@ use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 pub struct AttachArgs {
     /// Agent id. For local ZellijHosted agents this is the profile name
     /// (e.g. `work`); for controlplane ACP agents it's the `public_id`
-    /// (e.g. `aria-operator-e8820c0d`).
+    /// (e.g. `my-agent-operator-e8820c0d`).
     pub agent_id: String,
     /// Stream raw `SessionNotification` JSON, one frame per line. Default
     /// is a human-readable rendering of assistant turns, tool calls, etc.
@@ -395,10 +395,10 @@ mod tests {
 
     #[test]
     fn http_to_ws_scheme() {
-        let u = build_ws_url("http://localhost:8008/", "node-1", "aria-work-abc12345").unwrap();
+        let u = build_ws_url("http://localhost:8008/", "node-1", "my-agent-work-abc12345").unwrap();
         assert_eq!(
             u,
-            "ws://localhost:8008/runtime/nodes/node-1/agents/aria-work-abc12345/attach"
+            "ws://localhost:8008/runtime/nodes/node-1/agents/my-agent-work-abc12345/attach"
         );
     }
 

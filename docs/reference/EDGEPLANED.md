@@ -11,8 +11,8 @@ The daemon (`edgeplaned`) runs a headless attach gateway. The work loop (`edgepl
 ### Absorbed responsibilities (daemon-absorption plan)
 
 Across v0.8–v0.10, edgeplaned absorbed the daemon-side responsibilities that
-used to live in `aria-rs` (`aria fleet`, `aria cron`, `aria watchdog`).
-aria-rs is now a pure toolchain — no long-running processes:
+used to live in external tooling (`fleet`, `cron`, `watchdog` subcommands).
+These are now built into edgeplaned — no external long-running processes needed:
 
 - **v0.8 Phase 2–3 — Fleet agents + CLI**: the `ZellijHosted` runtime
   drives long-running profile agents (operator, work, research, …)

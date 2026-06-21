@@ -753,7 +753,7 @@ Update edgeplane by downloading the latest release artifact
 
 * `--manifest-url <MANIFEST_URL>` — Manifest URL describing available releases
 
-  Default value: `https://github.com/RyanMerlin/edgeplane/releases/latest/download/latest.json`
+  Default value: `https://github.com/edgeplane/edgeplane/releases/latest/download/latest.json`
 * `--skip-verify` — Skip checksum verification
 
 
@@ -1088,7 +1088,7 @@ Attach to a persistent ACP session — stream session/update frames to stdout, f
 
 ###### **Arguments:**
 
-* `<AGENT_ID>` — Agent id. For local ZellijHosted agents this is the profile name (e.g. `work`); for controlplane ACP agents it's the `public_id` (e.g. `aria-operator-e8820c0d`)
+* `<AGENT_ID>` — Agent id. For local ZellijHosted agents this is the profile name (e.g. `work`); for controlplane ACP agents it's the `public_id` (e.g. `my-agent-operator-e8820c0d`)
 
 ###### **Options:**
 
@@ -1337,7 +1337,7 @@ Register a new agent with the controlplane
 * `--capabilities <CAPABILITIES>` — Comma-separated capability tags (e.g. `fleet-management,code-editing`)
 
   Default value: ``
-* `--metadata <METADATA>` — Optional JSON metadata string (e.g. `{"runtime":"claude-code","node_id":"excalibur"}`)
+* `--metadata <METADATA>` — Optional JSON metadata string (e.g. `{"runtime":"claude-code","node_id":"node-0"}`)
 * `--json` — Emit raw JSON instead of a human-readable summary
 
 
@@ -1701,7 +1701,7 @@ Self-update helper for the edgeplane binary
 
 * `--manifest-url <MANIFEST_URL>` — Manifest URL describing available releases
 
-  Default value: `https://github.com/RyanMerlin/edgeplane/releases/latest/download/latest.json`
+  Default value: `https://github.com/edgeplane/edgeplane/releases/latest/download/latest.json`
 * `--skip-verify` — Skip checksum verification
 
 
@@ -2433,7 +2433,7 @@ Bulk-import agents from a TOML manifest into the local registry. Each `[[profile
 
 ###### **Options:**
 
-* `--source <SOURCE>` — Source tag to associate with imported agents. Defaults to `manifest_import`. Use a stable tag (e.g. `aria`) so that re-runs update in place rather than accumulating duplicate rows
+* `--source <SOURCE>` — Source tag to associate with imported agents. Defaults to `manifest_import`. Use a stable tag (e.g. `fleet`) so that re-runs update in place rather than accumulating duplicate rows
 
   Default value: `manifest_import`
 
@@ -2755,7 +2755,7 @@ Add a controlplane profile. If --join-token is given, registers this node with t
 * `--trust-tier <TRUST_TIER>` — Trust tier label sent at registration (default: "untrusted")
 
   Default value: `untrusted`
-* `--tailscale-fqdn <TAILSCALE_FQDN>` — Tailscale FQDN to register (e.g. epyc.tailnet.ts.net)
+* `--tailscale-fqdn <TAILSCALE_FQDN>` — Tailscale FQDN to register (e.g. node-0.tailnet.ts.net)
 * `--activate` — Set this profile as active immediately after adding
 
 

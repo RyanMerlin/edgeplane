@@ -11,7 +11,7 @@ Please report privately and do not open a public issue for unpatched findings.
 
 Contact:
 - Preferred: GitHub Security Advisory (private report)
-- Backup: security@merlinlabs.cloud
+- Backup: security@example.com (configure this before deploying)
 
 Include:
 - Affected component/version/commit

@@ -25,7 +25,7 @@ A Mission's **Brief** describes the targeted outcome for that mission — the "w
 
 Both are Markdown documents stored alongside the entity in S3 at the mission's scoped path. They are first-class fields, not free-form notes.
 
-Authoring support via `edgeplane domain northstar edit` and `edgeplane mission brief edit` is available now. The expected structure for each is documented in the schema-pack templates at [`docs/schema-packs/NORTHSTAR.example.md`](https://github.com/RyanMerlin/edgeplane/blob/main/docs/schema-packs/NORTHSTAR.example.md) and [`docs/schema-packs/BRIEF.example.md`](https://github.com/RyanMerlin/edgeplane/blob/main/docs/schema-packs/BRIEF.example.md) in the repository.
+Authoring support via `edgeplane domain northstar edit` and `edgeplane mission brief edit` is available now. The expected structure for each is documented in the schema-pack templates at [`docs/schema-packs/NORTHSTAR.example.md`](https://github.com/edgeplane/edgeplane/blob/main/docs/schema-packs/NORTHSTAR.example.md) and [`docs/schema-packs/BRIEF.example.md`](https://github.com/edgeplane/edgeplane/blob/main/docs/schema-packs/BRIEF.example.md) in the repository.
 
 **Domains do not complete. They scope. Tasks complete.**
 

@@ -22,7 +22,7 @@ pub struct MachineInfo {
     /// Tailscale IPv4 address (e.g. "100.x.x.x"), None if not installed or not connected.
     #[serde(default)]
     pub tailscale_ip: Option<String>,
-    /// Tailscale FQDN (e.g. "epyc.my-tailnet.ts.net"), None if unavailable.
+    /// Tailscale FQDN (e.g. "node-0.my-tailnet.ts.net"), None if unavailable.
     #[serde(default)]
     pub tailscale_fqdn: Option<String>,
 }
@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn serializes_tailscale_fields() {
         let info = MachineInfo {
-            hostname: "epyc".into(),
+            hostname: "node-0".into(),
             os: "Linux".into(),
             cpu_cores: 4,
             ram_gb: 8.0,
@@ -269,10 +269,10 @@ mod tests {
             working_dir: "/tmp".into(),
             installed_tools: vec![],
             tailscale_ip: Some("100.64.0.1".into()),
-            tailscale_fqdn: Some("epyc.example.ts.net".into()),
+            tailscale_fqdn: Some("node-0.example.ts.net".into()),
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("100.64.0.1"));
-        assert!(json.contains("epyc.example.ts.net"));
+        assert!(json.contains("node-0.example.ts.net"));
     }
 }

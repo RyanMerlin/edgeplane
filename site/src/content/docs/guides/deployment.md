@@ -153,7 +153,7 @@ When running on Kubernetes, source all secrets via platform secret objects — d
 spec:
   containers:
   - name: edgeplane-tower
-    image: ghcr.io/ryanmerlin/edgeplane:<version>
+    image: ghcr.io/your-org/edgeplane:<version>
     envFrom:
     - secretRef:
         name: edgeplane-env
@@ -163,7 +163,7 @@ spec:
 
 Store all auth settings (OIDC credentials, DB credentials, object storage credentials) as Kubernetes Secrets and mount via `envFrom.secretRef` or `env.valueFrom.secretKeyRef`.
 
-See [Helm chart](https://github.com/RyanMerlin/edgeplane/tree/main/infra/helm/edgeplane) in the repo for a complete Kubernetes deployment.
+See [Helm chart](https://github.com/edgeplane/edgeplane/tree/main/infra/helm/edgeplane) in the repo for a complete Kubernetes deployment.
 
 ## Authentication
 

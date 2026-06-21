@@ -560,7 +560,7 @@ pub struct AgentLaunchContext {
     pub state_dir_spec: Option<StateDirSpec>,
     pub zellij_session: Option<String>,
     /// systemd `--user` unit name that owns this agent's session (e.g.
-    /// `aria-work.service`). Populated by the fleet importer from
+    /// `my-agent-work.service`). Populated by the fleet importer from
     /// fleet-profiles.toml's `service` field. `None` for agents not
     /// managed by systemd.
     pub systemd_service: Option<String>,
@@ -1135,7 +1135,7 @@ mod tests {
             agent_id: "a-1".into(),
             vault_folder: Some("work".into()),
             state_dir_spec: Some(StateDirSpec::Persistent {
-                path: PathBuf::from("/home/merlin/.claude/profiles/work"),
+                path: PathBuf::from("/tmp/test-profiles/work"),
             }),
             zellij_session: Some("work".into()),
             systemd_service: None,
@@ -1522,12 +1522,12 @@ mod tests {
             vault_folder: Some("work".into()),
             state_dir_spec: None,
             zellij_session: Some("work".into()),
-            systemd_service: Some("aria-work.service".into()),
+            systemd_service: Some("my-agent-work.service".into()),
             supervise_paused: false,
         };
         reg.upsert_launch_context(&ctx).unwrap();
         let got = reg.get_launch_context(SOURCE_LOCAL, "work").unwrap().unwrap();
-        assert_eq!(got.systemd_service.as_deref(), Some("aria-work.service"));
+        assert_eq!(got.systemd_service.as_deref(), Some("my-agent-work.service"));
         assert!(!got.supervise_paused);
     }
 
@@ -1542,7 +1542,7 @@ mod tests {
             vault_folder: None,
             state_dir_spec: None,
             zellij_session: None,
-            systemd_service: Some("aria-work.service".into()),
+            systemd_service: Some("my-agent-work.service".into()),
             supervise_paused: false,
         })
         .unwrap();
@@ -1570,7 +1570,7 @@ mod tests {
             vault_folder: None,
             state_dir_spec: None,
             zellij_session: None,
-            systemd_service: Some("aria-work.service".into()),
+            systemd_service: Some("my-agent-work.service".into()),
             supervise_paused: false,
         })
         .unwrap();
@@ -1583,7 +1583,7 @@ mod tests {
             vault_folder: Some("work-vault".into()),
             state_dir_spec: None,
             zellij_session: Some("work".into()),
-            systemd_service: Some("aria-work.service".into()),
+            systemd_service: Some("my-agent-work.service".into()),
             supervise_paused: false, // importer doesn't know about pause
         })
         .unwrap();

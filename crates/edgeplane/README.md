@@ -116,7 +116,7 @@ edgeplane [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 - `edgeplane channel claude webhook [--listen-host 127.0.0.1] [--listen-port 8788] [--channel-name edgeplane] [--enable-reply] [--instructions ...] [--debug-protocol]` — runs a Claude-channel MCP server over stdio, accepts inbound webhook `POST /` payloads (`text`/`content` + optional `meta`/`chat_id`) and emits `notifications/claude/channel`; optional `reply` tool writes to local SSE `GET /events` for integration testing.
 
 ### Agent launch (unified)
-- `edgeplane run claude [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [--with-rtk] [-- ARGS...]` — unified Claude launch with profile runtime + optional mesh participation. `--with-rtk` is a soft flag: warns and continues if [rtk](https://github.com/merlinlabs/rtk) is not installed.
+- `edgeplane run claude [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [--with-rtk] [-- ARGS...]` — unified Claude launch with profile runtime + optional mesh participation. `--with-rtk` is a soft flag: warns and continues if the optional `rtk` token-compression tool is not installed.
 - `edgeplane run codex [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [--with-rtk] [-- ARGS...]` — unified Codex launch.
 - `edgeplane run gemini [-p PROFILE] [-- ARGS...]` — Gemini launch.
 - `edgeplane run goose [-p PROFILE] [-- ARGS...]` — Goose launch (local models via LiteLLM).

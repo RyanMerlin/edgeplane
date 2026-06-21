@@ -158,7 +158,7 @@ pub struct AgentImportArgs {
     /// Path to a TOML manifest with `[[profile]]` blocks.
     pub path: std::path::PathBuf,
     /// Source tag to associate with imported agents. Defaults to
-    /// `manifest_import`. Use a stable tag (e.g. `aria`) so that
+    /// `manifest_import`. Use a stable tag (e.g. `fleet`) so that
     /// re-runs update in place rather than accumulating duplicate rows.
     #[arg(long, default_value = "manifest_import")]
     pub source: String,
@@ -371,7 +371,7 @@ pub struct ProfileAddArgs {
     /// Trust tier label sent at registration (default: "untrusted").
     #[arg(long, default_value = "untrusted")]
     pub trust_tier: String,
-    /// Tailscale FQDN to register (e.g. epyc.tailnet.ts.net).
+    /// Tailscale FQDN to register (e.g. node-0.tailnet.ts.net).
     #[arg(long)]
     pub tailscale_fqdn: Option<String>,
     /// Set this profile as active immediately after adding.
@@ -954,7 +954,7 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &EdgeplaneClient) -> Resu
                 }
                 let path = format!("/work/domains/{}/agents/enroll", a.domain);
                 let result = client.post_json(&path, &body).await?;
-                // Display the public_id (e.g. `aria-work-e88c006e`) — it's
+                // Display the public_id (e.g. `my-agent-work-e88c006e`) — it's
                 // what `edgeplane agent remote message --to-agent-id` accepts, and
                 // what edgeplaned uses to poll `/agents/{public_id}/messages`.
                 // Falls back to the meshagent UUID for legacy responses.
@@ -1135,7 +1135,7 @@ fn print_agents(agents: &Value) {
             println!("No agents enrolled.");
             return;
         }
-        // `public_id` is the wire identifier (e.g. `aria-work-e88c006e`).
+        // `public_id` is the wire identifier (e.g. `my-agent-work-e88c006e`).
         // Falls back to the meshagent UUID when the row predates the
         // public_id link migration. The numeric meshagent.id column is no
         // longer shown — too noisy at fleet scale and unused by edgeplane CLI verbs.
@@ -2491,12 +2491,12 @@ mod tests {
 
     #[test]
     fn plain_hostname_unchanged() {
-        assert_eq!(slug_hostname("excalibur"), "excalibur");
+        assert_eq!(slug_hostname("node-0"), "node-0");
     }
 
     #[test]
     fn uppercase_is_lowered() {
-        assert_eq!(slug_hostname("Excalibur"), "excalibur");
+        assert_eq!(slug_hostname("Node-0"), "node-0");
     }
 
     #[test]

@@ -5,7 +5,7 @@ PREFIX="${EP_INSTALL_PREFIX:-$HOME/.local/bin}"
 TARGET="${EP_INSTALL_TARGET:-$PREFIX/edgeplane}"
 ENV_FILE="${EP_ENV_FILE:-$HOME/.edgeplane-agent.env}"
 AUTO_SHELL_HOOK="${EP_INSTALL_SHELL_HOOK:-1}"
-BASE_URL="${EP_RELEASE_BASE_URL:-https://github.com/RyanMerlin/edgeplane/releases/latest/download}"
+BASE_URL="${EP_RELEASE_BASE_URL:-https://github.com/edgeplane/edgeplane/releases/latest/download}"
 
 append_shell_hook() {
   local rc_file="$1"
@@ -114,7 +114,7 @@ if ! try_download_release; then
     ROOT_DIR="$(mktemp -d)"
     CLEANUP_ROOT="$ROOT_DIR"
     echo "cloning edgeplane to build from source..."
-    git clone --depth 1 https://github.com/RyanMerlin/edgeplane.git "$ROOT_DIR"
+    git clone --depth 1 https://github.com/edgeplane/edgeplane.git "$ROOT_DIR"
   fi
 
   (
@@ -152,7 +152,7 @@ if [[ "$AUTO_SHELL_HOOK" == "1" ]]; then
   echo "auto env loading enabled from $ENV_FILE"
 else
   echo "Optional: enable auto env loading into new shells"
-  echo "  EP_INSTALL_SHELL_HOOK=1 EP_ENV_FILE=$ENV_FILE bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh)"
+  echo "  EP_INSTALL_SHELL_HOOK=1 EP_ENV_FILE=$ENV_FILE bash <(curl -fsSL https://raw.githubusercontent.com/edgeplane/edgeplane/main/scripts/bootstrap-edgeplane.sh)"
 fi
 
 echo ""

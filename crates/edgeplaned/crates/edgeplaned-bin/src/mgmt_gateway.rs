@@ -1653,7 +1653,7 @@ mod tests {
         tx.send(SupervisorEvent::UnitRestarted {
             agent_id: "work".to_string(),
             source: "fleet_import".to_string(),
-            systemd_service: "merlinlabs.service".to_string(),
+            systemd_service: "my-agent-work.service".to_string(),
             reason: "manual".to_string(),
             result: "started".to_string(),
             exit_code: None,

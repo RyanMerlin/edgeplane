@@ -2,8 +2,8 @@
 set -euo pipefail
 
 MCP_PYPI_SPEC="${MCP_PYPI_SPEC:-edgeplane-mcp}"
-MCP_GITHUB_SPEC="${MCP_GITHUB_SPEC:-git+https://github.com/RyanMerlin/edgeplane.git#subdirectory=distribution/edgeplane-mcp}"
-DOCS_URL="${DOCS_URL:-https://github.com/RyanMerlin/edgeplane#readme}"
+MCP_GITHUB_SPEC="${MCP_GITHUB_SPEC:-git+https://github.com/edgeplane/edgeplane.git#subdirectory=distribution/edgeplane-mcp}"
+DOCS_URL="${DOCS_URL:-https://github.com/edgeplane/edgeplane#readme}"
 DEFAULT_LOCAL_ENDPOINT="http://localhost:8008"
 
 ENDPOINT=""
