@@ -58,7 +58,7 @@ const sampleNodeDetail = {
     description: 'Rebuild warehouse data pipelines',
     domain_id: 'domain-uuid-1',
     status: 'in_progress',
-    owners: 'aria-operator',
+    owners: 'my-agent-operator',
     tags: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-05-30T12:00:00Z',
@@ -71,7 +71,7 @@ const sampleNodeDetail = {
       title: 'Set up ingestion',
       description: 'Ingest OHLCV data',
       status: 'done',
-      owner: 'aria-operator',
+      owner: 'my-agent-operator',
       contributors: '',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-05-30T12:00:00Z',
@@ -84,7 +84,7 @@ const sampleNodeDetail = {
 const sampleBrief = {
   brief_md: '# Warehouse\n\nRebuild the data warehouse.',
   brief_version: 2,
-  brief_modified_by: 'aria-operator',
+  brief_modified_by: 'my-agent-operator',
   brief_modified_at: '2026-06-01T10:00:00Z',
 };
 

@@ -67,7 +67,7 @@ fn extract_metadata_fields(metadata: &str) -> (Option<String>, Option<String>) {
 
 /// Generate a fresh public_id for a new agent row. Shape is
 /// `{name}-{8-hex-chars}` — readable in CLI/TUI output, and unique enough
-/// across delete-and-recreate cycles that a re-registered `aria-work`
+/// across delete-and-recreate cycles that a re-registered agent
 /// doesn't collide with the previous one's identifier. Used only on the
 /// INSERT side of `create_agent`; the UPDATE path preserves the existing
 /// value because public_id is immutable after creation.
@@ -785,8 +785,8 @@ mod reserved_name_tests {
 
     #[test]
     fn ordinary_names_are_not_reserved() {
-        assert!(!is_reserved_agent_name("aria-operator"));
-        assert!(!is_reserved_agent_name("aria-engineer"));
+        assert!(!is_reserved_agent_name("my-agent-operator"));
+        assert!(!is_reserved_agent_name("my-agent-engineer"));
         assert!(!is_reserved_agent_name("anonymouslab"));
         assert!(!is_reserved_agent_name("system-agent"));
     }

@@ -12,4 +12,4 @@ Do not file public issues for vulnerabilities. Use `SECURITY.md`.
 
 ## Commercial / Premium Interest
 For enterprise support, hosted offerings, or premium capability discussions,
-contact: founders@merlinlabs.cloud
+open a GitHub Discussion or contact the maintainers listed in GOVERNANCE.md.

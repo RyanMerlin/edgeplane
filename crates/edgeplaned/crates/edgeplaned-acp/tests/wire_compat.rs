@@ -30,7 +30,21 @@ use std::time::Duration;
 use edgeplaned_acp::{Agent, ContentBlock, SessionUpdate, SpawnOpts, consts::PROTOCOL_VERSION, schema};
 use tokio::sync::broadcast::error::RecvError;
 
-const PROFILE_CWD: &str = "/home/merlin/code/aria/profiles/acp-test";
+/// Returns the CWD to use for the ACP test session.
+///
+/// Resolved in priority order:
+/// 1. `$EP_MESH_ACP_CWD` — set this to any directory you want the test agent
+///    to start in (e.g. your project checkout).
+/// 2. `$TMPDIR` / `/tmp` — a universally available fallback that works on CI
+///    without any pre-created profile directory.
+fn profile_cwd() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("EP_MESH_ACP_CWD") {
+        return std::path::PathBuf::from(p);
+    }
+    std::env::var("TMPDIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+}
 
 fn skip_reason() -> Option<String> {
     if std::env::var("EP_MESH_ACP_SKIP_WIRE").is_ok() {
@@ -44,8 +58,9 @@ fn skip_reason() -> Option<String> {
             "claude-code-acp dist/index.js not found — set EP_MESH_ACP_JS or `npm i -g @zed-industries/claude-code-acp`".into(),
         );
     }
-    if !std::path::Path::new(PROFILE_CWD).exists() {
-        return Some(format!("test profile {PROFILE_CWD} not present"));
+    let cwd = profile_cwd();
+    if !cwd.exists() {
+        return Some(format!("test CWD '{}' not present — set EP_MESH_ACP_CWD", cwd.display()));
     }
     None
 }
@@ -122,7 +137,7 @@ async fn wire_compat_initialize_session_prompt_roundtrip() {
         Duration::from_secs(30),
         agent.new_session(schema::NewSessionRequest {
             meta: None,
-            cwd: PROFILE_CWD.into(),
+            cwd: profile_cwd().to_string_lossy().into_owned(),
             mcp_servers: vec![],
         }),
     )

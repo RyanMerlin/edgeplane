@@ -5,15 +5,12 @@
 //! prompts via `runtime.signal`. The file IS the source of truth; SQLite
 //! stores only runtime telemetry (last_fired_at, fire log, GC'd).
 //!
-//! Schema is byte-compatible with `aria-cron.toml` so migration is `cp`:
+//! Migration from a legacy cron file is a simple `cp`:
 //!
 //! ```bash
-//! cp ~/code/aria/aria-cron.toml ~/.ep/edgeplaned/cron.toml
+//! cp /path/to/old-cron.toml ~/.edgeplane/config/cron.toml
 //! systemctl --user restart edgeplaned
 //! ```
-//!
-//! See `Aria/Engineer/projects/2026-05-20-phase4-implementation-plan.md` for
-//! the design rationale and decisions (D4.1–D4.14).
 
 use std::path::{Path, PathBuf};
 
@@ -45,16 +42,14 @@ pub fn resolve_path(config_override: Option<&Path>) -> PathBuf {
 
 // ── Schema ──────────────────────────────────────────────────────────────
 
-/// Top-level config. Mirrors the structure of `aria-cron.toml` plus
+/// Top-level config. Contains
 /// schema_version + retention.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CronConfig {
     /// File schema version. Required. edgeplaned refuses values > `MCD_SUPPORTED_CRON_SCHEMA`.
     pub schema_version: u32,
 
-    /// IANA timezone for all cron expressions in this file. Default
-    /// `"America/Denver"` for backwards compat with the aria-cron.toml
-    /// implicit timezone.
+    /// IANA timezone for all cron expressions in this file. Default `"UTC"`.
     #[serde(default = "default_timezone")]
     pub timezone: String,
 
@@ -65,8 +60,7 @@ pub struct CronConfig {
     pub retention: CronRetention,
 
     /// Job definitions. The `#[serde(rename = "job")]` lets the TOML use
-    /// the conventional `[[job]]` array-of-tables syntax matching
-    /// aria-cron.toml exactly.
+    /// the conventional `[[job]]` array-of-tables syntax.
     #[serde(rename = "job", default)]
     pub jobs: Vec<CronJob>,
 }
@@ -114,8 +108,7 @@ impl Default for CronRetention {
     }
 }
 
-/// One scheduled job. Byte-compatible with aria-cron.toml's `[[job]]`
-/// blocks — same field names, same semantics.
+/// One scheduled job. Maps to a `[[job]]` block in `cron.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CronJob {
     /// Human-readable identifier. Unique within the file. Used as the
@@ -132,7 +125,7 @@ pub struct CronJob {
     /// must exist in edgeplaned's supervisor map at dispatch time, otherwise
     /// the fire is logged as `agent-not-supervised` and skipped.
     ///
-    /// Defaults to `"operator"` if omitted (matches aria-cron.toml).
+    /// Defaults to `"operator"` if omitted.
     /// Phase 6 may rename this to `agent_id` for clarity; Phase 4 keeps
     /// `session` for byte-compat with the existing file.
     #[serde(default = "default_session")]
@@ -484,7 +477,7 @@ schema_version = 1
 name = "vault-mirror"
 schedule = "0 3 * * *"
 dispatch = "bash"
-prompt = """aria vault mirror 2>>/home/merlin/code/aria/.learnings/ERRORS.md"""
+prompt = """my-tool vault mirror 2>>/tmp/errors.log"""
 "#;
         let cfg = parse(raw, &p()).expect("bash dispatch parses");
         assert_eq!(cfg.jobs[0].dispatch, "bash");
@@ -515,7 +508,7 @@ prompt = "echo hello"
         // Verify the Command that dispatch_bash would build has the right binary and args.
         // We construct the Command without executing it (no .output() call) and inspect
         // the debug representation.
-        let prompt = "aria vault mirror 2>>/tmp/errors.md";
+        let prompt = "vault mirror 2>>/tmp/errors.md";
         let mut cmd = std::process::Command::new("bash");
         cmd.args(["-c", prompt]);
         let debug_str = format!("{cmd:?}");
@@ -529,7 +522,7 @@ prompt = "echo hello"
             "Command should pass -c flag: {debug_str}"
         );
         assert!(
-            debug_str.contains("aria vault mirror"),
+            debug_str.contains("vault mirror"),
             "Command should include the prompt: {debug_str}"
         );
     }
@@ -636,8 +629,8 @@ prompt = "x"
     }
 
     #[test]
-    fn parses_complete_aria_cron_shape() {
-        // The real aria-cron.toml shape with all field variants.
+    fn parses_complete_cron_shape() {
+        // A representative cron.toml with all field variants.
         let raw = r#"
 schema_version = 1
 timezone = "America/Denver"
@@ -710,12 +703,11 @@ prompt = "x"
     }
 
     #[test]
-    fn parses_real_aria_cron_toml() {
-        // Smoke test: the real aria-cron.toml on disk parses as long as
-        // it adds schema_version. We exercise the schema by injecting
-        // schema_version into a copy of the structure.
-        // (Reading the actual file isn't always possible from CI; this
-        // proves the parser handles the real shape.)
+    fn parses_real_cron_toml_shape() {
+        // Smoke test: a cron.toml structure with schema_version parses.
+        // We exercise the schema by injecting schema_version into a
+        // representative structure. (Reading an actual file isn't always
+        // possible from CI; this proves the parser handles the real shape.)
         let raw = r#"
 schema_version = 1
 
@@ -723,7 +715,7 @@ schema_version = 1
 name     = "vault-mirror"
 schedule = "0 3 * * *"
 session  = "operator"
-prompt   = "Bash: aria vault mirror — log any errors to .learnings/ERRORS.md, no output needed on success"
+prompt   = "Bash: vault mirror — log any errors to /tmp/errors.log, no output needed on success"
 
 [[job]]
 name     = "ai-pulse-daily"

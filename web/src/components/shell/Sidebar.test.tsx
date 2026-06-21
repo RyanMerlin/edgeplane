@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-const mockPathname = '/agents/aria-operator-bb05ea7a';
+const mockPathname = '/agents/my-agent-operator-bb05ea7a';
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     to,
@@ -76,11 +76,11 @@ describe('avatarLabel', () => {
   it('returns null for an opaque hash', () => {
     expect(avatarLabel('73c5a571f3b774a535810a3835f3b8fa')).toBeNull();
   });
-  it('returns RM for an email address', () => {
-    expect(avatarLabel('ryan.merlin@example.com')).toBe('RM');
+  it('returns initials for a dotted email address', () => {
+    expect(avatarLabel('ada.lovelace@example.com')).toBe('AL');
   });
-  it('returns RM for a display name with spaces', () => {
-    expect(avatarLabel('Ryan Merlin')).toBe('RM');
+  it('returns initials for a display name with spaces', () => {
+    expect(avatarLabel('Ada Lovelace')).toBe('AL');
   });
 });
 

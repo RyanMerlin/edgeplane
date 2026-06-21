@@ -10,8 +10,8 @@
 #   ONLY at run/. Therefore daemon and agents MUST be restarted together on the
 #   same version — a daemon-only bump would strand the 0.13.x agents.
 #
-# RUN FROM A PLAIN SSH/TTY — *not* inside an aria-<profile> zellij session.
-#   This restarts every aria-<profile>.service (each hosts a live Claude session)
+# RUN FROM A PLAIN SSH/TTY — *not* inside a managed agent zellij session.
+#   This restarts every profile agent service (each hosts a live Claude session)
 #   plus edgeplaned. If you run it from inside one of those sessions, it kills the
 #   shell mid-run. The cgroup guard below refuses that case.
 #
@@ -23,8 +23,9 @@ REPO="${EP_UPDATE_REPO:-RyanMerlin/edgeplane}"
 BASE="https://github.com/${REPO}/releases/latest/download"
 BIN_DIRS=("$HOME/.cargo/bin" "$HOME/.local/bin")
 DAEMON_UNIT="edgeplaned.service"
-PROFILE_UNITS=(aria.service aria-engineer.service aria-merlinlabs.service \
-               aria-publisher.service aria-research.service aria-work.service)
+# Override EP_PROFILE_UNITS with your fleet's agent service names.
+# Example: PROFILE_UNITS=(my-agent-alpha.service my-agent-beta.service)
+IFS=' ' read -r -a PROFILE_UNITS <<< "${EP_PROFILE_UNITS:-}"
 
 log() { printf '[converge] %s\n' "$*" >&2; }
 sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi; }
@@ -32,7 +33,7 @@ sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{
 # ── Guard: refuse to run from inside a managed agent/daemon cgroup ─────────────
 selfcg=$(cat /proc/self/cgroup 2>/dev/null || true)
 case "$selfcg" in
-  *aria-*.service*|*edgeplaned.service*)
+  *edgeplaned.service*)
     log "REFUSING: you are inside a managed session ($selfcg)."
     log "Run this from a plain SSH/tty — it restarts the very session you're in."
     exit 2 ;;

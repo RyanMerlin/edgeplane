@@ -244,9 +244,9 @@ mod agent_ident_tests {
     }
     #[test]
     fn from_public_id_string() {
-        let v: AgentIdent = serde_json::from_value(serde_json::json!("aria-work-qwn5eb33")).unwrap();
+        let v: AgentIdent = serde_json::from_value(serde_json::json!("my-agent-work-qwn5eb33")).unwrap();
         match v {
-            AgentIdent::PublicId(s) => assert_eq!(s, "aria-work-qwn5eb33"),
+            AgentIdent::PublicId(s) => assert_eq!(s, "my-agent-work-qwn5eb33"),
             other => panic!("expected PublicId, got {other:?}"),
         }
     }
@@ -254,7 +254,7 @@ mod agent_ident_tests {
     fn name_only_falls_to_public_id() {
         // A bare name without a suffix is still a valid PublicId from the
         // type's perspective — DB lookup decides whether it matches.
-        let v: AgentIdent = serde_json::from_value(serde_json::json!("aria-work")).unwrap();
+        let v: AgentIdent = serde_json::from_value(serde_json::json!("my-agent-work")).unwrap();
         assert!(matches!(v, AgentIdent::PublicId(_)));
     }
 }

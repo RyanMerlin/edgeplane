@@ -461,7 +461,7 @@ describe('eventStream store', () => {
       // Backend sends `event_type`, not `type` — normalize at the listener boundary.
       src.triggerMessage({
         event_type: 'step_started',
-        agent_id: 'aria-engineer-0fd11ef0',
+        agent_id: 'my-agent-engineer-0fd11ef0',
         task_id: 'task-uuid-123',
         seq: 0,
         summary: 'Task claimed by agent',
@@ -470,7 +470,7 @@ describe('eventStream store', () => {
 
       const evt: MatrixEvent = getStore().events[0];
       expect(evt.type).toBe('step_started');
-      expect(evt.agent_id).toBe('aria-engineer-0fd11ef0');
+      expect(evt.agent_id).toBe('my-agent-engineer-0fd11ef0');
     });
   });
 });

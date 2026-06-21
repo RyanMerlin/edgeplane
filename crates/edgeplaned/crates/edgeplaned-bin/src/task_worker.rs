@@ -23,7 +23,7 @@
 //!
 //!   1. **Rule tier**: if the task already has a `target_profile` in
 //!      `claim_policy`, it's scoped — skip (P2 handles it).
-//!   2. **Goose categorization**: call `aria goose` with a structured prompt
+//!   2. **Goose categorization**: call the configured goose binary with a structured prompt
 //!      listing the task description and supervised profiles. Parse the returned
 //!      `{"target_profile": "...", "confidence": 0.0–1.0, "reason": "..."}`.
 //!   3. **Route or surface**:
@@ -1218,26 +1218,32 @@ async fn resolve_intake_mission(client: &Arc<BackendClient>) -> Option<(String, 
     None
 }
 
-/// Call `aria goose` with the categorization prompt and parse the response.
+/// Call the configured goose binary with the categorization prompt and parse the response.
 ///
-/// The `aria goose` response shape is:
+/// The expected response shape is:
 ///   `{"ok": bool, "data": <string | object>, ...}`
 ///
 /// If `ok=false`, returns `None` (low-confidence fallback).
 /// If `data` is a JSON string, attempts to parse it as `CategorizationResult`.
 /// If `data` is already an object, uses it directly.
+///
+/// The binary + leading args are taken from `config.task_worker_goose_bin`
+/// (default: `["goose"]`; overridable via `EP_GOOSE_BIN` env or the config key).
 pub async fn call_goose_categorize(
     prompt: &str,
     config: &DaemonConfig,
 ) -> Option<CategorizationResult> {
     let timeout_secs = config.task_worker_goose_timeout_secs;
 
-    let output = tokio::process::Command::new("aria")
-        .args(["goose", prompt, "--timeout", &timeout_secs.to_string()])
+    let goose_cmd = &config.task_worker_goose_bin;
+    let (bin, leading_args) = goose_cmd.split_first()?;
+    let output = tokio::process::Command::new(bin)
+        .args(leading_args)
+        .args([prompt, "--timeout", &timeout_secs.to_string()])
         .output()
         .await
         .map_err(|e| {
-            tracing::warn!("triage: could not spawn 'aria goose': {e:#}");
+            tracing::warn!("triage: could not spawn goose triage command '{bin}': {e:#}");
             e
         })
         .ok()?;
@@ -1245,7 +1251,7 @@ pub async fn call_goose_categorize(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         tracing::warn!(
-            "triage: aria goose exited with status={} stderr={}",
+            "triage: goose triage exited with status={} stderr={}",
             output.status,
             stderr.chars().take(200).collect::<String>()
         );
@@ -1256,7 +1262,7 @@ pub async fn call_goose_categorize(
     parse_goose_response(&stdout)
 }
 
-/// Parse the JSON output of `aria goose` into a `CategorizationResult`.
+/// Parse the JSON output of the goose triage command into a `CategorizationResult`.
 ///
 /// Exposed as `pub` for unit testing without spawning subprocesses.
 pub fn parse_goose_response(raw: &str) -> Option<CategorizationResult> {
@@ -1593,7 +1599,7 @@ mod tests {
 
     #[test]
     fn parse_goose_response_valid_string_data() {
-        // Happy path: aria goose returns data as a JSON-encoded string.
+        // Happy path: goose returns data as a JSON-encoded string.
         let raw = r#"{"ok":true,"data":"{\"target_profile\":\"research\",\"confidence\":0.9,\"reason\":\"Looks like research work\"}"}"#;
         let result = parse_goose_response(raw).unwrap();
         assert_eq!(result.target_profile, "research");

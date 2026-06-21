@@ -597,7 +597,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Numeric agent id or public_id string (e.g. `aria-work-qwn5eb33`) */
+                /** @description Numeric agent id or public_id string (e.g. `my-agent-work-qwn5eb33`) */
                 agent_id: string;
             };
             cookie?: never;

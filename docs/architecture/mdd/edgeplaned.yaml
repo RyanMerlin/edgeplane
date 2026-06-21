@@ -137,10 +137,9 @@ adr_refs:
 
 notes: |
   Phases 4-6 of the daemon-absorption migration consolidated three previously
-  separate aria-rs binaries (aria cron, aria watchdog, aria fleet) into
+  separate external binaries (cron, watchdog, fleet management) into
   edgeplaned. edgeplaned now owns: agent supervision, cron dispatch, secret
-  brokering, and capability execution. See aria-rs CHANGELOG.md 0.5.0 for the
-  removal of the legacy aria-side daemons.
+  brokering, and capability execution.
 
 # ─── PROPOSED CHANGES ────────────────────────────────────────────────────────
 
@@ -148,7 +147,6 @@ proposed_changes:
   - id: recurring-task-templates
     status: proposed
     target_release: 0.16.0
-    spec_ref: docs/superpowers/specs/2026-05-24-edgeplane-recurring-tasks-design.md
     summary: |
       Introduce a `RecurringTaskTemplate` entity that emits MeshTasks on
       cadence (named tier, raw cron, or freshness_max_age). The template
@@ -185,9 +183,9 @@ proposed_changes:
     target_release: post-0.16
     spec_ref: TBD (depends on recurring-task-templates landing first)
     summary: |
-      Currently edgeplaned runs only on excalibur. For modules whose
-      execution should happen on cloud0/epyc/kai (e.g., local kubectl access),
-      v1 uses SSH dispatch from excalibur. v2 promotes each cluster node to
+      Currently edgeplaned runs as a single node instance. For modules whose
+      execution should happen on remote cluster nodes (e.g., local kubectl access),
+      v1 uses SSH dispatch from the primary node. v2 promotes each cluster node to
       a full edgeplaned instance, enrolled with tower as a MeshAgent runtime,
       with proper mesh-transported heartbeats and cancellation.
 

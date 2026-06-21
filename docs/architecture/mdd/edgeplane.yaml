@@ -291,7 +291,6 @@ proposed_changes:
   - id: edgeplane-modules
     status: proposed
     target_release: 0.16.0
-    spec_ref: docs/superpowers/specs/2026-05-24-edgeplane-recurring-tasks-design.md
     summary: |
       Add `edgeplane modules` top-level subcommand. CLI sugar over the
       RecurringTaskTemplate entity owned by edgeplaned/tower. Subcommands:

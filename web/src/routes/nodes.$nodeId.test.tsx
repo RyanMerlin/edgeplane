@@ -43,15 +43,15 @@ import { NodeDetailPage } from './nodes.$nodeId';
 
 const sampleNode = {
   id: 'node-uuid-1',
-  node_name: 'excalibur',
-  hostname: 'excalibur.local',
+  node_name: 'node-0',
+  hostname: 'node-0.local',
   status: 'online',
   trust_tier: 'admin',
   runtime_version: '0.7.0',
-  tailscale_fqdn: 'excalibur.example.ts.net',
+  tailscale_fqdn: 'node-0.example.ts.net',
   tailscale_ip: '100.64.0.1',
   last_heartbeat_at: '2026-06-09T10:00:00Z',
-  owner_subject: 'merlin',
+  owner_subject: 'platform-admin',
   registered_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-06-09T10:00:00Z',
   capabilities: ['acp', 'mesh'],
@@ -61,11 +61,11 @@ const sampleNode = {
 
 const sampleAgent = {
   id: 1,
-  public_id: 'aria-operator-e8820c0d',
-  name: 'aria-operator',
+  public_id: 'my-agent-operator-e8820c0d',
+  name: 'my-agent-operator',
   status: 'online',
   capabilities: 'fleet-management',
-  metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'excalibur' }),
+  metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'node-0' }),
   home_domain_id: 'dom-abc',
   current_domain_id: null,
   created_at: '2026-01-01T00:00:00Z',
@@ -105,7 +105,7 @@ describe('NodeDetailPage', () => {
     (unwrap as ReturnType<typeof vi.fn>).mockResolvedValue([sampleAgent]);
     wrap(<NodeDetailPage />, qc);
     await waitFor(() => expect(screen.getByTestId('node-detail-header')).toBeInTheDocument());
-    expect(screen.getAllByText('excalibur').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('node-0').length).toBeGreaterThan(0);
     expect(screen.getAllByText('online').length).toBeGreaterThan(0);
     expect(screen.getByText('v0.7.0')).toBeInTheDocument();
   });
@@ -116,6 +116,6 @@ describe('NodeDetailPage', () => {
     (unwrap as ReturnType<typeof vi.fn>).mockResolvedValue([sampleAgent]);
     wrap(<NodeDetailPage />, qc);
     await waitFor(() => expect(screen.getByTestId('node-agents-section')).toBeInTheDocument());
-    expect(screen.getByText('aria-operator')).toBeInTheDocument();
+    expect(screen.getByText('my-agent-operator')).toBeInTheDocument();
   });
 });

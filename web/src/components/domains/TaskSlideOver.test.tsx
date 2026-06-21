@@ -9,7 +9,7 @@ const sampleTask = {
   title: 'Implement auth',
   description: 'Set up OIDC authentication',
   status: 'done',
-  owner: 'aria-operator',
+  owner: 'my-agent-operator',
   contributors: '',
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-05-30T12:00:00Z',

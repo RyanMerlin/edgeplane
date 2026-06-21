@@ -2,7 +2,7 @@
 //!
 //! Phase 2 of the daemon-absorption plan: real impls landed for `launch`
 //! and `signal`. The runtime owns no agent process — the Zellij session is
-//! externally managed by `aria-watchdog-rs` and systemd (Phase 5 absorbs
+//! externally managed by the configured supervisor and systemd (Phase 5 absorbs
 //! watchdog responsibilities into edgeplaned). This runtime is a thin facade
 //! that addresses the right pane via `zellij action` subprocesses.
 //!
@@ -126,7 +126,7 @@ impl AgentRuntime for ZellijHostedRuntime {
 
     /// Verify the externally-managed Zellij session is reachable and
     /// register the agent in the per-agent session map. Does NOT spawn
-    /// anything — the session lifecycle is owned by systemd + aria-watchdog
+    /// anything — the session lifecycle is owned by systemd + the supervisor
     /// (Phase 5 absorbs watchdog into edgeplaned).
     async fn launch(&self, ctx: LaunchContext) -> Result<AgentHandle> {
         let zellij_session = ctx
@@ -264,7 +264,7 @@ impl AgentRuntime for ZellijHostedRuntime {
     }
 
     /// No-op — edgeplaned does not own the Zellij session lifecycle. systemd +
-    /// aria-watchdog (Phase 5: edgeplaned's own supervisor) own start/stop.
+    /// the supervisor (Phase 5: edgeplaned's own supervisor) own start/stop.
     async fn shutdown(&self, handle: AgentHandle) -> Result<()> {
         tracing::debug!(
             "ZellijHostedRuntime::shutdown: removing agent {} from session map \

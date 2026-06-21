@@ -17,7 +17,7 @@
 //! ## Federated alias resolution
 //!
 //! In federated mode, a controlplane agent has a `public_id` (e.g.
-//! `"aria-engineer-708650f1"`) that differs from the local fleet-import
+//! `"my-agent-engineer-708650f1"`) that differs from the local fleet-import
 //! key under which the PTY bridge was registered (e.g. `"engineer"`).
 //! The reconciler calls [`AttachRegistry::register_alias`] to map the
 //! public_id → local key so that an attach request for the controlplane
@@ -119,7 +119,7 @@ impl AttachRegistry {
     /// the endpoint already registered under `canonical_id`.
     ///
     /// Used by the reconciler to map a controlplane `public_id` (e.g.
-    /// `"aria-engineer-708650f1"`) to the bridge registered under the
+    /// `"my-agent-engineer-708650f1"`) to the bridge registered under the
     /// local fleet-import key (e.g. `"engineer"`). `get(alias_id)` will
     /// then return the same endpoints as `get(canonical_id)` — without
     /// disturbing the live PTY bridge or the running agent.
@@ -170,7 +170,7 @@ mod tests {
         let registry = AttachRegistry::new();
         registry.register("engineer".to_string(), make_pty_endpoints()).await;
         registry
-            .register_alias("aria-engineer-708650f1".to_string(), "engineer".to_string())
+            .register_alias("my-agent-engineer-708650f1".to_string(), "engineer".to_string())
             .await;
 
         // Direct lookup still works.
@@ -180,7 +180,7 @@ mod tests {
         );
         // Alias lookup resolves to the same bridge.
         assert!(
-            registry.get("aria-engineer-708650f1").await.is_some(),
+            registry.get("my-agent-engineer-708650f1").await.is_some(),
             "alias lookup under public_id must resolve"
         );
         // Unknown key returns None.
@@ -193,7 +193,7 @@ mod tests {
         let registry = AttachRegistry::new();
         registry.register("engineer".to_string(), make_pty_endpoints()).await;
         registry
-            .register_alias("aria-engineer-hash".to_string(), "engineer".to_string())
+            .register_alias("my-agent-engineer-hash".to_string(), "engineer".to_string())
             .await;
 
         registry.unregister("engineer").await;
@@ -203,7 +203,7 @@ mod tests {
             "canonical should be gone"
         );
         assert!(
-            registry.get("aria-engineer-hash").await.is_none(),
+            registry.get("my-agent-engineer-hash").await.is_none(),
             "alias pointing at unregistered canonical should also be gone"
         );
     }

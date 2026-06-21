@@ -78,7 +78,7 @@ pub fn agents_list_stub() {}
     tag = "agents",
     security(("bearerAuth" = [])),
     params(
-        ("agent_id" = String, Path, description = "Numeric agent id or public_id string (e.g. `aria-work-qwn5eb33`)")
+        ("agent_id" = String, Path, description = "Numeric agent id or public_id string (e.g. `my-agent-work-qwn5eb33`)")
     ),
     responses(
         (status = 200, description = "Agent record", body = crate::models::agent::Agent),

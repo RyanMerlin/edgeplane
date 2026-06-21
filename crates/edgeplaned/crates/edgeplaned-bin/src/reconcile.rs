@@ -92,9 +92,9 @@ pub type RunningAgents = Arc<Mutex<HashMap<String, RunningAgent>>>;
 /// controlplane agent_id differs from the local fleet_import agent_id that
 /// is already running. For example: the running map has key `"engineer"` (the
 /// fleet_import agent_id) but the desired spec has `agent_id =
-/// "aria-engineer-708650f1"` and `local_alias_id = Some("engineer")`.
+/// "my-agent-engineer-708650f1"` and `local_alias_id = Some("engineer")`.
 ///
-/// Without alias handling, diff_specs would see `"aria-engineer-708650f1"` as
+/// Without alias handling, diff_specs would see `"my-agent-engineer-708650f1"` as
 /// new (→ `to_spawn`) and `"engineer"` as orphaned (→ `to_remove`), tearing
 /// down the live PTY bridge and spawning a duplicate.
 ///
@@ -502,10 +502,10 @@ mod tests {
         };
         let running = running_with(local_running);
 
-        // The controlplane wants "aria-engineer-abc12345" (same logical agent,
+        // The controlplane wants "my-agent-engineer-abc12345" (same logical agent,
         // but a different id) with local_alias_id pointing at the running key.
         let mut cp_spec = AgentSpec {
-            agent_id: "aria-engineer-abc12345".into(),
+            agent_id: "my-agent-engineer-abc12345".into(),
             domain_id: "m-1".into(),
             runtime_kind: "zellij_hosted".into(),
             session_mode: SessionMode::Persistent,
@@ -513,10 +513,10 @@ mod tests {
             profile_path: None,
             webhook_url: None,
             launch_overrides: Default::default(),
-            name: Some("aria-engineer".into()),
+            name: Some("my-agent-engineer".into()),
             local_alias_id: Some("engineer".into()),
         };
-        cp_spec.launch_overrides.zellij_session = Some("aria-engineer".into());
+        cp_spec.launch_overrides.zellij_session = Some("my-agent-engineer".into());
 
         let plan = diff_specs(&[cp_spec], &running);
         assert!(
@@ -552,7 +552,7 @@ mod tests {
         let running = running_with(local_running);
 
         let cp_spec = AgentSpec {
-            agent_id: "aria-operator-deadbeef".into(),
+            agent_id: "my-agent-operator-deadbeef".into(),
             domain_id: "m-1".into(),
             runtime_kind: "zellij_hosted".into(),
             session_mode: SessionMode::Persistent,
@@ -560,10 +560,10 @@ mod tests {
             profile_path: None,
             webhook_url: None,
             launch_overrides: crate::supervisor::SpawnOverrides {
-                zellij_session: Some("aria-operator".into()),
+                zellij_session: Some("my-agent-operator".into()),
                 ..Default::default()
             },
-            name: Some("aria-operator".into()),
+            name: Some("my-agent-operator".into()),
             local_alias_id: Some("operator".into()),
         };
 
@@ -601,7 +601,7 @@ mod tests {
 
         // Desired: controlplane public_id with local_alias_id pointing at "engineer".
         let cp_spec = AgentSpec {
-            agent_id: "aria-engineer-708650f1".into(),
+            agent_id: "my-agent-engineer-708650f1".into(),
             domain_id: "m-1".into(),
             runtime_kind: "zellij_hosted".into(),
             session_mode: SessionMode::Persistent,
@@ -612,7 +612,7 @@ mod tests {
                 zellij_session: Some("engineer".into()),
                 ..Default::default()
             },
-            name: Some("aria-engineer".into()),
+            name: Some("my-agent-engineer".into()),
             local_alias_id: Some("engineer".into()),
         };
 
@@ -620,7 +620,7 @@ mod tests {
         assert!(plan.is_noop(), "should be a no-op for the running map");
         assert_eq!(
             plan.alias_registrations,
-            vec![("aria-engineer-708650f1".to_string(), "engineer".to_string())],
+            vec![("my-agent-engineer-708650f1".to_string(), "engineer".to_string())],
             "must emit alias registration for attach-registry wiring"
         );
     }
@@ -649,7 +649,7 @@ mod tests {
 
         // Controlplane spec has a different id but NO alias.
         let cp_spec = AgentSpec {
-            agent_id: "aria-engineer-abc12345".into(),
+            agent_id: "my-agent-engineer-abc12345".into(),
             domain_id: "m-1".into(),
             runtime_kind: "zellij_hosted".into(),
             session_mode: SessionMode::Persistent,
@@ -657,7 +657,7 @@ mod tests {
             profile_path: None,
             webhook_url: None,
             launch_overrides: Default::default(),
-            name: Some("aria-engineer".into()),
+            name: Some("my-agent-engineer".into()),
             local_alias_id: None, // no alias
         };
 
@@ -667,7 +667,7 @@ mod tests {
             "without alias, local 'engineer' should be in to_remove"
         );
         assert_eq!(plan.to_spawn.len(), 1);
-        assert_eq!(plan.to_spawn[0].agent_id, "aria-engineer-abc12345");
+        assert_eq!(plan.to_spawn[0].agent_id, "my-agent-engineer-abc12345");
     }
 
     // ── URL helper tests ─────────────────────────────────────────────────────
@@ -732,14 +732,14 @@ mod tests {
         use crate::daemon::{AgentSpec, merge_federated_overrides};
         use crate::local_registry::AgentLaunchContext;
 
-        let profile_names = ["operator", "engineer", "research", "merlinlabs", "work", "publisher"];
+        let profile_names = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"];
 
         // Step 1: 6 controlplane specs (what fetch_node_agents returns).
         let cp_specs: Vec<AgentSpec> = profile_names
             .iter()
             .enumerate()
             .map(|(i, name)| AgentSpec {
-                agent_id: format!("aria-{name}-{i:08x}"),
+                agent_id: format!("my-agent-{name}-{i:08x}"),
                 domain_id: "d-1".to_string(),
                 runtime_kind: "zellij_hosted".to_string(),
                 session_mode: SessionMode::Persistent,
@@ -747,7 +747,7 @@ mod tests {
                 profile_path: None,
                 webhook_url: None,
                 launch_overrides: Default::default(),
-                name: Some(format!("aria-{name}")),
+                name: Some(format!("my-agent-{name}")),
                 local_alias_id: None,
             })
             .collect();
@@ -765,7 +765,7 @@ mod tests {
                 profile_path: None,
                 webhook_url: None,
                 launch_overrides: crate::supervisor::SpawnOverrides {
-                    zellij_session: Some(format!("aria-{name}")),
+                    zellij_session: Some(format!("my-agent-{name}")),
                     ..Default::default()
                 },
                 name: None,
@@ -782,12 +782,12 @@ mod tests {
         let local_ctxs: Vec<AgentLaunchContext> = profile_names
             .iter()
             .map(|name| AgentLaunchContext {
-                source: "aria".to_string(),
+                source: "fleet".to_string(),
                 agent_id: name.to_string(),
                 vault_folder: Some(name.to_string()),
                 state_dir_spec: None,
-                zellij_session: Some(format!("aria-{name}")),
-                systemd_service: Some(format!("aria-{name}.service")),
+                zellij_session: Some(format!("my-agent-{name}")),
+                systemd_service: Some(format!("my-agent-{name}.service")),
                 supervise_paused: false,
             })
             .collect();
@@ -821,7 +821,7 @@ mod tests {
         // Step 6: all to_spawn are the controlplane opaque ids (attach ids).
         for spec in &plan.to_spawn {
             assert!(
-                spec.agent_id.starts_with("aria-"),
+                spec.agent_id.starts_with("my-agent-"),
                 "to_spawn must be opaque controlplane id, got '{}'",
                 spec.agent_id
             );
@@ -854,12 +854,12 @@ mod tests {
     fn federated_steady_state_is_noop_after_boot_spawn() {
         use crate::daemon::AgentSpec;
 
-        let profile_names = ["operator", "engineer", "research", "merlinlabs", "work", "publisher"];
+        let profile_names = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"];
 
         // Running map: 6 agents keyed by opaque id (the result of the boot spawn).
         let mut running: HashMap<String, RunningAgent> = HashMap::new();
         for (i, name) in profile_names.iter().enumerate() {
-            let opaque_id = format!("aria-{name}-{i:08x}");
+            let opaque_id = format!("my-agent-{name}-{i:08x}");
             let spec = AgentSpec {
                 agent_id: opaque_id.clone(),
                 domain_id: "d-1".to_string(),
@@ -869,10 +869,10 @@ mod tests {
                 profile_path: None,
                 webhook_url: None,
                 launch_overrides: crate::supervisor::SpawnOverrides {
-                    zellij_session: Some(format!("aria-{name}")),
+                    zellij_session: Some(format!("my-agent-{name}")),
                     ..Default::default()
                 },
-                name: Some(format!("aria-{name}")),
+                name: Some(format!("my-agent-{name}")),
                 local_alias_id: Some(name.to_string()),
             };
             running.insert(opaque_id, RunningAgent { spec, handles: vec![] });

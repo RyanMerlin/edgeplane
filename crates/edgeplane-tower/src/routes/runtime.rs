@@ -1723,10 +1723,10 @@ async fn assign_node_agent(
         .and_then(|v| serde_json::to_string(v).ok());
 
     // Derive the node's short name (first DNS label of the Tailscale FQDN, or
-    // the raw node_name if it has no dots, e.g. "excalibur"). This is recorded
+    // the raw node_name if it has no dots, e.g. "node-0"). This is recorded
     // in the linked agent's `metadata.node_id` so the dashboard's Node column
     // resolves — it is NOT prefixed onto the agent name. The agent name stays
-    // the canonical identity the runtime self-registers as (e.g. `aria-work`),
+    // the canonical identity the runtime self-registers as (e.g. `my-agent-work`),
     // and the node association is carried by the `runtime_node_id` column on
     // the meshagent row below.
     let node_short: String = sqlx::query_scalar(

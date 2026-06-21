@@ -65,7 +65,7 @@ const sampleTree = {
       name: 'Apollo',
       description: 'Investment data',
       status: 'active',
-      owners: 'aria-operator',
+      owners: 'my-agent-operator',
       tags: null,
       visibility: 'public',
       mission_count: 1,
@@ -78,7 +78,7 @@ const sampleTree = {
           description: 'rebuild',
           domain_id: 'domain-uuid-1',
           status: 'in_progress',
-          owners: 'aria-operator',
+          owners: 'my-agent-operator',
           tags: null,
           task_count: 3,
           task_status_counts: { open: 2, done: 1 },
@@ -94,7 +94,7 @@ const sampleTree = {
 const sampleNorthstar = {
   northstar_md: '# Apollo\n\nDrives investment data.',
   northstar_version: 3,
-  northstar_modified_by: 'aria-operator',
+  northstar_modified_by: 'my-agent-operator',
   northstar_modified_at: '2026-06-01T10:00:00Z',
 };
 

@@ -109,7 +109,7 @@ impl PluginRouting {
 /// `--plugin file:<wasm>` "first-message load" form is deliberately NOT used:
 /// it fails to instantiate on the running 0.44.3 fleet (verified 2026-05-30,
 /// erroring "could not find exported function" — identically for the
-/// known-good `zellij-aria-fleet` plugin), whereas a config-preloaded plugin
+/// known-good preloaded plugin), whereas a config-preloaded plugin
 /// accepts pipes fine by name.
 pub struct ZellijPluginClient {
     session: String,

@@ -212,7 +212,7 @@ struct ManifestProfile {
     /// Only required for `zellij_hosted` runtime. Optional so ACP profiles
     /// can omit it without breaking existing TOML files that still include it.
     pub zellij_session: Option<String>,
-    /// systemd `--user` unit name (e.g. `aria.service`).
+    /// systemd `--user` unit name (e.g. `my-agent.service`).
     pub service: String,
     pub state_dir: String,
     /// Runtime kind. Defaults to `"zellij_hosted"`.
@@ -437,16 +437,20 @@ state_dir      = "/tmp/test-profiles/work"
         let tmp = TempDir::new().unwrap();
         setup_ep_home(&tmp);
 
+        let state_dir = tmp.path().join("profiles").join("work");
         let path = tmp.path().join("acp.toml");
         std::fs::write(
             &path,
-            r#"
+            format!(
+                r#"
 [[profile]]
 name      = "work"
 runtime   = "claude_agent_acp"
-service   = "aria-work.service"
-state_dir = "/home/merlin/.claude/profiles/work"
+service   = "my-agent-work.service"
+state_dir = "{}"
 "#,
+                state_dir.display()
+            ),
         )
         .unwrap();
 
@@ -462,7 +466,7 @@ state_dir = "/home/merlin/.claude/profiles/work"
             )
             .unwrap();
         assert_eq!(runtime_kind, "claude_agent_acp");
-        assert_eq!(profile_path.as_deref(), Some("/home/merlin/.claude/profiles/work"));
+        assert_eq!(profile_path.as_deref(), Some(state_dir.to_string_lossy().as_ref()));
 
         let zellij_session: Option<String> = conn
             .query_row(

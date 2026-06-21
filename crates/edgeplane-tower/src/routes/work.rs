@@ -374,7 +374,7 @@ struct AgentEnroll {
     machine: Option<serde_json::Value>,
     runtime: Option<serde_json::Value>,
     /// Optional canonical name for the persistent agent identity this
-    /// enrollment represents (e.g. `aria-work`). When set, the controlplane
+    /// enrollment represents (e.g. `my-agent-work`). When set, the controlplane
     /// upserts the matching `agent` row and stores its `public_id` on this
     /// meshagent. edgeplaned then receives the public_id as the wire identifier
     /// and uses it to poll `/agents/{public_id}/messages`. See

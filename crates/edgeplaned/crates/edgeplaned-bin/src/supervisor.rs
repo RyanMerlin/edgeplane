@@ -33,7 +33,7 @@ pub struct SupervisedAgent {
 pub struct Supervisor {
     agents: Mutex<HashMap<String, SupervisedAgent>>,
     /// Alias map: short name (e.g. `"engineer"`) → canonical opaque id
-    /// (e.g. `"aria-engineer-708650f1"`). Used in federated mode so that
+    /// (e.g. `"my-agent-engineer-708650f1"`). Used in federated mode so that
     /// `edgeplane agent signal engineer` still reaches the agent that was
     /// spawned under its controlplane public_id. Registered by the daemon
     /// after spawning a spec that carries a `local_alias_id`.
@@ -121,10 +121,10 @@ impl Supervisor {
     /// Register `alias` as an alternate lookup key resolving to `canonical`.
     ///
     /// Used in federated mode when an agent is spawned under its controlplane
-    /// `public_id` (e.g. `"aria-engineer-708650f1"`) but callers (CLI, cron
+    /// `public_id` (e.g. `"my-agent-engineer-708650f1"`) but callers (CLI, cron
     /// dispatcher) reference it by its short local profile name (e.g.
     /// `"engineer"`). After registration, `with_agent("engineer")` resolves
-    /// the same as `with_agent("aria-engineer-708650f1")`.
+    /// the same as `with_agent("my-agent-engineer-708650f1")`.
     pub async fn register_name_alias(&self, alias: String, canonical: String) {
         self.name_aliases.lock().await.insert(alias, canonical);
     }

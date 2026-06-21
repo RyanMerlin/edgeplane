@@ -1,10 +1,10 @@
 //! Subprocess wrappers around `zellij action` for ZellijHosted agents.
 //!
-//! Ported from `aria-rs/src/domains/system/fleet.rs` as part of Phase 2 of
-//! the daemon-absorption plan. aria-rs's fleet commands will continue to
-//! coexist with this code during the deprecation window (Phase 6); the
-//! two implementations are deliberately behavior-identical so the dual
-//! period doesn't surface differences.
+//! Ported from external fleet management tooling as part of Phase 2 of
+//! the daemon-absorption plan. External fleet commands may coexist with
+//! this code during a deprecation window (Phase 6); the two implementations
+//! are deliberately behavior-identical so the dual period doesn't surface
+//! differences.
 //!
 //! ## Testability
 //!
@@ -18,10 +18,10 @@ use anyhow::{Context, Result};
 use std::process::Command;
 use std::sync::OnceLock;
 
-/// Pane id used for the primary terminal in Aria fleet profiles. Matches
-/// the default first pane Zellij creates when a session starts. Hard-coded
-/// because every fleet profile uses the default layout; if a profile ever
-/// uses a custom layout with a differently-named pane, we'd lift this to
+/// Pane id used for the primary terminal in agent sessions. Matches the
+/// default first pane Zellij creates when a session starts. Hard-coded
+/// because the default layout is always used; if an agent ever uses a
+/// custom layout with a differently-named pane, lift this to
 /// `AgentLaunchContext`.
 pub const DEFAULT_PANE_ID: &str = "terminal_0";
 
@@ -54,8 +54,8 @@ impl ZellijSession {
     }
 
     /// Send a prompt: paste the text, wait 300ms for Zellij to flush, send
-    /// Enter. Mirrors aria-rs `send_prompt`; the 300ms is the established
-    /// timing that prevents the Enter from arriving mid-paste.
+    /// Enter. The 300ms is the established timing that prevents the Enter
+    /// from arriving mid-paste.
     pub fn send_prompt(&self, text: &str) -> Result<()> {
         self.paste(DEFAULT_PANE_ID, text)?;
         std::thread::sleep(std::time::Duration::from_millis(300));
@@ -191,9 +191,8 @@ pub fn zellij_candidates() -> Vec<String> {
 
 // ── Screen classification ───────────────────────────────────────────────
 //
-// Ported as-is from aria-rs/src/domains/system/fleet.rs:358-380. Heuristic
-// scrape of the visible viewport (or a tail of it) to classify what state
-// the agent appears to be in. Used for diagnostics; intentionally NOT
+// Heuristic scrape of the visible viewport (or a tail of it) to classify
+// what state the agent appears to be in. Used for diagnostics; intentionally NOT
 // gating the `signal()` send path (see plan D2.6).
 
 /// True when the screen looks idle — Claude's prompt marker `❯` is visible

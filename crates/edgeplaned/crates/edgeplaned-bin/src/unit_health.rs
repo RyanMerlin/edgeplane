@@ -1,11 +1,10 @@
-//! Phase 5: systemd-unit liveness loop. Absorbs the responsibility from
-//! `aria-watchdog-rs`.
+//! Phase 5: systemd-unit liveness loop.
 //!
 //! For each agent with a `systemd_service` set in `agent_launch_context`,
 //! `UnitHealthLoop` polls `systemctl --user is-active <service>` every
 //! [`HEALTH_TICK_SECS`] seconds. If the unit is failed/inactive and the
 //! agent isn't paused, edgeplaned issues `systemctl --user restart <service>`
-//! with the same throttling aria-watchdog uses:
+//! with the following throttling:
 //!
 //! - **post-restart grace** (90s default): skip checks during this
 //!   window after any restart so cascading failures don't trigger a
@@ -33,7 +32,7 @@ use tokio::time::{MissedTickBehavior, interval};
 
 use crate::local_registry::{AgentLaunchContext, LocalRegistry};
 
-/// Defaults match `aria-watchdog-rs` exactly. Operators can tune these
+/// Default throttle timings. Operators can tune these
 /// via [`UnitHealthConfig`] in edgeplaned config.
 pub const DEFAULT_TICK_SECS: u64 = 60;
 pub const DEFAULT_RETRY_THROTTLE_SECS: u64 = 1800;
@@ -480,7 +479,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_matches_aria_watchdog() {
+    fn default_config_values() {
         let c = UnitHealthConfig::default();
         assert_eq!(c.tick_secs, 60);
         assert_eq!(c.retry_throttle_secs, 1800);
@@ -493,7 +492,7 @@ mod tests {
         let ev = SupervisorEvent::UnitDeadDetected {
             agent_id: "work".into(),
             source: "fleet_import".into(),
-            systemd_service: "aria-work.service".into(),
+            systemd_service: "my-agent-work.service".into(),
             at: "2026-05-20T12:00:00Z".into(),
         };
         let json = serde_json::to_string(&ev).unwrap();
@@ -502,5 +501,5 @@ mod tests {
     }
 
     // The full tick-and-restart flow needs systemctl + a live unit, which
-    // belongs in pre-merge live validation on excalibur — not unit tests.
+    // belongs in live integration tests on a running node — not unit tests.
 }

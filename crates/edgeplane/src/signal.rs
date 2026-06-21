@@ -12,10 +12,8 @@
 //!
 //! Designed for systemd timers: a unit line like
 //!
-//!   ExecStart=edgeplane signal aria-operator-acp-test --content "Run /briefing"
+//!   ExecStart=edgeplane signal my-agent-operator --content "Run /briefing"
 //!
-//! replaces `aria-trigger.sh` calls in Phase D of the tmux retirement
-//! plan (docs/plans/2026-05-11-retire-tmux-via-acp-persistent-sessions.md).
 //! The path is identical to what `edgeplane agent remote message` would do
 //! by hand — this wrapper just saves operators from having to remember
 //! the sender id.
@@ -27,7 +25,7 @@ use serde_json::{Value, json};
 
 #[derive(Args, Debug)]
 pub struct SignalArgs {
-    /// Recipient agent — public_id (e.g. `aria-operator-e8820c0d`) or
+    /// Recipient agent — public_id (e.g. `my-agent-operator-e8820c0d`) or
     /// numeric id. The recipient must be a persistent ACP agent for the
     /// `session/prompt` translation to happen.
     pub agent_id: String,
@@ -150,12 +148,12 @@ mod tests {
         // SAFETY: tests run sequentially within a binary by default; this
         // is the only test in this module that touches the env.
         unsafe {
-            std::env::set_var("HOSTNAME", "Excalibur.NET");
+            std::env::set_var("HOSTNAME", "MyNode.local");
         }
         let n = default_sender_name();
         unsafe {
             std::env::remove_var("HOSTNAME");
         }
-        assert_eq!(n, "excalibur-net-edgeplane-signal");
+        assert_eq!(n, "mynode-local-edgeplane-signal");
     }
 }

@@ -110,7 +110,7 @@ All three support interactive PTY attach via `portable-pty`.
 
 ### Optional: RTK token compression
 
-[rtk](https://github.com/merlinlabs/rtk) can be installed alongside edgeplaned to compress shell command output before it reaches agent context windows (typically 60–90% token reduction). It is a soft dependency — agents launch normally if it is absent, with a one-time warning. Enable per-launch with `edgeplane run claude --with-rtk` or set `with_rtk: true` on `LaunchContext` when dispatching via edgeplaned directly.
+The optional `rtk` token-compression tool can be installed alongside edgeplaned to compress shell command output before it reaches agent context windows (typically 60–90% token reduction). It is a soft dependency — agents launch normally if it is absent, with a one-time warning. Enable per-launch with `edgeplane run claude --with-rtk` or set `with_rtk: true` on `LaunchContext` when dispatching via edgeplaned directly.
 
 ## Backend endpoints
 

@@ -15,9 +15,9 @@ description: |
   override, real-time SSE-capable for inbox streams.
 
 position_in_stack: |
-  Stateful core of the Edgeplane control plane. One instance (today) running
-  on excalibur, reachable via Tailscale at edgeplane:8008. All durable state
-  funnels through this binary; everything else is a client.
+  Stateful core of the Edgeplane control plane. Typically runs as a single
+  instance reachable at edgeplane:8008. All durable state funnels through
+  this binary; everything else is a client.
 
 runtime:
   kind: long_running
@@ -233,7 +233,6 @@ proposed_changes:
   - id: recurring-task-template-entity
     status: proposed
     target_release: 0.16.0
-    spec_ref: docs/superpowers/specs/2026-05-24-edgeplane-recurring-tasks-design.md
     summary: |
       Add a new `recurring_task_template` table and HTTP API family. Each
       template declares: cadence, runtime_kind, target node, exec/prompt,

@@ -12,7 +12,7 @@
 //!
 //! Catches up missed iterations as **one fire per cron expression** (not N).
 //! If edgeplaned was down for the 05:30 briefing and comes up at 05:45, briefing
-//! fires once on recovery. Same model aria-cron uses.
+//! fires once on recovery.
 //!
 //! ## GC task (`gc_task`)
 //!
@@ -84,9 +84,7 @@ impl CronLoop {
             Ok(cfg) => {
                 tracing::info!(
                     "cron: {} jobs loaded from {}. \
-                     If aria-cron.timer is still enabled, both schedulers will fire — disable with:\n  \
-                       systemctl --user disable --now aria-cron.timer\n  \
-                     Verify edgeplaned cron is firing first via `edgeplane agent cron list`.",
+                     Verify edgeplaned cron is firing via `edgeplane agent cron list`.",
                     cfg.jobs.len(),
                     config_path.display()
                 );
@@ -328,17 +326,20 @@ impl CronLoop {
             .await
     }
 
-    /// Dispatch the prompt via `aria goose "<prompt>"` — runs locally on the
-    /// node, no agent attachment needed. Useful for periodic computation that
-    /// doesn't belong to any specific profile (auto-summaries, log digests,
-    /// drift checks). `job.session` is treated as a metadata tag for telemetry
-    /// only; it does NOT need to match a supervised agent.
+    /// Dispatch the prompt via the configured goose binary — runs locally on
+    /// the node, no agent attachment needed. Useful for periodic computation
+    /// that doesn't belong to any specific profile (auto-summaries, log
+    /// digests, drift checks). `job.session` is treated as a metadata tag
+    /// for telemetry only; it does NOT need to match a supervised agent.
     ///
-    /// Honors `MCD_GOOSE_BIN` env override; falls back to `aria` from PATH.
-    /// Timeout is 5 minutes — goose runs are intentionally short-lived; if
-    /// you need longer, use dispatch="signal" to a real agent.
+    /// Honors `EP_GOOSE_BIN` (or legacy `MCD_GOOSE_BIN`) env override;
+    /// falls back to `goose` from PATH. Timeout is 5 minutes — goose runs
+    /// are intentionally short-lived; if you need longer, use
+    /// dispatch="signal" to a real agent.
     async fn dispatch_goose(&self, job: &CronJob) -> Result<()> {
-        let bin = std::env::var("MCD_GOOSE_BIN").unwrap_or_else(|_| "aria".to_string());
+        let bin = std::env::var("EP_GOOSE_BIN")
+            .or_else(|_| std::env::var("MCD_GOOSE_BIN"))
+            .unwrap_or_else(|_| "goose".to_string());
         let prompt = job.prompt.clone();
         let name = job.name.clone();
         tokio::task::spawn_blocking(move || -> Result<()> {
@@ -525,8 +526,8 @@ mod tests {
     // The full tick-and-dispatch flow needs a real Supervisor + runtime
     // map, which requires substantial setup. Phase 4 ships unit-test
     // coverage of cron_config + LocalRegistry helpers (where the
-    // logic-heavy parts live); the loop itself is exercised by the live
-    // validation step on excalibur.
+    // logic-heavy parts live); the loop itself is exercised by live
+    // integration tests on a running node.
     //
     // The one thing we DO test here is the schedule-anchor math via
     // croner — that's where subtle bugs hide.

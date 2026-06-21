@@ -17,21 +17,21 @@ import { AgentsTable } from './AgentsTable';
 
 const agents: MergedAgent[] = [
   {
-    public_id: 'aria-operator-e8820c0d',
-    name: 'aria-operator',
+    public_id: 'my-agent-operator-e8820c0d',
+    name: 'my-agent-operator',
     status: 'online',
     capabilities: 'fleet-management,code-editing',
     source: 'controlplane',
-    metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'excalibur' }),
+    metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'node-0' }),
     updated_at: '2026-05-31T10:00:00Z',
   },
   {
-    public_id: 'aria-research-f1a2b3c4',
-    name: 'aria-research',
+    public_id: 'my-agent-research-f1a2b3c4',
+    name: 'my-agent-research',
     status: 'offline',
     capabilities: 'research,analysis',
     source: 'controlplane',
-    metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'excalibur' }),
+    metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'node-0' }),
     updated_at: '2026-05-31T09:00:00Z',
   },
 ];
@@ -82,12 +82,12 @@ describe('AgentsTable', () => {
       />,
     );
     expect(screen.getByTestId('agents-table')).toBeInTheDocument();
-    expect(screen.getByText('aria-operator')).toBeInTheDocument();
-    expect(screen.getByText('aria-research')).toBeInTheDocument();
+    expect(screen.getByText('my-agent-operator')).toBeInTheDocument();
+    expect(screen.getByText('my-agent-research')).toBeInTheDocument();
     expect(screen.getByText('online')).toBeInTheDocument();
     expect(screen.getByText('offline')).toBeInTheDocument();
-    expect(screen.getByTestId('agent-row-aria-operator-e8820c0d')).toBeInTheDocument();
-    expect(screen.getByTestId('agent-row-aria-research-f1a2b3c4')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-row-my-agent-operator-e8820c0d')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-row-my-agent-research-f1a2b3c4')).toBeInTheDocument();
   });
 
   it('renders rows alphabetically by name regardless of input order', () => {
@@ -102,8 +102,8 @@ describe('AgentsTable', () => {
       />,
     );
     const rows = screen.getAllByTestId(/^agent-row-/);
-    expect(rows[0]).toHaveAttribute('data-testid', 'agent-row-aria-operator-e8820c0d');
-    expect(rows[1]).toHaveAttribute('data-testid', 'agent-row-aria-research-f1a2b3c4');
+    expect(rows[0]).toHaveAttribute('data-testid', 'agent-row-my-agent-operator-e8820c0d');
+    expect(rows[1]).toHaveAttribute('data-testid', 'agent-row-my-agent-research-f1a2b3c4');
   });
 
   it('shows Node + Runtime from agent metadata when present', () => {
@@ -116,21 +116,21 @@ describe('AgentsTable', () => {
         onRowClick={noop}
       />,
     );
-    const row = screen.getByTestId('agent-row-aria-operator-e8820c0d');
+    const row = screen.getByTestId('agent-row-my-agent-operator-e8820c0d');
     expect(within(row).getByText('claude-code')).toBeInTheDocument(); // runtime
-    expect(within(row).getByText('excalibur')).toBeInTheDocument(); // node_id
+    expect(within(row).getByText('node-0')).toBeInTheDocument(); // node_id
   });
 
   it('resolves Node + Runtime from mesh topology when agent metadata is empty', () => {
     const meshOnly: MergedAgent = {
-      public_id: 'aria-work-aa11bb22',
-      name: 'aria-work',
+      public_id: 'my-agent-work-aa11bb22',
+      name: 'my-agent-work',
       status: 'online',
       capabilities: '',
       source: 'both',
       metadata: '{}',
       runtime_kind: 'claude_acp',
-      node_name: 'excalibur',
+      node_name: 'node-0',
       last_heartbeat_at: '2026-05-31T12:00:00Z',
     };
     render(
@@ -142,8 +142,8 @@ describe('AgentsTable', () => {
         onRowClick={noop}
       />,
     );
-    const row = screen.getByTestId('agent-row-aria-work-aa11bb22');
-    expect(within(row).getByText('excalibur')).toBeInTheDocument(); // node from topology
+    const row = screen.getByTestId('agent-row-my-agent-work-aa11bb22');
+    expect(within(row).getByText('node-0')).toBeInTheDocument(); // node from topology
     expect(within(row).getByText('claude_acp')).toBeInTheDocument(); // runtime_kind
   });
 
@@ -158,8 +158,8 @@ describe('AgentsTable', () => {
         onRowClick={onRowClick}
       />,
     );
-    fireEvent.click(screen.getByTestId('agent-row-aria-operator-e8820c0d'));
+    fireEvent.click(screen.getByTestId('agent-row-my-agent-operator-e8820c0d'));
     expect(onRowClick).toHaveBeenCalledOnce();
-    expect(onRowClick.mock.calls[0][0]).toMatchObject({ public_id: 'aria-operator-e8820c0d' });
+    expect(onRowClick.mock.calls[0][0]).toMatchObject({ public_id: 'my-agent-operator-e8820c0d' });
   });
 });

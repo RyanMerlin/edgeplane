@@ -20,8 +20,8 @@ function Install-McIntegration {
     )
 
     $mcpPypiSpec = if ($env:MCP_PYPI_SPEC) { $env:MCP_PYPI_SPEC } else { "edgeplane-mcp" }
-    $mcpGithubSpec = if ($env:MCP_GITHUB_SPEC) { $env:MCP_GITHUB_SPEC } else { "git+https://github.com/RyanMerlin/edgeplane-integration.git#subdirectory=edgeplane-mcp" }
-    $docsUrl = if ($env:DOCS_URL) { $env:DOCS_URL } else { "https://github.com/RyanMerlin/edgeplane-integration#readme" }
+    $mcpGithubSpec = if ($env:MCP_GITHUB_SPEC) { $env:MCP_GITHUB_SPEC } else { "git+https://github.com/RyanMerlin/edgeplane.git#subdirectory=distribution/edgeplane-mcp" }
+    $docsUrl = if ($env:DOCS_URL) { $env:DOCS_URL } else { "https://github.com/RyanMerlin/edgeplane#readme" }
     $defaultLocalEndpoint = "http://localhost:8008"
     $effectiveHome = if ($env:HOME) { $env:HOME } elseif ($HOME) { $HOME } else { [Environment]::GetFolderPath("UserProfile") }
     $effectiveInstallDir = if ($InstallDir) { $InstallDir } else { Join-Path $effectiveHome ".edgeplane" }
