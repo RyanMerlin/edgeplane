@@ -30,7 +30,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 uuid = { version = "1", features = ["v4"] }
-dirs = "4"
+edgeplaned-paths = { path = "../edgeplaned-paths" }
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "chrono", "macros", "migrate"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
