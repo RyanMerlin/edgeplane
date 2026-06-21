@@ -1,18 +1,18 @@
 # Agent Instructions — Edgeplane
 
-## Planning Docs — ONE location, no exceptions
+## Planning Docs — ONE location each, no exceptions
 
-Design specs and implementation plans are **git-tracked** and live in exactly one place each:
+Design specs, implementation plans, and architecture decisions are **git-tracked** and live in
+exactly one place each:
 
-- **Design specs / design docs** → `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
-- **Implementation plans** → `docs/superpowers/plans/YYYY-MM-DD-<feature>.md`
+- **Design specs / design docs** → `docs/design/specs/YYYY-MM-DD-<topic>-design.md`
+- **Implementation plans** → `docs/design/plans/YYYY-MM-DD-<feature>.md`
+- **Architecture decisions (ADRs)** → `docs/architecture/adr/`
 
-These are the `superpowers` skill defaults (brainstorming / writing-plans). Do **not** invent
-`docs/plans/`, `docs/specs/`, or any other location — aligning to the tool default is deliberate:
-there is nothing to "enforce" because it is exactly where those skills already write.
+Keep design docs in these locations so the architecture model (`docs/architecture/mdd/`) can
+reference them by stable path. Do **not** invent ad-hoc locations.
 
-Ephemeral agent scratch (brainstorm sessions, mockups, handoffs) → `.superpowers/` (gitignored).
-Never hand-place a spec or plan there.
+Ephemeral scratch (brainstorm sessions, mockups) belongs in your own working tree, not the repo.
 
 ## Build & Check
 

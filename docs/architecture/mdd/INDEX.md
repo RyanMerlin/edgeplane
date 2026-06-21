@@ -81,7 +81,6 @@ commands:
   - name: modules
     status: proposed
     stability: development
-    spec_ref: docs/superpowers/specs/2026-05-24-edgeplane-recurring-tasks-design.md
     description: "Manage RecurringTaskTemplates and their emitted runs."
     subcommands: [list, describe, run, apply, disable, enable, logs, artifact]
 

@@ -233,7 +233,6 @@ proposed_changes:
   - id: recurring-task-template-entity
     status: proposed
     target_release: 0.16.0
-    spec_ref: docs/superpowers/specs/2026-05-24-edgeplane-recurring-tasks-design.md
     summary: |
       Add a new `recurring_task_template` table and HTTP API family. Each
       template declares: cadence, runtime_kind, target node, exec/prompt,

@@ -2530,6 +2530,6 @@ mod tests {
     #[test]
     fn alphanumeric_mix_preserved() {
         assert_eq!(slug_hostname("node-01"), "node-01");
-        assert_eq!(slug_hostname("cloud0"), "cloud0");
+        assert_eq!(slug_hostname("node-0"), "node-0");
     }
 }

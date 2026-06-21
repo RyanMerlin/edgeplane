@@ -21,11 +21,11 @@ describe('mergeAgents', () => {
     const result = mergeAgents(
       [
         cp({
-          public_id: 'aria-operator-e8820c0d',
-          name: 'aria-operator',
+          public_id: 'my-agent-operator-e8820c0d',
+          name: 'my-agent-operator',
           status: 'online',
           capabilities: 'fleet-management',
-          metadata: '{"node_id":"excalibur"}',
+          metadata: '{"node_id":"node-0"}',
           updated_at: '2026-05-31T10:00:00Z',
         }),
       ],
@@ -33,8 +33,8 @@ describe('mergeAgents', () => {
     );
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
-      public_id: 'aria-operator-e8820c0d',
-      name: 'aria-operator',
+      public_id: 'my-agent-operator-e8820c0d',
+      name: 'my-agent-operator',
       status: 'online',
       capabilities: 'fleet-management',
       source: 'controlplane',
@@ -45,8 +45,8 @@ describe('mergeAgents', () => {
     const result = mergeAgents(
       [
         cp({
-          public_id: 'aria-work-aa11bb22',
-          name: 'aria-work',
+          public_id: 'my-agent-work-aa11bb22',
+          name: 'my-agent-work',
           status: 'offline',
           capabilities: 'work',
           metadata: '{}',
@@ -54,21 +54,21 @@ describe('mergeAgents', () => {
       ],
       [
         mesh({
-          public_id: 'aria-work-aa11bb22',
+          public_id: 'my-agent-work-aa11bb22',
           status: 'online',
           runtime_kind: 'claude_acp',
-          node_name: 'excalibur',
+          node_name: 'node-0',
           last_heartbeat_at: '2026-05-31T12:00:00Z',
         }),
       ],
     );
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
-      public_id: 'aria-work-aa11bb22',
+      public_id: 'my-agent-work-aa11bb22',
       status: 'online', // mesh wins
       source: 'both',
       runtime_kind: 'claude_acp',
-      node_name: 'excalibur',
+      node_name: 'node-0',
       capabilities: 'work', // kept from controlplane
     });
   });
@@ -81,7 +81,7 @@ describe('mergeAgents', () => {
           public_id: 'ghost-agent-01',
           status: 'online',
           runtime_kind: 'custom',
-          node_name: 'kai',
+          node_name: 'node-0',
         }),
       ],
     );
@@ -90,7 +90,7 @@ describe('mergeAgents', () => {
       public_id: 'ghost-agent-01',
       name: 'ghost-agent-01',
       source: 'mesh',
-      node_name: 'kai',
+      node_name: 'node-0',
     });
   });
 

@@ -34,15 +34,15 @@ import { NodesIndexPage } from './nodes.index';
 
 const sampleNode = {
   id: 'node-uuid-1',
-  node_name: 'excalibur',
-  hostname: 'excalibur.local',
+  node_name: 'node-0',
+  hostname: 'node-0.local',
   status: 'online',
   trust_tier: 'admin',
   runtime_version: '0.7.0',
-  tailscale_fqdn: 'excalibur.example.ts.net',
+  tailscale_fqdn: 'node-0.example.ts.net',
   tailscale_ip: '100.64.0.1',
   last_heartbeat_at: '2026-06-09T10:00:00Z',
-  owner_subject: 'merlin',
+  owner_subject: 'platform-admin',
   registered_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-06-09T10:00:00Z',
   capabilities: [],
@@ -80,6 +80,6 @@ describe('NodesIndexPage', () => {
     (unwrap as ReturnType<typeof vi.fn>).mockResolvedValue([sampleNode]);
     wrap(<NodesIndexPage />, qc);
     await waitFor(() => expect(screen.getByTestId('node-row-node-uuid-1')).toBeInTheDocument());
-    expect(screen.getByText('excalibur')).toBeInTheDocument();
+    expect(screen.getByText('node-0')).toBeInTheDocument();
   });
 });

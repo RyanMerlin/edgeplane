@@ -12,9 +12,9 @@ describe('navModel', () => {
   });
   it('matches a section by prefix, including detail routes', () => {
     expect(isNavItemActive('/agents', '/agents')).toBe(true);
-    expect(isNavItemActive('/agents', '/agents/aria-operator-bb05ea7a')).toBe(true);
+    expect(isNavItemActive('/agents', '/agents/my-agent-operator-bb05ea7a')).toBe(true);
     expect(isNavItemActive('/domains', '/domains/apollo')).toBe(true);
-    expect(isNavItemActive('/nodes', '/nodes/excalibur-abc')).toBe(true);
+    expect(isNavItemActive('/nodes', '/nodes/node-0-abc')).toBe(true);
     expect(isNavItemActive('/agents', '/agents-foo')).toBe(false);
   });
 });

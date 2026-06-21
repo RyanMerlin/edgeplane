@@ -2,7 +2,7 @@
  * Agent detail screen — Phase 4: ACP conversation pane.
  *
  * Data source: GET /api/agents/{agent_id} (typed via schema.gen.ts)
- * Route param: agentId — public_id string (e.g. `aria-operator-e8820c0d`) or
+ * Route param: agentId — public_id string (e.g. `my-agent-operator-e8820c0d`) or
  *              numeric id; the API accepts both (per AgentIdent in the backend).
  *
  * 404 from the API is rendered as a distinct not-found affordance.

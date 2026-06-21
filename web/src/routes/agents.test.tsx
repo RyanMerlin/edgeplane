@@ -73,11 +73,11 @@ import { AgentsIndexPage } from './agents.index';
 
 const sampleAgent = {
   id: 1,
-  public_id: 'aria-operator-e8820c0d',
-  name: 'aria-operator',
+  public_id: 'my-agent-operator-e8820c0d',
+  name: 'my-agent-operator',
   status: 'online',
   capabilities: 'fleet-management,code-editing',
-  metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'excalibur' }),
+  metadata: JSON.stringify({ runtime: 'claude-code', node_id: 'node-0' }),
   home_domain_id: 'dom-abc',
   current_domain_id: null,
   created_at: '2026-01-01T00:00:00Z',
@@ -132,21 +132,21 @@ describe('AgentDetailPage', () => {
 
     renderWith(<AgentDetailPage />, queryClient);
 
-    await waitFor(() => expect(screen.getAllByText('aria-operator').length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText('my-agent-operator').length).toBeGreaterThan(0));
 
     // Status badge — appears in pane header and in the dl
     expect(screen.getAllByText('online').length).toBeGreaterThan(0);
 
     // Public ID shown in the detail grid
-    expect(screen.getByText('aria-operator-e8820c0d')).toBeInTheDocument();
+    expect(screen.getByText('my-agent-operator-e8820c0d')).toBeInTheDocument();
 
     // Capabilities
     expect(screen.getByText('fleet-management,code-editing')).toBeInTheDocument();
 
     // Metadata fields parsed out
     expect(screen.getByText('claude-code')).toBeInTheDocument();
-    // 'excalibur' appears in both the metadata table and the acp-node-id span
-    expect(screen.getAllByText('excalibur').length).toBeGreaterThanOrEqual(1);
+    // 'node-0' appears in both the metadata table and the acp-node-id span
+    expect(screen.getAllByText('node-0').length).toBeGreaterThanOrEqual(1);
 
     // Back link is GONE — breadcrumbs in the shell header now handle up-nav
     expect(screen.queryByRole('link', { name: /← Fleet/ })).not.toBeInTheDocument();
@@ -217,7 +217,7 @@ describe('AgentsIndexPage', () => {
     await waitFor(() => expect(screen.getByTestId('agents-table')).toBeInTheDocument());
 
     // Row for our sample agent must be present
-    expect(screen.getByTestId('agent-row-aria-operator-e8820c0d')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-row-my-agent-operator-e8820c0d')).toBeInTheDocument();
   });
 
   it('navigates to detail on row click', async () => {
@@ -234,14 +234,14 @@ describe('AgentsIndexPage', () => {
     renderWith(<AgentsIndexPage />, queryClient);
 
     await waitFor(() =>
-      expect(screen.getByTestId('agent-row-aria-operator-e8820c0d')).toBeInTheDocument(),
+      expect(screen.getByTestId('agent-row-my-agent-operator-e8820c0d')).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByTestId('agent-row-aria-operator-e8820c0d'));
+    fireEvent.click(screen.getByTestId('agent-row-my-agent-operator-e8820c0d'));
 
     expect(navigate).toHaveBeenCalledWith({
       to: '/agents/$agentId',
-      params: { agentId: 'aria-operator-e8820c0d' },
+      params: { agentId: 'my-agent-operator-e8820c0d' },
     });
   });
 });

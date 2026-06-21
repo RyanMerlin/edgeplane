@@ -10,10 +10,10 @@ describe('buildCrumbs', () => {
   });
   it('agent detail → Agents (link) › id (current)', () => {
     expect(
-      buildCrumbs('/agents/aria-operator-bb05ea7a', { agentId: 'aria-operator-bb05ea7a' }),
+      buildCrumbs('/agents/my-agent-operator-bb05ea7a', { agentId: 'my-agent-operator-bb05ea7a' }),
     ).toEqual([
       { label: 'Agents', to: '/agents' },
-      { label: 'aria-operator-bb05ea7a', to: undefined },
+      { label: 'my-agent-operator-bb05ea7a', to: undefined },
     ]);
   });
   it('domains → Domains (current)', () => {

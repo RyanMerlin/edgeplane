@@ -147,7 +147,6 @@ proposed_changes:
   - id: recurring-task-templates
     status: proposed
     target_release: 0.16.0
-    spec_ref: docs/superpowers/specs/2026-05-24-edgeplane-recurring-tasks-design.md
     summary: |
       Introduce a `RecurringTaskTemplate` entity that emits MeshTasks on
       cadence (named tier, raw cron, or freshness_max_age). The template
