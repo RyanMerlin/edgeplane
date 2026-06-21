@@ -13,7 +13,7 @@
 #>
 param(
     [string]$InstallDir = "$env:USERPROFILE\.local\bin",
-    [string]$BaseUrl = "https://github.com/edgeplane/edgeplane/releases/latest/download"
+    [string]$BaseUrl = "https://github.com/RyanMerlin/edgeplane/releases/latest/download"
 )
 
 $ErrorActionPreference = 'Stop'

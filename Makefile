@@ -12,7 +12,7 @@
 COMPOSE_DEV  := docker compose -f docker-compose.edgeplane-dev.yml
 COMPOSE_PROD := docker compose
 
-IMAGE   ?= ghcr.io/your-org/edgeplane
+IMAGE   ?= ghcr.io/ryanmerlin/edgeplane
 TAG     ?= $(shell git rev-parse --short HEAD)
 
 .DEFAULT_GOAL := help

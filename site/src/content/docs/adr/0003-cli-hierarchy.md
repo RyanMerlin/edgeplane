@@ -45,6 +45,6 @@ No legacy aliases are retained.
 
 - Update docs and catalog entries to the new hierarchy
 - Ensure in-product hints and repair messages reference new command paths
-- Maintain [`docs/reference/COMMAND-MAP.md`](https://github.com/edgeplane/edgeplane/blob/main/docs/reference/COMMAND-MAP.md) as the canonical command index
+- Maintain [`docs/reference/COMMAND-MAP.md`](https://github.com/RyanMerlin/edgeplane/blob/main/docs/reference/COMMAND-MAP.md) as the canonical command index
 
 See [Reference: Command Map](/reference/command-map/) for the current full hierarchy.

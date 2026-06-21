@@ -3,8 +3,8 @@ replicaCount: 2
 
 image:
   # Override with your registry/repository when deploying.
-  # Example: ghcr.io/<your-org>/edgeplane
-  repository: ghcr.io/your-org/edgeplane
+  # Example: ghcr.io/ryanmerlin/edgeplane
+  repository: ghcr.io/ryanmerlin/edgeplane
   tag: latest
   pullPolicy: IfNotPresent
 

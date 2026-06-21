@@ -19,14 +19,14 @@
 # check on $SERVICE. Until then it bridges nodes still running the CLI-only updater.
 #
 # Env overrides:
-#   EP_UPDATE_REPO        owner/repo            (default edgeplane/edgeplane)
+#   EP_UPDATE_REPO        owner/repo            (default RyanMerlin/edgeplane)
 #   EP_UPDATE_BIN_DIR     install dir           (default $HOME/.cargo/bin)
 #   EP_UPDATE_SERVICE     daemon unit to bounce (default edgeplaned.service)
 #   EP_UPDATE_NO_RESTART  set to 1 to stage new binaries without restarting the
 #                         daemon (for testing / maintenance windows)
 set -euo pipefail
 
-REPO="${EP_UPDATE_REPO:-edgeplane/edgeplane}"
+REPO="${EP_UPDATE_REPO:-RyanMerlin/edgeplane}"
 BIN_DIR="${EP_UPDATE_BIN_DIR:-$HOME/.cargo/bin}"
 SERVICE="${EP_UPDATE_SERVICE:-edgeplaned.service}"
 NO_RESTART="${EP_UPDATE_NO_RESTART:-0}"

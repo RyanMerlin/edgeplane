@@ -21,7 +21,7 @@ pub struct SelfUpdateArgs {
     #[arg(
         long,
         env = "EP_UPDATE_MANIFEST_URL",
-        default_value = "https://github.com/edgeplane/edgeplane/releases/latest/download/latest.json"
+        default_value = "https://github.com/RyanMerlin/edgeplane/releases/latest/download/latest.json"
     )]
     pub manifest_url: String,
     /// Skip checksum verification.

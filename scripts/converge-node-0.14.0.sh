@@ -19,7 +19,7 @@
 # shared /workspace CephFS copy (other nodes share it).
 set -euo pipefail
 
-REPO="${EP_UPDATE_REPO:-edgeplane/edgeplane}"
+REPO="${EP_UPDATE_REPO:-RyanMerlin/edgeplane}"
 BASE="https://github.com/${REPO}/releases/latest/download"
 BIN_DIRS=("$HOME/.cargo/bin" "$HOME/.local/bin")
 DAEMON_UNIT="edgeplaned.service"

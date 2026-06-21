@@ -69,12 +69,12 @@ EdgePlane is a control plane for AI agents and human collaborators. It provides 
 Install the `edgeplane` CLI:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/edgeplane/edgeplane/main/scripts/bootstrap-edgeplane.sh | bash
+curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh | bash
 ```
 
 Windows:
 ```powershell
-irm https://raw.githubusercontent.com/edgeplane/edgeplane/main/scripts/bootstrap-edgeplane.ps1 | iex
+irm https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.ps1 | iex
 ```
 
 Then bring up the full stack locally:
@@ -95,7 +95,7 @@ Then open:
 |---|---|
 | Docker full stack | `bash scripts/dev-up.sh` |
 | Install edgeplane CLI | `bash scripts/install-edgeplane.sh` or `.\scripts\install-edgeplane.ps1` |
-| Bootstrap edgeplane (curl) | `curl -fsSL https://raw.githubusercontent.com/edgeplane/edgeplane/main/scripts/bootstrap-edgeplane.sh \| bash` |
+| Bootstrap edgeplane (curl) | `curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh \| bash` |
 | Philosophy & vision | [EDGEPLANE_PHILOSOPHY.md](PHILOSOPHY.md) |
 | API reference | `/api/docs` (Swagger UI) |
 | Agent install guide | [docs/guides/AGENT-INSTALL.md](docs/guides/AGENT-INSTALL.md) |
@@ -138,10 +138,10 @@ Frontend (React 19 + Vite, in `web/`): `cd web && npm install && npm run dev` (V
 
 ```bash
 # Linux / macOS
-bash <(curl -fsSL https://raw.githubusercontent.com/edgeplane/edgeplane/main/scripts/bootstrap-edgeplane.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh)
 
 # Windows
-irm https://raw.githubusercontent.com/edgeplane/edgeplane/main/scripts/bootstrap-edgeplane.ps1 | iex
+irm https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.ps1 | iex
 ```
 
 ### Launch an agent

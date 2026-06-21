@@ -12,7 +12,7 @@
 #>
 param(
     [string]$InstallDir = "$env:USERPROFILE\.local\bin",
-    [string]$BaseUrl = "https://github.com/edgeplane/edgeplane/releases/latest/download"
+    [string]$BaseUrl = "https://github.com/RyanMerlin/edgeplane/releases/latest/download"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +29,7 @@ if ($installScript -and (Test-Path $installScript)) {
     exit $LASTEXITCODE
 }
 
-$rawInstallUrl = "https://raw.githubusercontent.com/edgeplane/edgeplane/main/scripts/install-edgeplane.ps1"
+$rawInstallUrl = "https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/install-edgeplane.ps1"
 $tempInstallScript = Join-Path ([System.IO.Path]::GetTempPath()) ("install-edgeplane-" + [System.Guid]::NewGuid().ToString("N") + ".ps1")
 
 try {

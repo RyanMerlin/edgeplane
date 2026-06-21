@@ -758,7 +758,7 @@ Update edgeplane by downloading the latest release artifact
 
 * `--manifest-url <MANIFEST_URL>` — Manifest URL describing available releases
 
-  Default value: `https://github.com/edgeplane/edgeplane/releases/latest/download/latest.json`
+  Default value: `https://github.com/RyanMerlin/edgeplane/releases/latest/download/latest.json`
 * `--skip-verify` — Skip checksum verification
 
 
@@ -1706,7 +1706,7 @@ Self-update helper for the edgeplane binary
 
 * `--manifest-url <MANIFEST_URL>` — Manifest URL describing available releases
 
-  Default value: `https://github.com/edgeplane/edgeplane/releases/latest/download/latest.json`
+  Default value: `https://github.com/RyanMerlin/edgeplane/releases/latest/download/latest.json`
 * `--skip-verify` — Skip checksum verification
 
 

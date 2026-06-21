@@ -105,7 +105,7 @@ fn build_manifest(base: &str) -> serde_json::Value {
                 base
             ),
             "remote_script": format!(
-                "bash <(curl -fsSL https://raw.githubusercontent.com/edgeplane/edgeplane/main/install.sh) --endpoint {} --join-token <TOKEN>",
+                "bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/install.sh) --endpoint {} --join-token <TOKEN>",
                 base
             ),
             "local_script": format!(
@@ -115,7 +115,7 @@ fn build_manifest(base: &str) -> serde_json::Value {
         },
         "automation": {
             "config_generator_script": format!(
-                "git clone https://github.com/edgeplane/edgeplane.git && cd edgeplane-integration && bash install.sh --endpoint {} --join-token <TOKEN>",
+                "git clone https://github.com/RyanMerlin/edgeplane.git && cd edgeplane && bash install.sh --endpoint {} --join-token <TOKEN>",
                 base
             )
         },
@@ -123,7 +123,7 @@ fn build_manifest(base: &str) -> serde_json::Value {
             "Run `edgeplane auth login` once to authenticate; edgeplane serve reads the session token from disk.",
             "All agents now use `edgeplane serve` (Rust-native MCP server) — no Python edgeplane-mcp required.",
             "Set the activation endpoint to your Edgeplane instance before copying configs.",
-            "Public distribution repo: https://github.com/edgeplane/edgeplane",
+            "Public distribution repo: https://github.com/RyanMerlin/edgeplane",
             "Use edgeplane-explorer for inline terminal tree views.",
             "`edgeplane daemon` is optional and only needed for event streaming / Matrix integration."
         ]

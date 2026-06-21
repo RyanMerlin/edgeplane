@@ -695,7 +695,7 @@ async fn get_release_manifest() -> impl IntoResponse {
         .unwrap_or_else(|_| "0.2.0".to_string());
     let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL")
         .unwrap_or_else(|_| {
-            "https://github.com/edgeplane/edgeplane/releases/latest/download"
+            "https://github.com/RyanMerlin/edgeplane/releases/latest/download"
                 .to_string()
         });
     Json(serde_json::json!({
@@ -709,7 +709,7 @@ async fn get_release_manifest() -> impl IntoResponse {
 async fn download_release() -> impl IntoResponse {
     let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL")
         .unwrap_or_else(|_| {
-            "https://github.com/edgeplane/edgeplane/releases/latest/download"
+            "https://github.com/RyanMerlin/edgeplane/releases/latest/download"
                 .to_string()
         });
     axum::response::Redirect::temporary(&format!("{base_url}/edgeplane-linux-x86_64"))
@@ -1231,7 +1231,7 @@ async fn get_node_install_bundle(
     Path(node_id): Path<String>,
 ) -> impl IntoResponse {
     let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL").unwrap_or_else(|_| {
-        "https://github.com/edgeplane/edgeplane/releases/latest/download".to_string()
+        "https://github.com/RyanMerlin/edgeplane/releases/latest/download".to_string()
     });
 
     let node_row = match sqlx::query(
@@ -1346,7 +1346,7 @@ async fn get_node_install_script(
     Path(node_id): Path<String>,
 ) -> impl IntoResponse {
     let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL").unwrap_or_else(|_| {
-        "https://github.com/edgeplane/edgeplane/releases/latest/download".to_string()
+        "https://github.com/RyanMerlin/edgeplane/releases/latest/download".to_string()
     });
 
     let node_row = match sqlx::query(

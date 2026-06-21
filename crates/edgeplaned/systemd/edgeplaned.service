@@ -1,6 +1,6 @@
 [Unit]
 Description=edgeplaned — Edgeplane daemon
-Documentation=https://github.com/edgeplane/edgeplane
+Documentation=https://github.com/RyanMerlin/edgeplane
 After=network.target
 Wants=network.target
 

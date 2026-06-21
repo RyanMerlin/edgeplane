@@ -590,7 +590,7 @@ async fn run_node_run(args: NodeAgentRunArgs, client: &EdgeplaneClient) -> Resul
     //   edgeplane daemon agent enroll --domain <id> --runtime claude-code
     //   edgeplane daemon task run <mission-id> --title "my task"
     //
-    // See: https://github.com/edgeplane/edgeplane/tree/main/crates/edgeplaned
+    // See: https://github.com/RyanMerlin/edgeplane/tree/main/crates/edgeplaned
     // ─────────────────────────────────────────────────────────────────────────
     eprintln!(
         "⚠  edgeplane node run is deprecated. Use `edgeplane daemon up` instead.\n\
