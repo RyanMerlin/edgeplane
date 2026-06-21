@@ -52,9 +52,7 @@ pub struct SecretsProfileConfig {
 }
 
 pub fn profile_secrets_path(profile_name: &str) -> PathBuf {
-    edgeplaned_paths::profiles_dir()
-        .join(profile_name)
-        .join("secrets.json")
+    edgeplaned_paths::profile_secrets_path(profile_name)
 }
 
 pub fn load_profile_secrets(profile_name: &str) -> SecretsProfileConfig {

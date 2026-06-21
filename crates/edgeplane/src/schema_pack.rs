@@ -165,12 +165,10 @@ impl Default for SchemaPack {
 }
 
 fn default_path() -> Option<PathBuf> {
-    // Runtime path first: ~/.edgeplane/schema-packs/main.json
-    if let Some(home) = dirs::home_dir() {
-        let runtime = home.join(".edgeplane").join("schema-packs").join("main.json");
-        if runtime.exists() {
-            return Some(runtime);
-        }
+    // Runtime path first: <ep-home>/schema-packs/main.json
+    let runtime = edgeplaned_paths::schema_packs_dir().join("main.json");
+    if runtime.exists() {
+        return Some(runtime);
     }
     // Compile-time fallback (works when running from the repo checkout)
     let compile_time = Path::new(env!("CARGO_MANIFEST_DIR"))
