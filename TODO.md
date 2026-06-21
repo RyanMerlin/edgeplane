@@ -29,6 +29,33 @@ Nothing currently blocked.
 - `edgeplane tui` SSE agent-feed: verify end-to-end against a live cluster (proxy fix
   shipped, needs integration test with a real SSE-emitting backend).
 
+## Hardening (OSS readiness)
+
+Portability and deployment hardening so EdgePlane runs cleanly beyond a single developer's
+machine. Roughly dependency-ordered; each is a self-contained piece of work.
+
+- **[in progress] XDG-aware paths.** Make path resolution honor `$XDG_CONFIG_HOME` /
+  `$XDG_STATE_HOME` / `$XDG_DATA_HOME` / `$XDG_RUNTIME_DIR`, with a unified `~/.edgeplane`
+  default and `EP_HOME` override. Collapse the duplicated home-dir logic into the single
+  `edgeplaned-paths` crate (currently reimplemented in `edgeplaned-sync` and `edgeplane-tower`,
+  where it has drifted — the tower copy falls back to `/root/.edgeplane`).
+- **System-install mode + service account.** Support a non-login `edgeplane` system user with
+  `/etc/edgeplane`, `/var/lib/edgeplane`, `/run/edgeplane`, and a hardened **system**
+  `edgeplaned.service` (`DynamicUser=`/`ProtectSystem=strict`) alongside the `--user` dev unit.
+- **Distribution packaging.** Container + Helm chart + systemd unit template + an
+  `edgeplane init` scaffolder. Reproducible, versioned, signed — no "build from my checkout."
+  (Includes fixing the node-enrollment snippet to use the correct install script + join flags.)
+- **Pluggable secrets backend.** Abstract secret resolution behind an interface: env / file /
+  Vault / Kubernetes Secrets / cloud secret managers. No backend baked in.
+- **Decouple runtime from the terminal multiplexer.** `edgeplaned` / the ACP supervisor owns
+  session lifecycle; zellij/tmux becomes an optional dev-attach UI, not a hard dependency for
+  headless runs.
+- **Config precedence chain.** A documented layered config: flags > env > project > user >
+  system > built-in defaults.
+- **Multi-tenancy formalization.** Per-tenant state dirs, secret scoping, and resource quotas
+  on the existing domain/agent model. (Domain authorization itself already enforces default-deny
+  as of v0.15.x.)
+
 ## Done (recent)
 
 - [x] `crates/edgeplaned/scripts/demo_three_agents.sh`: end-to-end dependency chain
