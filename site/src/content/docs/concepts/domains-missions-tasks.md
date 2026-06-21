@@ -64,7 +64,7 @@ Do not call domains workstreams. Missions are workstreams.
 |--------|-------------|
 | Tasks | Units of work with owners and definitions of done |
 | MeshTasks | Agent-claimable tasks for distributed execution |
-| Artifacts | Persisted outputs (documents, binaries, skill bundles) |
+| Artifacts | Persisted outputs (documents, binaries) |
 
 ## Tasks
 

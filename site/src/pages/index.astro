@@ -53,6 +53,13 @@ const description = "Kubernetes orchestrates containers. EdgePlane orchestrates 
     </div>
   </section>
 
+  <section class="differentiator">
+    <div class="container">
+      <h2>The MCP server is the control plane</h2>
+      <p>Agents speak standard MCP stdio: no sidecar, no custom SDK, no separate auth token. The MCP boundary <em>is</em> the control-plane boundary. <code>edgeplaned</code> keeps long-running sessions alive across crashes and reconnects through <strong>ACP</strong> (Agent Client Protocol), so a dropped connection never loses the work. Works with Claude, Codex, Gemini, or any MCP-compatible runtime.</p>
+    </div>
+  </section>
+
   <section class="features">
     <div class="container">
       <h2>Core Capabilities</h2>
@@ -163,8 +170,8 @@ const description = "Kubernetes orchestrates containers. EdgePlane orchestrates 
     --border: #1e1e2e;
     --text: #e4e4ef;
     --muted: #8888a0;
-    --accent: #6366f1;
-    --accent-hover: #818cf8;
+    --accent: #e75b2a;
+    --accent-hover: #f47148;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -197,6 +204,12 @@ const description = "Kubernetes orchestrates containers. EdgePlane orchestrates 
   .problem h2 { font-size: 1.8rem; margin-bottom: 1.5rem; }
   .problem p { color: var(--muted); font-size: 1.05rem; max-width: 700px; margin-bottom: 1rem; }
   .problem strong { color: var(--text); }
+
+  .differentiator { padding: 5rem 0; border-top: 1px solid var(--border); }
+  .differentiator h2 { font-size: 1.8rem; margin-bottom: 1.5rem; }
+  .differentiator p { color: var(--muted); font-size: 1.05rem; max-width: 720px; }
+  .differentiator strong, .differentiator em { color: var(--text); }
+  .differentiator code { background: var(--surface); border: 1px solid var(--border); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.95em; color: var(--accent); }
 
   .features { padding: 5rem 0; border-top: 1px solid var(--border); }
   .features h2 { font-size: 1.8rem; margin-bottom: 2.5rem; text-align: center; }

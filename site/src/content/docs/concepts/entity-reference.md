@@ -58,7 +58,7 @@ Whether `task` and `meshtask` will converge is an open architecture question —
 
 ## Artifact
 
-**A persisted output bound to a mission.** Documents, binaries, skill bundles, agent results — anything S3-stored.
+**A persisted output bound to a mission.** Documents, binaries, and agent results — anything S3-stored.
 
 - Columns: `mission_id` (required), `uri`, `storage_backend`, `content_sha256`, `version`, `provenance`, `status`
 - Storage path: `domains/{domain_id}/missions/{mission_id}/{entity}/{filename}`

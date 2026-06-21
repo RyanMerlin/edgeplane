@@ -4,23 +4,23 @@
 
 # EdgePlane
 
-> Kubernetes orchestrates containers. EdgePlane orchestrates agents, missions, and knowledge.
+> **Kubernetes orchestrates containers. EdgePlane orchestrates agents.**
 
-AI agents can write code, run tools, and reason over architecture. What they can't do is coordinate. Without a shared system of record, parallel agents duplicate effort, diverge on state, and collide on artifacts with no resolution path.
+AI agents can write code, run tools, and reason over architecture. What they cannot do is coordinate. Without a shared system of record, parallel agents duplicate effort, diverge on state, and collide on artifacts with no resolution path. The capability compounds; the coordination does not.
 
-EdgePlane is a control plane for AI agents and human collaborators. It provides structured domains, durable task ownership, overlap detection before mutations, HMAC-signed governance, and a three-tier persistence model (Postgres + S3 + Git). The `edgeplane` CLI is a compiled Rust binary. Agents interact via standard MCP stdio — no custom SDK required.
+EdgePlane is the coordination layer: a control plane for AI agents and the humans working alongside them. It is not a workflow runner, not a pipeline framework, and not a chatbot UI. It gives agents structured domains, durable task ownership, overlap detection before mutations, HMAC-signed governance, and a three-tier persistence model spanning Postgres, S3, and Git.
+
+**The MCP server is the control-plane boundary.** Agents interact through standard MCP stdio tools, with no sidecar, no custom SDK, and no separate auth token. The `edgeplane` CLI is a single compiled Rust binary, and `edgeplaned` keeps long-running agent sessions alive across crashes and reconnects through ACP (Agent Client Protocol). It works with Claude, Codex, Gemini, or any MCP-compatible runtime.
 
 ## Core Capabilities
 
 - **Domains & Missions** — organizational units that scope knowledge, tools, permissions, and governance. Agents and humans switch profiles without losing context or integrity.
-- **Overlap Detection** — fuzzy + vector similarity runs before task and artifact creation. Collisions surface as `overlap_suggestions` in the API response before damage occurs.
-- **Artifact Ledger** — every mutation recorded in Postgres, vector-indexed for search, and committed to Git with full provenance metadata on publish.
-- **MCP-Native Interface** — standard MCP stdio tools: `search_tasks`, `get_overlap_suggestions`, `load_mission_workspace`, `publish_pending_ledger_events`. Works with any MCP-compatible agent.
-- **Governance & Approvals** — versioned policy lifecycle (draft → active → rollback), role-based access (Admin / Contributor / Viewer), HMAC-signed approval tokens on sensitive mutations.
-- **Persistent Agent Sessions** — `edgeplaned` manages long-running agent processes on each node via ACP (Agent Client Protocol). Sessions survive crashes and reconnects. Remote attach via the web UI renders structured conversation — assistant turns, tool calls, permission prompts — not raw terminal output.
-- **Semantic Search** — tasks, docs, and missions are vector-indexed (pgvector) for similarity and hybrid search.
-- **S3-Backed File Persistence** — artifact content stored in S3-compatible object storage. RustFS is bundled in the Docker Compose stack. Swap in AWS S3 or MinIO with env vars — no code changes.
-- **Chat Integration** — Slack-native notifications, task creation from threads, approval workflows, and in-channel search. Teams and Google Chat provider skeletons included.
+- **Overlap Detection** — fuzzy and vector similarity run before task and artifact creation. Collisions surface as `overlap_suggestions` in the API response, before damage occurs.
+- **Governance & Approvals** — versioned policy lifecycle (draft → active → rollback), role-based access (Admin / Contributor / Viewer), and HMAC-signed approval tokens on sensitive mutations.
+- **Three-Tier Persistence** — structured state in Postgres with pgvector for semantic and hybrid search, artifact content in S3-compatible object storage, and a Git-committed artifact ledger carrying full provenance on publish.
+- **Persistent Sessions** — `edgeplaned` manages agent processes per node via ACP. Remote attach through the web UI renders structured conversation (assistant turns, tool calls, permission prompts), not raw terminal output.
+
+See the [documentation](https://edgeplane.ai/concepts/overview/) for the full capability set, including chat integration, semantic search, and the entity model.
 
 ## Architecture
 
@@ -52,7 +52,7 @@ EdgePlane is a control plane for AI agents and human collaborators. It provides 
 │                 │  │                 │  │  Artifact ledger │
 │  Structured     │  │  Artifact       │  │  long-term       │
 │  state · roles  │  │  content ·      │  │  memory of       │
-│  vector index   │  │  skill bundles  │  │  record          │
+│  vector index   │  │  large objects  │  │  record          │
 │  status · collab│  │  file persist.  │  │                  │
 └─────────────────┘  └─────────────────┘  └──────────────────┘
                                │
@@ -69,7 +69,7 @@ EdgePlane is a control plane for AI agents and human collaborators. It provides 
 Install the `edgeplane` CLI:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh | bash
+curl -fsSL https://edgeplane.ai/install.sh | bash
 ```
 
 Windows:
@@ -201,7 +201,7 @@ Three layers, each with a distinct role:
 | Layer | Role | When written |
 |-------|------|-------------|
 | PostgreSQL + pgvector | Structured state, ownership, vector index | Every mutation |
-| S3 / RustFS | Artifact content, skill bundles, working files | On create/update |
+| S3 / RustFS | Artifact content, large objects, working files | On create/update |
 | Git | Memory of record, provenance, audit trail | On publish/approval |
 
 Publication is policy-routed. Configure repository targets via `/persistence/connections` and `/persistence/bindings`. Resolve targets before publish with MCP `resolve_publish_plan`. All responses include `x-request-id` for correlation.
