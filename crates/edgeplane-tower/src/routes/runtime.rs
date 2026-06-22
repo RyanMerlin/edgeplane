@@ -1203,12 +1203,6 @@ cat > /etc/edgeplane/edgeplaned.env <<'EOF'
 EOF
 chmod 0600 /etc/edgeplane/edgeplaned.env
 
-# Enroll. EP_HOME must match the unit so the credential is written under the
-# daemon's root (not the installing root user's ~/.edgeplane).
-set -a; . /etc/edgeplane/edgeplaned.env; set +a
-EP_HOME=/var/lib/edgeplane edgeplaned register \
-  --join-token "${{EP_NODE_TOKEN_ID:-}}" --endpoint "${{EP_BASE_URL:-}}"
-
 cat > /etc/systemd/system/edgeplaned.service <<'EOF'
 [Unit]
 Description=EdgePlane node daemon
@@ -1250,7 +1244,11 @@ RestrictSUIDSGID=yes
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now edgeplaned.service
+
+echo ''
+echo 'EdgePlane node staged. To enroll, run with your join token:'
+echo '  sudo EP_HOME=/var/lib/edgeplane edgeplaned register --join-token <JOIN_TOKEN> --endpoint '"${{EP_BASE_URL:-<TOWER_URL>}}"
+echo '  sudo systemctl enable --now edgeplaned.service'
 "#,
         base_url = base_url,
         env_lines = env_lines,
@@ -2982,6 +2980,11 @@ mod install_script_tests {
         for forbidden in ["\nRestrictNamespaces", "\nPrivateUsers", "\nSystemCallFilter"] {
             assert!(!s.contains(forbidden), "emitted forbidden directive: {forbidden}");
         }
+        // token row id must never be passed as the join-token credential
+        assert!(!s.contains("--join-token \"${EP_NODE_TOKEN_ID}\""));
+        assert!(!s.contains("--join-token ${EP_NODE_TOKEN_ID}"));
+        // register is shown as a manual enroll instruction with a placeholder
+        assert!(s.contains("<JOIN_TOKEN>"));
     }
 }
 
