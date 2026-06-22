@@ -1550,7 +1550,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clap",
- "dirs",
+ "edgeplaned-paths",
  "flate2",
  "futures-util",
  "hex",
@@ -1774,7 +1774,7 @@ version = "0.15.1"
 dependencies = [
  "anyhow",
  "chrono",
- "dirs",
+ "edgeplaned-paths",
  "serde",
  "serde_json",
  "tempfile",
