@@ -151,6 +151,19 @@ credential file is owned by the user the daemon runs as:
     sudo -u edgeplane env EP_HOME=/var/lib/edgeplane edgeplaned register --join-token <TOKEN> --endpoint <TOWER_URL>
     sudo systemctl enable --now edgeplaned.service
 
+`<TOWER_URL>` is the bare tower base URL (e.g. `https://edgeplane.example.com` or
+`http://edgeplane:8008`) — `edgeplaned` adds the `/api` prefix itself. The daemon
+derives its node identity from the credential file and starts in **federated**
+(controlplane) mode.
+
+> **Note (federation authz):** controlplane-driven *agent reconcile* over the
+> join-token flow requires the tower to authorize the node's own JWT on its
+> reconcile endpoints — a tower-side change that is in progress. Until it lands,
+> use the interactive owner-authenticated enrollment, `edgeplane daemon profile
+> add --join-token <TOKEN> --url <TOWER_URL>`, for live agent assignment; the
+> hardened `edgeplaned register` flow above already provisions the node and
+> credential.
+
 Inspect readiness with `edgeplane node doctor`. (`edgeplane node run` has been
 removed — the node daemon is `edgeplaned`.)
 
