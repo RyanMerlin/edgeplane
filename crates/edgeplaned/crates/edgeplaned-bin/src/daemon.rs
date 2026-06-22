@@ -110,7 +110,11 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     //   1. state.json active profile  — set by merge_state_file above (interactive)
     //   2. node.json                  — written by `edgeplaned register` (headless system-service)
     //   3. standalone (node_id = None)
-    apply_node_credential_fallback(&mut cfg, crate::config::read_node_credential());
+    apply_node_credential_fallback(
+        &mut cfg,
+        crate::config::read_node_credential(),
+        active_profile_name.is_some(),
+    );
 
     // CLI args win over state file and yaml.
     if !cli.backend_url.is_empty() {
@@ -386,6 +390,12 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
 
     // Phase 5d: compute the SQLite source tag for the active controlplane profile.
     // WS/poll loops write fetched specs here; the reconciler always reads from SQLite.
+    // NOTE (Axis 2 headless path): a node.json-derived federated node has no active
+    // profile, so cp_source is None and persist_and_resolve_specs skips SQLite spec
+    // persistence + the local-launch override merge. Acceptable for the canonical
+    // headless system-service node, whose agents come from the controlplane (no local
+    // launch contexts). A mixed federated+local node would want a synthetic source tag
+    // here — tracked as a follow-up, out of scope for the Axis 2 install story.
     let cp_source: Option<String> = active_profile_name.as_deref().map(source_cp);
 
     // Phase 4d/5d: live reassignment via WS + poll fallback. Only meaningful
@@ -691,9 +701,14 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
 fn apply_node_credential_fallback(
     cfg: &mut DaemonConfig,
     cred: Option<crate::config::NodeCredentialFields>,
+    has_active_profile: bool,
 ) {
-    if cfg.node_id.is_some() {
-        return; // already set by state.json active profile — don't overwrite
+    // An active state.json profile always wins — even a malformed/partial one whose
+    // `node_id` key is absent (deserializes to None). Gating on the profile's
+    // presence (not just cfg.node_id) keeps "active profile > node.json" robust
+    // against a state file that has an active profile but no node_id.
+    if has_active_profile || cfg.node_id.is_some() {
+        return; // identity owned by the active profile — don't derive from node.json
     }
     let Some(fields) = cred else { return };
     if fields.node_id.is_empty() {
@@ -2201,7 +2216,7 @@ mod tests {
     fn node_credential_fallback_sets_node_id_when_none() {
         let mut cfg = blank_cfg();
         assert!(cfg.node_id.is_none());
-        apply_node_credential_fallback(&mut cfg, Some(node_cred("node-abc123")));
+        apply_node_credential_fallback(&mut cfg, Some(node_cred("node-abc123")), false);
         assert_eq!(
             cfg.node_id.as_deref(),
             Some("node-abc123"),
@@ -2215,7 +2230,7 @@ mod tests {
     fn node_credential_fallback_does_not_overwrite_state_profile_node_id() {
         let mut cfg = blank_cfg();
         cfg.node_id = Some("from-state-json".to_string());
-        apply_node_credential_fallback(&mut cfg, Some(node_cred("from-node-json")));
+        apply_node_credential_fallback(&mut cfg, Some(node_cred("from-node-json")), true);
         assert_eq!(
             cfg.node_id.as_deref(),
             Some("from-state-json"),
@@ -2223,11 +2238,26 @@ mod tests {
         );
     }
 
+    /// Defense-in-depth: if state.json has an ACTIVE profile but its node_id is
+    /// absent/None (malformed or partial profile), node.json must still NOT win —
+    /// the active profile owns identity. Gated on has_active_profile, not just
+    /// cfg.node_id being set.
+    #[test]
+    fn node_credential_fallback_yields_to_active_profile_without_node_id() {
+        let mut cfg = blank_cfg();
+        assert!(cfg.node_id.is_none());
+        apply_node_credential_fallback(&mut cfg, Some(node_cred("from-node-json")), true);
+        assert!(
+            cfg.node_id.is_none(),
+            "an active profile (even with no node_id) must block the node.json fallback"
+        );
+    }
+
     /// With no node.json (None credential), node_id stays None (standalone mode).
     #[test]
     fn node_credential_fallback_noop_when_no_node_json() {
         let mut cfg = blank_cfg();
-        apply_node_credential_fallback(&mut cfg, None);
+        apply_node_credential_fallback(&mut cfg, None, false);
         assert!(
             cfg.node_id.is_none(),
             "node_id must remain None when no node.json is present"
@@ -2244,7 +2274,7 @@ mod tests {
             node_jwt: "tok".to_string(),
             tower_url: "http://tower:8008".to_string(),
         };
-        apply_node_credential_fallback(&mut cfg, Some(cred));
+        apply_node_credential_fallback(&mut cfg, Some(cred), false);
         assert!(
             cfg.node_id.is_none(),
             "empty node_id in node.json must not trigger federated mode"
@@ -2256,7 +2286,7 @@ mod tests {
     #[test]
     fn node_credential_fallback_fills_backend_url_when_empty() {
         let mut cfg = blank_cfg();
-        apply_node_credential_fallback(&mut cfg, Some(node_cred("node-xyz")));
+        apply_node_credential_fallback(&mut cfg, Some(node_cred("node-xyz")), false);
         assert_eq!(
             cfg.backend_url, "http://tower:8008",
             "backend_url must be filled from node.json tower_url when empty"
@@ -2269,7 +2299,7 @@ mod tests {
     fn node_credential_fallback_preserves_existing_backend_url() {
         let mut cfg = blank_cfg();
         cfg.backend_url = "http://already-set:8008".to_string();
-        apply_node_credential_fallback(&mut cfg, Some(node_cred("node-xyz")));
+        apply_node_credential_fallback(&mut cfg, Some(node_cred("node-xyz")), false);
         assert_eq!(
             cfg.backend_url, "http://already-set:8008",
             "existing backend_url must not be overwritten by node.json tower_url"
