@@ -135,35 +135,21 @@ runtimes, gemini/openclaw/custom are driver agents — all under `run`.)
 - `edgeplane run codex exec [-p PROFILE] [-- ARGS...]` — thin native Codex execution in prepared runtime.
 
 ### Node service
-- `curl -fsSL "$BASE_URL/runtime/nodes/$NODE_ID/install-script" | sh` bootstraps a Linux node from Edgeplane with a rendered config, join token, release artifact download, and `edgeplane-node.service` enablement.
-- `crates/edgeplane/install.sh` installs `edgeplane` and the `edgeplane-node.service` unit for Linux hosts from a local checkout.
-- `edgeplane node run [--node-name <name>] [--hostname <host>] [--trust-tier <tier>]` runs the resident node loop.
-- `edgeplane node doctor [--node-name <name>]` inspects local node state/config before enabling the service.
 
-The node service uses `~/.edgeplane/runtime/node-config.json` by default and accepts `EP_NODE_*` overrides from the unit environment file. Edgeplane renders the install bundle and release manifest server-side, so the node can resolve the release artifact without hardcoding an asset URL.
+Enroll a host as an EdgePlane node and run the daemon as a hardened system service.
 
-Required runtime settings:
+The tower install-script does this end-to-end (downloads `edgeplaned`, creates the
+`edgeplane` system user, enrolls, and installs `/etc/systemd/system/edgeplaned.service`):
 
-- `EP_BASE_URL`
-- `EP_NODE_BOOTSTRAP_TOKEN`
+    curl -fsSL "$TOWER/runtime/nodes/<node-id>/install" | sudo sh
 
-Common optional settings:
+Or manually:
 
-- `EP_NODE_NAME`
-- `EP_NODE_HOSTNAME`
-- `EP_NODE_TRUST_TIER`
-- `EP_NODE_POLL_SECONDS`
-- `EP_NODE_HEARTBEAT_SECONDS`
-- `EP_NODE_UPGRADE_CHANNEL`
-- `EP_NODE_DESIRED_VERSION`
-- `EP_NODE_UPGRADE_MANIFEST_URL`
+    sudo edgeplaned register --join-token <TOKEN> --endpoint <TOWER_URL>
+    sudo systemctl enable --now edgeplaned     # uses the shipped systemd/edgeplaned.service
 
-The backend also exposes:
-
-- `GET /runtime/releases/latest.json` — runtime release manifest for the bootstrap flow
-- `GET /runtime/releases/latest/download` — redirect to the current node release artifact
-- `GET /runtime/nodes/{id}/install-bundle` — rendered config/env/service bundle
-- `GET /runtime/nodes/{id}/install-script` — one-shot bootstrap script
+Inspect readiness with `edgeplane node doctor`. (`edgeplane node run` has been
+removed — the node daemon is `edgeplaned`.)
 
 ## Real-time matrix and swarm integration
 

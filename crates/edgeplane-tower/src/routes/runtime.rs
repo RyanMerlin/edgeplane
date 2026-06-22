@@ -1362,8 +1362,8 @@ async fn get_node_install_bundle(
         "config": config,
         "env": env_json,
         "service": {
-            "name": "edgeplane-node",
-            "env_file": "/etc/edgeplane/edgeplane-node.service.env",
+            "name": "edgeplaned",
+            "env_file": "/etc/edgeplane/edgeplaned.env",
         },
         "join_token": token_id,
     }))
