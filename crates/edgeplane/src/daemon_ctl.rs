@@ -522,6 +522,17 @@ async fn handle_up(args: DaemonUpArgs, config: &EdgeplaneConfig) -> Result<()> {
 
 /// Register this host as a RuntimeNode if no node-state file exists.
 /// Best-effort — logs a warning but does not abort `edgeplane daemon up` on failure.
+///
+/// # Path isolation from `edgeplaned register`
+///
+/// This function persists a minimal node-state record (node_id + node_name only)
+/// to `~/.edgeplane/runtime/node.json` via `persist_node_state` (the local `edgeplane
+/// daemon` flow).  The `edgeplaned register` command writes a *different* file —
+/// `~/.edgeplane/config/node.json` (via `edgeplaned_paths::node_credential_path()`)
+/// — which carries the full enrollment credential (node_id + node_jwt + tower_url).
+/// These two paths are intentionally distinct: one is the ephemeral local-daemon
+/// registration stub, the other is the durable system-service enrollment credential.
+/// Do not merge them; each consumer reads only its own file.
 async fn auto_register_node(config: &EdgeplaneConfig) {
     use crate::runtime::{NodeState, load_node_state, persist_node_state};
 

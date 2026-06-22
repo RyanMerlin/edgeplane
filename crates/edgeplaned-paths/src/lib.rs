@@ -82,6 +82,12 @@ fn expand_home(val: &str) -> PathBuf {
 pub fn cron_config_path() -> PathBuf {
     config_dir().join("cron.toml")
 }
+/// Node enrollment credential (node_id + node_jwt + tower_url), written by
+/// `edgeplaned register` and read by the daemon's federated-attach config loader.
+/// Default path: `~/.edgeplane/config/node.json` (respects `EP_HOME`/`XDG_CONFIG_HOME`).
+pub fn node_credential_path() -> PathBuf {
+    config_dir().join("node.json")
+}
 pub fn daemon_config_path() -> PathBuf {
     config_dir().join("config.yaml")
 }
@@ -239,6 +245,17 @@ mod tests {
     #[test]
     fn schema_packs_dir_composes_under_home_root() {
         assert_eq!(schema_packs_dir(), ep_home_dir().join("schema-packs"));
+    }
+
+    #[test]
+    fn node_credential_path_is_under_config_bucket() {
+        // Compose-and-compare against config_dir() (like the sibling tests),
+        // NOT a hardcoded "config/node.json" suffix: the bucket basename is
+        // "config" only for the EP_HOME/default roots — under XDG_CONFIG_HOME
+        // it resolves to "<xdg>/edgeplane" (see resolve_bucket), so a suffix
+        // check is env-fragile and fails in CI where XDG_CONFIG_HOME is set.
+        // This form is env-independent and non-flaky (no process-global env mutation).
+        assert_eq!(super::node_credential_path(), super::config_dir().join("node.json"));
     }
 
     #[test]

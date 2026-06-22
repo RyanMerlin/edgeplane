@@ -1,0 +1,41 @@
+[Unit]
+Description=EdgePlane node daemon
+Documentation=https://github.com/RyanMerlin/edgeplane
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=edgeplane
+Group=edgeplane
+StateDirectory=edgeplane
+WorkingDirectory=/var/lib/edgeplane
+Environment=HOME=/var/lib/edgeplane
+Environment=EP_HOME=/var/lib/edgeplane
+EnvironmentFile=-/etc/edgeplane/edgeplaned.env
+ExecStart=/usr/local/bin/edgeplaned run
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=edgeplaned
+LimitNOFILE=1048576
+# --- calibrated hardening (preserves the unprivileged-userns sandbox jail) ---
+# Do NOT add RestrictNamespaces, PrivateUsers, or a restrictive SystemCallFilter:
+# each breaks the jail's unshare(CLONE_NEWUSER|...). See Axis 2 spec §5.1.
+# The future jail-activation axis will add Delegate=yes + ProtectControlGroups=no.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/edgeplane
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

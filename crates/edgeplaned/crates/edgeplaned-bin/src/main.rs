@@ -47,7 +47,7 @@ enum Commands {
     Run {
         #[arg(long, env = "EP_BACKEND_URL", default_value = "")]
         backend_url: String,
-        /// Override token (dev only). Registered nodes use /etc/edgeplane/node.json automatically.
+        /// Override token (dev only). Registered nodes use `$EP_HOME/config/node.json` automatically.
         #[arg(long, default_value = "")]
         token: String,
         #[arg(long, env = "MCD_WORK_DIR", default_value = "")]
@@ -89,7 +89,8 @@ enum Commands {
     /// Then on the target machine:
     ///   edgeplaned register --join-token <TOKEN> --endpoint https://edgeplane.example.com
     ///
-    /// Credentials are written to /etc/edgeplane/node.json (root-readable only).
+    /// Credentials are written to the edgeplaned config bucket
+    /// (`$EP_HOME/config/node.json`, default `~/.edgeplane/config/node.json`).
     Register {
         /// Short-lived join token (from `edgeplane node join-token create`).
         #[arg(long)]

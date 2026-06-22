@@ -1181,44 +1181,75 @@ fn build_install_script(base_url: &str, env_lines: &str) -> String {
     format!(
         r#"#!/bin/sh
 set -eu
-ep_bin='{base_url}/runtime/releases/latest/download'
-if [ -n "$ep_bin" ]; then
-  install -d /usr/local/bin
-  curl -fsSL "$ep_bin" -o /usr/local/bin/edgeplane
-  chmod 0755 /usr/local/bin/edgeplane
-elif ! command -v edgeplane >/dev/null 2>&1; then
-  echo '[ERROR] edgeplane binary not found and release artifact could not be resolved' >&2
-  exit 1
-fi
-install -d /etc/edgeplane /etc/systemd/system
-cat > /etc/edgeplane/edgeplane-node.service.env <<'EOF'
-# Edgeplane node settings
+rel='{base_url}'
+arch=$(uname -m)
+case "$arch" in
+  x86_64|amd64) asset='edgeplaned-linux-x86_64' ;;
+  aarch64|arm64) asset='edgeplaned-linux-aarch64' ;;
+  *) echo "[ERROR] unsupported arch: $arch" >&2; exit 1 ;;
+esac
+install -d /usr/local/bin
+curl -fsSL "$rel/$asset" -o /usr/local/bin/edgeplaned
+chmod 0755 /usr/local/bin/edgeplaned
+
+# Dedicated non-root service account (idempotent).
+id -u edgeplane >/dev/null 2>&1 || useradd --system --shell /usr/sbin/nologin \
+  --home-dir /var/lib/edgeplane --create-home --user-group edgeplane
+
+install -d -m 0755 /etc/edgeplane
+cat > /etc/edgeplane/edgeplaned.env <<'EOF'
+# EdgePlane node settings
 {env_lines}
 EOF
-chmod 0600 /etc/edgeplane/edgeplane-node.service.env
-cat > /etc/systemd/system/edgeplane-node.service <<'EOF'
+chmod 0600 /etc/edgeplane/edgeplaned.env
+
+cat > /etc/systemd/system/edgeplaned.service <<'EOF'
 [Unit]
-Description=Edgeplane Node Agent
+Description=EdgePlane node daemon
 Wants=network-online.target
 After=network-online.target
 
-[Install]
-WantedBy=multi-user.target
-
 [Service]
 Type=simple
-User=root
-Group=root
-EnvironmentFile=-/etc/edgeplane/edgeplane-node.service.env
-ExecStart=/usr/local/bin/edgeplane node run
-Restart=always
+User=edgeplane
+Group=edgeplane
+StateDirectory=edgeplane
+WorkingDirectory=/var/lib/edgeplane
+Environment=HOME=/var/lib/edgeplane
+Environment=EP_HOME=/var/lib/edgeplane
+EnvironmentFile=-/etc/edgeplane/edgeplaned.env
+ExecStart=/usr/local/bin/edgeplaned run
+Restart=on-failure
 RestartSec=5s
-KillMode=control-group
-TimeoutStartSec=0
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=edgeplaned
 LimitNOFILE=1048576
+# Calibrated hardening — do NOT add RestrictNamespaces/PrivateUsers/SystemCallFilter
+# (each breaks the unprivileged-userns sandbox jail). See Axis 2 spec.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/edgeplane
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now edgeplane-node.service
+
+echo ''
+echo 'EdgePlane node staged. To enroll, run with your join token:'
+echo '  # register as the service user so node.json is owned by edgeplane (the daemon runs as User=edgeplane)'
+echo '  sudo -u edgeplane env EP_HOME=/var/lib/edgeplane edgeplaned register --join-token <JOIN_TOKEN> --endpoint <TOWER_URL>'
+echo '  sudo systemctl enable --now edgeplaned.service'
 "#,
         base_url = base_url,
         env_lines = env_lines,
@@ -1298,7 +1329,6 @@ async fn get_node_install_bundle(
 
     // Build env dict
     let mut env: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    env.insert("EP_BASE_URL".into(), base_url.clone());
     env.insert("EP_NODE_NAME".into(), node_name.clone());
     env.insert("EP_NODE_HOSTNAME".into(), hostname.clone());
     env.insert("EP_NODE_TRUST_TIER".into(), trust_tier.clone());
@@ -1332,8 +1362,8 @@ async fn get_node_install_bundle(
         "config": config,
         "env": env_json,
         "service": {
-            "name": "edgeplane-node",
-            "env_file": "/etc/edgeplane/edgeplane-node.service.env",
+            "name": "edgeplaned",
+            "env_file": "/etc/edgeplane/edgeplaned.env",
         },
         "join_token": token_id,
     }))
@@ -1418,7 +1448,6 @@ async fn get_node_install_script(
         .unwrap_or_default();
 
     let mut env_pairs: Vec<String> = vec![
-        format!("EP_BASE_URL={base_url}"),
         format!("EP_NODE_NAME={node_name}"),
         format!("EP_NODE_HOSTNAME={hostname}"),
         format!("EP_NODE_TRUST_TIER={trust_tier}"),
@@ -2919,6 +2948,46 @@ async fn handle_node_notify(mut socket: WebSocket, node_id: String) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod install_script_tests {
+    #[test]
+    fn install_script_targets_edgeplaned_not_node_run() {
+        let s = super::build_install_script(
+            "https://github.com/RyanMerlin/edgeplane/releases/latest/download",
+            "EP_BASE_URL=https://tower.example\nEP_NODE_JOIN_TOKEN=abc",
+        );
+        // downloads the node daemon, arch-detected
+        assert!(s.contains("edgeplaned-linux-"));
+        assert!(s.contains("/usr/local/bin/edgeplaned"));
+        // creates the dedicated user
+        assert!(s.contains("useradd") && s.contains("edgeplane"));
+        // enrolls with EP_HOME set so the credential lands under the daemon's root
+        assert!(s.contains("EP_HOME=/var/lib/edgeplane"));
+        // enroll must drop to the service user so node.json is owned by `edgeplane`,
+        // not root — else the daemon (User=edgeplane) gets EACCES reading the credential.
+        assert!(s.contains("sudo -u edgeplane env EP_HOME=/var/lib/edgeplane edgeplaned register"));
+        // the dead ${EP_BASE_URL:-<TOWER_URL>} fallback is gone (EP_BASE_URL is never set in the script shell)
+        assert!(!s.contains("EP_BASE_URL:-"));
+        // installs the hardened unit running the daemon
+        assert!(s.contains("/etc/systemd/system/edgeplaned.service"));
+        assert!(s.contains("ExecStart=/usr/local/bin/edgeplaned run"));
+        assert!(s.contains("User=edgeplane"));
+        assert!(s.contains("enable --now edgeplaned.service"));
+        // legacy + unsafe patterns are gone
+        assert!(!s.contains("edgeplane node run"));
+        assert!(!s.contains("User=root"));
+        // userns-jail-breaking directives must not be emitted as active config
+        for forbidden in ["\nRestrictNamespaces", "\nPrivateUsers", "\nSystemCallFilter"] {
+            assert!(!s.contains(forbidden), "emitted forbidden directive: {forbidden}");
+        }
+        // token row id must never be passed as the join-token credential
+        assert!(!s.contains("--join-token \"${EP_NODE_TOKEN_ID}\""));
+        assert!(!s.contains("--join-token ${EP_NODE_TOKEN_ID}"));
+        // register is shown as a manual enroll instruction with a placeholder
+        assert!(s.contains("<JOIN_TOKEN>"));
     }
 }
 

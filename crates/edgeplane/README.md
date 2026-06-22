@@ -135,35 +135,37 @@ runtimes, gemini/openclaw/custom are driver agents — all under `run`.)
 - `edgeplane run codex exec [-p PROFILE] [-- ARGS...]` — thin native Codex execution in prepared runtime.
 
 ### Node service
-- `curl -fsSL "$BASE_URL/runtime/nodes/$NODE_ID/install-script" | sh` bootstraps a Linux node from Edgeplane with a rendered config, join token, release artifact download, and `edgeplane-node.service` enablement.
-- `crates/edgeplane/install.sh` installs `edgeplane` and the `edgeplane-node.service` unit for Linux hosts from a local checkout.
-- `edgeplane node run [--node-name <name>] [--hostname <host>] [--trust-tier <tier>]` runs the resident node loop.
-- `edgeplane node doctor [--node-name <name>]` inspects local node state/config before enabling the service.
 
-The node service uses `~/.edgeplane/runtime/node-config.json` by default and accepts `EP_NODE_*` overrides from the unit environment file. Edgeplane renders the install bundle and release manifest server-side, so the node can resolve the release artifact without hardcoding an asset URL.
+Enroll a host as an EdgePlane node and run the daemon as a hardened system service.
 
-Required runtime settings:
+The tower install-script downloads `edgeplaned`, creates the `edgeplane` system user,
+installs `/etc/systemd/system/edgeplaned.service`, and prints the enroll commands —
+then the operator runs them manually:
 
-- `EP_BASE_URL`
-- `EP_NODE_BOOTSTRAP_TOKEN`
+    curl -fsSL "<TOWER_URL>/runtime/nodes/<node-id>/install-script" | sudo sh
 
-Common optional settings:
+The script prints the commands to run after installation completes. Run them to finish
+enrollment — register as the `edgeplane` service user (with `EP_HOME` set) so the
+credential file is owned by the user the daemon runs as:
 
-- `EP_NODE_NAME`
-- `EP_NODE_HOSTNAME`
-- `EP_NODE_TRUST_TIER`
-- `EP_NODE_POLL_SECONDS`
-- `EP_NODE_HEARTBEAT_SECONDS`
-- `EP_NODE_UPGRADE_CHANNEL`
-- `EP_NODE_DESIRED_VERSION`
-- `EP_NODE_UPGRADE_MANIFEST_URL`
+    sudo -u edgeplane env EP_HOME=/var/lib/edgeplane edgeplaned register --join-token <TOKEN> --endpoint <TOWER_URL>
+    sudo systemctl enable --now edgeplaned.service
 
-The backend also exposes:
+`<TOWER_URL>` is the bare tower base URL (e.g. `https://edgeplane.example.com` or
+`http://edgeplane:8008`) — `edgeplaned` adds the `/api` prefix itself. The daemon
+derives its node identity from the credential file and starts in **federated**
+(controlplane) mode.
 
-- `GET /runtime/releases/latest.json` — runtime release manifest for the bootstrap flow
-- `GET /runtime/releases/latest/download` — redirect to the current node release artifact
-- `GET /runtime/nodes/{id}/install-bundle` — rendered config/env/service bundle
-- `GET /runtime/nodes/{id}/install-script` — one-shot bootstrap script
+> **Note (federation authz):** controlplane-driven *agent reconcile* over the
+> join-token flow requires the tower to authorize the node's own JWT on its
+> reconcile endpoints — a tower-side change that is in progress. Until it lands,
+> use the interactive owner-authenticated enrollment, `edgeplane daemon profile
+> add --join-token <TOKEN> --url <TOWER_URL>`, for live agent assignment; the
+> hardened `edgeplaned register` flow above already provisions the node and
+> credential.
+
+Inspect readiness with `edgeplane node doctor`. (`edgeplane node run` has been
+removed — the node daemon is `edgeplaned`.)
 
 ## Real-time matrix and swarm integration
 
