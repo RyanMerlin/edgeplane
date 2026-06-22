@@ -403,14 +403,12 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     // there is no /runtime/nodes/{id}/notify subscription to make.
     if let Some(node_id) = cfg.node_id.clone() {
         let ws_backend = cfg.backend_url.clone();
-        let ws_token = cfg.token.clone();
         let ws_running = Arc::clone(&running);
         let ws_client = Arc::clone(&client);
         let ws_spawner = Arc::clone(&spawner);
         let ws_cp_source = cp_source.clone();
         task_handles.push(tokio::spawn(reconcile::watch_assignments_ws(
             ws_backend,
-            ws_token,
             node_id.clone(),
             ws_client,
             ws_running,
@@ -501,6 +499,74 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
                     tracing::warn!("Node heartbeat failed for {node_id}: {e}");
                 } else {
                     tracing::debug!("Node heartbeat sent for {node_id}");
+                }
+            }
+        });
+    }
+
+    // Node-JWT rotation loop.
+    //
+    // Runs only in node-credential mode (headless system service): the token
+    // came from `node.json` (written by `edgeplaned register`) and the node_id
+    // is present.  Interactive-profile mode carries a user session token that
+    // is not a node JWT — rotating it here would be wrong.
+    //
+    // Schedule: sleep 12 h → rotate.  With a 24-h tower TTL this always leaves
+    // ≥ 12 h of remaining life, tolerating one transient failure per day.
+    //
+    // On a successful rotate the tower has already revoked the old JTI, so we
+    // call `client.set_token` to swap the live credential FIRST and
+    // unconditionally — all clones (heartbeat, WS reconnect, task worker) then
+    // observe the new token on their next use. Persisting it to node.json is
+    // best-effort durability for the next restart; a persist failure does not
+    // roll back the live swap.
+    //
+    // On a failed rotate: warn, continue — the current token is still valid for
+    // another 12 h (one transient failure per day is tolerated).
+    let is_node_credential_mode = active_profile_name.is_none() && cfg.node_id.is_some();
+    if is_node_credential_mode {
+        let rotate_node_id = cfg.node_id.clone().unwrap_or_default();
+        let rotate_client = Arc::clone(&client);
+        tokio::spawn(async move {
+            const NODE_JWT_ROTATE_INTERVAL: std::time::Duration =
+                std::time::Duration::from_secs(12 * 3600);
+            loop {
+                tokio::time::sleep(NODE_JWT_ROTATE_INTERVAL).await;
+                match rotate_client.rotate_node_token(&rotate_node_id).await {
+                    Ok(new_jwt) => {
+                        // The tower revokes the old JTI the instant it issues the
+                        // new one, so we MUST adopt the new token unconditionally
+                        // before attempting anything else — including disk writes.
+                        // Gating set_token on a successful persist would leave the
+                        // live client holding a now-revoked token on any I/O error.
+                        rotate_client.set_token(&new_jwt);
+
+                        // Best-effort persistence: write the new token to node.json
+                        // so the next daemon restart picks it up without re-registration.
+                        // A failure here does NOT roll back the live swap — the in-memory
+                        // token is already current and will be re-persisted on the next
+                        // successful rotation cycle.
+                        match crate::config::write_node_credential_token(&new_jwt) {
+                            Ok(()) => {
+                                tracing::debug!(
+                                    "node JWT rotated for {rotate_node_id}; next rotation in 12 h."
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "node JWT rotation: live token swapped for {rotate_node_id} \
+                                     but persistence failed: {e:#}. A daemon restart before the \
+                                     next rotation cycle will require re-registration."
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "node JWT rotation failed for {rotate_node_id}: {e:#}. \
+                             Current credential still valid; will retry in 12 h."
+                        );
+                    }
                 }
             }
         });

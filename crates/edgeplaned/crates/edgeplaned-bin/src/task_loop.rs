@@ -73,11 +73,10 @@ pub async fn run_for_agent(
     // Spawn a WebSocket notify listener that wakes the main loop on task_available push.
     let (wake_tx, mut wake_rx) = tokio::sync::watch::channel(false);
     {
-        let notify_base = client.base_url.clone();
-        let notify_token = client.token.clone();
+        let notify_client = Arc::clone(&client);
         let notify_agent_id = agent_id.clone();
         tokio::spawn(async move {
-            run_notify_ws(notify_base, notify_token, notify_agent_id, wake_tx).await;
+            run_notify_ws(notify_client, notify_agent_id, wake_tx).await;
         });
     }
 
@@ -631,15 +630,21 @@ pub async fn run_webhook_relay(
 /// whenever a `task_available` push arrives.  Reconnects with exponential
 /// backoff (2s → 60s) on disconnect or error.  Runs forever — drop the task
 /// to stop it.
+///
+/// Takes `Arc<BackendClient>` rather than a token snapshot so that each
+/// reconnect attempt reads the live token via `client.current_token()`.
+/// This mirrors the pattern in `reconcile::watch_assignments_ws` and ensures
+/// that a node-JWT rotation mid-lifetime does not leave the WS loop
+/// authenticating with the now-revoked old credential.
 async fn run_notify_ws(
-    base_url: String,
-    token: String,
+    client: Arc<BackendClient>,
     agent_id: String,
     wake_tx: tokio::sync::watch::Sender<bool>,
 ) {
     use tokio_tungstenite::{connect_async, tungstenite};
 
-    let ws_base = base_url
+    let ws_base = client
+        .base_url
         .trim_end_matches('/')
         .replacen("http://", "ws://", 1)
         .replacen("https://", "wss://", 1);
@@ -649,6 +654,10 @@ async fn run_notify_ws(
     const MAX_BACKOFF: Duration = Duration::from_secs(60);
 
     loop {
+        // Read the live token at each (re)connect so a rotation between
+        // attempts uses the current credential rather than the one captured
+        // at task-loop start.
+        let token = client.current_token();
         let request = match tungstenite::client::IntoClientRequest::into_client_request(url.as_str()) {
             Ok(mut req) => {
                 req.headers_mut().insert(
