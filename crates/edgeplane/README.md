@@ -138,15 +138,16 @@ runtimes, gemini/openclaw/custom are driver agents — all under `run`.)
 
 Enroll a host as an EdgePlane node and run the daemon as a hardened system service.
 
-The tower install-script does this end-to-end (downloads `edgeplaned`, creates the
-`edgeplane` system user, enrolls, and installs `/etc/systemd/system/edgeplaned.service`):
+The tower install-script downloads `edgeplaned`, creates the `edgeplane` system user,
+installs `/etc/systemd/system/edgeplaned.service`, and prints the enroll commands —
+then the operator runs them manually:
 
-    curl -fsSL "$TOWER/runtime/nodes/<node-id>/install" | sudo sh
+    curl -fsSL "<TOWER_URL>/runtime/nodes/<node-id>/install-script" | sudo sh
 
-Or manually:
+The script prints the commands to run after installation completes. Run them to finish enrollment:
 
     sudo edgeplaned register --join-token <TOKEN> --endpoint <TOWER_URL>
-    sudo systemctl enable --now edgeplaned     # uses the shipped systemd/edgeplaned.service
+    sudo systemctl enable --now edgeplaned.service
 
 Inspect readiness with `edgeplane node doctor`. (`edgeplane node run` has been
 removed — the node daemon is `edgeplaned`.)

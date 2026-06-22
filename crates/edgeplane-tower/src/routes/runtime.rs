@@ -1328,7 +1328,6 @@ async fn get_node_install_bundle(
 
     // Build env dict
     let mut env: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    env.insert("EP_BASE_URL".into(), base_url.clone());
     env.insert("EP_NODE_NAME".into(), node_name.clone());
     env.insert("EP_NODE_HOSTNAME".into(), hostname.clone());
     env.insert("EP_NODE_TRUST_TIER".into(), trust_tier.clone());
@@ -1448,7 +1447,6 @@ async fn get_node_install_script(
         .unwrap_or_default();
 
     let mut env_pairs: Vec<String> = vec![
-        format!("EP_BASE_URL={base_url}"),
         format!("EP_NODE_NAME={node_name}"),
         format!("EP_NODE_HOSTNAME={hostname}"),
         format!("EP_NODE_TRUST_TIER={trust_tier}"),
