@@ -288,11 +288,12 @@ fn read_state_profile_token() -> Option<String> {
     if token.is_empty() { None } else { Some(token.to_string()) }
 }
 
-/// Read the node JWT and tower URL from /etc/edgeplane/node.json (written by
-/// `edgeplaned register`). Returns (node_jwt, tower_url) if the file exists
-/// and can be parsed.
+/// Read the node JWT and tower URL from the edgeplaned config bucket
+/// (`$EP_HOME/config/node.json`, default `~/.edgeplane/config/node.json`),
+/// written by `edgeplaned register`. Returns (node_jwt, tower_url) if the
+/// file exists and can be parsed.
 fn read_node_credential() -> Option<(String, String)> {
-    let content = std::fs::read_to_string(crate::register::NODE_CREDENTIAL_PATH).ok()?;
+    let content = std::fs::read_to_string(edgeplaned_paths::node_credential_path()).ok()?;
     let cred: crate::register::NodeCredential = serde_json::from_str(&content).ok()?;
     if cred.node_jwt.is_empty() { return None; }
     Some((cred.node_jwt, cred.tower_url))
@@ -355,7 +356,7 @@ impl DaemonConfig {
 
     /// Fill in missing token / backend_url from stored credentials.
     ///
-    /// Priority: config.yaml → /etc/edgeplane/node.json (node JWT) → active profile in state.json
+    /// Priority: config.yaml → `$EP_HOME/config/node.json` (node JWT) → active profile in state.json
     /// EP_TOKEN env is intentionally not read — that variable has been removed.
     fn resolve_credentials(&mut self) {
         if self.token.is_empty() {

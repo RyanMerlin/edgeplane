@@ -82,6 +82,12 @@ fn expand_home(val: &str) -> PathBuf {
 pub fn cron_config_path() -> PathBuf {
     config_dir().join("cron.toml")
 }
+/// Node enrollment credential (node_id + node_jwt + tower_url), written by
+/// `edgeplaned register` and read by the daemon's federated-attach config loader.
+/// Default path: `~/.edgeplane/config/node.json` (respects `EP_HOME`/`XDG_CONFIG_HOME`).
+pub fn node_credential_path() -> PathBuf {
+    config_dir().join("node.json")
+}
 pub fn daemon_config_path() -> PathBuf {
     config_dir().join("config.yaml")
 }
@@ -239,6 +245,14 @@ mod tests {
     #[test]
     fn schema_packs_dir_composes_under_home_root() {
         assert_eq!(schema_packs_dir(), ep_home_dir().join("schema-packs"));
+    }
+
+    #[test]
+    fn node_credential_path_is_under_config_bucket() {
+        // Suffix is invariant regardless of EP_HOME/XDG, so this is non-flaky
+        // even with parallel tests. Root resolution itself is covered by the
+        // existing resolve_bucket tests.
+        assert!(super::node_credential_path().ends_with("config/node.json"));
     }
 
     #[test]
