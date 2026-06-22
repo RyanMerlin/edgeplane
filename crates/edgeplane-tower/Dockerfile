@@ -56,9 +56,18 @@ RUN mkdir -p crates/edgeplane-tower/src/bin \
     && echo 'fn main() {}' > crates/edgeplane-tower/src/bin/gen_openapi.rs
 RUN cargo build --release -p edgeplane-tower
 
-# Replace stub source with real edgeplane-tower source and rebuild
+# Replace stub source with real source for edgeplane-tower AND every workspace
+# crate it actually depends on, then rebuild. edgeplaned-paths MUST be restored:
+# the tower calls edgeplaned_paths::profile_secrets_path (added in #69 / ea9426de),
+# so leaving it as the `pub fn stub() {}` stub fails the final build with
+# `error[E0425]: cannot find function profile_secrets_path`. The dep-cache build
+# above only needs the stubs to satisfy the workspace resolver — any workspace
+# crate whose *functions* the tower calls must have its real source here.
+# scripts/check-tower-dockerfile.sh enforces this on PRs.
 COPY crates/edgeplane-tower ./crates/edgeplane-tower
-RUN touch crates/edgeplane-tower/src/main.rs crates/edgeplane-tower/src/lib.rs && \
+COPY crates/edgeplaned-paths ./crates/edgeplaned-paths
+RUN touch crates/edgeplane-tower/src/main.rs crates/edgeplane-tower/src/lib.rs \
+      crates/edgeplaned-paths/src/lib.rs && \
     cargo build --release -p edgeplane-tower
 
 FROM debian:bookworm-slim AS prod
