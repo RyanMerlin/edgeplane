@@ -96,16 +96,29 @@ fn write_credential(cred: &NodeCredential, path: &std::path::Path) -> anyhow::Re
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    // Write to a temp file then rename for atomicity.
+    // Write to a temp file then rename for atomicity. The temp file is created
+    // owner-only (0600) from the start so the node JWT is never briefly
+    // group/world readable to a same-directory observer.
     let tmp = path.with_extension("tmp");
     let json = serde_json::to_string_pretty(cred)?;
-    std::fs::write(&tmp, json)
-        .with_context(|| format!("failed to write {}", tmp.display()))?;
-    // Restrict to owner-only read before moving into place.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .with_context(|| format!("failed to write {}", tmp.display()))?;
+        f.write_all(json.as_bytes())
+            .with_context(|| format!("failed to write {}", tmp.display()))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&tmp, &json)
+            .with_context(|| format!("failed to write {}", tmp.display()))?;
     }
     std::fs::rename(&tmp, path)
         .with_context(|| format!("failed to rename credential file to {}", path.display()))?;

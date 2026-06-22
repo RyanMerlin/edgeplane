@@ -38,8 +38,9 @@ EP_HOME=/var/lib/edgeplane
 # EP_NODE_NAME=$(hostname -s)
 # EP_NODE_TRUST_TIER=trusted
 #
-# To enroll this node after editing the above, run:
-#   EP_HOME=/var/lib/edgeplane edgeplaned register --join-token <TOKEN> --endpoint $EP_BASE_URL
+# To enroll this node after editing the above, run (as the service user so the
+# credential is owned by edgeplane, which the daemon runs as):
+#   sudo -u edgeplane env EP_HOME=/var/lib/edgeplane edgeplaned register --join-token <TOKEN> --endpoint $EP_BASE_URL
 EOF
   chmod 0600 "${ENV_FILE}"
 fi
@@ -47,5 +48,5 @@ fi
 install -m 0644 "$(dirname "$0")/systemd/edgeplaned.service" "${SYSTEMD_DIR}/${SERVICE_NAME}"
 systemctl daemon-reload
 info "installed edgeplaned and ${SERVICE_NAME}"
-warn "edit ${ENV_FILE}, enroll via: EP_HOME=/var/lib/edgeplane edgeplaned register --join-token <TOKEN> --endpoint <EP_BASE_URL>"
+warn "edit ${ENV_FILE}, enroll via: sudo -u edgeplane env EP_HOME=/var/lib/edgeplane edgeplaned register --join-token <TOKEN> --endpoint <EP_BASE_URL>"
 warn "then enable with: systemctl enable --now edgeplaned.service"

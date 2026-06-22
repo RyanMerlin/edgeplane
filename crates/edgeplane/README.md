@@ -144,9 +144,11 @@ then the operator runs them manually:
 
     curl -fsSL "<TOWER_URL>/runtime/nodes/<node-id>/install-script" | sudo sh
 
-The script prints the commands to run after installation completes. Run them to finish enrollment:
+The script prints the commands to run after installation completes. Run them to finish
+enrollment — register as the `edgeplane` service user (with `EP_HOME` set) so the
+credential file is owned by the user the daemon runs as:
 
-    sudo edgeplaned register --join-token <TOKEN> --endpoint <TOWER_URL>
+    sudo -u edgeplane env EP_HOME=/var/lib/edgeplane edgeplaned register --join-token <TOKEN> --endpoint <TOWER_URL>
     sudo systemctl enable --now edgeplaned.service
 
 Inspect readiness with `edgeplane node doctor`. (`edgeplane node run` has been

@@ -1247,7 +1247,8 @@ systemctl daemon-reload
 
 echo ''
 echo 'EdgePlane node staged. To enroll, run with your join token:'
-echo '  sudo EP_HOME=/var/lib/edgeplane edgeplaned register --join-token <JOIN_TOKEN> --endpoint '"${{EP_BASE_URL:-<TOWER_URL>}}"
+echo '  # register as the service user so node.json is owned by edgeplane (the daemon runs as User=edgeplane)'
+echo '  sudo -u edgeplane env EP_HOME=/var/lib/edgeplane edgeplaned register --join-token <JOIN_TOKEN> --endpoint <TOWER_URL>'
 echo '  sudo systemctl enable --now edgeplaned.service'
 "#,
         base_url = base_url,
@@ -2965,7 +2966,11 @@ mod install_script_tests {
         assert!(s.contains("useradd") && s.contains("edgeplane"));
         // enrolls with EP_HOME set so the credential lands under the daemon's root
         assert!(s.contains("EP_HOME=/var/lib/edgeplane"));
-        assert!(s.contains("edgeplaned register"));
+        // enroll must drop to the service user so node.json is owned by `edgeplane`,
+        // not root — else the daemon (User=edgeplane) gets EACCES reading the credential.
+        assert!(s.contains("sudo -u edgeplane env EP_HOME=/var/lib/edgeplane edgeplaned register"));
+        // the dead ${EP_BASE_URL:-<TOWER_URL>} fallback is gone (EP_BASE_URL is never set in the script shell)
+        assert!(!s.contains("EP_BASE_URL:-"));
         // installs the hardened unit running the daemon
         assert!(s.contains("/etc/systemd/system/edgeplaned.service"));
         assert!(s.contains("ExecStart=/usr/local/bin/edgeplaned run"));

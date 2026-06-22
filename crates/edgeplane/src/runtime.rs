@@ -30,7 +30,7 @@ pub enum RuntimeCommand {
 pub enum NodeAgentCommand {
     /// Register a node with Edgeplane and persist its identity locally.
     Register(NodeAgentRegisterArgs),
-    /// Run the resident node loop.
+    /// [removed] The node daemon is now `edgeplaned` — use `edgeplaned run`.
     Run(NodeAgentRunArgs),
     /// Inspect local node-agent readiness.
     Doctor(NodeAgentDoctorArgs),

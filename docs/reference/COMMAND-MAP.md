@@ -961,7 +961,7 @@ Resident node-agent control verbs
 ###### **Subcommands:**
 
 * `register` — Register a node with Edgeplane and persist its identity locally
-* `run` — Run the resident node loop
+* `run` — [removed] The node daemon is now `edgeplaned` — use `edgeplaned run`
 * `doctor` — Inspect local node-agent readiness
 * `join-token` — Manage node join tokens (single-use bootstrap credentials)
 
@@ -984,7 +984,7 @@ Register a node with Edgeplane and persist its identity locally
 
 ## `edgeplane agent node run`
 
-Run the resident node loop
+[removed] The node daemon is now `edgeplaned` — use `edgeplaned run`
 
 **Usage:** `edgeplane agent node run [OPTIONS]`
 
