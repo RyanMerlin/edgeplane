@@ -288,15 +288,28 @@ fn read_state_profile_token() -> Option<String> {
     if token.is_empty() { None } else { Some(token.to_string()) }
 }
 
-/// Read the node JWT and tower URL from the edgeplaned config bucket
+/// Parsed fields from node.json (`$EP_HOME/config/node.json`), written by
+/// `edgeplaned register`. All three fields are required; a missing or empty
+/// `node_jwt` causes the whole credential to be treated as absent.
+pub struct NodeCredentialFields {
+    pub node_id: String,
+    pub node_jwt: String,
+    pub tower_url: String,
+}
+
+/// Read the node credential from the edgeplaned config bucket
 /// (`$EP_HOME/config/node.json`, default `~/.edgeplane/config/node.json`),
-/// written by `edgeplaned register`. Returns (node_jwt, tower_url) if the
-/// file exists and can be parsed.
-fn read_node_credential() -> Option<(String, String)> {
+/// written by `edgeplaned register`. Returns all three identity fields if the
+/// file exists, can be parsed, and `node_jwt` is non-empty.
+pub fn read_node_credential() -> Option<NodeCredentialFields> {
     let content = std::fs::read_to_string(edgeplaned_paths::node_credential_path()).ok()?;
     let cred: crate::register::NodeCredential = serde_json::from_str(&content).ok()?;
     if cred.node_jwt.is_empty() { return None; }
-    Some((cred.node_jwt, cred.tower_url))
+    Some(NodeCredentialFields {
+        node_id: cred.node_id,
+        node_jwt: cred.node_jwt,
+        tower_url: cred.tower_url,
+    })
 }
 
 fn read_mc_base_url() -> Option<String> {
@@ -361,10 +374,13 @@ impl DaemonConfig {
     fn resolve_credentials(&mut self) {
         if self.token.is_empty() {
             // Prefer the RS256 node JWT written by `edgeplaned register`.
-            if let Some((jwt, tower_url)) = read_node_credential() {
-                self.token = jwt;
+            // Note: node_id is intentionally NOT set here — that is handled
+            // in daemon.rs after merge_state_file() so the state.json active
+            // profile always takes precedence over node.json.
+            if let Some(fields) = read_node_credential() {
+                self.token = fields.node_jwt;
                 if self.backend_url.is_empty() {
-                    self.backend_url = tower_url;
+                    self.backend_url = fields.tower_url;
                 }
             } else if let Some(t) = read_state_profile_token() {
                 self.token = t;

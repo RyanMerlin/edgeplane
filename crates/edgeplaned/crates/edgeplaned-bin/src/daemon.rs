@@ -103,6 +103,15 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         }
     };
 
+    // Axis 2 / headless-service path: derive node_id from node.json when the
+    // state file has no active profile (i.e. merge_state_file returned None).
+    //
+    // Precedence (highest to lowest):
+    //   1. state.json active profile  — set by merge_state_file above (interactive)
+    //   2. node.json                  — written by `edgeplaned register` (headless system-service)
+    //   3. standalone (node_id = None)
+    apply_node_credential_fallback(&mut cfg, crate::config::read_node_credential());
+
     // CLI args win over state file and yaml.
     if !cli.backend_url.is_empty() {
         cfg.backend_url = cli.backend_url;
@@ -663,6 +672,44 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     let _ = std::fs::remove_file(attach_gateway::socket_path());
     let _ = std::fs::remove_file(paths::secrets_socket_path());
     Ok(())
+}
+
+/// Apply node.json credential as a fallback for `node_id` when none is set.
+///
+/// This is the Axis 2 headless-service path. Precedence:
+///   1. state.json active profile (set by `merge_state_file` — interactive mode)
+///   2. node.json (written by `edgeplaned register` — headless system-service)
+///   3. standalone (node_id stays None)
+///
+/// `resolve_credentials` already copies `token` + `backend_url` from node.json,
+/// but skips `node_id` so the state.json active profile (applied in
+/// `merge_state_file`) can win. This function is called after `merge_state_file`
+/// so that the state.json value always takes precedence.
+///
+/// Factored out as a pure helper (takes the parsed credential, no I/O) so it
+/// can be unit-tested without touching the filesystem.
+fn apply_node_credential_fallback(
+    cfg: &mut DaemonConfig,
+    cred: Option<crate::config::NodeCredentialFields>,
+) {
+    if cfg.node_id.is_some() {
+        return; // already set by state.json active profile — don't overwrite
+    }
+    let Some(fields) = cred else { return };
+    if fields.node_id.is_empty() {
+        return;
+    }
+    tracing::info!(
+        "Deriving node_id '{}' from node.json (headless system-service mode). \
+         Run `edgeplane daemon profile add` to switch to interactive-profile mode.",
+        fields.node_id
+    );
+    cfg.node_id = Some(fields.node_id);
+    // token + backend_url were already set by resolve_credentials;
+    // only fill backend_url if it somehow slipped through empty.
+    if cfg.backend_url.is_empty() {
+        cfg.backend_url = fields.tower_url;
+    }
 }
 
 /// Merge `~/.ep/state.json` (v2: profiles map + active_profile) into
@@ -2106,6 +2153,127 @@ mod tests {
             "derived 'foo-bar' must not suffix-match lone 'bar'"
         );
         assert!(specs[0].local_alias_id.is_none());
+    }
+
+    // ── apply_node_credential_fallback tests ─────────────────────────────────
+
+    fn blank_cfg() -> DaemonConfig {
+        DaemonConfig {
+            backend_url: String::new(),
+            token: String::new(),
+            work_dir: std::path::PathBuf::from("/tmp"),
+            domains: vec![],
+            offline_grace_secs: 30,
+            offline_policy: "strict".into(),
+            control_socket: std::path::PathBuf::from("/run/test.sock"),
+            node_id: None,
+            attach_secret: None,
+            attach_bind_addr: "0.0.0.0:8009".into(),
+            home_domain_id: None,
+            task_worker_enabled: true,
+            task_worker_poll_interval_secs: 30,
+            task_worker_max_concurrent: 3,
+            task_worker_subagent_command: "claude".into(),
+            task_worker_triage_enabled: true,
+            task_worker_triage_poll_interval_secs: 60,
+            task_worker_triage_confidence_threshold: 0.85,
+            task_worker_max_triage_per_cycle: 5,
+            task_worker_goose_timeout_secs: 30,
+            task_worker_strict_capabilities: false,
+            task_worker_default_capabilities: vec![],
+            task_worker_surface_command: None,
+            task_worker_goose_bin: vec!["goose".into()],
+        }
+    }
+
+    fn node_cred(node_id: &str) -> crate::config::NodeCredentialFields {
+        crate::config::NodeCredentialFields {
+            node_id: node_id.to_string(),
+            node_jwt: "test-jwt".to_string(),
+            tower_url: "http://tower:8008".to_string(),
+        }
+    }
+
+    /// With a node.json present and NO state.json active profile (node_id is
+    /// None after merge_state_file), apply_node_credential_fallback should
+    /// set node_id from node.json.
+    #[test]
+    fn node_credential_fallback_sets_node_id_when_none() {
+        let mut cfg = blank_cfg();
+        assert!(cfg.node_id.is_none());
+        apply_node_credential_fallback(&mut cfg, Some(node_cred("node-abc123")));
+        assert_eq!(
+            cfg.node_id.as_deref(),
+            Some("node-abc123"),
+            "node_id must be derived from node.json when state.json has no active profile"
+        );
+    }
+
+    /// When state.json already set node_id (via merge_state_file), node.json
+    /// must NOT overwrite it — state.json active profile takes precedence.
+    #[test]
+    fn node_credential_fallback_does_not_overwrite_state_profile_node_id() {
+        let mut cfg = blank_cfg();
+        cfg.node_id = Some("from-state-json".to_string());
+        apply_node_credential_fallback(&mut cfg, Some(node_cred("from-node-json")));
+        assert_eq!(
+            cfg.node_id.as_deref(),
+            Some("from-state-json"),
+            "state.json active profile node_id must not be overwritten by node.json"
+        );
+    }
+
+    /// With no node.json (None credential), node_id stays None (standalone mode).
+    #[test]
+    fn node_credential_fallback_noop_when_no_node_json() {
+        let mut cfg = blank_cfg();
+        apply_node_credential_fallback(&mut cfg, None);
+        assert!(
+            cfg.node_id.is_none(),
+            "node_id must remain None when no node.json is present"
+        );
+    }
+
+    /// An empty node_id in node.json (shouldn't happen normally) must not set
+    /// cfg.node_id — it would enter federated mode against an empty string.
+    #[test]
+    fn node_credential_fallback_ignores_empty_node_id() {
+        let mut cfg = blank_cfg();
+        let cred = crate::config::NodeCredentialFields {
+            node_id: String::new(), // empty
+            node_jwt: "tok".to_string(),
+            tower_url: "http://tower:8008".to_string(),
+        };
+        apply_node_credential_fallback(&mut cfg, Some(cred));
+        assert!(
+            cfg.node_id.is_none(),
+            "empty node_id in node.json must not trigger federated mode"
+        );
+    }
+
+    /// When backend_url is empty and node.json is used, backend_url is filled
+    /// from node.json's tower_url.
+    #[test]
+    fn node_credential_fallback_fills_backend_url_when_empty() {
+        let mut cfg = blank_cfg();
+        apply_node_credential_fallback(&mut cfg, Some(node_cred("node-xyz")));
+        assert_eq!(
+            cfg.backend_url, "http://tower:8008",
+            "backend_url must be filled from node.json tower_url when empty"
+        );
+    }
+
+    /// If backend_url is already set (e.g. from EP_BASE_URL env), node.json
+    /// must not overwrite it.
+    #[test]
+    fn node_credential_fallback_preserves_existing_backend_url() {
+        let mut cfg = blank_cfg();
+        cfg.backend_url = "http://already-set:8008".to_string();
+        apply_node_credential_fallback(&mut cfg, Some(node_cred("node-xyz")));
+        assert_eq!(
+            cfg.backend_url, "http://already-set:8008",
+            "existing backend_url must not be overwritten by node.json tower_url"
+        );
     }
 
     /// `name`, when present, wins over the public_id-derived profile even when

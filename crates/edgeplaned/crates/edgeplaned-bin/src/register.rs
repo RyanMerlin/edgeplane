@@ -9,12 +9,27 @@ pub struct NodeCredential {
     pub issued_at: String,
 }
 
+/// Build the registration URL for the given tower endpoint.
+///
+/// The tower serves the route at `/api/runtime/nodes/register`. Any trailing
+/// slash on `endpoint` is stripped so the resulting URL is always clean
+/// (e.g. `"http://h:8008"` → `"http://h:8008/api/runtime/nodes/register"`).
+pub fn register_url(endpoint: &str) -> String {
+    let base = endpoint.trim_end_matches('/');
+    format!("{base}/api/runtime/nodes/register")
+}
+
 /// Register this machine as an Edgeplane node.
 ///
-/// Calls `POST {endpoint}/runtime/nodes/register` with the supplied join
+/// Calls `POST {endpoint}/api/runtime/nodes/register` with the supplied join
 /// token, writes the issued JWT to the edgeplaned config bucket
 /// (`$EP_HOME/config/node.json`, default `~/.edgeplane/config/node.json`),
 /// and prints a confirmation.
+///
+/// Note: the bare `endpoint` (without `/api`) is stored in `node.json` as
+/// `tower_url`. The daemon's `BackendClient` prepends `/api` automatically via
+/// `with_api_prefix("/api")`, so storing the raw base URL prevents a
+/// double-prefix (`/api/api/…`) when the daemon reloads the credential.
 pub async fn run(
     join_token: String,
     endpoint: String,
@@ -45,7 +60,7 @@ pub async fn run(
         "bootstrap_token": join_token,
     });
 
-    let url = format!("{endpoint}/runtime/nodes/register");
+    let url = register_url(&endpoint);
     tracing::info!("registering node '{}' at {}", node_name, url);
 
     let resp = reqwest::Client::new()
@@ -123,4 +138,36 @@ fn write_credential(cred: &NodeCredential, path: &std::path::Path) -> anyhow::Re
     std::fs::rename(&tmp, path)
         .with_context(|| format!("failed to rename credential file to {}", path.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn register_url_has_api_prefix() {
+        let url = register_url("http://h:8008");
+        assert!(
+            url.ends_with("/api/runtime/nodes/register"),
+            "expected URL to end with /api/runtime/nodes/register, got: {url}"
+        );
+    }
+
+    #[test]
+    fn register_url_strips_trailing_slash() {
+        let url = register_url("http://h:8008/");
+        assert_eq!(url, "http://h:8008/api/runtime/nodes/register");
+        // No double slash after stripping.
+        assert!(!url.contains("//api"), "double slash found: {url}");
+    }
+
+    #[test]
+    fn register_url_no_double_api_prefix() {
+        // The stored tower_url (bare base) must not produce /api/api/...
+        // This mirrors the daemon contract: BackendClient prepends /api,
+        // so tower_url must be the plain base (no /api suffix).
+        let url = register_url("http://edgeplane:8008");
+        assert!(!url.contains("/api/api"), "double /api prefix found: {url}");
+        assert_eq!(url, "http://edgeplane:8008/api/runtime/nodes/register");
+    }
 }
