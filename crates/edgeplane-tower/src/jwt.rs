@@ -171,6 +171,31 @@ mod tests {
     }
 
     #[test]
+    fn node_jwt_ttl_days_constant_is_one() {
+        // The production TTL must be 24 h (1 day) so the 12-h rotation loop
+        // always has ≥ 12 h of life left after a successful rotation.
+        assert_eq!(crate::routes::runtime::NODE_JWT_TTL_DAYS, 1);
+    }
+
+    #[test]
+    fn node_jwt_exp_reflects_ttl_days() {
+        let (enc, dec) = keypair();
+        let before = chrono::Utc::now().timestamp();
+        let (token, _) = sign_node_jwt("n", &enc, 1).unwrap();
+        let after = chrono::Utc::now().timestamp();
+        let claims = verify_node_jwt(&token, &dec).unwrap();
+        // exp must be ~86400 s after iat (1 day); allow ±2 s for test jitter.
+        let delta = claims.exp - claims.iat;
+        assert!(
+            (86398..=86402).contains(&delta),
+            "expected 1-day TTL (~86400 s), got {delta} s"
+        );
+        // exp must be in the future.
+        assert!(claims.exp > before, "exp {0} <= before {before}", claims.exp);
+        assert!(claims.exp <= after + 86402, "exp {0} too far in the future", claims.exp);
+    }
+
+    #[test]
     fn roundtrip_sign_verify() {
         let (enc, dec) = keypair();
         let (token, jti) = sign_node_jwt("node-abc123", &enc, 90).unwrap();
