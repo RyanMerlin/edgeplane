@@ -249,10 +249,13 @@ mod tests {
 
     #[test]
     fn node_credential_path_is_under_config_bucket() {
-        // Suffix is invariant regardless of EP_HOME/XDG, so this is non-flaky
-        // even with parallel tests. Root resolution itself is covered by the
-        // existing resolve_bucket tests.
-        assert!(super::node_credential_path().ends_with("config/node.json"));
+        // Compose-and-compare against config_dir() (like the sibling tests),
+        // NOT a hardcoded "config/node.json" suffix: the bucket basename is
+        // "config" only for the EP_HOME/default roots — under XDG_CONFIG_HOME
+        // it resolves to "<xdg>/edgeplane" (see resolve_bucket), so a suffix
+        // check is env-fragile and fails in CI where XDG_CONFIG_HOME is set.
+        // This form is env-independent and non-flaky (no process-global env mutation).
+        assert_eq!(super::node_credential_path(), super::config_dir().join("node.json"));
     }
 
     #[test]
