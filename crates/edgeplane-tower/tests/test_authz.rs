@@ -3,6 +3,7 @@ mod common;
 use axum_test::TestServer;
 use common::setup;
 use edgeplane_tower::{AppConfig, build_app};
+use sqlx::Row;
 
 fn server(pool: sqlx::PgPool) -> TestServer {
     TestServer::new(build_app(pool, AppConfig::default()))
@@ -932,5 +933,313 @@ async fn agent_cannot_update_peer_profile() {
         res.status_code().is_success(),
         "full-trust session must be able to update any agent profile: {}",
         res.text()
+    );
+}
+
+// ── DELETE /runtime/nodes/{node_id} ──────────────────────────────────────────
+
+/// DELETE on an unknown node_id must return 404.
+#[tokio::test]
+async fn delete_node_404_for_unknown_node() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool);
+    let res = s
+        .delete("/api/runtime/nodes/no-such-node-id-ever")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert_eq!(res.status_code(), 404, "unknown node: {}", res.text());
+}
+
+/// DELETE by a non-owner must return 403.
+#[tokio::test]
+async fn delete_node_403_for_non_owner() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let node_name = format!("node-403-{}", uuid::Uuid::new_v4().simple());
+    // Node is owned by ctx.owner_session_token's subject.
+    let owner_email = {
+        use edgeplane_tower::auth::hash_token;
+        let hash = hash_token(&ctx.owner_session_token);
+        sqlx::query_scalar::<_, String>(
+            "SELECT subject FROM usersession WHERE token_hash = $1",
+        )
+        .bind(&hash)
+        .fetch_one(&pool)
+        .await
+        .expect("find owner subject")
+    };
+    let node_id = common::seed_runtime_node(&pool, &owner_email, &node_name).await;
+    let s = server(pool);
+
+    // outsider_sa_token does not own this node.
+    let res = s
+        .delete(&format!("/api/runtime/nodes/{node_id}"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.outsider_sa_token),
+        )
+        .await;
+    assert_eq!(res.status_code(), 403, "non-owner must be denied: {}", res.text());
+}
+
+/// DELETE without ?force=true when agents are assigned must return 409.
+#[tokio::test]
+async fn delete_node_409_with_assigned_agents_no_force() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let owner_email = {
+        use edgeplane_tower::auth::hash_token;
+        let hash = hash_token(&ctx.owner_session_token);
+        sqlx::query_scalar::<_, String>(
+            "SELECT subject FROM usersession WHERE token_hash = $1",
+        )
+        .bind(&hash)
+        .fetch_one(&pool)
+        .await
+        .expect("find owner subject")
+    };
+    let node_name = format!("node-409-{}", uuid::Uuid::new_v4().simple());
+    let node_id = common::seed_runtime_node(&pool, &owner_email, &node_name).await;
+    let _agent_id = common::seed_node_agent(&pool, &ctx.domain_id, &node_id).await;
+    let s = server(pool);
+
+    let res = s
+        .delete(&format!("/api/runtime/nodes/{node_id}"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "assigned agents without force must be rejected: {}",
+        res.text()
+    );
+    let body: serde_json::Value = res.json();
+    assert!(
+        body["assigned_agents"].as_i64().unwrap_or(0) >= 1,
+        "response must report assigned_agents count"
+    );
+}
+
+/// DELETE with ?force=true detaches agents, revokes tokens, and removes the node.
+#[tokio::test]
+async fn delete_node_success_with_force_detaches_agents_and_revokes_tokens() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let owner_email = {
+        use edgeplane_tower::auth::hash_token;
+        let hash = hash_token(&ctx.owner_session_token);
+        sqlx::query_scalar::<_, String>(
+            "SELECT subject FROM usersession WHERE token_hash = $1",
+        )
+        .bind(&hash)
+        .fetch_one(&pool)
+        .await
+        .expect("find owner subject")
+    };
+    let node_name = format!("node-force-{}", uuid::Uuid::new_v4().simple());
+    let node_id = common::seed_runtime_node(&pool, &owner_email, &node_name).await;
+    let agent_id = common::seed_node_agent(&pool, &ctx.domain_id, &node_id).await;
+
+    // Insert a nodetoken so we can verify it is revoked.
+    let jti = format!("jti-{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO nodetoken (jti, node_id, revoked, issued_at, expires_at) \
+         VALUES ($1, $2, false, now(), now() + interval '1 day')",
+    )
+    .bind(&jti)
+    .bind(&node_id)
+    .execute(&pool)
+    .await
+    .expect("insert nodetoken");
+
+    let s = server(pool.clone());
+    let res = s
+        .delete(&format!("/api/runtime/nodes/{node_id}?force=true"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "force-delete must succeed: {}",
+        res.text()
+    );
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["deleted"], true);
+    assert_eq!(body["detached_agents"], 1);
+
+    // Verify: runtimenode row is gone.
+    let node_gone: Option<String> =
+        sqlx::query_scalar("SELECT id FROM runtimenode WHERE id = $1")
+            .bind(&node_id)
+            .fetch_optional(&pool)
+            .await
+            .expect("check runtimenode");
+    assert!(node_gone.is_none(), "runtimenode row must be deleted");
+
+    // Verify: meshagent is detached (runtime_node_id = NULL, status = 'offline').
+    let agent_row = sqlx::query(
+        "SELECT runtime_node_id, status FROM meshagent WHERE id = $1",
+    )
+    .bind(&agent_id)
+    .fetch_optional(&pool)
+    .await
+    .expect("check meshagent");
+    let agent_row = agent_row.expect("meshagent row must still exist (identity preserved)");
+    let rnid: Option<String> = agent_row.try_get("runtime_node_id").ok().flatten();
+    assert!(rnid.is_none(), "meshagent.runtime_node_id must be NULL after detach");
+    let status: String = agent_row.try_get("status").expect("status");
+    assert_eq!(status, "offline", "meshagent.status must be 'offline' after detach");
+
+    // Verify: nodetoken row is cascaded/gone (ON DELETE CASCADE on runtimenode).
+    let token_gone: Option<String> =
+        sqlx::query_scalar("SELECT jti FROM nodetoken WHERE jti = $1")
+            .bind(&jti)
+            .fetch_optional(&pool)
+            .await
+            .expect("check nodetoken");
+    assert!(token_gone.is_none(), "nodetoken must be CASCADE-deleted with the node");
+}
+
+/// DELETE with no assigned agents (no force required) must succeed.
+#[tokio::test]
+async fn delete_node_success_no_agents() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let owner_email = {
+        use edgeplane_tower::auth::hash_token;
+        let hash = hash_token(&ctx.owner_session_token);
+        sqlx::query_scalar::<_, String>(
+            "SELECT subject FROM usersession WHERE token_hash = $1",
+        )
+        .bind(&hash)
+        .fetch_one(&pool)
+        .await
+        .expect("find owner subject")
+    };
+    let node_name = format!("node-noagents-{}", uuid::Uuid::new_v4().simple());
+    let node_id = common::seed_runtime_node(&pool, &owner_email, &node_name).await;
+    let s = server(pool.clone());
+
+    let res = s
+        .delete(&format!("/api/runtime/nodes/{node_id}"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "no-agent delete must succeed: {}",
+        res.text()
+    );
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["deleted"], true);
+    assert_eq!(body["detached_agents"], 0);
+
+    let node_gone: Option<String> =
+        sqlx::query_scalar("SELECT id FROM runtimenode WHERE id = $1")
+            .bind(&node_id)
+            .fetch_optional(&pool)
+            .await
+            .expect("check runtimenode after no-agent delete");
+    assert!(node_gone.is_none(), "node must be deleted");
+}
+
+/// A node's own JWT must NOT be able to delete itself (FIX M1: node-self deleted
+/// from authz).  Obtaining a real node JWT requires going through the full
+/// registration flow so the token is signed with the server's actual ephemeral
+/// key and inserted into the nodetoken revocation table.
+///
+/// Steps:
+///   1. Create a join token (owner session).
+///   2. Register a node with that join token — response includes `node_jwt`.
+///   3. DELETE /runtime/nodes/{id} with the node's own JWT → expect 403.
+#[tokio::test]
+async fn delete_node_403_for_node_self_jwt() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // 1. Create a join token (expires in 300s is plenty for a test).
+    let jt_res = s
+        .post("/api/runtime/join-tokens")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"expires_in_seconds": 300}))
+        .await;
+    assert_eq!(
+        jt_res.status_code(),
+        201,
+        "join token create failed: {}",
+        jt_res.text()
+    );
+    let jt_body: serde_json::Value = jt_res.json();
+    let bootstrap_token = jt_body["token"].as_str().expect("join token must contain 'token'");
+
+    // 2. Register a node using the bootstrap token.
+    let node_name = format!("node-selfdelete-{}", uuid::Uuid::new_v4().simple());
+    let reg_res = s
+        .post("/api/runtime/nodes/register")
+        .json(&serde_json::json!({
+            "node_name": node_name,
+            "hostname": "test-host",
+            "bootstrap_token": bootstrap_token,
+        }))
+        .await;
+    assert_eq!(
+        reg_res.status_code(),
+        201,
+        "node register failed: {}",
+        reg_res.text()
+    );
+    let reg_body: serde_json::Value = reg_res.json();
+    let node_id = reg_body["id"].as_str().expect("register must return id");
+    let node_jwt = reg_body["node_jwt"].as_str().expect("register must return node_jwt");
+
+    // 3. Attempt self-delete with the node's own JWT — must be 403.
+    //    Per spec §M1: node-self is excluded from delete authz; only owner
+    //    session or admin may perform an irreversible DELETE.
+    let del_res = s
+        .delete(&format!("/api/runtime/nodes/{node_id}"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {node_jwt}"),
+        )
+        .await;
+    assert_eq!(
+        del_res.status_code(),
+        403,
+        "node self-delete via node JWT must be forbidden (M1): {}",
+        del_res.text()
+    );
+
+    // Confirm the node was NOT deleted (the 403 must have been a hard stop).
+    let still_exists: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM runtimenode WHERE id = $1",
+    )
+    .bind(node_id)
+    .fetch_optional(&pool)
+    .await
+    .expect("check runtimenode after self-delete attempt");
+    assert!(
+        still_exists.is_some(),
+        "node must still exist after a forbidden self-delete attempt"
     );
 }

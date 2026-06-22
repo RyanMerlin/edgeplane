@@ -61,6 +61,8 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane agent node join-token create`↴](#edgeplane-agent-node-join-token-create)
 * [`edgeplane agent node join-token get`↴](#edgeplane-agent-node-join-token-get)
 * [`edgeplane agent node join-token rotate`↴](#edgeplane-agent-node-join-token-rotate)
+* [`edgeplane agent node delete`↴](#edgeplane-agent-node-delete)
+* [`edgeplane agent node ls`↴](#edgeplane-agent-node-ls)
 * [`edgeplane agent attach`↴](#edgeplane-agent-attach)
 * [`edgeplane agent cron`↴](#edgeplane-agent-cron)
 * [`edgeplane agent cron list`↴](#edgeplane-agent-cron-list)
@@ -969,6 +971,8 @@ Resident node-agent control verbs
 * `run` — [removed] The node daemon is now `edgeplaned` — use `edgeplaned run`
 * `doctor` — Inspect local node-agent readiness
 * `join-token` — Manage node join tokens (single-use bootstrap credentials)
+* `delete` — Delete a runtime node from the controlplane
+* `ls` — List runtime nodes visible to the current principal
 
 
 
@@ -1082,6 +1086,36 @@ Rotate a join token (invalidates the old one, issues a new secret)
 ###### **Arguments:**
 
 * `<TOKEN_ID>` — Join token ID (returned by `create`)
+
+
+
+## `edgeplane agent node delete`
+
+Delete a runtime node from the controlplane
+
+**Usage:** `edgeplane agent node delete [OPTIONS] <NODE_ID>`
+
+###### **Arguments:**
+
+* `<NODE_ID>` — Node ID to delete
+
+###### **Options:**
+
+* `--force` — Detach assigned agents before deleting.  Without this flag the request is refused with an error if any meshagent rows are assigned to the node
+
+  Default value: `false`
+
+
+
+## `edgeplane agent node ls`
+
+List runtime nodes visible to the current principal
+
+**Usage:** `edgeplane agent node ls [OPTIONS]`
+
+###### **Options:**
+
+* `--status <STATUS>` — Filter by node status (e.g. `online`, `offline`, `registered`)
 
 
 

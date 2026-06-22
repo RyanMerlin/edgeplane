@@ -403,6 +403,57 @@
         ]
       }
     },
+    "/api/runtime/nodes/{node_id}": {
+      "delete": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Delete a runtime node, detaching its agents and revoking its credentials.",
+        "operationId": "runtime_node_delete_stub",
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "description": "Runtime node UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "description": "Detach assigned agents and delete anyway",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Node deleted; agents detached and tokens revoked"
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          },
+          "403": {
+            "description": "Node does not belong to the caller"
+          },
+          "404": {
+            "description": "Node not found"
+          },
+          "409": {
+            "description": "Node has assigned agents; pass force=true to detach and delete"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/api/runtime/nodes/{node_id}/agents": {
       "get": {
         "tags": [

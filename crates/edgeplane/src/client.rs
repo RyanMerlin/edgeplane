@@ -163,6 +163,21 @@ impl EdgeplaneClient {
         Ok(())
     }
 
+    /// Like `delete`, but also parses and returns the JSON response body.
+    /// Use when the server returns a summary payload (e.g. `{"deleted":true,...}`).
+    pub async fn delete_json(&self, path: &str) -> Result<Value> {
+        let resp = self
+            .request_builder(Method::DELETE, path)?
+            .send()
+            .await
+            .context("request failed")?;
+        Self::check_response(resp)
+            .await?
+            .json::<Value>()
+            .await
+            .context("unable to parse json response")
+    }
+
     pub fn token(&self) -> Option<&str> {
         self.token.as_deref()
     }

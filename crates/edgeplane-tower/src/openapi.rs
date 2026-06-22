@@ -128,6 +128,27 @@ pub fn runtime_nodes_list_stub() {}
 #[allow(dead_code)]
 pub fn runtime_node_agents_stub() {}
 
+/// Delete a runtime node, detaching its agents and revoking its credentials.
+#[utoipa::path(
+    delete,
+    path = "/api/runtime/nodes/{node_id}",
+    tag = "runtime",
+    security(("bearerAuth" = [])),
+    params(
+        ("node_id" = String, Path, description = "Runtime node UUID"),
+        ("force" = Option<bool>, Query, description = "Detach assigned agents and delete anyway")
+    ),
+    responses(
+        (status = 200, description = "Node deleted; agents detached and tokens revoked"),
+        (status = 401, description = "Missing or invalid token"),
+        (status = 403, description = "Node does not belong to the caller"),
+        (status = 404, description = "Node not found"),
+        (status = 409, description = "Node has assigned agents; pass force=true to detach and delete")
+    )
+)]
+#[allow(dead_code)]
+pub fn runtime_node_delete_stub() {}
+
 // ── Onboarding ────────────────────────────────────────────────────────────────
 
 /// Return the agent onboarding manifest for this EdgePlane instance.
@@ -219,6 +240,7 @@ pub fn explorer_node_stub() {}
         agents_get_stub,
         runtime_nodes_list_stub,
         runtime_node_agents_stub,
+        runtime_node_delete_stub,
         onboarding_manifest_stub,
         explorer_tree_stub,
         explorer_node_stub,

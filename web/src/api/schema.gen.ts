@@ -152,6 +152,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runtime/nodes/{node_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a runtime node, detaching its agents and revoking its credentials. */
+        delete: operations["runtime_node_delete_stub"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runtime/nodes/{node_id}/agents": {
         parameters: {
             query?: never;
@@ -795,6 +812,58 @@ export interface operations {
             };
             /** @description Missing or invalid token */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    runtime_node_delete_stub: {
+        parameters: {
+            query?: {
+                /** @description Detach assigned agents and delete anyway */
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Runtime node UUID */
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Node deleted; agents detached and tokens revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Node does not belong to the caller */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Node not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Node has assigned agents; pass force=true to detach and delete */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

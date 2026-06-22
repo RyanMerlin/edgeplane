@@ -37,6 +37,10 @@ pub enum NodeAgentCommand {
     /// Manage node join tokens (single-use bootstrap credentials).
     #[command(subcommand)]
     JoinToken(JoinTokenCommand),
+    /// Delete a runtime node from the controlplane.
+    Delete(NodeDeleteArgs),
+    /// List runtime nodes visible to the current principal.
+    Ls(NodeLsArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -189,6 +193,23 @@ pub struct RuntimeListArgs {
     pub status: Option<String>,
 }
 
+#[derive(Args, Debug)]
+pub struct NodeDeleteArgs {
+    /// Node ID to delete.
+    pub node_id: String,
+    /// Detach assigned agents before deleting.  Without this flag the request
+    /// is refused with an error if any meshagent rows are assigned to the node.
+    #[arg(long, default_value_t = false)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug, Default)]
+pub struct NodeLsArgs {
+    /// Filter by node status (e.g. `online`, `offline`, `registered`).
+    #[arg(long)]
+    pub status: Option<String>,
+}
+
 pub async fn run(
     command: RuntimeCommand,
     client: &EdgeplaneClient,
@@ -211,6 +232,8 @@ pub async fn run_node_agent(
         NodeAgentCommand::Run(args) => run_node_run(args, client).await,
         NodeAgentCommand::Doctor(args) => run_node_doctor(args).await,
         NodeAgentCommand::JoinToken(cmd) => run_join_token(cmd, client).await,
+        NodeAgentCommand::Delete(args) => run_node_delete(args, client).await,
+        NodeAgentCommand::Ls(args) => run_node_ls(args, client).await,
     }
 }
 
@@ -536,6 +559,60 @@ async fn run_node_run(_args: NodeAgentRunArgs, _client: &EdgeplaneClient) -> Res
     Err(anyhow::anyhow!(NODE_RUN_REMOVED_MSG))
 }
 
+async fn run_node_delete(args: NodeDeleteArgs, client: &EdgeplaneClient) -> Result<()> {
+    let path = if args.force {
+        format!("/runtime/nodes/{}?force=true", args.node_id)
+    } else {
+        format!("/runtime/nodes/{}", args.node_id)
+    };
+
+    // The server returns 409 + JSON detail when agents are assigned and force
+    // is not set.  check_response turns non-2xx into an anyhow error carrying
+    // the server's text body, which already includes the human-readable hint.
+    // We intercept that error to surface a cleaner message.
+    match client.delete_json(&path).await {
+        Ok(summary) => {
+            println!("{}", serde_json::to_string_pretty(&summary)?);
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("409") {
+                // Re-surface the server hint without a raw stack trace.
+                anyhow::bail!(
+                    "refused: node has assigned agents — re-run with --force to detach and delete\n\
+                     Server detail: {msg}"
+                );
+            }
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+async fn run_node_ls(args: NodeLsArgs, client: &EdgeplaneClient) -> Result<()> {
+    let path = match args.status.as_deref() {
+        Some(s) if !s.trim().is_empty() => format!("/runtime/nodes?status={s}"),
+        _ => "/runtime/nodes".to_string(),
+    };
+    let nodes = client.get_json(&path).await?;
+    let arr = nodes.as_array().cloned().unwrap_or_default();
+    if arr.is_empty() {
+        println!("(no nodes)");
+        return Ok(());
+    }
+    // Print a concise table: id | name | status | last_heartbeat_at
+    println!("{:<40}  {:<24}  {:<12}  LAST_HEARTBEAT", "ID", "NAME", "STATUS");
+    println!("{}", "-".repeat(100));
+    for node in &arr {
+        let id = node["id"].as_str().unwrap_or("-");
+        let name = node["node_name"].as_str().unwrap_or("-");
+        let status = node["status"].as_str().unwrap_or("-");
+        let heartbeat = node["last_heartbeat_at"].as_str().unwrap_or("-");
+        println!("{id:<40}  {name:<24}  {status:<12}  {heartbeat}");
+    }
+    Ok(())
+}
+
 async fn attach_session(
     args: RuntimeSessionAttachArgs,
     client: &EdgeplaneClient,
@@ -593,10 +670,69 @@ async fn attach_session(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use clap::Parser;
+
     #[test]
     fn node_run_removed_message_points_to_edgeplaned() {
         assert!(super::NODE_RUN_REMOVED_MSG.contains("edgeplaned register"));
         assert!(super::NODE_RUN_REMOVED_MSG.contains("edgeplaned run"));
         assert!(super::NODE_RUN_REMOVED_MSG.contains("removed"));
+    }
+
+    // ── node delete arg-parse ────────────────────────────────────────────────
+
+    /// Minimal CLI wrapper used only for arg-parse tests — mirrors the shape
+    /// of the real `edgeplane agent node` subcommand.
+    #[derive(Parser, Debug)]
+    struct TestCli {
+        #[command(subcommand)]
+        cmd: NodeAgentCommand,
+    }
+
+    #[test]
+    fn node_delete_parses_node_id() {
+        let cli = TestCli::try_parse_from(["test", "delete", "node-abc-123"]).unwrap();
+        let NodeAgentCommand::Delete(args) = cli.cmd else {
+            panic!("expected Delete");
+        };
+        assert_eq!(args.node_id, "node-abc-123");
+        assert!(!args.force);
+    }
+
+    #[test]
+    fn node_delete_parses_force_flag() {
+        let cli =
+            TestCli::try_parse_from(["test", "delete", "node-xyz", "--force"]).unwrap();
+        let NodeAgentCommand::Delete(args) = cli.cmd else {
+            panic!("expected Delete");
+        };
+        assert_eq!(args.node_id, "node-xyz");
+        assert!(args.force);
+    }
+
+    #[test]
+    fn node_delete_requires_node_id() {
+        // Missing positional arg must produce a parse error, not a panic.
+        assert!(TestCli::try_parse_from(["test", "delete"]).is_err());
+    }
+
+    #[test]
+    fn node_ls_parses_no_args() {
+        let cli = TestCli::try_parse_from(["test", "ls"]).unwrap();
+        let NodeAgentCommand::Ls(args) = cli.cmd else {
+            panic!("expected Ls");
+        };
+        assert!(args.status.is_none());
+    }
+
+    #[test]
+    fn node_ls_parses_status_filter() {
+        let cli =
+            TestCli::try_parse_from(["test", "ls", "--status", "online"]).unwrap();
+        let NodeAgentCommand::Ls(args) = cli.cmd else {
+            panic!("expected Ls");
+        };
+        assert_eq!(args.status.as_deref(), Some("online"));
     }
 }
