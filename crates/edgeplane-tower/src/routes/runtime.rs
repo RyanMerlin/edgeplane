@@ -483,6 +483,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // Node operations — static route BEFORE dynamic {node_id} routes
         .route("/runtime/nodes/register", post(register_node))
         .route("/runtime/nodes", get(list_nodes))
+        .route("/runtime/nodes/{node_id}", delete(delete_node))
         .route("/runtime/nodes/{node_id}/rotate-token", post(rotate_node_token))
         .route("/runtime/nodes/{node_id}/heartbeat", post(heartbeat_node))
         .route("/runtime/nodes/{node_id}/config", get(get_node_config))
@@ -1617,6 +1618,240 @@ async fn upgrade_node(
     Path(node_id): Path<String>,
 ) -> impl IntoResponse {
     mutate_node_spec_state(state, node_id, principal.subject, "upgrading").await
+}
+
+// ── Node delete ───────────────────────────────────────────────────────────────
+
+/// Query params for `DELETE /runtime/nodes/{node_id}`.
+#[derive(serde::Deserialize, Default)]
+struct DeleteNodeQuery {
+    /// When `true`, detach assigned meshagent rows before deleting the node.
+    /// Without this flag the request is refused with 409 if any are present.
+    #[serde(default)]
+    force: bool,
+}
+
+/// `DELETE /runtime/nodes/{node_id}`
+///
+/// Removes a runtime node from the controlplane.  The operation is safe with
+/// respect to agent *identity* and audit history:
+///
+/// - Canonical `agent` rows are never touched — per entities.md § MeshAgent,
+///   `meshagent` is the runtime-bound projection (presence + capability) while
+///   `agent` is the permanent identity.  We only detach projections here.
+/// - `agentrun.mesh_agent_id` is `ON DELETE SET NULL` (migration 0001), so
+///   completed run audit trails survive even when meshagent rows are removed.
+/// - `nodetoken` rows carry `ON DELETE CASCADE` (migration 0002), so they
+///   are automatically cleaned up when the runtimenode row is deleted; the
+///   explicit revocation pass before deletion closes the re-use window for
+///   any live JWTs that may still be in-flight.
+/// - `runtimenodespec` has no FK to `runtimenode`, so it is deleted
+///   explicitly before the node row.
+/// - `runtimejointoken` has no FK constraint; join tokens whose `node_id`
+///   matches are soft-revoked (status → 'revoked') so they cannot bootstrap
+///   new nodes after this node is gone.
+///
+/// ## Authorization
+/// Owner-or-admin only (entities.md § Agent, spec §M1).  Node self-delete via
+/// a node JWT is explicitly excluded — an irreversible DELETE must not be
+/// reachable via a leaked node credential.
+///   1. admin → always allowed
+///   2. owner_subject match → allowed
+///   3. node JWT for its own node_id → NOT allowed (403)
+///
+/// ## Atomicity
+/// All mutating SQL (detach, revoke tokens, delete spec, delete node) executes
+/// inside a single transaction.  A concurrent re-enroll either serialises
+/// behind the transaction or causes a clean rollback — never the intermediate
+/// state where credentials are revoked but the runtimenode row still exists.
+///
+/// ## Responses
+/// - **404** — node not found
+/// - **403** — caller is not the owner / not admin (includes node-self JWT)
+/// - **409** — node has assigned meshagent rows and `?force=true` was not passed
+/// - **200** — deleted; JSON summary of what was cleaned up
+async fn delete_node(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(node_id): Path<String>,
+    Query(q): Query<DeleteNodeQuery>,
+) -> impl IntoResponse {
+    let now = Utc::now().naive_utc();
+
+    // 1. Verify node exists and caller is authorised (owner or admin only — no node-self).
+    //    Uses the same plain-equality comparison as `require_node_owner` and the
+    //    owner branch of `is_authorized_for_node` (both use `==`, case-sensitive).
+    let owner_check = sqlx::query_scalar::<_, String>(
+        "SELECT owner_subject FROM runtimenode WHERE id = $1",
+    )
+    .bind(&node_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let owner = match owner_check {
+        Ok(Some(o)) => o,
+        Ok(None) => return not_found("node not found"),
+        Err(e) => {
+            tracing::error!("delete_node owner lookup: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    // Node-self JWTs (auth_type == "node") are intentionally excluded: an
+    // irreversible DELETE must not be reachable from a leaked node credential.
+    if !(principal.is_admin || principal.subject == owner) {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"detail": "node does not belong to you"}))).into_response();
+    }
+
+    // 2. Count active meshagent rows for this node.
+    //    Per entities.md § MeshAgent: meshagent.runtime_node_id is the
+    //    canonical FK; node_id is the legacy column kept for compatibility.
+    //    We check both so older enrollment rows aren't missed.
+    let agent_count: i64 = match sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM meshagent WHERE runtime_node_id = $1 OR node_id = $1",
+    )
+    .bind(&node_id)
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::error!("delete_node agent count: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    if agent_count > 0 && !q.force {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "detail": format!(
+                    "node has {agent_count} assigned agent{}; pass ?force=true to detach and delete",
+                    if agent_count == 1 { "" } else { "s" }
+                ),
+                "assigned_agents": agent_count,
+            })),
+        )
+            .into_response();
+    }
+
+    // 3–7. All mutating steps inside a single transaction so the operation is
+    //      all-or-nothing.  If any step fails the function returns 500 and the
+    //      transaction is dropped → automatic rollback.  No explicit rollback
+    //      call is needed.
+    let mut tx = match state.db.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("delete_node begin: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    // 3. Detach meshagent rows (force path only).
+    //    Disposition per entities.md § MeshAgent: set runtime_node_id=NULL and
+    //    node_id=NULL and mark status='offline'.  We do NOT delete the meshagent
+    //    rows themselves or the canonical `agent` rows — that would destroy
+    //    identity.  Completed runs survive because agentrun.mesh_agent_id is
+    //    ON DELETE SET NULL.  This mirrors what drain_node does (detach, not
+    //    destroy).  Clearing node_id as well ensures a detached row matches
+    //    neither the canonical nor the legacy column.
+    if agent_count > 0
+        && let Err(e) = sqlx::query(
+            "UPDATE meshagent \
+             SET runtime_node_id = NULL, node_id = NULL, \
+                 status = 'offline', last_heartbeat_at = $1 \
+             WHERE runtime_node_id = $2 OR node_id = $2",
+        )
+        .bind(now)
+        .bind(&node_id)
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!("delete_node detach agents: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    // 4. Revoke nodetoken rows.
+    //    Although nodetoken has ON DELETE CASCADE (migration 0002) and will be
+    //    auto-deleted with the runtimenode row, we explicitly revoke first so
+    //    that any live JWTs still in-flight (within their TTL window) are
+    //    immediately rejected by the auth extractor's revocation check — without
+    //    this a deleted node could continue issuing authenticated requests until
+    //    its token expired.
+    let revoked_tokens: i64 = match sqlx::query_scalar::<_, i64>(
+        "WITH updated AS ( \
+             UPDATE nodetoken SET revoked = true, revoked_at = $1 \
+             WHERE node_id = $2 AND revoked = false \
+             RETURNING 1 \
+         ) SELECT COUNT(*) FROM updated",
+    )
+    .bind(now)
+    .bind(&node_id)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::error!("delete_node revoke nodetokens: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    // 5. Soft-revoke runtimejointoken rows for this node (status → 'revoked').
+    //    runtimejointoken has no FK to runtimenode, so these rows would become
+    //    orphaned dangling records; invalidating them prevents re-use as
+    //    bootstrap credentials.
+    if let Err(e) = sqlx::query(
+        "UPDATE runtimejointoken SET status = 'revoked', updated_at = $1 \
+         WHERE node_id = $2 AND status != 'revoked'",
+    )
+    .bind(now)
+    .bind(&node_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!("delete_node revoke jointokens: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    // 6. Delete runtimenodespec rows (no FK cascade — plain node_id text column).
+    if let Err(e) = sqlx::query("DELETE FROM runtimenodespec WHERE node_id = $1")
+        .bind(&node_id)
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!("delete_node spec: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    // 7. Delete the runtimenode row.  nodetoken rows cascade automatically per
+    //    migration 0002 (ON DELETE CASCADE).  meshagent rows were already
+    //    detached (runtime_node_id=NULL, node_id=NULL) so the FK constraint is
+    //    satisfied.
+    if let Err(e) = sqlx::query("DELETE FROM runtimenode WHERE id = $1")
+        .bind(&node_id)
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!("delete_node runtimenode: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    // Commit — all six mutations succeed or none do.
+    match tx.commit().await {
+        Ok(()) => {}
+        Err(e) => {
+            tracing::error!("delete_node commit: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    }
+
+    Json(serde_json::json!({
+        "deleted": true,
+        "node_id": node_id,
+        "detached_agents": agent_count,
+        "revoked_tokens": revoked_tokens,
+    }))
+    .into_response()
 }
 
 // ── Node-scoped agents (Phase 6 sync-loop substrate) ──────────────────────────

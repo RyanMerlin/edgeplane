@@ -233,6 +233,54 @@ pub async fn seed_overlap_suggestion(db: &PgPool, task_id: i32) -> i32 {
     id
 }
 
+/// Insert a `runtimenode` row owned by `owner_subject`. Returns the node id.
+///
+/// Fills all NOT-NULL columns from `0001_initial_schema.sql`:
+///   id, owner_subject, node_name, hostname, status, trust_tier,
+///   labels_json, capacity_json, capabilities_json, runtime_version,
+///   bootstrap_token_prefix, registered_at, updated_at.
+/// node_name has a UNIQUE constraint — pass a unique value (e.g. include a UUID).
+pub async fn seed_runtime_node(db: &PgPool, owner_subject: &str, node_name: &str) -> String {
+    let node_id = format!("node-{}", Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO runtimenode \
+         (id, owner_subject, node_name, hostname, status, trust_tier, \
+          labels_json, capacity_json, capabilities_json, \
+          runtime_version, bootstrap_token_prefix, registered_at, updated_at) \
+         VALUES ($1, $2, $3, 'localhost', 'online', 'untrusted', \
+                 '{}', '{}', '[]', '0.0.0', 'testpfx', now(), now())",
+    )
+    .bind(&node_id)
+    .bind(owner_subject)
+    .bind(node_name)
+    .execute(db)
+    .await
+    .expect("insert runtimenode");
+    node_id
+}
+
+/// Insert a `meshagent` row assigned to `runtime_node_id`. Returns the agent id.
+///
+/// Used to test the 409 / force-detach paths in `DELETE /runtime/nodes/{id}`.
+pub async fn seed_node_agent(db: &PgPool, domain_id: &str, node_id: &str) -> String {
+    let agent_id = format!("agent-{}", Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO meshagent \
+         (id, domain_id, runtime_node_id, node_id, runtime_kind, runtime_version, status, \
+          enrolled_by_subject, capabilities, labels, profile_json, machine_json, \
+          runtime_json, enrolled_at) \
+         VALUES ($1, $2, $3, $3, 'test', '', 'online', 'harness', '[]', '{}', \
+                 '{}', '{}', '{}', now())",
+    )
+    .bind(&agent_id)
+    .bind(domain_id)
+    .bind(node_id)
+    .execute(db)
+    .await
+    .expect("insert node meshagent");
+    agent_id
+}
+
 pub async fn setup() -> Option<(PgPool, Ctx)> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = PgPool::connect(&url)

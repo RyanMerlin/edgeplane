@@ -1,5 +1,6 @@
 import { apiClient, unwrap } from '@/api/client';
 import type { components } from '@/api/schema.gen';
+import { DeleteNodeButton } from '@/components/nodes/DeleteNodeButton';
 import { queryKeys } from '@/lib/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { Link, createFileRoute, useParams } from '@tanstack/react-router';
@@ -225,6 +226,22 @@ export function NodeDetailPage() {
           </dl>
         </div>
       )}
+
+      <div data-testid="node-danger-zone" style={{ marginTop: 24 }}>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 590,
+            color: 'var(--dim)',
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            marginBottom: 8,
+          }}
+        >
+          Danger Zone
+        </div>
+        <DeleteNodeButton nodeId={node.id} nodeName={node.node_name} />
+      </div>
     </div>
   );
 }
