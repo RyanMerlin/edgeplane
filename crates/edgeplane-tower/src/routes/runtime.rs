@@ -2808,6 +2808,31 @@ async fn run_attach_proxy(
 //
 // The plan: docs/plans/2026-05-10-edgeplaned-controlplane-driven-enrollment.md.
 
+/// Evaluate whether `principal` is authorized to access the node-reconcile
+/// endpoints for `node_id`.
+///
+/// Trust order (first match wins, same as `rotate_node_token`):
+///  1. Admin — unrestricted.
+///  2. Node self-auth — the principal carries a tower-verified node JWT whose
+///     `sub` claim equals `"node:{node_id}"`.  Because `principal.auth_type ==
+///     "node"` is only set after RS256 signature verification **and** a live
+///     JTI lookup in the `nodetoken` table, this claim is unforgeable by any
+///     client.  A node can only satisfy this check for *its own* `node_id`.
+///  3. Owner-subject match — the OIDC/SA subject of the caller equals the
+///     `owner_subject` stored when the node was registered.
+///
+/// This function is pure (no I/O) so it can be exercised by unit tests
+/// independently of the handlers that call it.
+fn is_authorized_for_node(principal: &Principal, node_id: &str, owner_subject: &str) -> bool {
+    if principal.is_admin {
+        return true;
+    }
+    if principal.auth_type == "node" {
+        return principal.subject == format!("node:{node_id}");
+    }
+    principal.subject == owner_subject
+}
+
 /// `GET /runtime/nodes/{node_id}/agents`
 ///
 /// List the meshagent rows assigned to this runtime node — i.e. rows where
@@ -2837,7 +2862,7 @@ async fn list_node_agents(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-    if owner != principal.subject && !principal.is_admin {
+    if !is_authorized_for_node(&principal, &node_id, &owner) {
         return (StatusCode::FORBIDDEN, "node does not belong to you").into_response();
     }
 
@@ -2900,9 +2925,10 @@ async fn node_notify_ws(
     .fetch_optional(&state.db)
     .await;
     match owner_check {
-        Ok(Some(owner)) if owner == principal.subject || principal.is_admin => {}
-        Ok(Some(_)) => {
-            return (StatusCode::FORBIDDEN, "node does not belong to you").into_response();
+        Ok(Some(owner)) => {
+            if !is_authorized_for_node(&principal, &node_id, &owner) {
+                return (StatusCode::FORBIDDEN, "node does not belong to you").into_response();
+            }
         }
         Ok(None) => return (StatusCode::NOT_FOUND, "node not found").into_response(),
         Err(e) => {
@@ -3006,5 +3032,83 @@ mod attach_proxy_tests {
         // Different inputs produce different signatures.
         assert_ne!(sig, sign_attach_token("s3cret", "agent-2", 1_700_000_000));
         assert_ne!(sig, sign_attach_token("other", "agent-1", 1_700_000_000));
+    }
+}
+
+#[cfg(test)]
+mod node_self_auth_tests {
+    use super::is_authorized_for_node;
+    use crate::auth::Principal;
+
+    fn make_principal(subject: &str, is_admin: bool, auth_type: &str) -> Principal {
+        Principal {
+            subject: subject.into(),
+            is_admin,
+            session_id: None,
+            auth_type: auth_type.into(),
+            domain_scope: Vec::new(),
+        }
+    }
+
+    // ── node self-auth: own node ─────────────────────────────────────────────
+
+    /// A node JWT presenting its own node_id must be allowed.
+    #[test]
+    fn node_jwt_own_node_allowed() {
+        let p = make_principal("node:node-A", false, "node");
+        assert!(is_authorized_for_node(&p, "node-A", "user@example.com"));
+    }
+
+    /// A node JWT for a different node_id must be denied — cross-node blocked.
+    #[test]
+    fn node_jwt_cross_node_denied() {
+        let p = make_principal("node:node-A", false, "node");
+        assert!(!is_authorized_for_node(&p, "node-B", "user@example.com"));
+    }
+
+    // ── owner (human/SA session) ─────────────────────────────────────────────
+
+    /// The registering owner is still allowed (existing behaviour preserved).
+    #[test]
+    fn owner_session_allowed() {
+        let p = make_principal("user@example.com", false, "session");
+        assert!(is_authorized_for_node(&p, "node-A", "user@example.com"));
+    }
+
+    /// A non-owner user session is denied (existing behaviour preserved).
+    #[test]
+    fn non_owner_session_denied() {
+        let p = make_principal("attacker@example.com", false, "session");
+        assert!(!is_authorized_for_node(&p, "node-A", "user@example.com"));
+    }
+
+    // ── admin ────────────────────────────────────────────────────────────────
+
+    /// An admin is always allowed regardless of ownership.
+    #[test]
+    fn admin_always_allowed() {
+        let p = make_principal("admin@example.com", true, "session");
+        assert!(is_authorized_for_node(&p, "node-A", "someone-else@example.com"));
+    }
+
+    // ── agent JWT cannot satisfy node-self ───────────────────────────────────
+
+    /// An agent JWT must NOT satisfy the node self-auth path, even if someone
+    /// crafted a subject that looks like a node subject.  `auth_type == "agent"`
+    /// routes to the owner-subject branch, which then fails.
+    #[test]
+    fn agent_jwt_denied_even_with_node_like_subject() {
+        // An agent can't actually get subject "node:X" because AgentClaims.sub
+        // uses the "agent:" prefix, but we test the type gate explicitly anyway.
+        let p = make_principal("node:node-A", false, "agent");
+        // auth_type != "node", so falls through to owner check: "node:node-A" != "user@example.com"
+        assert!(!is_authorized_for_node(&p, "node-A", "user@example.com"));
+    }
+
+    /// A service account JWT must NOT satisfy the node self-auth path.
+    #[test]
+    fn service_account_jwt_denied() {
+        let p = make_principal("sa:my-service", false, "service_account");
+        assert!(!is_authorized_for_node(&p, "node-A", "user@example.com"));
     }
 }
