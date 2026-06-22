@@ -97,7 +97,7 @@ pub async fn run(
     };
 
     let cred_path = edgeplaned_paths::node_credential_path();
-    write_credential(&cred, &cred_path)?;
+    write_node_credential_file(&cred, &cred_path)?;
 
     println!("Node registered: {node_id}");
     println!("Credentials saved to {}", cred_path.display());
@@ -106,7 +106,12 @@ pub async fn run(
     Ok(())
 }
 
-fn write_credential(cred: &NodeCredential, path: &std::path::Path) -> anyhow::Result<()> {
+/// Write `cred` atomically to `path`.
+///
+/// Used both by `register::run` (initial enrollment) and by
+/// `config::write_node_credential_token` (live rotation). Exposed as `pub`
+/// so `config.rs` can call it without duplicating the atomic-write logic.
+pub fn write_node_credential_file(cred: &NodeCredential, path: &std::path::Path) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;

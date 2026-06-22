@@ -1,6 +1,7 @@
 use anyhow::Result;
 use reqwest::{Client, Response};
 use serde::{de::DeserializeOwned, Serialize};
+use std::sync::{Arc, RwLock};
 
 /// Thin HTTP client with bearer auth for the Edgeplane backend.
 ///
@@ -11,10 +12,15 @@ use serde::{de::DeserializeOwned, Serialize};
 /// controlplane router; setting `api_prefix = "/work"` reproduces the
 /// historical behaviour for environments that still front the API behind
 /// that path. See `docs/plans/2026-05-11-agent-public-id-edgeplaned-fix.md`.
+///
+/// The bearer token is held in an `Arc<RwLock<String>>` so that all clones
+/// of a `BackendClient` share the same live credential.  Calling `set_token`
+/// on any handle updates every consumer (heartbeat loop, WS reconnect, task
+/// worker) atomically.
 #[derive(Clone)]
 pub struct BackendClient {
     pub base_url: String,
-    pub token: String,
+    token: Arc<RwLock<String>>,
     pub api_prefix: String,
     inner: Client,
 }
@@ -23,7 +29,7 @@ impl BackendClient {
     pub fn new(base_url: impl Into<String>, token: impl Into<String>) -> Self {
         BackendClient {
             base_url: base_url.into(),
-            token: token.into(),
+            token: Arc::new(RwLock::new(token.into())),
             api_prefix: String::new(),
             inner: Client::new(),
         }
@@ -46,7 +52,24 @@ impl BackendClient {
     }
 
     fn auth_header(&self) -> String {
-        format!("Bearer {}", self.token)
+        format!("Bearer {}", self.token.read().unwrap())
+    }
+
+    /// Return a snapshot of the current bearer token.
+    ///
+    /// Acquires the read lock momentarily; safe to call from any context
+    /// including inside an async task (the lock is held only for the clone,
+    /// never across an `.await`).
+    pub fn current_token(&self) -> String {
+        self.token.read().unwrap().clone()
+    }
+
+    /// Replace the bearer token used by this client and all its clones.
+    ///
+    /// All subsequent requests issued by any clone will use the new value.
+    /// The write lock is held only for the assignment — never across `.await`.
+    pub fn set_token(&self, new: impl Into<String>) {
+        *self.token.write().unwrap() = new.into();
     }
 
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
@@ -167,5 +190,66 @@ impl BackendClient {
             .post_empty(&format!("/work/agents/{agent_id}/token"))
             .await?;
         Ok(resp.agent_token)
+    }
+
+    /// Call `POST /runtime/nodes/{node_id}/rotate-token` (no body) and return
+    /// the freshly-issued node JWT.
+    ///
+    /// The tower revokes the current active JTI and issues a new one with a
+    /// 24-h TTL.  The daemon's rotation loop calls this, then persists the new
+    /// token to `node.json` before calling `set_token` so a crash between
+    /// persist and live-swap doesn't leave the stored credential stale.
+    pub async fn rotate_node_token(&self, node_id: &str) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct RotateResponse {
+            node_jwt: String,
+        }
+        let resp: RotateResponse = self
+            .post_empty(&format!("/runtime/nodes/{node_id}/rotate-token"))
+            .await?;
+        Ok(resp.node_jwt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_token_is_observed_by_clone() {
+        let client = BackendClient::new("http://localhost:8008", "initial-token");
+        let cloned = client.clone();
+
+        // Mutation on the original is seen by the clone.
+        client.set_token("rotated-token");
+        assert_eq!(cloned.current_token(), "rotated-token");
+    }
+
+    #[test]
+    fn set_token_is_observed_by_original_after_clone_mutates() {
+        let client = BackendClient::new("http://localhost:8008", "v1");
+        let cloned = client.clone();
+
+        // Mutation on the clone is seen by the original.
+        cloned.set_token("v2");
+        assert_eq!(client.current_token(), "v2");
+    }
+
+    #[test]
+    fn auth_header_reflects_current_token() {
+        let client = BackendClient::new("http://localhost:8008", "tok-a");
+        assert_eq!(client.auth_header(), "Bearer tok-a");
+        client.set_token("tok-b");
+        assert_eq!(client.auth_header(), "Bearer tok-b");
+    }
+
+    #[test]
+    fn multiple_clones_share_one_arc() {
+        let c1 = BackendClient::new("http://localhost:8008", "start");
+        let c2 = c1.clone();
+        let c3 = c2.clone();
+        c3.set_token("end");
+        assert_eq!(c1.current_token(), "end");
+        assert_eq!(c2.current_token(), "end");
     }
 }

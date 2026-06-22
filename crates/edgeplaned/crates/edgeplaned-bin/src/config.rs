@@ -312,6 +312,34 @@ pub fn read_node_credential() -> Option<NodeCredentialFields> {
     })
 }
 
+/// Replace the `node_jwt` field in `$EP_HOME/config/node.json` with `new_token`,
+/// preserving all other fields (`node_id`, `tower_url`, `issued_at`).
+///
+/// Uses an atomic write-then-rename so a crash between the write and rename
+/// leaves the file either fully updated or untouched (never truncated / half-written).
+/// The temp file is written with 0o600 permissions so the token is never briefly
+/// group/world readable.
+///
+/// Errors are propagated to the caller (the rotation loop logs and continues).
+pub fn write_node_credential_token(new_token: &str) -> anyhow::Result<()> {
+    write_node_credential_token_at_path(new_token, &edgeplaned_paths::node_credential_path())
+}
+
+/// Testable inner implementation. Separated so tests can supply an explicit path
+/// without mutating the process-global `EP_HOME` env var (which would be racy
+/// in a parallel test runner).
+pub(crate) fn write_node_credential_token_at_path(
+    new_token: &str,
+    path: &std::path::Path,
+) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("reading node credential at {}", path.display()))?;
+    let mut cred: crate::register::NodeCredential = serde_json::from_str(&content)
+        .with_context(|| "parsing node credential JSON")?;
+    cred.node_jwt = new_token.to_string();
+    crate::register::write_node_credential_file(&cred, path)
+}
+
 fn read_mc_base_url() -> Option<String> {
     let content = std::fs::read_to_string(edgeplaned_paths::cli_config_path()).ok()?;
     let cfg: EdgeplaneConfig = serde_json::from_str(&content).ok()?;
@@ -432,5 +460,64 @@ impl DaemonConfig {
 
     pub fn user_config_path() -> PathBuf {
         paths::mcd_config_path()
+    }
+}
+
+#[cfg(test)]
+mod credential_token_tests {
+    use super::*;
+    use crate::register::{NodeCredential, write_node_credential_file};
+    use tempfile::tempdir;
+
+    /// Build a minimal `NodeCredential` for testing.
+    fn sample_cred(token: &str) -> NodeCredential {
+        NodeCredential {
+            node_id: "node-abc".to_string(),
+            node_jwt: token.to_string(),
+            tower_url: "http://edgeplane:8008".to_string(),
+            issued_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn write_token_replaces_only_node_jwt() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("node.json");
+
+        // Write an initial credential.
+        let original = sample_cred("old-jwt-value");
+        write_node_credential_file(&original, &path).unwrap();
+
+        // Rotate just the token.
+        write_node_credential_token_at_path("new-jwt-value", &path).unwrap();
+
+        // Verify: token updated, all other fields preserved.
+        let content = std::fs::read_to_string(&path).unwrap();
+        let updated: NodeCredential = serde_json::from_str(&content).unwrap();
+        assert_eq!(updated.node_jwt, "new-jwt-value", "token should be updated");
+        assert_eq!(updated.node_id, "node-abc", "node_id must not change");
+        assert_eq!(updated.tower_url, "http://edgeplane:8008", "tower_url must not change");
+        assert_eq!(updated.issued_at, "2026-01-01T00:00:00Z", "issued_at must not change");
+    }
+
+    #[test]
+    fn write_token_is_idempotent() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("node.json");
+
+        write_node_credential_file(&sample_cred("tok-1"), &path).unwrap();
+        write_node_credential_token_at_path("tok-2", &path).unwrap();
+        write_node_credential_token_at_path("tok-2", &path).unwrap(); // second write is fine
+        let content = std::fs::read_to_string(&path).unwrap();
+        let c: NodeCredential = serde_json::from_str(&content).unwrap();
+        assert_eq!(c.node_jwt, "tok-2");
+    }
+
+    #[test]
+    fn write_token_fails_cleanly_for_missing_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("does-not-exist.json");
+        let result = write_node_credential_token_at_path("tok", &path);
+        assert!(result.is_err(), "should return Err for missing file");
     }
 }

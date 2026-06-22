@@ -255,7 +255,6 @@ pub async fn poll_assignments<F, Fut>(
 /// truth.
 pub async fn watch_assignments_ws<F, Fut>(
     backend_url: String,
-    token: String,
     node_id: String,
     client: Arc<BackendClient>,
     running: RunningAgents,
@@ -268,6 +267,10 @@ pub async fn watch_assignments_ws<F, Fut>(
 
     loop {
         let url = ws_url(&backend_url, &client.api_prefix, &node_id);
+        // Read the live token at each (re)connect so a rotation between
+        // attempts uses the current credential rather than the one captured
+        // at daemon start.
+        let token = client.current_token();
         match connect_and_pump(&url, &token).await {
             Ok(()) => {
                 // Clean disconnect — reset backoff, reconnect immediately.

@@ -17,6 +17,13 @@ use uuid::Uuid;
 
 use crate::{auth::Principal, state::AppState};
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+/// Node JWT TTL.  24 h keeps the exposure window tight while giving the daemon
+/// (which rotates at 12 h) ≥12 h of remaining life after each rotation, even
+/// if one cycle fails.
+pub(crate) const NODE_JWT_TTL_DAYS: i64 = 1;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn hash_token_local(token: &str) -> String {
@@ -893,15 +900,15 @@ async fn register_node(
     )
     .await;
 
-    // 9. Issue RS256 node JWT (90-day TTL).
-    let (node_jwt, jti) = match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, 90) {
+    // 9. Issue RS256 node JWT (24-h TTL; see NODE_JWT_TTL_DAYS).
+    let (node_jwt, jti) = match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, NODE_JWT_TTL_DAYS) {
         Ok(pair) => pair,
         Err(e) => {
             tracing::error!("register_node jwt sign: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-    let jwt_expires = now + chrono::Duration::days(90);
+    let jwt_expires = now + chrono::Duration::days(NODE_JWT_TTL_DAYS);
     let _ = sqlx::query(
         "INSERT INTO nodetoken (jti, node_id, revoked, issued_at, expires_at) VALUES ($1,$2,false,$3,$4)",
     )
@@ -962,14 +969,14 @@ async fn rotate_node_token(
     .execute(&state.db)
     .await;
 
-    let (node_jwt, jti) = match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, 90) {
+    let (node_jwt, jti) = match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, NODE_JWT_TTL_DAYS) {
         Ok(pair) => pair,
         Err(e) => {
             tracing::error!("rotate_node_token jwt sign: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-    let jwt_expires = now + chrono::Duration::days(90);
+    let jwt_expires = now + chrono::Duration::days(NODE_JWT_TTL_DAYS);
     let _ = sqlx::query(
         "INSERT INTO nodetoken (jti, node_id, revoked, issued_at, expires_at) VALUES ($1,$2,false,$3,$4)",
     )
