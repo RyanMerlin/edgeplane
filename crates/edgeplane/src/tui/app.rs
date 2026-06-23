@@ -382,7 +382,7 @@ impl App {
                         WorkRequest::OidcFlow {
                             job_id,
                             base_url: self.base_url.clone(),
-                            ttl_hours: 8,
+                            ttl_hours: crate::auth::resolve_login_ttl_hours(None),
                         },
                     );
                     self.modal = Some(AppModal::OidcLogin {
@@ -855,7 +855,7 @@ impl App {
                             WorkRequest::OidcFlow {
                                 job_id,
                                 base_url: self.base_url.clone(),
-                                ttl_hours: 8,
+                                ttl_hours: crate::auth::resolve_login_ttl_hours(None),
                             },
                         );
                     } else {

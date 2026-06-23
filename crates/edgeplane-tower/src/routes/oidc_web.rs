@@ -1290,6 +1290,11 @@ async fn exchange_grant(
 
     let grant_id: String = grant.get("id");
     let subject: String = grant.get("subject");
+    // Carry the OIDC email through to the session row. Admin status is derived
+    // from this email (auth::is_admin_email), so dropping it here is what made
+    // CLI `edgeplane auth login` sessions never admin. The browser PKCE callback
+    // already threads email; this brings the CLI exchange to parity.
+    let email: Option<String> = grant.get("email");
 
     let ua = headers
         .get(header::USER_AGENT)
@@ -1298,11 +1303,11 @@ async fn exchange_grant(
         .to_string();
 
     let ttl = body.ttl_hours
-        .filter(|&h| h > 0 && h <= 8760)
+        .filter(|&h| h > 0 && h <= 87_600) // up to 10 years; matches CLI MAX_SESSION_TTL_HOURS
         .unwrap_or(cfg.session_ttl_hours);
 
     let (token, _session_id, expires_at) =
-        match issue_session_token(&state.db, &subject, None, None, &ua, ttl).await {
+        match issue_session_token(&state.db, &subject, email.as_deref(), None, &ua, ttl).await {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("exchange_grant: issue_session: {e}");
@@ -1326,6 +1331,7 @@ async fn exchange_grant(
             "access_token": token,
             "token_type": "Bearer",
             "subject": subject,
+            "email": email,
             "expires_at": expires_at,
         })),
     )

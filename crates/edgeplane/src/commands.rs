@@ -2383,7 +2383,8 @@ async fn handle_init(
             eprintln!("edgeplane: running `edgeplane auth login` to authenticate...");
             if let Err(err) = auth::login(
                 auth::LoginArgs {
-                    ttl_hours: 8,
+                    // None → use the configured default TTL (see agent_harness auto-login).
+                    ttl_hours: None,
                     print_token: false,
                     non_interactive: false,
                     with_token: false,

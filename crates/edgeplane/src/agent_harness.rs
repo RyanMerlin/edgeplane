@@ -425,7 +425,9 @@ pub async fn run_driver_agent(
             ep_info!("running `edgeplane auth login` to authenticate...");
             auth::login(
                 auth::LoginArgs {
-                    ttl_hours: 8,
+                    // None → use the configured default (default_session_ttl_hours, else 365d),
+                    // so agent auto-login honours the same single TTL knob as interactive login.
+                    ttl_hours: None,
                     print_token: false,
                     non_interactive: false,
                     with_token: false,
