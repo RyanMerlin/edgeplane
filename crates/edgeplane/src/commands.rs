@@ -175,6 +175,23 @@ pub enum EdgeplaneCommand {
     Discover(crate::cli_schema::DiscoverArgs),
 }
 
+impl EdgeplaneCommand {
+    /// Returns `true` for commands that must work without a configured server
+    /// (bootstrap / offline / local-only). These commands are allowed to run
+    /// even when `resolve_startup_base_url` returns `None`; the client is built
+    /// with an `OFFLINE_PLACEHOLDER_BASE_URL` and must not dial the network.
+    pub fn allows_offline(&self) -> bool {
+        matches!(
+            self,
+            EdgeplaneCommand::Context(_)
+                | EdgeplaneCommand::Completion(_)
+                | EdgeplaneCommand::Version(_)
+                | EdgeplaneCommand::Auth(_)
+                | EdgeplaneCommand::Init(_)
+        )
+    }
+}
+
 #[derive(Subcommand, Debug)]
 pub enum ContextCommand {
     /// List all configured contexts, marking the active one with *.
@@ -3910,4 +3927,50 @@ async fn handle_task(
         }
     }
     Ok(())
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify that bootstrap/offline commands report allows_offline = true,
+    /// and that online commands report false.
+    #[test]
+    fn allows_offline_allowlist() {
+        // Bootstrap/offline commands — must be true.
+        let context_cmd = EdgeplaneCommand::Context(ContextCommand::List);
+        assert!(context_cmd.allows_offline(), "Context should be offline-allowed");
+
+        let version_cmd = EdgeplaneCommand::Version(VersionArgs::default());
+        assert!(version_cmd.allows_offline(), "Version should be offline-allowed");
+
+        let auth_cmd = EdgeplaneCommand::Auth(AuthCommand::Whoami(crate::auth::WhoamiArgs {}));
+        assert!(auth_cmd.allows_offline(), "Auth should be offline-allowed");
+
+        let init_cmd = EdgeplaneCommand::Init(InitArgs {
+            profile: "default".to_string(),
+            repo: None,
+        });
+        assert!(init_cmd.allows_offline(), "Init should be offline-allowed");
+
+        let completion_cmd = EdgeplaneCommand::Completion(CompletionArgs {
+            shell: clap_complete::Shell::Bash,
+        });
+        assert!(completion_cmd.allows_offline(), "Completion should be offline-allowed");
+    }
+
+    #[test]
+    fn online_commands_not_offline_allowed() {
+        // Online commands — must be false.
+        let status_cmd = EdgeplaneCommand::Status(StatusArgs::default());
+        assert!(!status_cmd.allows_offline(), "Status should require a server");
+
+        let health_cmd = EdgeplaneCommand::Health(HealthArgs::default());
+        assert!(!health_cmd.allows_offline(), "Health should require a server");
+
+        let config_cmd = EdgeplaneCommand::Config(ConfigArgs::default());
+        assert!(!config_cmd.allows_offline(), "Config should require a server");
+    }
 }

@@ -255,13 +255,15 @@ fn resolve_base_url(env_base_url: Option<&str>) -> Result<String> {
             return Ok(url.trim_end_matches('/').to_string());
         }
 
-    // 3. Interactive prompt
-    let input = prompt("  Edgeplane server URL [http://localhost:8008]: ")?;
-    let url = if input.is_empty() {
-        "http://localhost:8008".to_string()
-    } else {
-        input.trim_end_matches('/').to_string()
-    };
+    // 3. Interactive prompt — no localhost default; blank input is an error
+    let input = prompt("  Edgeplane server URL: ")?;
+    if input.is_empty() {
+        return Err(anyhow!(
+            "no EdgePlane server configured — provide a URL or run \
+             `edgeplane context add <name> --url <url>` then `edgeplane context use <name>`"
+        ));
+    }
+    let url = input.trim_end_matches('/').to_string();
 
     // Persist for next time
     let mut new_cfg = load_saved_config();
@@ -725,13 +727,17 @@ pub async fn whoami(client: &EdgeplaneClient) -> Result<()> {
 // ── Public helper used by main.rs ─────────────────────────────────────────────
 
 /// Resolve EP_BASE_URL for the main CLI startup, incorporating saved config as fallback.
-/// Unlike the login flow, this does NOT prompt — it just returns the best available value.
-pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> String {
+///
+/// Unlike the login flow, this does NOT prompt. Returns `Some(url)` when a server
+/// is configured (explicit flag/env → active context → legacy config.json), or
+/// `None` when nothing is configured. The caller decides whether `None` is fatal
+/// (online commands) or acceptable (offline/bootstrap commands).
+pub fn resolve_startup_base_url(flag_or_env: Option<String>) -> Option<String> {
     // 1. Explicit CLI flag or env var — always wins
     if let Some(ref url) = flag_or_env {
         let url = url.trim_end_matches('/');
         if !url.is_empty() {
-            return url.to_string();
+            return Some(url.to_string());
         }
     }
 
@@ -742,7 +748,7 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> S
         if let Some((_, entry)) = crate::context::active_context(&ctxs) {
             let url = entry.base_url.trim_end_matches('/');
             if !url.is_empty() {
-                return url.to_string();
+                return Some(url.to_string());
             }
         }
     }
@@ -751,10 +757,10 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> S
     let cfg = load_saved_config();
     if let Some(url) = cfg.base_url.as_deref()
         && !url.is_empty() {
-            return url.trim_end_matches('/').to_string();
+            return Some(url.trim_end_matches('/').to_string());
         }
 
-    default.trim_end_matches('/').to_string()
+    None
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
