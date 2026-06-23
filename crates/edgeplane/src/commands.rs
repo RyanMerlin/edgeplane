@@ -190,6 +190,11 @@ impl EdgeplaneCommand {
                 // (cli_schema::run) — no client, no network — so it must work
                 // with no server configured.
                 | EdgeplaneCommand::Discover(_)
+                // `system internal *` are hidden dev/CI helpers (e.g.
+                // `gen-cli-doc`, used by `make docs`) that render the local
+                // command tree — no server needed. The drift gate runs this in
+                // a clean CI env, so it must not hit the no-server gate.
+                | EdgeplaneCommand::System(SystemCommand::Internal(_))
                 // Only `auth login` is a bootstrap command — it resolves its own
                 // server URL (prompting / erroring) and never uses the startup
                 // client. `auth logout` and `auth whoami` dial the configured
@@ -3978,6 +3983,11 @@ mod tests {
         let discover_cmd =
             EdgeplaneCommand::Discover(crate::cli_schema::DiscoverArgs::default());
         assert!(discover_cmd.allows_offline(), "discover should be offline-allowed (local schema)");
+
+        // `system internal gen-cli-doc` (used by `make docs`) renders the local
+        // command tree — must work in a clean CI env with no server.
+        let gen_doc = EdgeplaneCommand::System(SystemCommand::Internal(InternalCommand::GenCliDoc));
+        assert!(gen_doc.allows_offline(), "system internal gen-cli-doc should be offline-allowed");
     }
 
     #[test]
