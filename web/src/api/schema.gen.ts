@@ -402,6 +402,11 @@ export interface components {
              */
             email?: string | null;
             /**
+             * @description Whether this principal is an administrator (its email is in `EP_ADMIN_EMAILS`).
+             *     Derived server-side at request time; surfaced so `whoami` can show admin status.
+             */
+            is_admin: boolean;
+            /**
              * @description Human-readable display name from the OIDC preferred_username/name claim. Used for
              *     the web UI avatar and sidebar label. Null for CLI/SA flows.
              */

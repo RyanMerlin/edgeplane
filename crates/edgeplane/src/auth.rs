@@ -720,6 +720,17 @@ pub async fn whoami(client: &EdgeplaneClient) -> Result<()> {
         .await
         .context("failed to fetch identity — check auth credentials")?;
 
+    // Surface admin status prominently — the server is the source of truth
+    // (admin = the session's email is in the tower's EP_ADMIN_EMAILS).
+    if let Some(is_admin) = resp.get("is_admin").and_then(|v| v.as_bool()) {
+        ui_section("Server Identity");
+        ui_kv(
+            "Admin",
+            if is_admin { "yes" } else { "no" },
+            if is_admin { ui::GREEN } else { ui::DIM },
+        );
+    }
+
     println!("{}", serde_json::to_string_pretty(&resp)?);
     Ok(())
 }
