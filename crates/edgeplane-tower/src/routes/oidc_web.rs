@@ -249,6 +249,28 @@ fn json_err(status: StatusCode, detail: &str) -> Response {
     (status, Json(serde_json::json!({"detail": detail}))).into_response()
 }
 
+/// Extract the email to trust from OIDC userinfo `claims`, gated on
+/// `email_verified`.
+///
+/// The OIDC email is privilege-bearing on this server — admin status is derived
+/// from it via [`crate::auth::is_admin_email`] — so it is only trusted when the
+/// IdP positively asserts the address is verified. An unverified, absent, or
+/// non-canonical `email_verified` claim yields `None` (fail-closed → non-admin).
+///
+/// `email_verified` is a boolean per OIDC Core 1.0 §5.1, but some IdPs encode it
+/// as the string `"true"`; both are accepted. Anything else fails closed.
+fn verified_email(claims: &serde_json::Value) -> Option<String> {
+    let verified = claims["email_verified"].as_bool() == Some(true)
+        || claims["email_verified"].as_str() == Some("true");
+    if !verified {
+        return None;
+    }
+    claims["email"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Device flow — RFC 8628
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -558,12 +580,27 @@ async fn device_token(
 
     let grant_id: String = grant.get("id");
     let subject: String = grant.get("subject");
+    // #77: thread the grant email through so a device-flow login reaches the
+    // same admin status as `edgeplane auth login` (exchange_grant), instead of
+    // always minting a non-admin session. The email was already gated on
+    // email_verified at the callback (#77 above); empty → None → non-admin
+    // (fail-closed).
+    let email: Option<String> = grant.get("email");
 
     let cfg = OidcConfig::from_env();
 
     // Issue a session token.
     let (token, _session_id, expires_at) =
-        match issue_session_token(&state.db, &subject, None, None, &ua, cfg.session_ttl_hours).await {
+        match issue_session_token(
+            &state.db,
+            &subject,
+            email.as_deref().filter(|s| !s.is_empty()),
+            None,
+            &ua,
+            cfg.session_ttl_hours,
+        )
+        .await
+        {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("device_token: issue_session: {e}");
@@ -1038,10 +1075,19 @@ async fn oidc_callback(
         .as_str()
         .unwrap_or("")
         .to_string();
-    let email = claims["email"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    // #77: the OIDC email is privilege-bearing — admin is derived from it via
+    // auth::is_admin_email — so only trust it when the IdP asserts the address
+    // is verified. An unverified/absent email_verified claim drops the email:
+    // the grant stores "" → non-admin session (fail-closed) across every login
+    // path (browser PKCE below, CLI exchange_grant, device device_token), since
+    // all of them read this single grant row.
+    let email = verified_email(&claims).unwrap_or_default();
+    if email.is_empty() && claims["email"].as_str().is_some_and(|s| !s.is_empty()) {
+        tracing::warn!(
+            "oidc_callback: dropping unverified OIDC email for subject={subject} \
+             (email_verified != true); session will be non-admin"
+        );
+    }
 
     if subject.is_empty() {
         tracing::error!("oidc_callback: empty subject in userinfo claims");
@@ -1466,4 +1512,71 @@ async fn logout() -> impl IntoResponse {
         ],
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::verified_email;
+    use serde_json::json;
+
+    #[test]
+    fn trusts_email_when_email_verified_is_bool_true() {
+        let claims = json!({ "email": "admin@example.com", "email_verified": true });
+        assert_eq!(verified_email(&claims).as_deref(), Some("admin@example.com"));
+    }
+
+    #[test]
+    fn trusts_email_when_email_verified_is_string_true() {
+        // Some IdPs encode email_verified as the string "true" rather than a bool.
+        let claims = json!({ "email": "admin@example.com", "email_verified": "true" });
+        assert_eq!(verified_email(&claims).as_deref(), Some("admin@example.com"));
+    }
+
+    #[test]
+    fn drops_email_when_email_verified_is_false() {
+        let claims = json!({ "email": "admin@example.com", "email_verified": false });
+        assert_eq!(verified_email(&claims), None);
+    }
+
+    #[test]
+    fn drops_email_when_email_verified_claim_absent() {
+        // Absent email_verified must fail closed — do not trust the email.
+        let claims = json!({ "email": "admin@example.com" });
+        assert_eq!(verified_email(&claims), None);
+    }
+
+    #[test]
+    fn drops_empty_email_even_when_verified() {
+        let claims = json!({ "email": "", "email_verified": true });
+        assert_eq!(verified_email(&claims), None);
+    }
+
+    #[test]
+    fn drops_absent_email_even_when_verified() {
+        let claims = json!({ "email_verified": true });
+        assert_eq!(verified_email(&claims), None);
+    }
+
+    #[test]
+    fn drops_email_when_email_verified_is_non_canonical_string() {
+        // Only the canonical bool `true` / string "true" count; anything else
+        // (e.g. "TRUE", "1", "yes") fails closed.
+        let claims = json!({ "email": "admin@example.com", "email_verified": "TRUE" });
+        assert_eq!(verified_email(&claims), None);
+    }
+
+    #[test]
+    fn drops_email_when_email_verified_is_null() {
+        // Regression guard: an explicit JSON null must fail closed, same as absent.
+        let claims = json!({ "email": "admin@example.com", "email_verified": null });
+        assert_eq!(verified_email(&claims), None);
+    }
+
+    #[test]
+    fn drops_email_when_email_verified_is_number() {
+        // Regression guard: a numeric `1` (truthy in some languages) must not be
+        // coerced to verified — only bool true / string "true" are trusted.
+        let claims = json!({ "email": "admin@example.com", "email_verified": 1 });
+        assert_eq!(verified_email(&claims), None);
+    }
 }

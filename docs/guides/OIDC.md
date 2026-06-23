@@ -89,6 +89,25 @@ Modes:
 `OIDC_REQUIRED=true` in dual mode enforces OIDC for non-`/mcp` paths.
 If `AUTH_MODE` is unset, runtime defaults to OIDC when OIDC vars are present.
 
+## Admin access
+
+Admin is granted to a login session when **both** hold:
+
+1. The session's OIDC email matches an entry in `EP_ADMIN_EMAILS` (matching is
+   case- and whitespace-insensitive on both sides).
+2. The IdP asserts that email is **verified** — the userinfo `email_verified`
+   claim is `true`. An unverified, absent, or non-canonical `email_verified`
+   claim drops the email, yielding a **non-admin** session (fail-closed). This
+   applies uniformly to all login paths (browser PKCE, CLI `auth login`, and the
+   device flow).
+
+Because the email is privilege-bearing, the admin gate's integrity depends on
+the IdP: Authentik (or whichever IdP) must enforce verified-email integrity and
+restrict who can hold an `EP_ADMIN_EMAILS`-domain address. In particular, ensure
+self-service email change to an admin-domain address requires re-verification —
+the tower trusts the IdP's `email_verified` assertion and cannot compensate for
+an IdP that marks an unowned address verified.
+
 ## Kubernetes secret guidance
 
 - Source all auth settings from Kubernetes Secrets.
