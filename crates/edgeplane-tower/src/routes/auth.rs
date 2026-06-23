@@ -165,6 +165,7 @@ async fn whoami(State(state): State<Arc<AppState>>, principal: Principal) -> imp
         None => (None, None),
     };
     Json(MeResponse {
+        is_admin: principal.is_admin,
         subject: principal.subject,
         auth_type: principal.auth_type,
         session_id: principal.session_id,
