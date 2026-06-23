@@ -186,7 +186,11 @@ impl EdgeplaneCommand {
             EdgeplaneCommand::Context(_)
                 | EdgeplaneCommand::Completion(_)
                 | EdgeplaneCommand::Version(_)
-                | EdgeplaneCommand::Auth(_)
+                // Only `auth login` is a bootstrap command — it resolves its own
+                // server URL (prompting / erroring) and never uses the startup
+                // client. `auth logout` and `auth whoami` dial the configured
+                // server, so they must NOT run against the offline placeholder.
+                | EdgeplaneCommand::Auth(AuthCommand::Login(_))
                 | EdgeplaneCommand::Init(_)
         )
     }
@@ -3946,8 +3950,14 @@ mod tests {
         let version_cmd = EdgeplaneCommand::Version(VersionArgs::default());
         assert!(version_cmd.allows_offline(), "Version should be offline-allowed");
 
-        let auth_cmd = EdgeplaneCommand::Auth(AuthCommand::Whoami(crate::auth::WhoamiArgs {}));
-        assert!(auth_cmd.allows_offline(), "Auth should be offline-allowed");
+        // Only `auth login` bootstraps; whoami/logout dial the server.
+        let auth_login = EdgeplaneCommand::Auth(AuthCommand::Login(crate::auth::LoginArgs {
+            ttl_hours: None,
+            print_token: false,
+            non_interactive: false,
+            with_token: false,
+        }));
+        assert!(auth_login.allows_offline(), "auth login should be offline-allowed (bootstrap)");
 
         let init_cmd = EdgeplaneCommand::Init(InitArgs {
             profile: "default".to_string(),
@@ -3972,5 +3982,15 @@ mod tests {
 
         let config_cmd = EdgeplaneCommand::Config(ConfigArgs::default());
         assert!(!config_cmd.allows_offline(), "Config should require a server");
+
+        // auth whoami / logout dial the configured server — must NOT be offline-allowed
+        // (regression guard for the dual-review finding: Auth(_) was too broad).
+        let whoami = EdgeplaneCommand::Auth(AuthCommand::Whoami(crate::auth::WhoamiArgs {}));
+        assert!(!whoami.allows_offline(), "auth whoami dials the server — not offline-allowed");
+
+        let logout = EdgeplaneCommand::Auth(AuthCommand::Logout(crate::auth::LogoutArgs {
+            local_only: false,
+        }));
+        assert!(!logout.allows_offline(), "auth logout dials the server — not offline-allowed");
     }
 }
