@@ -529,9 +529,7 @@ Authenticate and create a session token stored at ~/.edgeplane/session.json
 
 ###### **Options:**
 
-* `--ttl-hours <TTL_HOURS>` — Session TTL in hours (default: 8, max: 8760)
-
-  Default value: `8`
+* `--ttl-hours <TTL_HOURS>` — Session TTL in hours. When omitted, falls back to the `default_session_ttl_hours` config value, then to the built-in default of 8760 (365 days). Max: 87600 (10 years)
 * `--print-token` — Print the session token to stdout after login (useful in scripts)
 * `--non-interactive` — Skip prompts: use EP_AGENT_TOKEN env var directly (non-interactive)
 * `--with-token` — Use API token auth instead of OIDC (prompts for token interactively)

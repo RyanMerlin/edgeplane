@@ -33,13 +33,43 @@ use std::{
 /// Prefix all Edgeplane session tokens use.
 pub const SESSION_TOKEN_PREFIX: &str = "mcs_";
 
+/// Default session TTL for `edgeplane auth login` when neither `--ttl-hours`
+/// nor a `default_session_ttl_hours` config value is set. 8760 hours = 365 days.
+/// An interactive admin should not have to re-authenticate frequently; expiry
+/// only bounds the leak window of an on-disk `0600` token, which is marginal on a
+/// single-user host. Configurable via `config.json` / `--ttl-hours`.
+pub const DEFAULT_SESSION_TTL_HOURS: u64 = 8760;
+
+/// Hard ceiling for a session TTL (10 years). The config/flag may set any value
+/// up to this; the tower applies the same ceiling server-side.
+pub const MAX_SESSION_TTL_HOURS: u64 = 87_600;
+
+/// Resolve the effective login TTL: explicit `--ttl-hours` flag wins, then the
+/// externally-editable `default_session_ttl_hours` from `config.json`, then the
+/// built-in 365-day default. The result is clamped to `[1, MAX_SESSION_TTL_HOURS]`.
+pub fn resolve_login_ttl_hours(flag: Option<u64>) -> u64 {
+    resolve_ttl_hours(
+        flag,
+        crate::config::load_saved_config().default_session_ttl_hours,
+    )
+}
+
+/// Pure precedence + clamp logic for [`resolve_login_ttl_hours`], split out so it
+/// is unit-testable without touching the on-disk config.
+fn resolve_ttl_hours(flag: Option<u64>, config_default: Option<u64>) -> u64 {
+    flag.or(config_default)
+        .unwrap_or(DEFAULT_SESSION_TTL_HOURS)
+        .clamp(1, MAX_SESSION_TTL_HOURS)
+}
+
 // ── CLI arg types ─────────────────────────────────────────────────────────────
 
 #[derive(Args, Debug)]
 pub struct LoginArgs {
-    /// Session TTL in hours (default: 8, max: 8760)
-    #[arg(long, default_value_t = 8)]
-    pub ttl_hours: u64,
+    /// Session TTL in hours. When omitted, falls back to the `default_session_ttl_hours`
+    /// config value, then to the built-in default of 8760 (365 days). Max: 87600 (10 years).
+    #[arg(long)]
+    pub ttl_hours: Option<u64>,
 
     /// Print the session token to stdout after login (useful in scripts)
     #[arg(long)]
@@ -225,13 +255,15 @@ fn resolve_base_url(env_base_url: Option<&str>) -> Result<String> {
             return Ok(url.trim_end_matches('/').to_string());
         }
 
-    // 3. Interactive prompt
-    let input = prompt("  Edgeplane server URL [http://localhost:8008]: ")?;
-    let url = if input.is_empty() {
-        "http://localhost:8008".to_string()
-    } else {
-        input.trim_end_matches('/').to_string()
-    };
+    // 3. Interactive prompt — no localhost default; blank input is an error
+    let input = prompt("  Edgeplane server URL: ")?;
+    if input.is_empty() {
+        return Err(anyhow!(
+            "no EdgePlane server configured — provide a URL or run \
+             `edgeplane context add <name> --url <url>` then `edgeplane context use <name>`"
+        ));
+    }
+    let url = input.trim_end_matches('/').to_string();
 
     // Persist for next time
     let mut new_cfg = load_saved_config();
@@ -257,7 +289,7 @@ pub async fn login(
             std::env::var("EP_AGENT_TOKEN").context("--non-interactive requires EP_AGENT_TOKEN to be set")?;
         let client = EdgeplaneClient::new_with_token(current_base_url, &token)
             .context("could not build client")?;
-        let ttl = args.ttl_hours.clamp(1, 8760);
+        let ttl = resolve_login_ttl_hours(args.ttl_hours);
         let resp = client
             .post_json("/auth/sessions", &serde_json::json!({ "ttl_hours": ttl }))
             .await
@@ -289,10 +321,11 @@ pub async fn login(
     // Always show which server we are about to authenticate against.
     display_login_target(&base_url);
 
+    let ttl_hours = resolve_login_ttl_hours(args.ttl_hours);
     if args.with_token {
-        login_with_token(&base_url, args.ttl_hours, args.print_token).await
+        login_with_token(&base_url, ttl_hours, args.print_token).await
     } else {
-        login_oidc(&base_url, args.ttl_hours, args.print_token).await
+        login_oidc(&base_url, ttl_hours, args.print_token).await
     }
 }
 
@@ -394,7 +427,7 @@ async fn login_with_token(base_url: &str, ttl_hours: u64, print_token: bool) -> 
     }
     eprintln!();
 
-    let ttl = ttl_hours.clamp(1, 8760);
+    let ttl = ttl_hours.clamp(1, MAX_SESSION_TTL_HOURS);
     let client = EdgeplaneClient::new_with_token(base_url, &raw_token)
         .context("could not build client with provided token")?;
 
@@ -515,7 +548,7 @@ async fn login_oidc(base_url: &str, ttl_hours: u64, print_token: bool) -> Result
     );
 
     // Exchange grant for a session token
-    let ttl = ttl_hours.clamp(1, 8760);
+    let ttl = ttl_hours.clamp(1, MAX_SESSION_TTL_HOURS);
     let resp = anon_client
         .post_json(
             "/auth/oidc/exchange",
@@ -632,7 +665,7 @@ pub async fn acquire_oidc_token(base_url: &str, ttl_hours: u64) -> Result<String
         return Err(anyhow!("no code provided"));
     }
 
-    let ttl = ttl_hours.clamp(1, 8760);
+    let ttl = ttl_hours.clamp(1, MAX_SESSION_TTL_HOURS);
     let resp = anon_client
         .post_json(
             "/auth/oidc/exchange",
@@ -694,13 +727,17 @@ pub async fn whoami(client: &EdgeplaneClient) -> Result<()> {
 // ── Public helper used by main.rs ─────────────────────────────────────────────
 
 /// Resolve EP_BASE_URL for the main CLI startup, incorporating saved config as fallback.
-/// Unlike the login flow, this does NOT prompt — it just returns the best available value.
-pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> String {
+///
+/// Unlike the login flow, this does NOT prompt. Returns `Some(url)` when a server
+/// is configured (explicit flag/env → active context → legacy config.json), or
+/// `None` when nothing is configured. The caller decides whether `None` is fatal
+/// (online commands) or acceptable (offline/bootstrap commands).
+pub fn resolve_startup_base_url(flag_or_env: Option<String>) -> Option<String> {
     // 1. Explicit CLI flag or env var — always wins
     if let Some(ref url) = flag_or_env {
         let url = url.trim_end_matches('/');
         if !url.is_empty() {
-            return url.to_string();
+            return Some(url.to_string());
         }
     }
 
@@ -711,7 +748,7 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> S
         if let Some((_, entry)) = crate::context::active_context(&ctxs) {
             let url = entry.base_url.trim_end_matches('/');
             if !url.is_empty() {
-                return url.to_string();
+                return Some(url.to_string());
             }
         }
     }
@@ -720,10 +757,10 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> S
     let cfg = load_saved_config();
     if let Some(url) = cfg.base_url.as_deref()
         && !url.is_empty() {
-            return url.trim_end_matches('/').to_string();
+            return Some(url.trim_end_matches('/').to_string());
         }
 
-    default.trim_end_matches('/').to_string()
+    None
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -731,6 +768,40 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>, default: &str) -> S
 #[cfg(test)]
 mod tests {
     use super::pick_context_base_url;
+    use super::{
+        DEFAULT_SESSION_TTL_HOURS, MAX_SESSION_TTL_HOURS, resolve_ttl_hours,
+    };
+
+    /// LOCKING TEST — the bare `edgeplane auth login` default TTL is 365 days.
+    /// If this ever fails, the default silently regressed (it used to be 8 hours).
+    #[test]
+    fn default_login_ttl_is_365_days() {
+        // 365 days expressed in hours.
+        assert_eq!(DEFAULT_SESSION_TTL_HOURS, 365 * 24);
+        assert_eq!(DEFAULT_SESSION_TTL_HOURS, 8760);
+        // No flag, no config override → the 365-day default.
+        assert_eq!(resolve_ttl_hours(None, None), 8760);
+    }
+
+    #[test]
+    fn ttl_precedence_flag_beats_config_beats_default() {
+        // Explicit --ttl-hours flag wins over everything.
+        assert_eq!(resolve_ttl_hours(Some(12), Some(4000)), 12);
+        // No flag → externally-configured default_session_ttl_hours wins over built-in.
+        assert_eq!(resolve_ttl_hours(None, Some(4000)), 4000);
+        // Neither → built-in 365-day default.
+        assert_eq!(resolve_ttl_hours(None, None), DEFAULT_SESSION_TTL_HOURS);
+    }
+
+    #[test]
+    fn ttl_is_clamped_to_valid_range() {
+        // Zero is bumped to the 1-hour floor (never an instantly-dead token).
+        assert_eq!(resolve_ttl_hours(Some(0), None), 1);
+        // Above the 10-year ceiling is capped.
+        assert_eq!(resolve_ttl_hours(Some(u64::MAX), None), MAX_SESSION_TTL_HOURS);
+        // A multi-year config value below the ceiling is honoured (configurable beyond 365d).
+        assert_eq!(resolve_ttl_hours(None, Some(3 * 8760)), 3 * 8760);
+    }
 
     fn entries(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs

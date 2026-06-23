@@ -175,6 +175,36 @@ pub enum EdgeplaneCommand {
     Discover(crate::cli_schema::DiscoverArgs),
 }
 
+impl EdgeplaneCommand {
+    /// Returns `true` for commands that must work without a configured server
+    /// (bootstrap / offline / local-only). These commands are allowed to run
+    /// even when `resolve_startup_base_url` returns `None`; the client is built
+    /// with an `OFFLINE_PLACEHOLDER_BASE_URL` and must not dial the network.
+    pub fn allows_offline(&self) -> bool {
+        matches!(
+            self,
+            EdgeplaneCommand::Context(_)
+                | EdgeplaneCommand::Completion(_)
+                | EdgeplaneCommand::Version(_)
+                // `discover` introspects the compiled CLI command tree
+                // (cli_schema::run) — no client, no network — so it must work
+                // with no server configured.
+                | EdgeplaneCommand::Discover(_)
+                // `system internal *` are hidden dev/CI helpers (e.g.
+                // `gen-cli-doc`, used by `make docs`) that render the local
+                // command tree — no server needed. The drift gate runs this in
+                // a clean CI env, so it must not hit the no-server gate.
+                | EdgeplaneCommand::System(SystemCommand::Internal(_))
+                // Only `auth login` is a bootstrap command — it resolves its own
+                // server URL (prompting / erroring) and never uses the startup
+                // client. `auth logout` and `auth whoami` dial the configured
+                // server, so they must NOT run against the offline placeholder.
+                | EdgeplaneCommand::Auth(AuthCommand::Login(_))
+                | EdgeplaneCommand::Init(_)
+        )
+    }
+}
+
 #[derive(Subcommand, Debug)]
 pub enum ContextCommand {
     /// List all configured contexts, marking the active one with *.
@@ -2383,7 +2413,8 @@ async fn handle_init(
             eprintln!("edgeplane: running `edgeplane auth login` to authenticate...");
             if let Err(err) = auth::login(
                 auth::LoginArgs {
-                    ttl_hours: 8,
+                    // None → use the configured default TTL (see agent_harness auto-login).
+                    ttl_hours: None,
                     print_token: false,
                     non_interactive: false,
                     with_token: false,
@@ -3909,4 +3940,76 @@ async fn handle_task(
         }
     }
     Ok(())
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify that bootstrap/offline commands report allows_offline = true,
+    /// and that online commands report false.
+    #[test]
+    fn allows_offline_allowlist() {
+        // Bootstrap/offline commands — must be true.
+        let context_cmd = EdgeplaneCommand::Context(ContextCommand::List);
+        assert!(context_cmd.allows_offline(), "Context should be offline-allowed");
+
+        let version_cmd = EdgeplaneCommand::Version(VersionArgs::default());
+        assert!(version_cmd.allows_offline(), "Version should be offline-allowed");
+
+        // Only `auth login` bootstraps; whoami/logout dial the server.
+        let auth_login = EdgeplaneCommand::Auth(AuthCommand::Login(crate::auth::LoginArgs {
+            ttl_hours: None,
+            print_token: false,
+            non_interactive: false,
+            with_token: false,
+        }));
+        assert!(auth_login.allows_offline(), "auth login should be offline-allowed (bootstrap)");
+
+        let init_cmd = EdgeplaneCommand::Init(InitArgs {
+            profile: "default".to_string(),
+            repo: None,
+        });
+        assert!(init_cmd.allows_offline(), "Init should be offline-allowed");
+
+        let completion_cmd = EdgeplaneCommand::Completion(CompletionArgs {
+            shell: clap_complete::Shell::Bash,
+        });
+        assert!(completion_cmd.allows_offline(), "Completion should be offline-allowed");
+
+        // `discover` introspects the local CLI tree — no server needed.
+        let discover_cmd =
+            EdgeplaneCommand::Discover(crate::cli_schema::DiscoverArgs::default());
+        assert!(discover_cmd.allows_offline(), "discover should be offline-allowed (local schema)");
+
+        // `system internal gen-cli-doc` (used by `make docs`) renders the local
+        // command tree — must work in a clean CI env with no server.
+        let gen_doc = EdgeplaneCommand::System(SystemCommand::Internal(InternalCommand::GenCliDoc));
+        assert!(gen_doc.allows_offline(), "system internal gen-cli-doc should be offline-allowed");
+    }
+
+    #[test]
+    fn online_commands_not_offline_allowed() {
+        // Online commands — must be false.
+        let status_cmd = EdgeplaneCommand::Status(StatusArgs::default());
+        assert!(!status_cmd.allows_offline(), "Status should require a server");
+
+        let health_cmd = EdgeplaneCommand::Health(HealthArgs::default());
+        assert!(!health_cmd.allows_offline(), "Health should require a server");
+
+        let config_cmd = EdgeplaneCommand::Config(ConfigArgs::default());
+        assert!(!config_cmd.allows_offline(), "Config should require a server");
+
+        // auth whoami / logout dial the configured server — must NOT be offline-allowed
+        // (regression guard for the dual-review finding: Auth(_) was too broad).
+        let whoami = EdgeplaneCommand::Auth(AuthCommand::Whoami(crate::auth::WhoamiArgs {}));
+        assert!(!whoami.allows_offline(), "auth whoami dials the server — not offline-allowed");
+
+        let logout = EdgeplaneCommand::Auth(AuthCommand::Logout(crate::auth::LogoutArgs {
+            local_only: false,
+        }));
+        assert!(!logout.allows_offline(), "auth logout dials the server — not offline-allowed");
+    }
 }

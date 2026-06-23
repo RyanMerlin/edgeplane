@@ -10,7 +10,12 @@ fn edgeplane() -> Command {
 
 #[test]
 fn unknown_runtime_is_rejected_with_helpful_message() {
+    // `run` is an online command, so it requires a configured server URL. The
+    // unknown-runtime check fires before any network I/O, so a dummy (unreached)
+    // EP_BASE_URL is enough to get past the "no server configured" startup gate
+    // without making a tower connection.
     let out = edgeplane()
+        .env("EP_BASE_URL", "http://localhost:8008")
         .args(["run", "definitely-not-a-runtime"])
         .output()
         .expect("spawn edgeplane");

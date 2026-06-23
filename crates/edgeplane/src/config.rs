@@ -108,6 +108,12 @@ pub fn load_session_token(base_url: &str) -> Option<String> {
 pub struct SavedConfig {
     /// The last EP_BASE_URL the user authenticated against.
     pub base_url: Option<String>,
+    /// Default session TTL in hours used by `edgeplane auth login` when no
+    /// `--ttl-hours` flag is given. Externally editable in `config.json`.
+    /// When absent, the built-in default ([`crate::auth::DEFAULT_SESSION_TTL_HOURS`],
+    /// 365 days) is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_session_ttl_hours: Option<u64>,
 }
 
 pub fn config_file_path() -> PathBuf {

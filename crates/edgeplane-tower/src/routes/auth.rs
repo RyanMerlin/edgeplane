@@ -22,7 +22,7 @@ const SESSION_PREFIX: &str = "mcs_";
 const SA_TOKEN_PREFIX: &str = "mcs_sa_";
 const CS_PREFIX: &str = "mcs_cs_";
 const DEFAULT_TTL_HOURS: i64 = 8;
-const MAX_TTL_HOURS: i64 = 8760; // 1 year
+const MAX_TTL_HOURS: i64 = 87_600; // 10 years — admins configure their own TTL; expiry only bounds leak window
 
 fn resolve_ttl(requested: Option<i64>) -> i64 {
     let env_ttl: i64 = std::env::var("EP_SESSION_TTL_HOURS")
