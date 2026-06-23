@@ -186,6 +186,10 @@ impl EdgeplaneCommand {
             EdgeplaneCommand::Context(_)
                 | EdgeplaneCommand::Completion(_)
                 | EdgeplaneCommand::Version(_)
+                // `discover` introspects the compiled CLI command tree
+                // (cli_schema::run) — no client, no network — so it must work
+                // with no server configured.
+                | EdgeplaneCommand::Discover(_)
                 // Only `auth login` is a bootstrap command — it resolves its own
                 // server URL (prompting / erroring) and never uses the startup
                 // client. `auth logout` and `auth whoami` dial the configured
@@ -3969,6 +3973,11 @@ mod tests {
             shell: clap_complete::Shell::Bash,
         });
         assert!(completion_cmd.allows_offline(), "Completion should be offline-allowed");
+
+        // `discover` introspects the local CLI tree — no server needed.
+        let discover_cmd =
+            EdgeplaneCommand::Discover(crate::cli_schema::DiscoverArgs::default());
+        assert!(discover_cmd.allows_offline(), "discover should be offline-allowed (local schema)");
     }
 
     #[test]
