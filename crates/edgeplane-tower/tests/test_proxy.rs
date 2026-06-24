@@ -21,6 +21,7 @@ async fn test_proxy_forwards_unknown_route() {
         node_id: 1,
         advertise_url: None,
         admin_emails: Default::default(),
+        admin_groups: Default::default(),
     };
     let app = build_app(test_pool(), config);
     let server = TestServer::new(app);
@@ -36,6 +37,7 @@ async fn test_proxy_does_not_override_health() {
         node_id: 1,
         advertise_url: None,
         admin_emails: Default::default(),
+        admin_groups: Default::default(),
     };
     let app = build_app(test_pool(), config);
     let server = TestServer::new(app);
@@ -53,6 +55,7 @@ async fn test_proxy_returns_502_when_upstream_unreachable() {
         node_id: 1,
         advertise_url: None,
         admin_emails: Default::default(),
+        admin_groups: Default::default(),
     };
     let app = build_app(test_pool(), config);
     let server = TestServer::new(app);

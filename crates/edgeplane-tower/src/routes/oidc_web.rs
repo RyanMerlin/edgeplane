@@ -208,17 +208,22 @@ async fn issue_session_token(
     display_name: Option<&str>,
     user_agent: &str,
     ttl_hours: i64,
+    groups: &[String],
 ) -> Result<(String, i32, chrono::NaiveDateTime), sqlx::Error> {
     let token = make_token(SESSION_PREFIX);
     let token_hash = crate::auth::hash_token(&token);
     let token_prefix = token[..token.len().min(12)].to_string();
     let now = Utc::now().naive_utc();
     let expires_at = now + Duration::hours(ttl_hours);
+    // Persist the IdP groups as a JSON array; request-time authz derives admin
+    // from these via auth::is_admin_groups. Serialization of Vec<String> is
+    // infallible, but fall back to "[]" defensively.
+    let groups_json = serde_json::to_string(groups).unwrap_or_else(|_| "[]".to_string());
 
     let session_id = sqlx::query_scalar::<_, i32>(
         "INSERT INTO usersession \
-         (subject, email, display_name, token_hash, token_prefix, expires_at, created_at, last_used_at, user_agent, revoked, capability_scope) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,false,'') RETURNING id",
+         (subject, email, display_name, token_hash, token_prefix, expires_at, created_at, last_used_at, user_agent, revoked, capability_scope, groups) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,false,'',$9) RETURNING id",
     )
     .bind(subject)
     .bind(email)
@@ -228,6 +233,7 @@ async fn issue_session_token(
     .bind(expires_at)
     .bind(now)
     .bind(user_agent)
+    .bind(&groups_json)
     .fetch_one(db)
     .await?;
 
@@ -269,6 +275,23 @@ fn verified_email(claims: &serde_json::Value) -> Option<String> {
         .as_str()
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+/// Extract the IdP-asserted group names from OIDC userinfo `claims`.
+///
+/// Returns the string entries of the `groups` claim (Authentik emits these via
+/// its default `profile` scope mapping). A missing `groups` claim, a non-array
+/// value, or non-string entries yield no groups — these feed `is_admin_groups`,
+/// so a malformed claim simply grants no admin (fail-closed).
+fn extract_groups(claims: &serde_json::Value) -> Vec<String> {
+    claims["groups"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -554,7 +577,7 @@ async fn device_token(
 
     // Look for a completed OidcLoginGrant for this device_code.
     let grant = sqlx::query(
-        "SELECT id, subject, email FROM oidclogingrant \
+        "SELECT id, subject, email, groups FROM oidclogingrant \
          WHERE cli_nonce=$1 AND used_at IS NULL AND expires_at > $2",
     )
     .bind(&device_code)
@@ -586,6 +609,9 @@ async fn device_token(
     // email_verified at the callback (#77 above); empty → None → non-admin
     // (fail-closed).
     let email: Option<String> = grant.get("email");
+    // Group-based admin parity for the device flow too.
+    let groups: Vec<String> =
+        serde_json::from_str(&grant.get::<String, _>("groups")).unwrap_or_default();
 
     let cfg = OidcConfig::from_env();
 
@@ -598,6 +624,7 @@ async fn device_token(
             None,
             &ua,
             cfg.session_ttl_hours,
+            &groups,
         )
         .await
         {
@@ -1088,6 +1115,11 @@ async fn oidc_callback(
              (email_verified != true); session will be non-admin"
         );
     }
+    // IdP group names (Authentik emits these via its default `profile` scope).
+    // Carried through the grant to the session so request-time authz can derive
+    // admin from group membership (EP_ADMIN_GROUPS) — the preferred admin path.
+    let groups = extract_groups(&claims);
+    let groups_json = serde_json::to_string(&groups).unwrap_or_else(|_| "[]".to_string());
 
     if subject.is_empty() {
         tracing::error!("oidc_callback: empty subject in userinfo claims");
@@ -1114,8 +1146,8 @@ async fn oidc_callback(
 
     let grant_result = sqlx::query(
         "INSERT INTO oidclogingrant \
-         (id, auth_request_id, subject, email, cli_nonce, created_at, expires_at) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7)",
+         (id, auth_request_id, subject, email, cli_nonce, created_at, expires_at, groups) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
     )
     .bind(&grant_id)
     .bind(&request_id)
@@ -1124,6 +1156,7 @@ async fn oidc_callback(
     .bind(&grant_cli_nonce)
     .bind(now)
     .bind(grant_expires_at)
+    .bind(&groups_json)
     .execute(&state.db)
     .await;
 
@@ -1166,6 +1199,7 @@ async fn oidc_callback(
             display_name.as_deref(),
             &ua,
             cfg.session_ttl_hours,
+            &groups,
         )
         .await
         {
@@ -1315,7 +1349,7 @@ async fn exchange_grant(
     let cfg = OidcConfig::from_env();
 
     let grant = sqlx::query(
-        "SELECT id, subject, email FROM oidclogingrant \
+        "SELECT id, subject, email, groups FROM oidclogingrant \
          WHERE id=$1 AND used_at IS NULL AND expires_at > $2",
     )
     .bind(&body.grant_id)
@@ -1341,6 +1375,10 @@ async fn exchange_grant(
     // CLI `edgeplane auth login` sessions never admin. The browser PKCE callback
     // already threads email; this brings the CLI exchange to parity.
     let email: Option<String> = grant.get("email");
+    // Groups captured at the callback (gated only by the IdP, not email_verified)
+    // — admin can be group-based on the CLI path too.
+    let groups: Vec<String> =
+        serde_json::from_str(&grant.get::<String, _>("groups")).unwrap_or_default();
 
     let ua = headers
         .get(header::USER_AGENT)
@@ -1353,7 +1391,7 @@ async fn exchange_grant(
         .unwrap_or(cfg.session_ttl_hours);
 
     let (token, _session_id, expires_at) =
-        match issue_session_token(&state.db, &subject, email.as_deref(), None, &ua, ttl).await {
+        match issue_session_token(&state.db, &subject, email.as_deref(), None, &ua, ttl, &groups).await {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("exchange_grant: issue_session: {e}");
@@ -1578,5 +1616,42 @@ mod tests {
         // coerced to verified — only bool true / string "true" are trusted.
         let claims = json!({ "email": "admin@example.com", "email_verified": 1 });
         assert_eq!(verified_email(&claims), None);
+    }
+}
+
+#[cfg(test)]
+mod group_tests {
+    use super::extract_groups;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_string_array() {
+        let claims = json!({ "groups": ["EdgePlane Admins", "Users"] });
+        assert_eq!(extract_groups(&claims), vec!["EdgePlane Admins", "Users"]);
+    }
+
+    #[test]
+    fn absent_groups_is_empty() {
+        let claims = json!({ "email": "a@b.com" });
+        assert!(extract_groups(&claims).is_empty());
+    }
+
+    #[test]
+    fn non_array_groups_is_empty() {
+        // An IdP that emits groups as a scalar (or wrong type) yields no groups.
+        let claims = json!({ "groups": "EdgePlane Admins" });
+        assert!(extract_groups(&claims).is_empty());
+    }
+
+    #[test]
+    fn skips_non_string_entries() {
+        let claims = json!({ "groups": ["EdgePlane Admins", 1, null, "Users"] });
+        assert_eq!(extract_groups(&claims), vec!["EdgePlane Admins", "Users"]);
+    }
+
+    #[test]
+    fn empty_array_is_empty() {
+        let claims = json!({ "groups": [] });
+        assert!(extract_groups(&claims).is_empty());
     }
 }

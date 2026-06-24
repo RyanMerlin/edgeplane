@@ -41,6 +41,35 @@ pub async fn mint_session(db: &PgPool, subject: &str, email: &str) -> String {
     token
 }
 
+/// Like [`mint_session`] but also persists the IdP `groups` claim (migration
+/// 0011), so request-time group-based admin (`EP_ADMIN_GROUPS`) can be exercised.
+pub async fn mint_session_with_groups(
+    db: &PgPool,
+    subject: &str,
+    email: &str,
+    groups: &[&str],
+) -> String {
+    let token = format!("mcs_{}", Uuid::new_v4().simple());
+    let token_hash = hash_token(&token);
+    let token_prefix = &token[..token.len().min(8)];
+    let groups_json = serde_json::to_string(groups).expect("serialize groups");
+    sqlx::query(
+        "INSERT INTO usersession \
+         (subject, token_hash, token_prefix, expires_at, created_at, last_used_at, \
+          user_agent, revoked, email, groups) \
+         VALUES ($1, $2, $3, now() + interval '1 hour', now(), now(), 'test-harness', false, $4, $5)",
+    )
+    .bind(subject)
+    .bind(&token_hash)
+    .bind(token_prefix)
+    .bind(email)
+    .bind(&groups_json)
+    .execute(db)
+    .await
+    .expect("insert usersession with groups");
+    token
+}
+
 /// Insert a serviceaccount + token row and return the raw `mcs_sa_` token.
 ///
 /// serviceaccount NOT-NULL columns: name, owner_subject, client_secret_hash,

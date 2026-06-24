@@ -75,6 +75,13 @@ async fn main() -> anyhow::Result<()> {
             .map(|s| s.trim().to_lowercase())
             .filter(|s| !s.is_empty())
             .collect(),
+        // Group names are matched exactly (case-sensitive) — do NOT lowercase.
+        admin_groups: std::env::var("EP_ADMIN_GROUPS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
     };
 
     let app = build_app(db, config);
