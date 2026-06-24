@@ -577,7 +577,7 @@ async fn device_token(
 
     // Look for a completed OidcLoginGrant for this device_code.
     let grant = sqlx::query(
-        "SELECT id, subject, email, groups FROM oidclogingrant \
+        "SELECT id, subject, email, groups, display_name FROM oidclogingrant \
          WHERE cli_nonce=$1 AND used_at IS NULL AND expires_at > $2",
     )
     .bind(&device_code)
@@ -612,6 +612,7 @@ async fn device_token(
     // Group-based admin parity for the device flow too.
     let groups: Vec<String> =
         serde_json::from_str(&grant.get::<String, _>("groups")).unwrap_or_default();
+    let display_name: Option<String> = grant.get("display_name");
 
     let cfg = OidcConfig::from_env();
 
@@ -621,7 +622,7 @@ async fn device_token(
             &state.db,
             &subject,
             email.as_deref().filter(|s| !s.is_empty()),
-            None,
+            display_name.as_deref(),
             &ua,
             cfg.session_ttl_hours,
             &groups,
@@ -1120,6 +1121,14 @@ async fn oidc_callback(
     // admin from group membership (EP_ADMIN_GROUPS) — the preferred admin path.
     let groups = extract_groups(&claims);
     let groups_json = serde_json::to_string(&groups).unwrap_or_else(|_| "[]".to_string());
+    // Human-readable label: prefer preferred_username (Authentik username) then
+    // name. Carried through the grant so the CLI/device exchange can persist it
+    // (the email is often gated to "" by email_verified, leaving no other label).
+    let display_name: Option<String> = claims["preferred_username"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .or_else(|| claims["name"].as_str().filter(|s| !s.is_empty()))
+        .map(|s| s.to_string());
 
     if subject.is_empty() {
         tracing::error!("oidc_callback: empty subject in userinfo claims");
@@ -1146,8 +1155,8 @@ async fn oidc_callback(
 
     let grant_result = sqlx::query(
         "INSERT INTO oidclogingrant \
-         (id, auth_request_id, subject, email, cli_nonce, created_at, expires_at, groups) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+         (id, auth_request_id, subject, email, cli_nonce, created_at, expires_at, groups, display_name) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
     )
     .bind(&grant_id)
     .bind(&request_id)
@@ -1157,6 +1166,7 @@ async fn oidc_callback(
     .bind(now)
     .bind(grant_expires_at)
     .bind(&groups_json)
+    .bind(&display_name)
     .execute(&state.db)
     .await;
 
@@ -1183,14 +1193,8 @@ async fn oidc_callback(
         .unwrap_or("")
         .to_string();
 
-    // Prefer preferred_username (Authentik username) then name (display name) as the
-    // human-readable label surfaced in the web UI avatar.
-    let display_name: Option<String> = claims["preferred_username"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .or_else(|| claims["name"].as_str().filter(|s| !s.is_empty()))
-        .map(|s| s.to_string());
-
+    // display_name was computed above (shared with the grant insert for the
+    // CLI/device exchange paths).
     let (token, _session_id, token_expires_at) =
         match issue_session_token(
             &state.db,
@@ -1349,7 +1353,7 @@ async fn exchange_grant(
     let cfg = OidcConfig::from_env();
 
     let grant = sqlx::query(
-        "SELECT id, subject, email, groups FROM oidclogingrant \
+        "SELECT id, subject, email, groups, display_name FROM oidclogingrant \
          WHERE id=$1 AND used_at IS NULL AND expires_at > $2",
     )
     .bind(&body.grant_id)
@@ -1379,6 +1383,9 @@ async fn exchange_grant(
     // — admin can be group-based on the CLI path too.
     let groups: Vec<String> =
         serde_json::from_str(&grant.get::<String, _>("groups")).unwrap_or_default();
+    // Display name captured at the callback — gives the CLI a human label
+    // ("Logged in as") even when the email is gated out.
+    let display_name: Option<String> = grant.get("display_name");
 
     let ua = headers
         .get(header::USER_AGENT)
@@ -1391,7 +1398,7 @@ async fn exchange_grant(
         .unwrap_or(cfg.session_ttl_hours);
 
     let (token, _session_id, expires_at) =
-        match issue_session_token(&state.db, &subject, email.as_deref(), None, &ua, ttl, &groups).await {
+        match issue_session_token(&state.db, &subject, email.as_deref().filter(|s| !s.is_empty()), display_name.as_deref(), &ua, ttl, &groups).await {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("exchange_grant: issue_session: {e}");
@@ -1416,6 +1423,7 @@ async fn exchange_grant(
             "token_type": "Bearer",
             "subject": subject,
             "email": email,
+            "name": display_name,
             "expires_at": expires_at,
         })),
     )

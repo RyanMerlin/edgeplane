@@ -41,6 +41,35 @@ pub async fn mint_session(db: &PgPool, subject: &str, email: &str) -> String {
     token
 }
 
+/// Insert a completed `OidcLoginGrant` ready for `POST /auth/oidc/exchange`,
+/// carrying the IdP `groups` (0011) and `display_name` (0012). Returns the
+/// grant id. `auth_request_id` has no FK, so no auth-request seed is needed.
+pub async fn mint_grant(
+    db: &PgPool,
+    subject: &str,
+    email: &str,
+    display_name: &str,
+    groups: &[&str],
+) -> String {
+    let grant_id = Uuid::new_v4().to_string();
+    let groups_json = serde_json::to_string(groups).expect("serialize groups");
+    sqlx::query(
+        "INSERT INTO oidclogingrant \
+         (id, auth_request_id, subject, email, cli_nonce, created_at, expires_at, groups, display_name) \
+         VALUES ($1, $2, $3, $4, NULL, now(), now() + interval '1 hour', $5, $6)",
+    )
+    .bind(&grant_id)
+    .bind(format!("ar-{grant_id}"))
+    .bind(subject)
+    .bind(email)
+    .bind(&groups_json)
+    .bind(display_name)
+    .execute(db)
+    .await
+    .expect("insert oidclogingrant");
+    grant_id
+}
+
 /// Like [`mint_session`] but also persists the IdP `groups` claim (migration
 /// 0011), so request-time group-based admin (`EP_ADMIN_GROUPS`) can be exercised.
 pub async fn mint_session_with_groups(
