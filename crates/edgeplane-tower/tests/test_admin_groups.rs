@@ -5,7 +5,7 @@
 mod common;
 
 use axum_test::TestServer;
-use common::{mint_session_with_groups, setup};
+use common::{mint_grant, mint_session_with_groups, setup};
 use edgeplane_tower::{AppConfig, build_app};
 
 fn server_with_admin_groups(pool: sqlx::PgPool, groups: &[&str]) -> TestServer {
@@ -72,4 +72,38 @@ async fn unconfigured_admin_groups_grants_no_one() {
         !whoami_is_admin(&s, &token).await,
         "empty EP_ADMIN_GROUPS must grant no admin"
     );
+}
+
+/// Full CLI path: a grant carrying display_name + groups, exchanged via
+/// /auth/oidc/exchange, must (a) return the display name and (b) issue a session
+/// that whoami reports as the named, group-admin identity — even with no email.
+#[tokio::test]
+async fn exchange_threads_display_name_and_group_admin() {
+    let Some((pool, _ctx)) = setup().await else {
+        return;
+    };
+    // email "" mirrors the verified-email gate dropping it; admin must come from groups.
+    let grant_id = mint_grant(&pool, "sub-ex", "", "merlin", &["EdgePlane Admins"]).await;
+    let s = server_with_admin_groups(pool, &["EdgePlane Admins"]);
+
+    let res = s
+        .post("/api/auth/oidc/exchange")
+        .json(&serde_json::json!({ "grant_id": grant_id }))
+        .await;
+    assert_eq!(res.status_code(), 200, "exchange should succeed");
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["name"], "merlin", "exchange response carries display_name");
+    let token = body["access_token"].as_str().expect("access_token").to_string();
+
+    let me = s
+        .get("/api/auth/me")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}"),
+        )
+        .await;
+    assert_eq!(me.status_code(), 200);
+    let me_body: serde_json::Value = me.json();
+    assert_eq!(me_body["name"], "merlin", "whoami reflects the persisted display name");
+    assert_eq!(me_body["is_admin"], true, "group membership grants admin via exchange");
 }

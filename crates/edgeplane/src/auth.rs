@@ -560,6 +560,30 @@ async fn login_oidc(base_url: &str, ttl_hours: u64, print_token: bool) -> Result
     finish_session_login(resp, base_url, print_token)
 }
 
+/// Choose the human-readable label for `Logged in as` / `whoami`.
+///
+/// Prefers the IdP display name (e.g. `preferred_username`), then a non-empty
+/// email, and finally the opaque subject. Empty strings are treated as absent:
+/// the verified-email gate yields `email = ""` (not `None`), which must not
+/// render as a blank label.
+fn pick_display_identity<'a>(
+    name: Option<&'a str>,
+    email: Option<&'a str>,
+    subject: &'a str,
+) -> &'a str {
+    name.filter(|s| !s.is_empty())
+        .or(email.filter(|s| !s.is_empty()))
+        .unwrap_or(subject)
+}
+
+/// Strip control characters (ANSI ESC, newlines, tabs, etc.) from an
+/// IdP-supplied label before printing it to the terminal. `name`/`email` come
+/// from the OIDC provider and could carry escape sequences that forge terminal
+/// output; remove them so only inert printable text reaches stderr.
+fn sanitize_label(s: &str) -> String {
+    s.chars().filter(|c| !c.is_control()).collect()
+}
+
 fn finish_session_login(resp: serde_json::Value, base_url: &str, print_token: bool) -> Result<()> {
     let token = resp["token"]
         .as_str()
@@ -568,6 +592,7 @@ fn finish_session_login(resp: serde_json::Value, base_url: &str, print_token: bo
         .to_string();
     let subject = resp["subject"].as_str().unwrap_or("unknown").to_string();
     let email = resp["email"].as_str().map(|s| s.to_string());
+    let name = resp["name"].as_str().map(|s| s.to_string());
     let expires_at = resp["expires_at"].as_str().unwrap_or("").to_string();
     let session_id = resp["session_id"].as_i64();
 
@@ -585,8 +610,10 @@ fn finish_session_login(resp: serde_json::Value, base_url: &str, print_token: bo
         println!("{}", token);
     } else {
         ui_section("Login Complete");
-        let display_identity = email.as_deref().unwrap_or(&subject);
-        ui_kv("Logged in as", display_identity, ui::GREEN);
+        // sanitize: name/email are IdP-controlled — neuter any terminal escapes.
+        let display_identity =
+            sanitize_label(pick_display_identity(name.as_deref(), email.as_deref(), &subject));
+        ui_kv("Logged in as", &display_identity, ui::GREEN);
         ui_kv("Token expires", &expires_at, ui::CYAN);
         ui_kv(
             "Session saved",
@@ -779,9 +806,65 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::pick_context_base_url;
+    use super::pick_display_identity;
     use super::{
         DEFAULT_SESSION_TTL_HOURS, MAX_SESSION_TTL_HOURS, resolve_ttl_hours,
     };
+
+    #[test]
+    fn display_identity_prefers_name() {
+        assert_eq!(
+            pick_display_identity(Some("merlin"), Some("m@example.com"), "subj-hash"),
+            "merlin"
+        );
+    }
+
+    #[test]
+    fn display_identity_falls_back_to_email_when_no_name() {
+        assert_eq!(
+            pick_display_identity(None, Some("m@example.com"), "subj-hash"),
+            "m@example.com"
+        );
+    }
+
+    #[test]
+    fn display_identity_treats_empty_strings_as_absent() {
+        // The verified-email gate yields email="" (not None); an empty name/email
+        // must not render as a blank label — fall through to the subject.
+        assert_eq!(
+            pick_display_identity(Some(""), Some(""), "subj-hash"),
+            "subj-hash"
+        );
+    }
+
+    #[test]
+    fn display_identity_falls_back_to_subject_when_nothing() {
+        assert_eq!(pick_display_identity(None, None, "subj-hash"), "subj-hash");
+    }
+
+    #[test]
+    fn display_identity_uses_name_when_email_gated_out() {
+        // The real CLI case: email dropped by the verified-email gate, but the
+        // IdP display name (preferred_username) is present → show the name.
+        assert_eq!(
+            pick_display_identity(Some("merlin"), None, "subj-hash"),
+            "merlin"
+        );
+    }
+
+    #[test]
+    fn sanitize_label_keeps_printable() {
+        assert_eq!(super::sanitize_label("merlin"), "merlin");
+        assert_eq!(super::sanitize_label("Ryan Merlin"), "Ryan Merlin");
+    }
+
+    #[test]
+    fn sanitize_label_strips_control_and_ansi() {
+        // IdP-controlled name: a forged ANSI sequence + newline must be neutered
+        // so it can't rewrite the terminal. The ESC and newline are removed.
+        assert_eq!(super::sanitize_label("ev\x1b[31mil\nadmin"), "ev[31miladmin");
+        assert_eq!(super::sanitize_label("a\r\n\tb"), "ab");
+    }
 
     /// LOCKING TEST — the bare `edgeplane auth login` default TTL is 365 days.
     /// If this ever fails, the default silently regressed (it used to be 8 hours).
