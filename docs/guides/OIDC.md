@@ -91,22 +91,58 @@ If `AUTH_MODE` is unset, runtime defaults to OIDC when OIDC vars are present.
 
 ## Admin access
 
-Admin is granted to a login session when **both** hold:
+A login session resolves to admin if **either** path matches. The IdP `groups`
+claim and the verified email are both captured at login and carried through every
+flow (browser PKCE, CLI `auth login`, device flow); admin is derived at request
+time.
 
-1. The session's OIDC email matches an entry in `EP_ADMIN_EMAILS` (matching is
-   case- and whitespace-insensitive on both sides).
-2. The IdP asserts that email is **verified** — the userinfo `email_verified`
-   claim is `true`. An unverified, absent, or non-canonical `email_verified`
-   claim drops the email, yielding a **non-admin** session (fail-closed). This
-   applies uniformly to all login paths (browser PKCE, CLI `auth login`, and the
-   device flow).
+### 1. Group membership — preferred
 
-Because the email is privilege-bearing, the admin gate's integrity depends on
-the IdP: Authentik (or whichever IdP) must enforce verified-email integrity and
-restrict who can hold an `EP_ADMIN_EMAILS`-domain address. In particular, ensure
-self-service email change to an admin-domain address requires re-verification —
-the tower trusts the IdP's `email_verified` assertion and cannot compensate for
-an IdP that marks an unowned address verified.
+Set `EP_ADMIN_GROUPS` to a comma-separated list of IdP group names. A session is
+admin if the IdP's `groups` claim includes any of them. Group names are matched
+**exactly (case-sensitive)** — OIDC does not normalize group-name casing.
+
+```env
+EP_ADMIN_GROUPS=EdgePlane Admins
+```
+
+Authentik emits `groups` via its default **`profile`** scope mapping
+(`[group.name for group in request.user.groups.all()]`), which the provider
+already requests — no extra scope needed. To grant admin:
+
+1. Create a group (e.g. **EdgePlane Admins**) in Authentik.
+2. Add the operator(s) to it.
+3. Set `EP_ADMIN_GROUPS` to that group name on the tower.
+
+This is the recommended path: it's standard OIDC RBAC, mirrors how ArgoCD already
+uses Authentik groups, and does **not** depend on `email_verified` (Authentik's
+default email mapping hardcodes `email_verified: false`, which would otherwise
+block the email path below).
+
+> **Revocation:** group membership (like the email) is snapshotted into the
+> session at login and is **not** re-checked against the IdP per request. Removing
+> a user from an `EP_ADMIN_GROUPS` group in Authentik does **not** drop their
+> admin on existing sessions — those keep admin until they expire (default TTL up
+> to 365 days) or are explicitly revoked. To de-admin someone immediately, revoke
+> their active sessions (set `usersession.revoked`), not just the group. Consider
+> a shorter TTL for admin-capable deployments.
+
+### 2. Email allowlist — fallback
+
+Set `EP_ADMIN_EMAILS` to a comma-separated list of emails (matched
+case-/whitespace-insensitively). A session is admin if its OIDC email matches
+**and** the IdP asserts that email is **verified** (`email_verified: true`; an
+unverified, absent, or non-canonical claim drops the email → non-admin,
+fail-closed).
+
+```env
+EP_ADMIN_EMAILS=operator@example.com
+```
+
+The email is privilege-bearing on this path, so its integrity depends on the IdP:
+the IdP must assert `email_verified` truthfully and restrict self-service email
+change to an admin-domain address without re-verification. Prefer the group path,
+which avoids this dependency entirely.
 
 ## Kubernetes secret guidance
 

@@ -20,6 +20,8 @@ pub struct AppConfig {
     pub api_proxy: Option<String>,
     /// Lowercased admin emails, parsed from `EP_ADMIN_EMAILS` at the entrypoint.
     pub admin_emails: std::collections::HashSet<String>,
+    /// Admin group names (exact, case-sensitive), parsed from `EP_ADMIN_GROUPS`.
+    pub admin_groups: std::collections::HashSet<String>,
 }
 
 pub fn build_app(db: PgPool, config: AppConfig) -> Router {
@@ -40,6 +42,7 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
         jwt_encoding_key,
         jwt_decoding_key,
         admin_emails: config.admin_emails.clone(),
+        admin_groups: config.admin_groups.clone(),
     });
 
     // Phase 2: API routes are nested under /api. The auth middleware is

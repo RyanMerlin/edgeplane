@@ -14,6 +14,10 @@ pub struct AppState {
     /// Lowercased operator emails whose user-session principals resolve to
     /// `is_admin = true`. Populated from `EP_ADMIN_EMAILS` at startup.
     pub admin_emails: HashSet<String>,
+    /// IdP group names (exact, case-sensitive) whose members resolve to
+    /// `is_admin = true`. Populated from `EP_ADMIN_GROUPS` at startup. This is
+    /// the preferred, group-based admin path; `admin_emails` remains a fallback.
+    pub admin_groups: HashSet<String>,
 }
 
 /// Static node identity — populated from CLI args at startup.

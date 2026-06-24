@@ -24,6 +24,17 @@ pub(crate) fn is_admin_email(email: Option<&str>, admin_emails: &HashSet<String>
         .unwrap_or(false)
 }
 
+/// Whether any of the IdP-asserted `groups` grants admin, per `EP_ADMIN_GROUPS`.
+///
+/// Group names are matched exactly (case-sensitive) — unlike emails, OIDC group
+/// names are not case-normalized by the spec, and Authentik group names carry
+/// meaningful casing (e.g. "EdgePlane Admins"). An empty `admin_groups` set
+/// (unconfigured) grants no one (fail-closed). This is the group-based path that
+/// complements [`is_admin_email`]; admin is the OR of the two.
+pub(crate) fn is_admin_groups(groups: &[String], admin_groups: &HashSet<String>) -> bool {
+    groups.iter().any(|g| admin_groups.contains(g))
+}
+
 /// Caller identity extracted from request headers.
 ///
 /// Note: `auth_type` is one of `"session"`, `"service_account"`, `"node"`, or `"agent"`.
@@ -205,7 +216,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             } else if token.starts_with("mcs_") {
                 // User session token — validate against usersession
                 let row = sqlx::query(
-                    "SELECT id, subject, email FROM usersession \
+                    "SELECT id, subject, email, groups FROM usersession \
                      WHERE token_hash = $1 AND revoked = false AND expires_at > $2",
                 )
                 .bind(&hash)
@@ -218,6 +229,12 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                 if let Some(row) = row {
                     let subject: String = row.get("subject");
                     let email: Option<String> = row.get("email");
+                    // IdP groups captured at login (JSON array). A malformed value
+                    // parses to no groups → no group-based admin (fail-closed).
+                    let groups: Vec<String> = serde_json::from_str(
+                        &row.get::<String, _>("groups"),
+                    )
+                    .unwrap_or_default();
                     let session_id: i32 = row.get("id");
                     let db = state.db.clone();
                     let h = hash.clone();
@@ -231,7 +248,8 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                     });
                     return Ok(Principal {
                         subject,
-                        is_admin: is_admin_email(email.as_deref(), &state.admin_emails),
+                        is_admin: is_admin_email(email.as_deref(), &state.admin_emails)
+                            || is_admin_groups(&groups, &state.admin_groups),
                         session_id: Some(session_id),
                         auth_type: "session".into(),
                         domain_scope: Vec::new(),
@@ -514,5 +532,48 @@ mod admin_email_tests {
     fn empty_admin_set_is_never_admin() {
         let empty: HashSet<String> = HashSet::new();
         assert!(!is_admin_email(Some("admin@example.com"), &empty));
+    }
+}
+
+#[cfg(test)]
+mod admin_group_tests {
+    use super::is_admin_groups;
+    use std::collections::HashSet;
+
+    fn admin_groups() -> HashSet<String> {
+        ["EdgePlane Admins".to_string()].into_iter().collect()
+    }
+
+    #[test]
+    fn member_of_admin_group_is_admin() {
+        let groups = vec!["Users".to_string(), "EdgePlane Admins".to_string()];
+        assert!(is_admin_groups(&groups, &admin_groups()));
+    }
+
+    #[test]
+    fn non_member_is_not_admin() {
+        let groups = vec!["Users".to_string(), "ArgoCD Viewers".to_string()];
+        assert!(!is_admin_groups(&groups, &admin_groups()));
+    }
+
+    #[test]
+    fn no_groups_is_not_admin() {
+        let groups: Vec<String> = vec![];
+        assert!(!is_admin_groups(&groups, &admin_groups()));
+    }
+
+    #[test]
+    fn empty_admin_groups_is_never_admin() {
+        // Not configured → no one is admin by group (fail-closed).
+        let empty: HashSet<String> = HashSet::new();
+        let groups = vec!["EdgePlane Admins".to_string()];
+        assert!(!is_admin_groups(&groups, &empty));
+    }
+
+    #[test]
+    fn group_match_is_case_sensitive() {
+        // Group names are case-sensitive (unlike emails); a case mismatch fails closed.
+        let groups = vec!["edgeplane admins".to_string()];
+        assert!(!is_admin_groups(&groups, &admin_groups()));
     }
 }
