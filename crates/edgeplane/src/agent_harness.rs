@@ -632,7 +632,7 @@ async fn mcp_connectivity_preflight(client: &EdgeplaneClient) {
 ///
 /// Precedence (highest → lowest):
 ///   1. `--no-embed-token` flag → never embed
-///   2. Token is an `mcs_` session token → never embed (managed by edgeplane, injected at exec)
+///   2. Token is an `ep_` session token → never embed (managed by edgeplane, injected at exec)
 ///   3. Token is empty → cannot embed; auto-implies no-embed
 ///   4. Default → embed
 fn resolve_embed_token(no_embed_flag: bool, token: &str) -> bool {
@@ -642,7 +642,7 @@ fn resolve_embed_token(no_embed_flag: bool, token: &str) -> bool {
         return false;
     }
     if crate::auth::is_session_token(token) {
-        ep_info!("session token (mcs_*) detected — will NOT be embedded in agent config");
+        ep_info!("session token (ep_*) detected — will NOT be embedded in agent config");
         ep_info!("session token will be injected into the agent process at exec time");
         return false;
     }
@@ -1167,7 +1167,7 @@ mod tests {
 
     #[test]
     fn resolve_embed_token_never_embeds_session_tokens() {
-        assert!(!resolve_embed_token(false, "mcs_example_session_token"));
+        assert!(!resolve_embed_token(false, "ep_example_session_token"));
     }
 
     #[test]

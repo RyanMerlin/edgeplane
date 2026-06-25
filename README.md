@@ -157,20 +157,20 @@ edgeplane run gemini       # Google Gemini CLI
 
 ### Auth
 
-`edgeplane auth login` issues a server-managed session token (`mcs_*`) — revocable, never stored in agent config files, auto-loaded on next run:
+`edgeplane auth login` issues a server-managed session token (`ep_*`) — revocable, never stored in agent config files, auto-loaded on next run:
 
 ```bash
 edgeplane auth login       # interactive OIDC (default)
-edgeplane auth login --with-token   # prompt for an mcs_sa_* service-account token
+edgeplane auth login --with-token   # prompt for an ep_sa_* service-account token
 edgeplane run claude       # session auto-loaded
 edgeplane auth whoami
 edgeplane auth logout
 ```
 
-For CI/non-interactive environments, set `EP_AGENT_TOKEN` to an `mcs_sa_*` service-account token and pass `--non-interactive`:
+For CI/non-interactive environments, set `EP_AGENT_TOKEN` to an `ep_sa_*` service-account token and pass `--non-interactive`:
 
 ```bash
-EP_AGENT_TOKEN="mcs_sa_..." edgeplane auth login --non-interactive
+EP_AGENT_TOKEN="ep_sa_..." edgeplane auth login --non-interactive
 ```
 
 Pass `--preflight-only` to validate connectivity without launching.

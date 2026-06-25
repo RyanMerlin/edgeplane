@@ -51,12 +51,12 @@ edgeplane auth logout                      # revoke server-side and clear local 
 edgeplane auth logout --local-only         # clear local file only
 ```
 
-For CI and headless pipelines, use **service account tokens** (`mcs_sa_*`) created via the API. There is no `EP_TOKEN` — static shared-secret auth was removed in v0.11.0. For non-interactive use (CI, automation), set `EP_AGENT_TOKEN` to a service account token (`mcs_sa_*`) instead of using `edgeplane auth login`.
+For CI and headless pipelines, use **service account tokens** (`ep_sa_*`) created via the API. There is no `EP_TOKEN` — static shared-secret auth was removed in v0.11.0. For non-interactive use (CI, automation), set `EP_AGENT_TOKEN` to a service account token (`ep_sa_*`) instead of using `edgeplane auth login`.
 
 | Auth type | Recommended for |
 |-----------|----------------|
 | OIDC interactive (`edgeplane auth login`) | Interactive use, SSO environments |
-| Service account (`mcs_sa_*`) | CI, headless pipelines |
+| Service account (`ep_sa_*`) | CI, headless pipelines |
 | Node JWT | Daemons and machines (`edgeplaned`) |
 
 ## Profiles

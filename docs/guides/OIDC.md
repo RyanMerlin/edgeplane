@@ -56,11 +56,11 @@ curl -s http://<edgeplane-host>/auth/oidc/cli-initiate
 curl -s -X POST http://<edgeplane-host>/auth/oidc/exchange \
   -H "Content-Type: application/json" \
   -d '{"grant_id": "olg_…"}'
-# → {"token": "mcs_…", "subject": "…", "expires_at": "…"}
+# → {"token": "ep_…", "subject": "…", "expires_at": "…"}
 
 # 4. Write token to ~/.edgeplane/session.json (edgeplane reads this automatically)
 # session.json format:
-# {"token":"mcs_…","subject":"…","email":"…","expires_at":"…","base_url":"http://<edgeplane-host>","session_id":1}
+# {"token":"ep_…","subject":"…","email":"…","expires_at":"…","base_url":"http://<edgeplane-host>","session_id":1}
 ```
 
 Alternatively, poll instead of copy-paste:
@@ -77,7 +77,7 @@ Edgeplane web login uses backend PKCE flow:
 2. Edgeplane redirects to IdP authorize endpoint with PKCE challenge.
 3. IdP returns to `GET /auth/oidc/callback`.
 4. Edgeplane exchanges auth code, validates token, and issues one-time grant.
-5. Browser calls `POST /auth/oidc/exchange` to receive `mcs_*` session token.
+5. Browser calls `POST /auth/oidc/exchange` to receive `ep_*` session token.
 
 The web UI should treat OIDC as primary and static token login as testing fallback.
 

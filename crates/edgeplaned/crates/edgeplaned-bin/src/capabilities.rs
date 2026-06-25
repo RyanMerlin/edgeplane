@@ -131,7 +131,7 @@ fn capability_vocabulary() -> HashMap<&'static str, Vec<&'static str>> {
         ],
     );
 
-    // edgeplane:read — MC CLI status/inspect commands (no state-mutation).
+    // edgeplane:read — edgeplane CLI status/inspect commands (no state-mutation).
     m.insert(
         "edgeplane:read",
         vec![

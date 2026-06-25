@@ -12,7 +12,7 @@ Mission: `326cf69b71fb` (`web ui 1.0`)
 
 ## Key controls now in place
 1. Session token handling
-- Session tokens (`mcs_*`) are no longer embedded into agent config files.
+- Session tokens (`ep_*`) are no longer embedded into agent config files.
 - CLI token env help output is redacted.
 
 2. Auth hardening

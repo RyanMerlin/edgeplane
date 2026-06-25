@@ -148,19 +148,19 @@ async fn check_ports() -> Vec<Finding> {
         ("mgmt_tcp", format!("0.0.0.0:{mgmt_port}")),
     ];
 
-    let mcd_running = lock_is_held();
+    let daemon_running = lock_is_held();
     let mut out = Vec::with_capacity(ports.len());
     for (name, addr) in ports {
-        out.push(check_one_port(name, &addr, mcd_running).await);
+        out.push(check_one_port(name, &addr, daemon_running).await);
     }
     out
 }
 
-async fn check_one_port(name: &str, addr: &str, mcd_running: bool) -> Finding {
+async fn check_one_port(name: &str, addr: &str, daemon_running: bool) -> Finding {
     match tokio::net::TcpListener::bind(addr).await {
         Ok(listener) => {
             drop(listener);
-            if mcd_running {
+            if daemon_running {
                 Finding {
                     severity: Severity::Warn,
                     title: format!("port {name} ({addr})"),
@@ -177,7 +177,7 @@ async fn check_one_port(name: &str, addr: &str, mcd_running: bool) -> Finding {
             }
         }
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
-            if mcd_running {
+            if daemon_running {
                 Finding {
                     severity: Severity::Ok,
                     title: format!("port {name} ({addr})"),

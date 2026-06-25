@@ -37,7 +37,7 @@ Example:
 
 ```bash
 export EP_BASE_URL=http://localhost:8008
-export EP_AGENT_TOKEN="<mcs_sa_token>"
+export EP_AGENT_TOKEN="<ep_sa_token>"
 EP_PRESSURE_MODE=agent EP_PRESSURE_WORKERS=5 EP_PRESSURE_DURATION_SEC=600 \
 scripts/edgeplane-pressure-test.sh
 ```
@@ -85,7 +85,7 @@ Report includes strict gate fields:
 
 ```bash
 export EP_BASE_URL=http://localhost:8008
-export EP_AGENT_TOKEN="<mcs_sa_token>"
+export EP_AGENT_TOKEN="<ep_sa_token>"
 scripts/mcp-validation-playbook.sh
 ```
 

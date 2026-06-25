@@ -38,7 +38,7 @@ only for a developer's local machine:
 
 **Note:** The static `EP_TOKEN` shared-secret authentication path was removed in
 edgeplane-tower 0.11.0. The tower now accepts only OIDC sessions and
-`mcs_sa_*` service-account tokens. Any `EP_TOKEN: dev-token` lines remaining in
+`ep_sa_*` service-account tokens. Any `EP_TOKEN: dev-token` lines remaining in
 legacy compose files are ignored by the server; remove them to avoid confusion.
 
 Before exposing any deployment outside a personal workstation, you MUST:
@@ -46,8 +46,8 @@ Before exposing any deployment outside a personal workstation, you MUST:
 1. Replace every literal credential with a value sourced from a secret manager
    (Infisical, Vault, sealed secrets, etc.) — never commit the production
    values.
-2. Configure OIDC (recommended) or issue service-account tokens (`mcs_sa_*`) for
-   programmatic access. Steady-state callers should use session tokens (`mcs_*`)
+2. Configure OIDC (recommended) or issue service-account tokens (`ep_sa_*`) for
+   programmatic access. Steady-state callers should use session tokens (`ep_*`)
    or service-account tokens; the static `EP_TOKEN` mechanism was removed in
    0.11.0.
 3. Configure `EP_CORS_ALLOW_ORIGINS` to your real frontend origin(s).

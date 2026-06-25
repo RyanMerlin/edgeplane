@@ -1,6 +1,6 @@
 //! `edgeplane auth login` / `edgeplane auth logout` / `edgeplane auth whoami` — session token management.
 //!
-//! Session tokens (`mcs_*`) are issued by the Edgeplane server and stored
+//! Session tokens (`ep_*`) are issued by the Edgeplane server and stored
 //! at `~/.ep/session.json` (chmod 600). They are:
 //!
 //! - Revocable server-side at any time
@@ -31,7 +31,7 @@ use std::{
 };
 
 /// Prefix all Edgeplane session tokens use.
-pub const SESSION_TOKEN_PREFIX: &str = "mcs_";
+pub const SESSION_TOKEN_PREFIX: &str = "ep_";
 
 /// Default session TTL for `edgeplane auth login` when neither `--ttl-hours`
 /// nor a `default_session_ttl_hours` config value is set. 8760 hours = 365 days.

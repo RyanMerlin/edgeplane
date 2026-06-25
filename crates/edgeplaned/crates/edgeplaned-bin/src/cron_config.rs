@@ -20,10 +20,10 @@ use serde::{Deserialize, Serialize};
 /// Maximum config schema version this binary understands. Files with a
 /// `schema_version` higher than this are refused on load with an explicit
 /// "binary too old, upgrade edgeplaned" message.
-pub const MCD_SUPPORTED_CRON_SCHEMA: u32 = 1;
+pub const EP_SUPPORTED_CRON_SCHEMA: u32 = 1;
 
 /// Default config file path: `~/.edgeplane/config/cron.toml`. Override via env
-/// `MCD_CRON_FILE` or `DaemonConfig.cron_file`.
+/// `EP_CRON_FILE` or `DaemonConfig.cron_file`.
 pub fn default_path() -> PathBuf {
     edgeplaned_paths::cron_config_path()
 }
@@ -32,7 +32,7 @@ pub fn default_path() -> PathBuf {
 /// Returns the path regardless of whether the file exists — caller decides
 /// what to do with a missing file.
 pub fn resolve_path(config_override: Option<&Path>) -> PathBuf {
-    if let Ok(env_path) = std::env::var("MCD_CRON_FILE") {
+    if let Ok(env_path) = std::env::var("EP_CRON_FILE") {
         return PathBuf::from(env_path);
     }
     config_override
@@ -46,7 +46,7 @@ pub fn resolve_path(config_override: Option<&Path>) -> PathBuf {
 /// schema_version + retention.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CronConfig {
-    /// File schema version. Required. edgeplaned refuses values > `MCD_SUPPORTED_CRON_SCHEMA`.
+    /// File schema version. Required. edgeplaned refuses values > `EP_SUPPORTED_CRON_SCHEMA`.
     pub schema_version: u32,
 
     /// IANA timezone for all cron expressions in this file. Default `"UTC"`.
@@ -191,13 +191,13 @@ pub fn parse(raw: &str, path_for_errors: &Path) -> Result<CronConfig> {
 }
 
 fn validate(cfg: &CronConfig, path_for_errors: &Path) -> Result<()> {
-    if cfg.schema_version > MCD_SUPPORTED_CRON_SCHEMA {
+    if cfg.schema_version > EP_SUPPORTED_CRON_SCHEMA {
         bail!(
             "{}: schema_version = {} is newer than this edgeplaned supports ({}). \
              Upgrade edgeplaned or downgrade the file.",
             path_for_errors.display(),
             cfg.schema_version,
-            MCD_SUPPORTED_CRON_SCHEMA
+            EP_SUPPORTED_CRON_SCHEMA
         );
     }
 
@@ -687,11 +687,11 @@ prompt = "x"
     #[test]
     fn resolve_path_prefers_env_override() {
         unsafe {
-            std::env::set_var("MCD_CRON_FILE", "/tmp/env-override.toml");
+            std::env::set_var("EP_CRON_FILE", "/tmp/env-override.toml");
         }
         let resolved = resolve_path(Some(Path::new("/tmp/config-override.toml")));
         unsafe {
-            std::env::remove_var("MCD_CRON_FILE");
+            std::env::remove_var("EP_CRON_FILE");
         }
         assert_eq!(resolved, PathBuf::from("/tmp/env-override.toml"));
     }

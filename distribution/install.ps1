@@ -9,7 +9,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Install-McIntegration {
+function Install-EdgeplaneIntegration {
     [CmdletBinding()]
     param(
         [string]$Endpoint = "",
@@ -256,4 +256,4 @@ env = { EP_BASE_URL = $endpointToml, EP_AGENT_TOKEN = $tokenToml }
     Write-Host "- Docs: $docsUrl"
 }
 
-Install-McIntegration -Endpoint $Endpoint -Token $Token -Agent $Agent -InstallDir $InstallDir
+Install-EdgeplaneIntegration -Endpoint $Endpoint -Token $Token -Agent $Agent -InstallDir $InstallDir

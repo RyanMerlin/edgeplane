@@ -6,7 +6,7 @@ owners:
   - platform
 summary: >
   Supports OIDC, service-account tokens, and node JWTs.
-  OIDC uses PKCE browser flow with one-time exchange into an mcs session token.
+  OIDC uses PKCE browser flow with one-time exchange into an EdgePlane session token.
   Node JWTs (RS256) are issued at registration and proactively rotated at 60 days.
 
 source_of_truth:
@@ -46,7 +46,7 @@ implemented:
   - token auth mode
   - oidc auth mode (PKCE browser flow)
   - dual auth mode (token + oidc both accepted)
-  - one-time code exchange into mcs session token
+  - one-time code exchange into EdgePlane session token
   - actor_subject_from_request extraction (email or OIDC subject)
   - platform admin via service-token
 

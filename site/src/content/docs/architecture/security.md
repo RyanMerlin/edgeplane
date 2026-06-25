@@ -11,9 +11,9 @@ EdgePlane uses three distinct authentication modes depending on who (or what) is
 
 | Mode | Identity | Issued by | Stored at |
 |------|----------|-----------|-----------|
-| **OIDC session** | Human operator (browser) | IdP → edgeplane-tower | `~/.edgeplane/session.json`, `ep_session_token` cookie (token prefix: `mcs_`, not `mcs_sa_`) |
+| **OIDC session** | Human operator (browser) | IdP → edgeplane-tower | `~/.edgeplane/session.json`, `ep_session_token` cookie (token prefix: `ep_`, not `ep_sa_`) |
 | **Node JWT** (RS256) | Machine / daemon | `edgeplane agent node register` via tower | `/etc/edgeplane/node.json` |
-| **Service account** | CI / scripted automation | Tower API (`mcs_sa_*` prefix) | Caller-managed; pass via `EP_AGENT_TOKEN` env var |
+| **Service account** | CI / scripted automation | Tower API (`ep_sa_*` prefix) | Caller-managed; pass via `EP_AGENT_TOKEN` env var |
 
 > **Note:** The static shared-secret `EP_TOKEN` was removed in v0.11.0. Any deployment still using it must migrate to one of the three modes above before upgrading.
 
@@ -38,7 +38,7 @@ Browser redirected to https://your-tower-host/api/auth/oidc/callback?code=...
   │  Claims verified via provider's userinfo endpoint (not unverified JWT parsing)
   │  `preferred_username` captured (falls back to `name`)
   ▼
-Tower issues opaque session token (`mcs_` prefix — not `mcs_sa_`; service-account tokens use `mcs_sa_`)
+Tower issues opaque session token (`ep_` prefix — not `ep_sa_`; service-account tokens use `ep_sa_`)
   │  Sets HttpOnly cookie (ep_session_token) for browser requests
   │  Also returned in response body for CLI storage
   ▼
@@ -83,7 +83,7 @@ curl -X POST https://your-tower-host/api/auth/service-accounts \
   -d '{"name": "ci-pipeline"}'
 ```
 
-Tokens carry the `mcs_sa_` prefix. They are validated against the `serviceaccount` + `serviceaccounttoken` tables in Postgres. Pass them to agent processes via the `EP_AGENT_TOKEN` environment variable. Revocation is immediate via the API or web dashboard.
+Tokens carry the `ep_sa_` prefix. They are validated against the `serviceaccount` + `serviceaccounttoken` tables in Postgres. Pass them to agent processes via the `EP_AGENT_TOKEN` environment variable. Revocation is immediate via the API or web dashboard.
 
 ---
 

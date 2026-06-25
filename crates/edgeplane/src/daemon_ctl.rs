@@ -2156,7 +2156,7 @@ async fn handle_profile(cmd: DaemonProfileCommand, client: &EdgeplaneClient) -> 
 }
 
 async fn handle_profile_add(a: ProfileAddArgs, _client: &EdgeplaneClient) -> Result<()> {
-    // Obtain a session token via OIDC browser flow. The resulting mcs_* token is
+    // Obtain a session token via OIDC browser flow. The resulting ep_* token is
     // stored in the profile so edgeplaned can authenticate without user interaction.
     let ttl_hours = a.ttl_hours.unwrap_or(8760); // default to 1y max for daemon use
     let session_token = crate::auth::acquire_oidc_token(&a.url, ttl_hours).await

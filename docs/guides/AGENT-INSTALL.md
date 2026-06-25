@@ -80,7 +80,7 @@ homes and `doctor`/`exec`/`status` actions; see `edgeplane run <runtime> --help`
 ## Session tokens
 
 `edgeplane auth login` exchanges your current credentials for a server-issued session token
-(`mcs_*` prefix) stored at `~/.edgeplane/session.json` (chmod 600).
+(`ep_*` prefix) stored at `~/.edgeplane/session.json` (chmod 600).
 
 Session tokens are:
 - **Revocable** — `edgeplane auth logout` revokes server-side instantly
@@ -91,7 +91,7 @@ Session tokens are:
 ### Login / logout / whoami
 
 ```bash
-# Create a session (exchange any valid credential for an mcs_ token)
+# Create a session (exchange any valid credential for an ep_ token)
 edgeplane auth login                      # default 8h TTL
 edgeplane auth login --ttl-hours 24       # longer TTL
 edgeplane auth login --print-token        # print token to stdout (for scripting)
@@ -138,7 +138,7 @@ edgeplane run claude
 ```
 
 **Token embedding rules for driver agents (`edgeplane run` gemini/openclaw/custom):**
-- Session tokens (`mcs_*`) → never embedded, always injected at exec time
+- Session tokens (`ep_*`) → never embedded, always injected at exec time
 - `--no-embed-token` flag → never embedded
 - `EP_AGENT_TOKEN` absent → never embedded (auto-implied, notice printed)
 - Static token present → embedded by default (can override with `--no-embed-token`)
@@ -264,7 +264,7 @@ edgeplane data sync status --domain-id <domain-id> --mission-id <optional-missio
 | Auth type | How it works | Recommended for |
 |---|---|---|
 | Static `EP_AGENT_TOKEN` | Shared secret, never expires | Local dev, CI |
-| Session token (`mcs_*`) | DB-backed, revocable, expiring | Interactive use, OIDC users |
+| Session token (`ep_*`) | DB-backed, revocable, expiring | Interactive use, OIDC users |
 | OIDC JWT | Short-lived, identity-bound | SSO/Authentik environments |
 
 All auth types work with `edgeplane run` for gemini/openclaw/custom. Claude/codex/goose are native runtimes under the same `edgeplane run` command.

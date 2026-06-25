@@ -124,7 +124,7 @@ systemctl --user enable --now edgeplane-goose
 ### Create a MeshTask (via work API)
 
 ```bash
-TOKEN=mcs_…
+TOKEN=ep_…
 MISSION_ID=<id>
 
 curl -X POST http://<edgeplane-host>/work/missions/$MISSION_ID/tasks \
