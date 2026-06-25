@@ -644,7 +644,10 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
             tokio::sync::broadcast::channel::<edgeplaned_core::types::SupervisorEvent>(256);
         let unit_health_loop = crate::unit_health::UnitHealthLoop::new(
             registry_path.clone(),
-            crate::unit_health::UnitHealthConfig::default(),
+            crate::unit_health::UnitHealthConfig {
+                nightly_restart_hour: cfg.nightly_restart_hour,
+                ..crate::unit_health::UnitHealthConfig::default()
+            },
             supervisor_events_tx.clone(),
         );
         let unit_gc_registry_path = registry_path.clone();

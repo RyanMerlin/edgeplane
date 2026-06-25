@@ -53,6 +53,14 @@ pub struct DaemonConfig {
     /// Ephemeral agents (session_mode: Task) ignore this field entirely.
     #[serde(default)]
     pub home_domain_id: Option<String>,
+    // ── Unit health (nightly restart) ─────────────────────────────────────
+
+    /// Hour (local time, 0–23) at which edgeplaned issues a nightly restart
+    /// for all supervised systemd units. Set to `null` / `~` to disable.
+    /// Default: 3 (3 AM local time).
+    #[serde(default = "default_nightly_restart_hour")]
+    pub nightly_restart_hour: Option<u32>,
+
     // ── Task worker (P2) ───────────────────────────────────────────────────
     //
     // Controls the `task_worker` module that polls for claimable MeshTasks,
@@ -123,6 +131,10 @@ pub struct DaemonConfig {
     /// only. Default: `["fs:read", "shell:read"]`.
     #[serde(default = "default_default_capabilities")]
     pub task_worker_default_capabilities: Vec<String>,
+}
+
+fn default_nightly_restart_hour() -> Option<u32> {
+    Some(3)
 }
 
 fn default_task_worker_enabled() -> bool {
@@ -302,6 +314,7 @@ impl DaemonConfig {
             attach_secret: None,
             attach_bind_addr: default_attach_bind(),
             home_domain_id: None,
+            nightly_restart_hour: default_nightly_restart_hour(),
             task_worker_enabled: default_task_worker_enabled(),
             task_worker_poll_interval_secs: default_task_worker_poll_interval_secs(),
             task_worker_max_concurrent: default_task_worker_max_concurrent(),
