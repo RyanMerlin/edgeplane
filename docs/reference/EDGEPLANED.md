@@ -4,7 +4,7 @@ edgeplaned is the work-first agent coordination daemon. Think Temporal, not RKE2
 - **Domain** = namespace / long-lived workspace
 - **Mission** = objective owning a task DAG
 - **MeshTask** = unit of work (claimed, executed, finished)
-- **AgentRuntime** = worker. Five impls today: `claude_code` (one-shot `claude -p`), `claude_agent_acp` (persistent JSON-RPC; ACP), `codex`, `gemini`, `goose`, and `zellij_hosted` (long-running agents hosted in a Zellij pane — Aria fleet; signals via `edgeplane agent signal`). See `crates/edgeplaned/crates/edgeplaned-runtimes/src/`.
+- **AgentRuntime** = worker. Runtime impls today include `claude_code` (one-shot `claude -p`), `claude_agent_acp` (persistent JSON-RPC; ACP), `codex`, `gemini`, and `zellij_hosted` (long-running agents hosted in a Zellij pane — Aria fleet; signals via `edgeplane agent signal`). See `crates/edgeplaned/crates/edgeplaned-runtimes/src/`.
 
 The daemon (`edgeplaned`) runs a headless attach gateway. The work loop (`edgeplane run <runtime>`) connects to a mission, claims tasks, and supervises agent child processes.
 
@@ -35,7 +35,7 @@ These are now built into edgeplaned — no external long-running processes neede
 ### Prerequisites
 
 - Rust toolchain (if building from source) or prebuilt binary
-- Agent runtime installed (e.g. `~/.local/bin/goose`)
+- Agent runtime installed (e.g. `claude`, `codex`, or `gemini`)
 - Tailscale (or direct network access to the MC backend)
 - `~/.edgeplane/session.json` with a valid token
 
@@ -79,7 +79,7 @@ chmod 600 ~/.edgeplane/session.json
 ```bash
 EP_BASE_URL=http://<edgeplane-host> edgeplane daemon agent enroll \
   --mission <mission-id> \
-  --runtime goose
+  --runtime claude_code
 ```
 
 ### Start the loop
@@ -87,25 +87,21 @@ EP_BASE_URL=http://<edgeplane-host> edgeplane daemon agent enroll \
 ```bash
 PATH="$HOME/.local/bin:$PATH" \
 EP_BASE_URL=http://<edgeplane-host> \
-EP_LITELLM_HOST=http://<litellm-host>:4000 \
-EP_LITELLM_API_KEY=<key> \
-edgeplane run goose --mission <mission-id>
+edgeplane run claude --mission <mission-id>
 ```
 
 Run as a systemd user service for persistence:
 
 ```ini
-# ~/.config/systemd/user/edgeplane-goose.service
+# ~/.config/systemd/user/edgeplane-claude.service
 [Unit]
-Description=Edgeplane Goose work loop
+Description=Edgeplane Claude work loop
 After=network-online.target
 
 [Service]
 Environment=PATH=/home/%u/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=EP_BASE_URL=http://<edgeplane-host>
-Environment=EP_LITELLM_HOST=http://<litellm-host>:4000
-Environment=EP_LITELLM_API_KEY=<key>
-ExecStart=/home/%u/bin/edgeplane run goose --mission <mission-id>
+ExecStart=/home/%u/bin/edgeplane run claude --mission <mission-id>
 Restart=on-failure
 RestartSec=10
 
@@ -114,7 +110,7 @@ WantedBy=default.target
 ```
 
 ```bash
-systemctl --user enable --now edgeplane-goose
+systemctl --user enable --now edgeplane-claude
 ```
 
 ---
@@ -156,16 +152,11 @@ curl -X POST http://<edgeplane-host>/work/tasks/<task-id>/retry \
 | Variable | Default | Purpose |
 |---|---|---|
 | `EP_BASE_URL` | `http://localhost:8008` | Backend URL |
-| `EP_LITELLM_HOST` | `http://litellm:4000` | LiteLLM proxy URL |
-| `EP_LITELLM_API_KEY` | _(none)_ | LiteLLM master key → sets `LITELLM_API_KEY` for Goose |
-| `EP_GOOSE_BIN` | _(PATH lookup)_ | Override path to goose binary (e.g. `~/.local/bin/goose`) |
-| `EP_GOOSE_MODEL` | `local-agent` | Model name passed to Goose |
 
 ---
 
 ## Known limitations
 
 - **Event bus threading**: `task_ready` WebSocket events from sync API handlers may not wake the work loop reliably in single-worker deployments. The startup poll (`/work/missions/{id}/tasks?status=ready`) is the reliable dispatch path — restart the loop after creating tasks if events don't fire.
-- **sudo in tasks**: Goose runs without a TTY; `sudo` will fail unless the node has passwordless sudo configured for the user (`NOPASSWD: ALL` or specific commands in `/etc/sudoers.d/`).
 - **GLIBC mismatch**: Build `edgeplane` natively on the target node if it runs an older glibc than the build machine.
 - **Tasks vs MeshTasks**: The regular `/domains/{id}/missions/{id}/tasks` task API is the Kanban-style tracker. The work loop only operates on `MeshTask` objects at `/work/missions/{id}/tasks`. Always use the `/work/` API when creating tasks for agent dispatch.

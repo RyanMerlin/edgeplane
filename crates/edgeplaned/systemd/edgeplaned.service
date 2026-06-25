@@ -7,7 +7,7 @@ Wants=network.target
 [Service]
 Type=simple
 ExecStart=%h/.cargo/bin/edgeplaned run
-# PATH for spawned subprocesses (e.g. `goose` for dispatch=goose cron jobs).
+# PATH for spawned subprocesses.
 # systemd user services get a minimal PATH by default — set it explicitly so
 # tools installed under the user's cargo/local bin are reachable.
 Environment=PATH=%h/.cargo/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin

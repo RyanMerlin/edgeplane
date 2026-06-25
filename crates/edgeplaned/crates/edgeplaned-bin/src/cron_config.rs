@@ -135,8 +135,7 @@ pub struct CronJob {
     /// Multi-line OK; TOML triple-quoted strings work.
     pub prompt: String,
 
-    /// Dispatch mode. Only `"signal"` is supported in Phase 4;
-    /// `"goose"` parses but the loader bails with a clear error.
+    /// Dispatch mode. Supported values are `"signal"` and `"bash"`.
     #[serde(default = "default_dispatch")]
     pub dispatch: String,
 
@@ -253,10 +252,8 @@ fn validate(cfg: &CronConfig, path_for_errors: &Path) -> Result<()> {
         }
 
         match job.dispatch.as_str() {
-            "signal" | "goose" | "bash" => {}
-            other => bail!(
-                "{where_}: unknown dispatch = {other:?} (expected \"signal\", \"goose\", or \"bash\")"
-            ),
+            "signal" | "bash" => {}
+            other => bail!("{where_}: unknown dispatch = {other:?} (expected \"signal\" or \"bash\")"),
         }
     }
 
@@ -448,21 +445,6 @@ kind = "heartbeat"
         let msg = format!("{err:#}");
         assert!(msg.contains("heartbeat"), "msg: {msg}");
         assert!(msg.contains("interval"), "msg: {msg}");
-    }
-
-    #[test]
-    fn accepts_goose_dispatch() {
-        let raw = r#"
-schema_version = 1
-
-[[job]]
-name = "g"
-schedule = "0 0 * * *"
-prompt = "x"
-dispatch = "goose"
-"#;
-        let cfg = parse(raw, &p()).expect("goose parses");
-        assert_eq!(cfg.jobs[0].dispatch, "goose");
     }
 
     // ── bash dispatch tests ──────────────────────────────────────────────

@@ -18,6 +18,21 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
   `MCD_CRON_FILE` → `EP_CRON_FILE`. The old `MCD_*` names are no longer read. Set
   the `EP_*` names if you previously overrode these (defaults are unchanged).
 
+### Removed
+
+- **Goose runtime removed entirely (breaking).** The `GooseRuntime` agent runtime,
+  the `dispatch = "goose"` cron mode, the Phase-3 goose task-triage loop, and the
+  `EP_GOOSE_BIN` / `MCD_GOOSE_BIN` env vars are all gone. EdgePlane now has one way
+  to invoke agents (the real runtimes: claude_code / codex / gemini / openclaw /
+  custom). Task claiming (Phase 2) is unchanged — it already used `claude -p`.
+  - Default home-domain runtime (`edgeplane daemon … enroll-home --runtime`) is now
+    `claude_code` (was `goose`).
+  - **Upgrade note:** remove any `dispatch = "goose"` jobs from your `cron.toml`
+    before upgrading. A leftover goose job fails whole-config validation, and the
+    cron loop soft-fails to an *empty* schedule (all jobs disabled) until it's
+    removed. Reclassify such jobs to `dispatch = "bash"` (for shell commands) or
+    `dispatch = "signal"` (for agent work).
+
 ## [0.15.1] — 2026-06-19
 
 Red-team hardening of the v0.15.0 P0 security release — closes read-side cross-domain authz gaps and intra-domain IDORs (no cross-domain *mutation* bypass or token escalation existed; the model held). Ships the daemon fail-closed token fallback to the fleet.

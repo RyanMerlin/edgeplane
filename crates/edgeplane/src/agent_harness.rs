@@ -349,7 +349,7 @@ fn install_acp_config(
 /// Launch a driver-based agent (gemini, openclaw, custom) with a fully wired
 /// Edgeplane harness: instance isolation, profile overlay, MCP config + auth,
 /// onboarding-manifest staging, and exec. Backs `edgeplane run <runtime>` for
-/// the driver runtimes (claude/codex/goose have their own native modules).
+/// the driver runtimes (claude/codex have their own native modules).
 pub async fn run_driver_agent(
     runtime: &str,
     profile: Option<String>,
@@ -874,7 +874,7 @@ fn parse_agent_kind(value: &str) -> Result<AgentKind> {
         "custom" => Ok(AgentKind::Custom),
         other => bail!(
             "`{}` is not a driver-managed runtime; expected gemini, openclaw, or custom \
-             (claude/codex/goose are native runtimes handled by `edgeplane run` directly)",
+             (claude/codex are native runtimes handled by `edgeplane run` directly)",
             other
         ),
     }

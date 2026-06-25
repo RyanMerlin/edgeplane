@@ -35,7 +35,6 @@ EP_AGENT_TOKEN="<your-token>" edgeplane auth login   # saves ~/.edgeplane/sessio
 edgeplane run claude           # Claude Code
 edgeplane run codex            # OpenAI Codex CLI
 edgeplane run gemini           # Google Gemini CLI
-edgeplane run goose            # Goose (local models via LiteLLM)
 edgeplane run openclaw         # OpenClaw (ACP)
 edgeplane run custom           # Custom ACP agent
 ```
@@ -64,7 +63,7 @@ For the driver-managed agents (gemini, openclaw, custom), `edgeplane run`:
 6. Injects `EP_AGENT_TOKEN` into the agent's process environment
 7. exec's the agent
 
-(claude, codex, and goose are native runtimes with their own profile-scoped
+(claude and codex are native runtimes with their own profile-scoped
 homes and `doctor`/`exec`/`status` actions; see `edgeplane run <runtime> --help`.)
 
 ## Agent Config Locations (driver agents, default)
@@ -267,7 +266,7 @@ edgeplane data sync status --domain-id <domain-id> --mission-id <optional-missio
 | Session token (`ep_*`) | DB-backed, revocable, expiring | Interactive use, OIDC users |
 | OIDC JWT | Short-lived, identity-bound | SSO/Authentik environments |
 
-All auth types work with `edgeplane run` for gemini/openclaw/custom. Claude/codex/goose are native runtimes under the same `edgeplane run` command.
+All auth types work with `edgeplane run` for gemini/openclaw/custom. Claude/codex are native runtimes under the same `edgeplane run` command.
 
 ## Troubleshooting: Startup Timeout
 

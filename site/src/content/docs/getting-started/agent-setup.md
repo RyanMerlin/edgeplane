@@ -14,7 +14,6 @@ All runtimes launch through `edgeplane run <runtime>`:
 | `claude` | `edgeplane run claude` | Claude Code (ACP, persistent session) |
 | `codex` | `edgeplane run codex` | OpenAI Codex CLI |
 | `gemini` | `edgeplane run gemini` | Google Gemini CLI |
-| `goose` | `edgeplane run goose` | Goose (Block) — profile-scoped home, `doctor`/`exec`/`status` |
 | `openclaw` | `edgeplane run openclaw` | OpenClaw driver agent |
 | `custom` | `edgeplane run custom` | Custom ACP agent with instance isolation |
 

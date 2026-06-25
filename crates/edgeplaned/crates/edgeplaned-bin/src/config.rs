@@ -82,48 +82,12 @@ pub struct DaemonConfig {
     #[serde(default = "default_task_worker_subagent_command")]
     pub task_worker_subagent_command: String,
 
-    // ── Task worker triage (P3) ────────────────────────────────────────────
-    //
-    // Controls the triage loop that examines unscoped tasks in the intake
-    // mission and either routes them to a profile (via child meshtask) or
-    // marks them as blocked + optionally invokes a deployment-specific
-    // surface command to alert a human.
-
-    /// Enable the triage loop (P3). Set to `false` to disable without
-    /// disabling the P2 claimer loop. Default: `true`.
-    #[serde(default = "default_triage_enabled")]
-    pub task_worker_triage_enabled: bool,
-
-    /// How often (seconds) the triage loop polls the intake mission for
-    /// unscoped tasks. Deliberately slower than P2's claim interval.
-    /// Default: 60.
-    #[serde(default = "default_triage_poll_interval_secs")]
-    pub task_worker_triage_poll_interval_secs: u64,
-
-    /// Minimum goose confidence score to auto-route a task to a profile.
-    /// Tasks below this threshold are marked `blocked` and (optionally)
-    /// surfaced via `task_worker_surface_command`. Range: 0.0–1.0. Default: 0.85.
-    #[serde(default = "default_triage_confidence_threshold")]
-    pub task_worker_triage_confidence_threshold: f64,
-
-    /// Maximum number of tasks to triage per cycle. Caps goose subprocess
-    /// load; remaining tasks are picked up on the next poll. Default: 5.
-    #[serde(default = "default_max_triage_per_cycle")]
-    pub task_worker_max_triage_per_cycle: usize,
-
-    /// Timeout (seconds) for each triage subprocess call during triage.
-    /// If it exceeds this, the task is treated as low-confidence and
-    /// surfaced for human triage. Default: 30.
-    #[serde(default = "default_goose_timeout_secs")]
-    pub task_worker_goose_timeout_secs: u64,
-
-    /// Optional command (program + args) invoked when the triage loop blocks
-    /// a task for human review. The command receives 3 additional args
-    /// appended at the end: `<task_id> <title> <reason>`. Stdout/stderr is
-    /// captured to the edgeplaned log; exit code is logged.
+    /// Optional command (program + args) reserved for deployment-specific
+    /// blocked-task surfacing. The command convention receives 3 additional
+    /// args appended at the end: `<task_id> <title> <reason>`.
     ///
-    /// If `None` (default), edgeplaned only marks the task as `blocked` — operators
-    /// discover via `edgeplane task ls --status blocked` (MC-native discovery).
+    /// If `None` (default), operators discover blocked work via
+    /// `edgeplane task ls --status blocked`.
     ///
     /// Example deployment that surfaces to an external system:
     /// ```toml
@@ -134,22 +98,11 @@ pub struct DaemonConfig {
     /// ]
     /// ```
     ///
-    /// The command should be a deployment-specific concern; MC itself ships
+    /// The command should be a deployment-specific concern; EdgePlane ships
     /// without any default surface so it remains decoupled from Aria, Slack,
     /// vault paths, or any particular human-interface convention.
     #[serde(default)]
     pub task_worker_surface_command: Option<Vec<String>>,
-
-    /// Binary (and optional leading args) used to invoke the goose triage
-    /// subprocess. Set to `["goose", "run", "--"]` for a standalone goose
-    /// install, or any other command that accepts a prompt as the final
-    /// argument and returns `{"ok": bool, "data": {...}}` on stdout.
-    ///
-    /// `EP_GOOSE_BIN` env var takes precedence when set.
-    ///
-    /// Default: `["goose"]`
-    #[serde(default = "default_goose_bin")]
-    pub task_worker_goose_bin: Vec<String>,
 
     // ── Task worker capability enforcement (P4) ────────────────────────────
     //
@@ -186,34 +139,6 @@ fn default_task_worker_max_concurrent() -> usize {
 
 fn default_task_worker_subagent_command() -> String {
     "claude".to_string()
-}
-
-fn default_triage_enabled() -> bool {
-    true
-}
-
-fn default_triage_poll_interval_secs() -> u64 {
-    60
-}
-
-fn default_triage_confidence_threshold() -> f64 {
-    0.85
-}
-
-fn default_max_triage_per_cycle() -> usize {
-    5
-}
-
-fn default_goose_timeout_secs() -> u64 {
-    30
-}
-
-fn default_goose_bin() -> Vec<String> {
-    // Respect the legacy env var for backwards-compat, then fall back to
-    // the `goose` binary from PATH — no `aria` coupling for OSS installs.
-    std::env::var("EP_GOOSE_BIN")
-        .map(|v| v.split_whitespace().map(String::from).collect())
-        .unwrap_or_else(|_| vec!["goose".to_string()])
 }
 
 fn default_strict_capabilities() -> bool {
@@ -381,15 +306,9 @@ impl DaemonConfig {
             task_worker_poll_interval_secs: default_task_worker_poll_interval_secs(),
             task_worker_max_concurrent: default_task_worker_max_concurrent(),
             task_worker_subagent_command: default_task_worker_subagent_command(),
-            task_worker_triage_enabled: default_triage_enabled(),
-            task_worker_triage_poll_interval_secs: default_triage_poll_interval_secs(),
-            task_worker_triage_confidence_threshold: default_triage_confidence_threshold(),
-            task_worker_max_triage_per_cycle: default_max_triage_per_cycle(),
-            task_worker_goose_timeout_secs: default_goose_timeout_secs(),
             task_worker_strict_capabilities: default_strict_capabilities(),
             task_worker_default_capabilities: default_default_capabilities(),
             task_worker_surface_command: None,
-            task_worker_goose_bin: default_goose_bin(),
         });
         cfg.resolve_credentials();
         cfg

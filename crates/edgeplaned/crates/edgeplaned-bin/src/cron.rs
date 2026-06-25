@@ -194,7 +194,7 @@ impl CronLoop {
 
     /// Evaluate one job: compute next fire from last_fired_at, dispatch
     /// if due, record fire. Branches on `job.kind` (cron vs heartbeat) and
-    /// `job.dispatch` (signal vs goose).
+    /// `job.dispatch` (signal vs bash).
     async fn eval_job(&self, job: &CronJob, tz: Tz) -> Result<()> {
         let state = self.read_state(&job.name).await?;
 
@@ -249,7 +249,6 @@ impl CronLoop {
         let start = std::time::Instant::now();
         let dispatch_result = match job.dispatch.as_str() {
             "signal" => self.dispatch_signal(job).await,
-            "goose" => self.dispatch_goose(job).await,
             "bash" => self.dispatch_bash(job).await,
             other => Err(anyhow::anyhow!("unknown dispatch {other:?} for job {:?}", job.name)),
         };
@@ -326,38 +325,6 @@ impl CronLoop {
             .await
     }
 
-    /// Dispatch the prompt via the configured goose binary — runs locally on
-    /// the node, no agent attachment needed. Useful for periodic computation
-    /// that doesn't belong to any specific profile (auto-summaries, log
-    /// digests, drift checks). `job.session` is treated as a metadata tag
-    /// for telemetry only; it does NOT need to match a supervised agent.
-    ///
-    /// Honors `EP_GOOSE_BIN` (or legacy `MCD_GOOSE_BIN`) env override;
-    /// falls back to `goose` from PATH. Timeout is 5 minutes — goose runs
-    /// are intentionally short-lived; if you need longer, use
-    /// dispatch="signal" to a real agent.
-    async fn dispatch_goose(&self, job: &CronJob) -> Result<()> {
-        let bin = std::env::var("EP_GOOSE_BIN")
-            .or_else(|_| std::env::var("MCD_GOOSE_BIN"))
-            .unwrap_or_else(|_| "goose".to_string());
-        let prompt = job.prompt.clone();
-        let name = job.name.clone();
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let output = std::process::Command::new(&bin)
-                .args(["goose", &prompt, "--timeout", "300"])
-                .output()
-                .with_context(|| format!("spawn `{bin} goose ...` for {name:?}"))?;
-            if !output.status.success() {
-                let code = output.status.code().unwrap_or(-1);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                bail!("goose exited {code}: {}", stderr.trim());
-            }
-            Ok(())
-        })
-        .await
-        .context("spawn_blocking panicked dispatching goose")?
-    }
-
     /// Dispatch the prompt as a literal shell script via `bash -c "<prompt>"`.
     ///
     /// No session attachment, no LLM round-trip, no profile context. The
@@ -370,7 +337,7 @@ impl CronLoop {
     /// - Context: `EP_CRON_JOB_NAME`, `EP_CRON_FIRE_TS` (Unix epoch seconds),
     ///   `EP_CRON_DISPATCH=bash`
     ///
-    /// Timeout: 5 minutes (same as goose). Exit code 0 → ok; non-zero → error
+    /// Timeout: 5 minutes. Exit code 0 → ok; non-zero → error
     /// (stderr preview captured in the cron fire log). edgeplaned stays up on failure
     /// (soft-fail).
     async fn dispatch_bash(&self, job: &CronJob) -> Result<()> {

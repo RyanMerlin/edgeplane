@@ -260,7 +260,7 @@ EdgePlane — fleet control-plane CLI
 * `profile` — Manage Edgeplane user profiles
 * `secrets` — Secrets provider + reference helpers
 * `daemon` — edgeplaned daemon control and work-model commands
-* `run` — Launch and manage an agent runtime: claude, codex, gemini, goose, openclaw, custom
+* `run` — Launch and manage an agent runtime: claude, codex, gemini, openclaw, custom
 * `capabilities` — List and describe capability packs available through edgeplaned
 * `exec` — Execute a capability
 * `receipts` — Inspect capability execution receipts stored in the local SQLite audit log
@@ -2398,7 +2398,7 @@ Manage agents in a domain's durable pool
 
 * `ls` — List agents. In standalone mode reads the local registry; in federated mode queries the controlplane
 * `enroll` — Enroll a new agent. In standalone mode writes to the local registry (~/.ep/registry.db); in federated mode calls the controlplane API
-* `enroll-home` — Provision the per-node home domain and enroll a default Goose agent in it. Standalone mirror of the controlplane's auto-provisioning at node-register time. Idempotent
+* `enroll-home` — Provision the per-node home domain and enroll a default Claude Code agent in it. Standalone mirror of the controlplane's auto-provisioning at node-register time. Idempotent
 * `import` — Bulk-import agents from a TOML manifest into the local registry. Each `[[profile]]` block is upserted as a zellij_hosted / persistent agent with a matching launch context. Idempotent — re-running updates in place. The daemon picks up changes on its next reconcile tick
 * `reassign` — Reassign an agent to a different domain
 * `unenroll` — Remove an agent from the registry / controlplane
@@ -2440,16 +2440,16 @@ Enroll a new agent. In standalone mode writes to the local registry (~/.ep/regis
 
 ## `edgeplane daemon agent enroll-home`
 
-Provision the per-node home domain and enroll a default Goose agent in it. Standalone mirror of the controlplane's auto-provisioning at node-register time. Idempotent
+Provision the per-node home domain and enroll a default Claude Code agent in it. Standalone mirror of the controlplane's auto-provisioning at node-register time. Idempotent
 
 **Usage:** `edgeplane daemon agent enroll-home [OPTIONS]`
 
 ###### **Options:**
 
 * `--hostname <HOSTNAME>` — Hostname used to form the home domain slug `home-{slug(hostname)}`. Defaults to the Tailscale FQDN leaf (when Tailscale is running) or the system hostname
-* `--runtime <RUNTIME>` — Runtime kind for the default home-domain agent. Goose is the recommended default — cheap local inference for routing/triage
+* `--runtime <RUNTIME>` — Runtime kind for the default home-domain agent
 
-  Default value: `goose`
+  Default value: `claude_code`
 
 
 
@@ -2856,13 +2856,13 @@ Select the active controlplane profile (or show the current one)
 
 ## `edgeplane run`
 
-Launch and manage an agent runtime: claude, codex, gemini, goose, openclaw, custom
+Launch and manage an agent runtime: claude, codex, gemini, openclaw, custom
 
 **Usage:** `edgeplane run [OPTIONS] <RUNTIME> [ACTION] [-- <PASSTHROUGH>...]`
 
 ###### **Arguments:**
 
-* `<RUNTIME>` — Runtime to launch: claude, codex, gemini, goose, openclaw, custom
+* `<RUNTIME>` — Runtime to launch: claude, codex, gemini, openclaw, custom
 * `<ACTION>` — Action to perform (default: launch)
 
   Default value: `launch`

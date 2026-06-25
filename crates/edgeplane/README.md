@@ -119,12 +119,11 @@ edgeplane [--base-url URL] [--token TOKEN] [--agent-id ID] [--allow-insecure] \
 - `edgeplane run claude [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [--with-rtk] [-- ARGS...]` — unified Claude launch with profile runtime + optional mesh participation. `--with-rtk` is a soft flag: warns and continues if the optional `rtk` token-compression tool is not installed.
 - `edgeplane run codex [-p PROFILE] [--mission ID] [--mode interactive|headless|solo] [--with-rtk] [-- ARGS...]` — unified Codex launch.
 - `edgeplane run gemini [-p PROFILE] [-- ARGS...]` — Gemini launch.
-- `edgeplane run goose [-p PROFILE] [-- ARGS...]` — Goose launch (local models via LiteLLM).
 - `edgeplane run openclaw [-p PROFILE] [-- ARGS...]` — OpenClaw launch (ACP driver agent).
 - `edgeplane run custom [-p PROFILE] [-- ARGS...]` — custom ACP agent launch.
 
 `edgeplane run <runtime>` is the single entry point for every agent. (The
-legacy `edgeplane launch` command was removed; claude/codex/goose are native
+legacy `edgeplane launch` command was removed; claude/codex are native
 runtimes, gemini/openclaw/custom are driver agents — all under `run`.)
 
 ### Runtime diagnostics

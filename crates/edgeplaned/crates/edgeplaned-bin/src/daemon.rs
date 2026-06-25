@@ -11,7 +11,6 @@ use edgeplaned_runtimes::{
     claude_code::ClaudeCodeRuntime,
     codex::CodexRuntime,
     gemini::GeminiRuntime,
-    goose::GooseRuntime,
     zellij_hosted::ZellijHostedRuntime,
 };
 use edgeplaned_receipts::ReceiptStore;
@@ -66,7 +65,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     // Security belt-and-suspenders: warn loudly if EP_AGENT_TOKEN is present in
     // the daemon's own environment. Spawned agents that fail per-agent token
     // minting have their EP_AGENT_TOKEN explicitly stripped at spawn time (see
-    // claude_code.rs / goose.rs), so inheritance is already blocked. However, if
+    // claude_code.rs), so inheritance is already blocked. However, if
     // someone adds an EnvironmentFile= line or launches the daemon from a shell
     // that exports EP_AGENT_TOKEN, any child process that bypasses the runtime
     // injection path (e.g. a future runtime kind, a shell helper) would silently
@@ -84,8 +83,8 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
              This is a privilege-escalation footgun: any spawned child that does \
              not receive a per-agent token could inherit this full-trust credential. \
              Remove EP_AGENT_TOKEN from the daemon's environment (EnvironmentFile, \
-             shell export, etc.). Per-spawn stripping in the runtimes mitigates \
-             inheritance for claude_code and goose agents, but this env exposure \
+             shell export, etc.). Per-spawn stripping in the runtime mitigates \
+             inheritance for claude_code agents, but this env exposure \
              should be eliminated at the source."
         );
     }
@@ -247,19 +246,6 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         let tw_config = cfg.clone();
         tokio::spawn(async move {
             task_worker::run(tw_client, tw_config).await;
-        });
-    }
-
-    // Phase 3 — Triage loop.
-    // Examines unscoped ready tasks in the intake mission and either routes
-    // them to a profile (via child meshtask) or surfaces them for human
-    // triage in `Aria/Engineer/inbox.md`. Runs independently of P2 at a slower
-    // cadence (default 60s vs 30s). Gated by `task_worker_triage_enabled`.
-    if cfg.task_worker_triage_enabled {
-        let triage_client = Arc::clone(&client);
-        let triage_config = cfg.clone();
-        tokio::spawn(async move {
-            task_worker::run_triage_loop(triage_client, triage_config).await;
         });
     }
 
@@ -1352,7 +1338,6 @@ impl Spawner {
             }
             "codex" => Arc::new(Box::new(CodexRuntime::with_extra_capabilities(extra_caps))),
             "gemini" => Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(extra_caps))),
-            "goose" => Arc::new(Box::new(GooseRuntime::with_extra_capabilities(extra_caps))),
             "zellij_hosted" => Arc::new(Box::new(
                 ZellijHostedRuntime::with_extra_capabilities(extra_caps),
             )),
@@ -1388,15 +1373,15 @@ impl Spawner {
         // from the child env (fail-closed: the agent will 401 on tower calls
         // rather than silently inheriting any ambient full-trust credential).
         //
-        // Only mint for runtimes that actually consume the token (claude_code,
-        // goose apply it via LaunchContext.agent_token → EP_AGENT_TOKEN). Other
+        // Only mint for runtimes that actually consume the token (claude_code
+        // applies it via LaunchContext.agent_token → EP_AGENT_TOKEN). Other
         // kinds ignore it, so minting would be a wasted round-trip — and for
         // node-runtime profile agents (e.g. zellij_hosted) it 404s, since the
         // mint endpoint resolves the agent's domain via the meshagent table
         // where they have no row. Skipping keeps those agents on the shared
         // daemon token exactly as before. (See issue #57.)
         let agent_token: Option<String> =
-            if matches!(spec.runtime_kind.as_str(), "claude_code" | "goose") {
+            if matches!(spec.runtime_kind.as_str(), "claude_code") {
                 match self.client.mint_agent_token(&spec.agent_id).await {
                     Ok(tok) => Some(tok),
                     Err(e) => {
@@ -2255,15 +2240,9 @@ mod tests {
             task_worker_poll_interval_secs: 30,
             task_worker_max_concurrent: 3,
             task_worker_subagent_command: "claude".into(),
-            task_worker_triage_enabled: true,
-            task_worker_triage_poll_interval_secs: 60,
-            task_worker_triage_confidence_threshold: 0.85,
-            task_worker_max_triage_per_cycle: 5,
-            task_worker_goose_timeout_secs: 30,
             task_worker_strict_capabilities: false,
             task_worker_default_capabilities: vec![],
             task_worker_surface_command: None,
-            task_worker_goose_bin: vec!["goose".into()],
         }
     }
 

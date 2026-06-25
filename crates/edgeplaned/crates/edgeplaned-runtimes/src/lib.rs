@@ -2,7 +2,6 @@ pub mod claude_agent_acp;
 pub mod claude_code;
 pub mod codex;
 pub mod gemini;
-pub mod goose;
 pub mod shared;
 pub mod harness;
 pub mod zellij_hosted;

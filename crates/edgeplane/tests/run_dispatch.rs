@@ -42,7 +42,7 @@ fn launch_command_is_removed() {
 }
 
 #[test]
-fn run_help_lists_all_six_runtimes() {
+fn run_help_lists_all_five_runtimes() {
     let out = edgeplane().args(["run", "--help"]).output().expect("spawn edgeplane");
     assert!(out.status.success(), "`run --help` should succeed");
     let combined = format!(
@@ -50,7 +50,7 @@ fn run_help_lists_all_six_runtimes() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    for rt in ["claude", "codex", "gemini", "goose", "openclaw", "custom"] {
+    for rt in ["claude", "codex", "gemini", "openclaw", "custom"] {
         assert!(
             combined.contains(rt),
             "`run --help` should mention runtime '{rt}', got:\n{combined}"

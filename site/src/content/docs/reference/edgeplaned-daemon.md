@@ -61,7 +61,6 @@ edgeplaned supports these agent runtime kinds (see `crates/edgeplaned/crates/edg
 | `claude_agent_acp` | Persistent JSON-RPC; ACP protocol |
 | `codex` | OpenAI Codex CLI |
 | `gemini` | Google Gemini CLI |
-| `goose` | Goose (LLM-agnostic agent) |
 | `zellij_hosted` | Long-running agents hosted in a Zellij pane; signals via `edgeplane agent signal` |
 
 ## Unix Sockets
@@ -167,13 +166,13 @@ edgeplane agent supervise resume <id>   # re-enable auto-restart
 
 ## Task Worker
 
-edgeplaned's task worker runs two loops that enable distributed mesh execution. See [Architecture: Ephemeral Task Agents](/architecture/ephemeral-agents/) for the full model.
+edgeplaned's task worker runs the claim loop that enables distributed mesh execution. See [Architecture: Ephemeral Task Agents](/architecture/ephemeral-agents/) for the full model.
 
 **Running an agent work loop:**
 
 ```bash
-edgeplane daemon agent enroll --domain <id> --runtime goose
-edgeplane run goose --domain <id>
+edgeplane daemon agent enroll --domain <id> --runtime claude_code
+edgeplane run claude --domain <id>
 ```
 
 **Environment variables for the work loop:**
@@ -181,10 +180,6 @@ edgeplane run goose --domain <id>
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `EP_BASE_URL` | `http://localhost:8008` | Backend URL |
-| `EP_LITELLM_HOST` | `http://localhost:4000` | LiteLLM proxy URL (for Goose runtime) |
-| `EP_LITELLM_API_KEY` | _(none)_ | LiteLLM master key |
-| `EP_GOOSE_BIN` | PATH lookup | Override path to Goose binary |
-| `EP_GOOSE_MODEL` | `local-agent` | Model name passed to Goose |
 
 **Creating a MeshTask for dispatch:**
 

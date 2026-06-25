@@ -485,7 +485,6 @@ fn status_fg_style(status: &str) -> Style {
 
 fn runtime_style(runtime: &str) -> Style {
     match runtime.to_lowercase().as_str() {
-        "goose" => Style::default().fg(theme::PURPLE),
         "claude" => Style::default().fg(theme::OK),
         "codex" => Style::default().fg(theme::ACCENT),
         "gemini" => Style::default().fg(theme::WARN),
@@ -567,11 +566,11 @@ mod tests {
 
     #[test]
     fn x_emits_clear_context_op() {
-        let mut s = state_with(vec![agent("3", "goose", None)]);
+        let mut s = state_with(vec![agent("3", "gemini", None)]);
         s.handle_key(KeyCode::Char('x'));
         assert_eq!(
             s.take_pending_op(),
-            Some(AgentOp::ClearContext { id: "3".into(), name: "goose".into() })
+            Some(AgentOp::ClearContext { id: "3".into(), name: "gemini".into() })
         );
     }
 
