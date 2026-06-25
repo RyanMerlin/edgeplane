@@ -1,5 +1,5 @@
 nameOverride: ""
-replicaCount: 2
+replicaCount: 1
 
 image:
   # Override with your registry/repository when deploying.

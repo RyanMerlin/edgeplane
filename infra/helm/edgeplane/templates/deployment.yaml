@@ -12,19 +12,6 @@ spec:
       labels:
         app: {{ include "edgeplane.fullname" . }}
     spec:
-      initContainers:
-        - name: migrate
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["python", "-m", "alembic", "upgrade", "head"]
-          workingDir: /app
-          envFrom:
-            - configMapRef:
-                name: {{ include "edgeplane.fullname" . }}-config
-            {{- if .Values.secrets }}
-            - secretRef:
-                name: {{ include "edgeplane.fullname" . }}-secrets
-            {{- end }}
       containers:
         - name: edgeplane
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
