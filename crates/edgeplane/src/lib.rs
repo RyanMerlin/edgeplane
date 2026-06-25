@@ -20,7 +20,6 @@ pub mod config;
 pub mod context;
 pub mod discover;
 pub mod drift;
-pub mod goose;
 pub mod agent_harness;
 pub mod local_db;
 pub mod maintenance;

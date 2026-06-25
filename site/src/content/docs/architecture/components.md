@@ -13,7 +13,7 @@ EdgePlane is composed of five components. Three are core binaries that must coop
 
 **Responsibilities:**
 - `edgeplane tui` — full-screen terminal UI (agents, domains, missions, feed, approvals, secrets, config)
-- `edgeplane run <runtime>` — unified agent launcher (claude, codex, goose, gemini, custom)
+- `edgeplane run <runtime>` — unified agent launcher (claude, codex, gemini, openclaw, custom)
 - `edgeplane auth login / logout / whoami` — OIDC session token lifecycle
 - `edgeplane capabilities` — capability pack discovery and dispatch
 - `edgeplane domain`, `edgeplane mission`, `edgeplane task`, `edgeplane agent` — entity CRUD

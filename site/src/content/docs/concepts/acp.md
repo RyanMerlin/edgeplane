@@ -59,7 +59,6 @@ The attach secret is not a long-lived credential. If you rotate it (by re-regist
 | Zellij pane | `zellij_hosted` | PTY bridge — EdgePlane bridges via PTY; optional `edgeplane-zrpc` plugin for focus-free injection |
 | Codex | `codex` | Driver subprocess with instance isolation |
 | Gemini | `gemini` | Driver subprocess with instance isolation |
-| Goose | `goose` | Driver subprocess with instance isolation |
 | OpenClaw | `openclaw` | Driver subprocess |
 | Custom | `custom` | Driver subprocess |
 

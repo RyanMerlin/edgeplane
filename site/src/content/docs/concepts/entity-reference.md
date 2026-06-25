@@ -97,7 +97,6 @@ See `MeshAgent` for the discoverable, runtime-bound projection.
 | `zellij_hosted` | PTY bridge — agent lives in a Zellij pane; EdgePlane bridges via PTY |
 | `codex` | Driver subprocess |
 | `gemini` | Driver subprocess |
-| `goose` | Driver subprocess |
 | `openclaw` | Driver subprocess |
 | `custom` | Driver subprocess |
 

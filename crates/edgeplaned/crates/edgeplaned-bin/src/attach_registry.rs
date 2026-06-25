@@ -6,8 +6,8 @@
 //!
 //! Two endpoint shapes — selected at registration time by the supervisor:
 //!
-//! - [`PtyAttachEndpoints`] — byte-stream PTY (claude-code, codex, gemini,
-//!   goose). Fan-out via stdout broadcast; unicast stdin/resize; in-band
+//! - [`PtyAttachEndpoints`] — byte-stream PTY (claude-code, codex, gemini).
+//!   Fan-out via stdout broadcast; unicast stdin/resize; in-band
 //!   AgentSignal delivery for peer-message relay.
 //! - [`AcpAttachEndpoints`] — JSON-RPC over stdio (claude-agent-acp).
 //!   Fan-out via session/update broadcast; signal channel still carries

@@ -98,7 +98,7 @@ pub enum DaemonAgentCommand {
     /// Enroll a new agent. In standalone mode writes to the local registry
     /// (~/.ep/registry.db); in federated mode calls the controlplane API.
     Enroll(AgentEnrollArgs),
-    /// Provision the per-node home domain and enroll a default Goose agent
+    /// Provision the per-node home domain and enroll a default Claude Code agent
     /// in it. Standalone mirror of the controlplane's auto-provisioning at
     /// node-register time. Idempotent.
     EnrollHome(AgentEnrollHomeArgs),
@@ -147,9 +147,8 @@ pub struct AgentEnrollHomeArgs {
     /// the system hostname.
     #[arg(long)]
     pub hostname: Option<String>,
-    /// Runtime kind for the default home-domain agent. Goose is the
-    /// recommended default — cheap local inference for routing/triage.
-    #[arg(long, default_value = "goose")]
+    /// Runtime kind for the default home-domain agent.
+    #[arg(long, default_value = "claude_code")]
     pub runtime: String,
 }
 

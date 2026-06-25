@@ -37,7 +37,7 @@ Node principals are full-trust (first-party infra, single-operator posture). Nod
 
 Each enrolled agent receives its own short-lived (12 h), domain-scoped per-agent JWT (`AgentClaims`) instead of the shared `EP_AGENT_TOKEN`. Tokens are RS256-signed, revocable via the `agenttoken` table (migration `0010`), and fail-closed (revocation check returns denied on DB error). `claim` and `progress` are attributed to the authenticated agent in both REST and MCP surfaces. The mint endpoint (`POST /work/agents/{id}/token`) is full-trust/admin-gated — agents cannot mint peer tokens.
 
-The daemon injects each agent's own token as its `EP_AGENT_TOKEN`, with a graceful fail-closed fallback to the shared daemon token if minting is unavailable (PR #57/#58: minting is restricted to token-consuming runtimes — `claude_code` and `goose`).
+The daemon injects each agent's own token as its `EP_AGENT_TOKEN`, with a graceful fail-closed fallback to the shared daemon token if minting is unavailable (PR #57/#58: minting is restricted to token-consuming runtimes — `claude_code`).
 
 **Live-validated:** full lifecycle tested post-deploy: enroll → `auth_type:agent` → domain-scope 403 on cross-domain → revoke → 401.
 

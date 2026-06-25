@@ -1,4 +1,4 @@
-use crate::{claude, codex, config::EdgeplaneConfig, goose};
+use crate::{claude, codex, config::EdgeplaneConfig};
 use crate::client::EdgeplaneClient;
 use anyhow::{Result, bail};
 use clap::{Args, ValueEnum};
@@ -29,7 +29,7 @@ pub enum RunMode {
 
 #[derive(Args, Debug)]
 pub struct RunArgs {
-    /// Runtime to launch: claude, codex, gemini, goose, openclaw, custom.
+    /// Runtime to launch: claude, codex, gemini, openclaw, custom.
     #[arg(value_name = "RUNTIME")]
     pub runtime: String,
 
@@ -188,30 +188,8 @@ async fn dispatch_launch(
                 )
                 .await?;
             }
-            "goose" => {
-                let paths = goose::goose_paths(&profile);
-                crate::solo_supervisor::run_solo_work_loop(
-                    client,
-                    &domain_id,
-                    "goose",
-                    &profile,
-                    move |agent_id: &str, task_id: &str, task_md_path: &std::path::Path| {
-                        goose::launch_goose_blocking(
-                            &passthrough_clone,
-                            &paths.runtime_home,
-                            &config_clone,
-                            &profile_clone,
-                            agent_id,
-                            None,
-                            Some(task_id),
-                            Some(task_md_path),
-                        )
-                    },
-                )
-                .await?;
-            }
             other => bail!(
-                "--mode solo is not yet supported for runtime '{}'; try claude, codex, or goose",
+                "--mode solo is not yet supported for runtime '{}'; try claude or codex",
                 other
             ),
         }
@@ -222,7 +200,6 @@ async fn dispatch_launch(
     match runtime.as_str() {
         "claude" => claude::run_launch(profile, new, headless, with_rtk, passthrough, config).await,
         "codex" => codex::run_launch(profile, new, headless, with_rtk, passthrough, config).await,
-        "goose" => goose::run_launch(profile, new, headless, with_rtk, passthrough, config).await,
         "gemini" | "openclaw" | "custom" => {
             if new {
                 crate::ep_warn!("--new has no effect for {runtime} (no session resume)");
@@ -241,7 +218,7 @@ async fn dispatch_launch(
             .await
         }
         other => bail!(
-            "unknown runtime '{}'. Known: claude, codex, gemini, goose, openclaw, custom",
+            "unknown runtime '{}'. Known: claude, codex, gemini, openclaw, custom",
             other
         ),
     }
@@ -258,7 +235,6 @@ async fn dispatch_doctor(
     match runtime.as_str() {
         "claude" => claude::run_doctor(profile, fix, json, headless, config).await,
         "codex" => codex::run_doctor(profile, fix, json, headless, config).await,
-        "goose" => bail!("goose has no doctor command"),
         "gemini" | "openclaw" | "custom" => {
             bail!("`{}` is a driver-managed runtime and has no doctor command", runtime)
         }
@@ -275,7 +251,6 @@ async fn dispatch_exec(
     match runtime.as_str() {
         "claude" => claude::run_exec(profile, passthrough, config).await,
         "codex" => codex::run_exec(profile, passthrough, config).await,
-        "goose" => goose::run_exec(profile, passthrough, config).await,
         "gemini" | "openclaw" | "custom" => {
             bail!("`{}` is a driver-managed runtime and has no exec command", runtime)
         }
@@ -294,7 +269,6 @@ async fn dispatch_status(
             "claude does not have a status command; use `edgeplane run claude doctor` for diagnostics"
         ),
         "codex" => codex::run_status(profile, json, config).await,
-        "goose" => bail!("goose has no status command"),
         "gemini" | "openclaw" | "custom" => {
             bail!("`{}` is a driver-managed runtime and has no status command", runtime)
         }

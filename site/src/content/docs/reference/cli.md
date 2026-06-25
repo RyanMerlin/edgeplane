@@ -80,7 +80,6 @@ edgeplane run <runtime> [options]
 | `claude` | Claude Code with EdgePlane MCP wired in (ACP persistent session) |
 | `codex` | OpenAI Codex CLI (driver agent) |
 | `gemini` | Google Gemini CLI (driver agent) |
-| `goose` | Goose (native, profile-scoped) |
 | `openclaw` | OpenClaw (driver agent) |
 | `custom` | Custom ACP agent (driver) |
 
@@ -90,7 +89,6 @@ Common flags:
 edgeplane run claude [-p <profile>] [--mission <id>] [--mode interactive|headless|solo] [-- args]
 edgeplane run codex  [-p <profile>] [--mission <id>] [--mode interactive|headless|solo] [-- args]
 edgeplane run gemini [-p <profile>] [-- args]
-edgeplane run goose  [-p <profile>] [--domain <id>] [-- args]
 edgeplane run openclaw [-- args]
 edgeplane run custom [-- args]
 ```

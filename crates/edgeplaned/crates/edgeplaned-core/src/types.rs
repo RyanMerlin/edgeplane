@@ -48,7 +48,7 @@ impl std::fmt::Display for RuntimeKind {
 ///   conversation state must survive restarts.
 /// - `Ephemeral` — `mkdtemp` a fresh directory per launch, reaped on agent
 ///   exit (after the optional `ttl_minutes` post-mortem grace period).
-///   Used for task-mode agents (Goose batch, Codex one-shot, etc.).
+///   Used for task-mode agents (Codex one-shot, etc.).
 ///
 /// The reaper that cleans `Ephemeral` dirs lives in edgeplaned (not edgeplaned-core) and
 /// is wired in Phase 2 of the daemon-absorption plan.
@@ -101,7 +101,7 @@ pub struct TaskSpec {
     #[serde(default)]
     pub dependency_results: Vec<DependencyResult>,
     /// Peer messages that arrived while no task was running. Single-shot
-    /// runtimes (claude_code -p, goose run) have no stdin to inject into
+    /// runtimes (claude_code -p, codex exec) have no stdin to inject into
     /// once spawned, so the relay buffers PeerMessage signals here and
     /// splices them into the next inject's prompt as `[PENDING MESSAGES]`.
     #[serde(default)]
