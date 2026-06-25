@@ -4,34 +4,77 @@ All notable changes to edgeplane, edgeplaned, and edgeplane-tower are recorded h
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
-## [Unreleased]
+## [0.16.0] — 2026-06-25
 
-### Changed
+OSS hardening release: security hardening across auth, nodes, and the daemon install story;
+breaking identity rebrands completing the MissionControl → EdgePlane migration.
 
-- **Auth token prefix rebrand: `mcs_` → `ep_` (breaking).** Session, service-account,
-  and client-secret tokens now mint and validate with `ep_` / `ep_sa_` / `ep_cs_`
-  prefixes, replacing the MissionControl-era `mcs_` / `mcs_sa_` / `mcs_cs_`. Clean
-  cutover with no dual-accept window — tokens issued under the old prefix are no
-  longer valid and must be re-issued (`edgeplane auth login`). No DB migration:
-  validation is by full-token hash; the prefix only routes session-vs-SA-vs-CS.
-- **`edgeplaned` env vars rebranded (clean cut):** `MCD_WORK_DIR` → `EP_WORK_DIR`,
-  `MCD_CRON_FILE` → `EP_CRON_FILE`. The old `MCD_*` names are no longer read. Set
-  the `EP_*` names if you previously overrode these (defaults are unchanged).
+### Security
 
-### Removed
+- **Node-JWT TTL reduced 90 days → 24 hours (#72).** `NODE_JWT_TTL_DAYS` env var (tower,
+  default 1) controls the window.  `edgeplaned` auto-rotates its node JWT every 12 hours via
+  a background task — the live token is held in `Arc<RwLock<String>>` and persisted atomically
+  at `0600` so both WS reconnect paths always read the current credential without a restart.
+- **Node self-auth on reconcile endpoints (#71).** A node's tower-signed RS256 JWT
+  (`auth_type == "node"`, `sub == "node:{node_id}"`) is now authorized on its own
+  `list_node_agents` and `node_notify_ws` endpoints.  Cross-node forgery, path-traversal,
+  and replay attacks are blocked; handler fails closed on DB error.  Flips headless-federation
+  403 → 200.
+- **OIDC `email_verified` gate (#77, #79).** Browser OIDC logins require `email_verified: true`
+  from the IdP.  Device-flow (`edgeplane auth login`) gains equivalent enforcement at the
+  exchange step.
+- **`quinn-proto` 0.11.14 → 0.11.15 (#74).** Resolves RUSTSEC-2026-0185.
 
-- **Goose runtime removed entirely (breaking).** The `GooseRuntime` agent runtime,
-  the `dispatch = "goose"` cron mode, the Phase-3 goose task-triage loop, and the
-  `EP_GOOSE_BIN` / `MCD_GOOSE_BIN` env vars are all gone. EdgePlane now has one way
-  to invoke agents (the real runtimes: claude_code / codex / gemini / openclaw /
-  custom). Task claiming (Phase 2) is unchanged — it already used `claude -p`.
-  - Default home-domain runtime (`edgeplane daemon … enroll-home --runtime`) is now
-    `claude_code` (was `goose`).
-  - **Upgrade note:** remove any `dispatch = "goose"` jobs from your `cron.toml`
-    before upgrading. A leftover goose job fails whole-config validation, and the
-    cron loop soft-fails to an *empty* schedule (all jobs disabled) until it's
-    removed. Reclassify such jobs to `dispatch = "bash"` (for shell commands) or
-    `dispatch = "signal"` (for agent work).
+### Breaking
+
+- **Auth token prefix: `mcs_` → `ep_`.** Session, service-account, and client-secret tokens
+  now use `ep_` / `ep_sa_` / `ep_cs_` prefixes.  Clean cutover — existing tokens are invalid
+  and must be re-issued (`edgeplane auth login`).  No DB migration.
+- **`edgeplaned` env vars: `MCD_*` → `EP_*`.** `MCD_WORK_DIR` → `EP_WORK_DIR`,
+  `MCD_CRON_FILE` → `EP_CRON_FILE`.  The old names are no longer read.
+- **Goose runtime removed.** `GooseRuntime`, `dispatch = "goose"` cron mode, the
+  Phase-3 task-triage loop, and `EP_GOOSE_BIN` / `MCD_GOOSE_BIN` are gone.  Default
+  home-domain runtime is now `claude_code`.  **Upgrade:** remove `dispatch = "goose"` jobs
+  from `cron.toml` before upgrading — a leftover goose job fails whole-config validation and
+  silently disables all cron jobs.
+- **`edgeplaned` as the canonical system service (#70).** `edgeplane node run` is a
+  one-release deprecation stub.  Switch to the `edgeplaned` systemd unit and
+  `edgeplane agent node register` enrollment flow.
+
+### Added
+
+- **Group-based admin via OIDC `groups` claim (#80).** `EP_ADMIN_GROUPS` (comma-separated)
+  grants admin to users whose IdP groups intersect the list.  Persisted on the session at
+  login (migration 0011); re-evaluated on each request.
+- **`is_admin` in `edgeplane auth whoami` (#78).** Whoami JSON and CLI summary now include
+  `is_admin: true/false`.
+- **365-day configurable login TTL + CLI admin tokens (#76).** `EP_SESSION_TTL_DAYS`
+  controls browser-session lifetime (default 365).  `edgeplane auth admin-token` mints
+  long-lived admin service tokens without a browser flow.
+- **Node-delete (#73).** `DELETE /api/runtime/nodes/{id}?force` removes a node (owner or
+  admin only; node-self rejected).  Returns 409 if assigned agents exist unless `?force`
+  detaches them first.  Revokes node JWT + join token in a single transaction.
+  CLI: `edgeplane agent node delete <id> [--force]`; dashboard: DeleteNodeButton with
+  force-confirm.  `edgeplane agent node ls` lists nodes visible to the current principal.
+- **Nightly restart is now configurable.** `EP_NIGHTLY_RESTART_HOUR` (0–23, default 3)
+  and `EP_NIGHTLY_RESTART_ENABLED` (true/false) control the daemon maintenance window.
+
+### Hardening
+
+- **XDG-aware path resolution (#69).** `edgeplaned-paths` is the single home-directory
+  SSOT: honors `EP_HOME` > `XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_DATA_HOME` >
+  `~/.edgeplane/{bucket}`.  Duplicated logic in `edgeplaned-sync` and `edgeplane-tower`
+  (which fell back to `/root/.edgeplane`) is collapsed into this crate.
+- **Non-root `edgeplaned` system service (#70).** Production install runs as a dedicated
+  `edgeplane` system user with a hardened unit (`ProtectSystem=strict`, `ProtectHome=yes`,
+  `NoNewPrivileges=yes`, `PrivateTmp=yes`, `RestrictNamespaces=user`, `StateDirectory=edgeplane`).
+  Node credentials are `edgeplane:edgeplane 0600` and readable by the daemon.
+
+### Fixed
+
+- **Tower Dockerfile used a non-existent `edgeplaned-paths` source path (#75).**
+- **`edgeplane auth whoami` / `Logged in as` showed the IdP subject instead of the display
+  name (#81).**
 
 ## [0.15.1] — 2026-06-19
 

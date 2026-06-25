@@ -34,14 +34,6 @@ Nothing currently blocked.
 Portability and deployment hardening so EdgePlane runs cleanly beyond a single developer's
 machine. Roughly dependency-ordered; each is a self-contained piece of work.
 
-- **[in progress] XDG-aware paths.** Make path resolution honor `$XDG_CONFIG_HOME` /
-  `$XDG_STATE_HOME` / `$XDG_DATA_HOME` / `$XDG_RUNTIME_DIR`, with a unified `~/.edgeplane`
-  default and `EP_HOME` override. Collapse the duplicated home-dir logic into the single
-  `edgeplaned-paths` crate (currently reimplemented in `edgeplaned-sync` and `edgeplane-tower`,
-  where it has drifted — the tower copy falls back to `/root/.edgeplane`).
-- **System-install mode + service account.** Support a non-login `edgeplane` system user with
-  `/etc/edgeplane`, `/var/lib/edgeplane`, `/run/edgeplane`, and a hardened **system**
-  `edgeplaned.service` (`DynamicUser=`/`ProtectSystem=strict`) alongside the `--user` dev unit.
 - **Distribution packaging.** Container + Helm chart + systemd unit template + an
   `edgeplane init` scaffolder. Reproducible, versioned, signed — no "build from my checkout."
   (Includes fixing the node-enrollment snippet to use the correct install script + join flags.)
@@ -55,9 +47,22 @@ machine. Roughly dependency-ordered; each is a self-contained piece of work.
 - **Multi-tenancy formalization.** Per-tenant state dirs, secret scoping, and resource quotas
   on the existing domain/agent model. (Domain authorization itself already enforces default-deny
   as of v0.15.x.)
+- **CI: add Postgres service.** `test_authz`, `test_admin_groups`, `mcp_parity` silently
+  skip because `TEST_DATABASE_URL` is unset in CI. (#in-progress)
 
 ## Done (recent)
 
+- [x] MissionControl → EdgePlane identity migration complete: `mcs_`→`ep_` token prefix,
+      `MCD_*`→`EP_*` env vars, Goose runtime removed (2026-06-24)
+- [x] Auth hardening: OIDC `email_verified` gate, group-based admin (`EP_ADMIN_GROUPS`),
+      365-day login TTL, CLI admin tokens, `is_admin` in whoami, display name in login (2026-06-22)
+- [x] Node-delete: `DELETE /api/runtime/nodes/{id}?force`, CLI + dashboard (2026-06-22)
+- [x] Node-JWT TTL 24h + `edgeplaned` 12h auto-rotation (2026-06-22)
+- [x] Node self-auth on reconcile endpoints (headless-federation 403 → 200) (2026-06-22)
+- [x] Non-root `edgeplaned` system service: `edgeplane` user, hardened unit,
+      `StateDirectory`, `node run` deprecated (2026-06-22)
+- [x] XDG-aware path resolution: `edgeplaned-paths` SSOT, `EP_HOME` > `XDG_*` >
+      `~/.edgeplane`; tower/sync drift collapsed (2026-06-21)
 - [x] `crates/edgeplaned/scripts/demo_three_agents.sh`: end-to-end dependency chain
       demo (mission + kluster + 3 tasks + claim/complete simulation via REST API);
       `test_work.rs`: 5 tests covering broadcast isolation, route registration (2026-05-09)
