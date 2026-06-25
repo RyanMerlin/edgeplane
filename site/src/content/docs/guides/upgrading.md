@@ -42,7 +42,7 @@ bash scripts/smoke.sh --profile full
 
 - OIDC settings are present and valid for the target environment
 - Admin identities set (`EP_ADMIN_EMAILS`)
-- Service account tokens (`mcs_sa_*`) created for any CI pipelines or MCP clients that need programmatic access
+- Service account tokens (`ep_sa_*`) created for any CI pipelines or MCP clients that need programmatic access
 
 ## Release Execution
 

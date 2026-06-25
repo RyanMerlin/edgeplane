@@ -15,7 +15,7 @@ fn initialized_request_returns_result_and_list_changed_notification() {
     let state_dir = ep_home.join("state");
     fs::create_dir_all(&state_dir).expect("ep_home/state");
     let session = json!({
-        "token": "mcs_test-token",
+        "token": "ep_test-token",
         "subject": "test-user",
         "expires_at": "2099-01-01T00:00:00Z",
         "base_url": "http://127.0.0.1:9",

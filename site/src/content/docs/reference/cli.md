@@ -65,7 +65,7 @@ edgeplane auth whoami                                    # verify identity and s
 edgeplane auth logout [--local-only]                    # revoke server-side and clear local file
 ```
 
-Session tokens (`mcs_*` prefix) are stored at `~/.edgeplane/session.json` (chmod 600). They are never written to agent config files on disk — injected at exec time only.
+Session tokens (`ep_*` prefix) are stored at `~/.edgeplane/session.json` (chmod 600). They are never written to agent config files on disk — injected at exec time only.
 
 ---
 

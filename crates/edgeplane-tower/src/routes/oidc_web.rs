@@ -19,7 +19,7 @@ use crate::{auth::make_token, state::AppState};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const SESSION_PREFIX: &str = "mcs_";
+const SESSION_PREFIX: &str = "ep_";
 const DEVICE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const DEFAULT_TTL_HOURS: i64 = 8;
 const DEFAULT_DEVICE_INTERVAL: u64 = 5;

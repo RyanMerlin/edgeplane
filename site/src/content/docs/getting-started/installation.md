@@ -86,7 +86,7 @@ EdgePlane uses three auth mechanisms — no static `EP_TOKEN` is required:
 |-----------|-------------|-----|
 | OIDC (interactive) | Operators, interactive use | `edgeplane auth login` — browser flow, issues a session token |
 | Node JWT (machine) | Daemons, `edgeplaned` | `edgeplane agent node register --hostname <name>` — JWT stored at `/etc/edgeplane/node.json` |
-| Service account | CI, programmatic | `mcs_sa_*` tokens — created via API, passed as `Bearer` |
+| Service account | CI, programmatic | `ep_sa_*` tokens — created via API, passed as `Bearer` |
 
 :::note[v0.13.0 breaking change]
 `edgeplane launch` was removed in v0.13.0. Use `edgeplane run <runtime>` as the single agent launcher for all runtimes (`claude`, `codex`, `gemini`, `goose`, `openclaw`, `custom`).

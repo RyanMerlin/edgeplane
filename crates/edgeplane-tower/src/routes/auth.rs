@@ -18,9 +18,9 @@ use crate::{
     state::AppState,
 };
 
-const SESSION_PREFIX: &str = "mcs_";
-const SA_TOKEN_PREFIX: &str = "mcs_sa_";
-const CS_PREFIX: &str = "mcs_cs_";
+const SESSION_PREFIX: &str = "ep_";
+const SA_TOKEN_PREFIX: &str = "ep_sa_";
+const CS_PREFIX: &str = "ep_cs_";
 const DEFAULT_TTL_HOURS: i64 = 8;
 const MAX_TTL_HOURS: i64 = 87_600; // 10 years — admins configure their own TTL; expiry only bounds leak window
 
@@ -101,7 +101,7 @@ async fn refresh_session(
     if principal.auth_type != "session" {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"detail": "only mcs_* session tokens can be refreshed"})),
+            Json(serde_json::json!({"detail": "only ep_* session tokens can be refreshed"})),
         )
             .into_response();
     }

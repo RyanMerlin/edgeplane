@@ -22,7 +22,7 @@ Run in one terminal:
 
 ```bash
 EP_BASE_URL=http://localhost:8008 \
-EP_AGENT_TOKEN="<mcs_sa_token>" \
+EP_AGENT_TOKEN="<ep_sa_token>" \
 EP_STACK_PROFILE=full \
 EP_COLLAB_DURATION_SEC=600 \
 EP_COLLAB_POLL_SEC=5 \
@@ -40,7 +40,7 @@ Attach to an existing domain/mission instead:
 
 ```bash
 EP_BASE_URL=http://localhost:8008 \
-EP_AGENT_TOKEN="<mcs_sa_token>" \
+EP_AGENT_TOKEN="<ep_sa_token>" \
 EP_STACK_PROFILE=full \
 EP_COLLAB_DOMAIN_ID="<domain_id>" \
 EP_COLLAB_MISSION_ID="<mission_id>" \

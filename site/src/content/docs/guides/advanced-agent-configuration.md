@@ -44,7 +44,7 @@ edgeplane auth whoami
 edgeplane health --json
 ```
 
-For CI, use a service account token (`mcs_sa_*`) rather than an interactive session token:
+For CI, use a service account token (`ep_sa_*`) rather than an interactive session token:
 
 ```bash
 export EP_BASE_URL="https://edgeplane.example.com"
@@ -158,7 +158,7 @@ edgeplane agent update --agent-id <id> --home-domain-id <domain-id>
 | Symptom | Check |
 |---------|-------|
 | `MCP startup incomplete (failed: edgeplane)` | `edgeplane auth whoami` — auth must succeed before launch |
-| Token written to config file | Session tokens (`mcs_*`) are never written to disk — if you see a token in a config file, it's a static token |
+| Token written to config file | Session tokens (`ep_*`) are never written to disk — if you see a token in a config file, it's a static token |
 | Agent can't reach the server | `edgeplane health --json` — verify `EP_BASE_URL` is set correctly |
 | `connection refused` on MCP tools | Ensure `edgeplane serve` can start — check `EP_BASE_URL` and that `~/.edgeplane/session.json` exists and is not expired (`edgeplane auth whoami`) |
 

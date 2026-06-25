@@ -6,6 +6,15 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
 
 ## [Unreleased]
 
+### Changed
+
+- **Auth token prefix rebrand: `mcs_` → `ep_` (breaking).** Session, service-account,
+  and client-secret tokens now mint and validate with `ep_` / `ep_sa_` / `ep_cs_`
+  prefixes, replacing the MissionControl-era `mcs_` / `mcs_sa_` / `mcs_cs_`. Clean
+  cutover with no dual-accept window — tokens issued under the old prefix are no
+  longer valid and must be re-issued (`edgeplane auth login`). No DB migration:
+  validation is by full-token hash; the prefix only routes session-vs-SA-vs-CS.
+
 ## [0.15.1] — 2026-06-19
 
 Red-team hardening of the v0.15.0 P0 security release — closes read-side cross-domain authz gaps and intra-domain IDORs (no cross-domain *mutation* bypass or token escalation existed; the model held). Ships the daemon fail-closed token fallback to the fleet.

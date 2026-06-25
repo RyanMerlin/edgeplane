@@ -39,7 +39,7 @@ pub(crate) fn is_admin_groups(groups: &[String], admin_groups: &HashSet<String>)
 ///
 /// Note: `auth_type` is one of `"session"`, `"service_account"`, `"node"`, or `"agent"`.
 /// The `"static"` EP_TOKEN path was removed — all callers authenticate via
-/// OIDC session tokens (mcs_*), service-account tokens (mcs_sa_*),
+/// OIDC session tokens (ep_*), service-account tokens (ep_sa_*),
 /// RS256 node JWTs, or agent JWTs. The extractor reads from request extensions (where the
 /// `require_auth` middleware caches the resolved Principal) before falling
 /// back to a full lookup, so handlers can still take `principal: Principal`
@@ -120,7 +120,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             let now = chrono::Utc::now().naive_utc();
 
             // Node JWT — exactly two dots means RS256 JWT (never present in
-            // opaque mcs_* tokens). Validate signature in-process; only then
+            // opaque ep_* tokens). Validate signature in-process; only then
             // hit the DB to confirm the JTI is not revoked.
             if token.matches('.').count() == 2 {
                 if let Ok(claims) = crate::jwt::verify_node_jwt(token, &state.jwt_decoding_key) {
@@ -175,7 +175,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                 return Err(AuthRejection::Unauthenticated);
             }
 
-            if token.starts_with("mcs_sa_") {
+            if token.starts_with("ep_sa_") {
                 // Service account token — validate against serviceaccounttoken + serviceaccount
                 let row = sqlx::query(
                     "SELECT sat.id, sa.name \
@@ -213,7 +213,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                         domain_scope: Vec::new(),
                     });
                 }
-            } else if token.starts_with("mcs_") {
+            } else if token.starts_with("ep_") {
                 // User session token — validate against usersession
                 let row = sqlx::query(
                     "SELECT id, subject, email, groups FROM usersession \
@@ -270,7 +270,7 @@ pub fn hash_token(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
 
-/// Generate a new token with the given prefix (e.g. `"mcs_"`, `"mcs_sa_"`).
+/// Generate a new token with the given prefix (e.g. `"ep_"`, `"ep_sa_"`).
 /// Suffix is 32 random bytes base64url-encoded (no padding), same entropy as
 /// Python's `secrets.token_urlsafe(32)`.
 pub fn make_token(prefix: &str) -> String {

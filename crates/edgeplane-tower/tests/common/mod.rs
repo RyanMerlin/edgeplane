@@ -14,14 +14,14 @@ pub struct Ctx {
     pub member_sa_token: String,
 }
 
-/// Insert a usersession row and return the raw `mcs_` token the extractor accepts.
+/// Insert a usersession row and return the raw `ep_` token the extractor accepts.
 ///
 /// Fills all NOT-NULL columns in the base schema (0001):
 ///   subject, token_hash, token_prefix, expires_at, created_at,
 ///   last_used_at, user_agent, revoked
 /// email is added by migration 0003 (nullable) and supplied here for completeness.
 pub async fn mint_session(db: &PgPool, subject: &str, email: &str) -> String {
-    let token = format!("mcs_{}", Uuid::new_v4().simple());
+    let token = format!("ep_{}", Uuid::new_v4().simple());
     let token_hash = hash_token(&token);
     // token_prefix = first 8 chars of the raw token (convention matching make_token callers)
     let token_prefix = &token[..token.len().min(8)];
@@ -78,7 +78,7 @@ pub async fn mint_session_with_groups(
     email: &str,
     groups: &[&str],
 ) -> String {
-    let token = format!("mcs_{}", Uuid::new_v4().simple());
+    let token = format!("ep_{}", Uuid::new_v4().simple());
     let token_hash = hash_token(&token);
     let token_prefix = &token[..token.len().min(8)];
     let groups_json = serde_json::to_string(groups).expect("serialize groups");
@@ -99,14 +99,14 @@ pub async fn mint_session_with_groups(
     token
 }
 
-/// Insert a serviceaccount + token row and return the raw `mcs_sa_` token.
+/// Insert a serviceaccount + token row and return the raw `ep_sa_` token.
 ///
 /// serviceaccount NOT-NULL columns: name, owner_subject, client_secret_hash,
 ///   client_secret_prefix (DEFAULT ''), created_at, revoked (DEFAULT false).
 /// serviceaccounttoken NOT-NULL columns: service_account_id, token_hash,
 ///   token_prefix (DEFAULT ''), created_at, revoked (DEFAULT false).
 pub async fn mint_sa(db: &PgPool, name: &str) -> String {
-    let token = format!("mcs_sa_{}", Uuid::new_v4().simple());
+    let token = format!("ep_sa_{}", Uuid::new_v4().simple());
     let token_hash = hash_token(&token);
     let token_prefix = &token[..token.len().min(10)];
     // client_secret_hash / prefix are required; use a stable placeholder — these

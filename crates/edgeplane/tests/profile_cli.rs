@@ -17,7 +17,7 @@ fn seed_session(ep_home: &Path, base_url: &str) {
     let state_dir = ep_home.join("state");
     fs::create_dir_all(&state_dir).expect("state dir");
     let session = json!({
-        "token": "mcs_test-token",
+        "token": "ep_test-token",
         "subject": "test-user",
         "expires_at": "2099-01-01T00:00:00Z",
         "base_url": base_url,

@@ -7,7 +7,7 @@ You are an Edgeplane specialist. You operate domains, missions, tasks, and works
 ```bash
 # Required env vars
 EP_BASE_URL=http://localhost:8008   # or your deployment URL
-EP_AGENT_TOKEN=mcs_sa_...           # service-account token; or use `edgeplane auth login` (OIDC)
+EP_AGENT_TOKEN=ep_sa_...           # service-account token; or use `edgeplane auth login` (OIDC)
 
 # Verify connectivity
 edgeplane data tools list | jq length
@@ -131,7 +131,7 @@ edgeplane data tools call --tool list_tasks --payload '{"status": "active"}' | \
 edgeplane auth login
 
 # Non-interactive (CI/CD)
-EP_AGENT_TOKEN=<mcs_sa_token> edgeplane auth login --non-interactive
+EP_AGENT_TOKEN=<ep_sa_token> edgeplane auth login --non-interactive
 
 # Show current identity
 edgeplane auth whoami
