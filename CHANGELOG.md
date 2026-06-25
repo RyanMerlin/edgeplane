@@ -14,6 +14,9 @@ This project follows semantic versioning where possible, but pre-1.0 minor bumps
   cutover with no dual-accept window — tokens issued under the old prefix are no
   longer valid and must be re-issued (`edgeplane auth login`). No DB migration:
   validation is by full-token hash; the prefix only routes session-vs-SA-vs-CS.
+- **`edgeplaned` env vars rebranded (clean cut):** `MCD_WORK_DIR` → `EP_WORK_DIR`,
+  `MCD_CRON_FILE` → `EP_CRON_FILE`. The old `MCD_*` names are no longer read. Set
+  the `EP_*` names if you previously overrode these (defaults are unchanged).
 
 ## [0.15.1] — 2026-06-19
 

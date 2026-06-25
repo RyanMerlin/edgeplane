@@ -37,10 +37,10 @@ log "Step 1: building edgeplaned and edgeplane binaries"
 cargo build -p edgeplaned -p edgeplane --manifest-path "${WORKSPACE_ROOT}/Cargo.toml" \
     2>&1 | tail -3
 
-MCD_BIN="${BUILD_DIR}/edgeplaned"
+EP_BIN="${BUILD_DIR}/edgeplaned"
 EP_BIN="${BUILD_DIR}/edgeplane"
 
-[[ -x "${MCD_BIN}" ]] || fail "edgeplaned binary not found at ${MCD_BIN}"
+[[ -x "${EP_BIN}" ]] || fail "edgeplaned binary not found at ${EP_BIN}"
 [[ -x "${EP_BIN}" ]]  || fail "edgeplane binary not found at ${EP_BIN}"
 
 # ── Step 2: write a minimal daemon config (goose only — it's pre-installed) ──
@@ -65,9 +65,9 @@ EOF
 
 log "Step 3: starting daemon (background)"
 export EP_BIN_DIR="${BUILD_DIR}"
-export MCD_SOCKET="${SOCKET_PATH}"
+export EP_SOCKET="${SOCKET_PATH}"
 
-"${MCD_BIN}" \
+"${EP_BIN}" \
     --config "${TEST_CONFIG}" \
     --socket "${SOCKET_PATH}" \
     &>/tmp/edgeplaned-phase3-daemon.log &

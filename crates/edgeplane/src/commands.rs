@@ -2392,7 +2392,7 @@ async fn handle_init(
     config: &EdgeplaneConfig,
     output_mode: OutputMode,
 ) -> Result<()> {
-    // --repo bootstrap flow — runs independently of the MC backend.
+    // --repo bootstrap flow — runs independently of the EdgePlane backend.
     if let Some(repo_url) = args.repo.as_deref() {
         return cmd::init::run_from_repo(repo_url, Some(args.profile.as_str())).await;
     }

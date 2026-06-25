@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-MCD_DIR="$REPO_ROOT/crates/edgeplaned"
+EP_DIR="$REPO_ROOT/crates/edgeplaned"
 EP_DIR="$REPO_ROOT/crates/edgeplane"
 
 green()  { printf '\033[0;32m%s\033[0m\n' "$*"; }
@@ -27,7 +27,7 @@ die()    { red "Error: $*"; exit 1; }
 command -v cargo >/dev/null 2>&1 || die "cargo not found. Install Rust: https://rustup.rs"
 
 green "→ Building edgeplaned…"
-cargo install --path "$MCD_DIR/crates/edgeplaned" --quiet
+cargo install --path "$EP_DIR/crates/edgeplaned" --quiet
 
 green "→ Building edgeplane (CLI)…"
 cargo install --path "$EP_DIR" --quiet
@@ -35,13 +35,13 @@ cargo install --path "$EP_DIR" --quiet
 # ---------------------------------------------------------------------------
 # 2. Verify installation
 # ---------------------------------------------------------------------------
-MCD_BIN="$(command -v edgeplaned 2>/dev/null || true)"
+EP_BIN="$(command -v edgeplaned 2>/dev/null || true)"
 EP_BIN="$(command -v edgeplane 2>/dev/null || true)"
 
-[[ -n "$MCD_BIN" ]] || die "edgeplaned binary not found after install — check \$PATH"
+[[ -n "$EP_BIN" ]] || die "edgeplaned binary not found after install — check \$PATH"
 [[ -n "$EP_BIN" ]]      || die "edgeplane binary not found after install — check \$PATH"
 
-green "✓ edgeplaned installed at $MCD_BIN"
+green "✓ edgeplaned installed at $EP_BIN"
 green "✓ edgeplane installed at $EP_BIN"
 
 # ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ Description=edgeplaned agent coordination daemon
 After=network.target
 
 [Service]
-ExecStart=$MCD_BIN run
+ExecStart=$EP_BIN run
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal

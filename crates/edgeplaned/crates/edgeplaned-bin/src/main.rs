@@ -50,7 +50,7 @@ enum Commands {
         /// Override token (dev only). Registered nodes use `$EP_HOME/config/node.json` automatically.
         #[arg(long, default_value = "")]
         token: String,
-        #[arg(long, env = "MCD_WORK_DIR", default_value = "")]
+        #[arg(long, env = "EP_WORK_DIR", default_value = "")]
         work_dir: String,
         #[arg(long, default_value = "30")]
         offline_grace_secs: u64,

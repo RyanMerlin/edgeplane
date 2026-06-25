@@ -33,7 +33,7 @@ pub async fn run_from_repo(repo_url: &str, profile: Option<&str>) -> Result<()> 
 
     // TODO(edgeplane-init): apply AppArmor profile from sync/fleet/apparmor/ (Phase 2a-3)
     // TODO(edgeplane-init): render goose harness config from sync/fleet/harnesses/goose/
-    // TODO(edgeplane-init): register node with MC backend
+    // TODO(edgeplane-init): register node with EdgePlane backend
     // TODO(edgeplane-init): install + enable systemd unit for edgeplaned daemon
 
     // Step 3: Write config file.

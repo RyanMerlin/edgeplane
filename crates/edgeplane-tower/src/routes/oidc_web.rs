@@ -300,7 +300,7 @@ fn extract_groups(claims: &serde_json::Value) -> Vec<String> {
 
 // POST /auth/oidc/device/authorize
 //
-// Requests a device_code + user_code from the MC server (not the upstream OIDC
+// Requests a device_code + user_code from the edgeplane-tower (not the upstream OIDC
 // provider directly — we proxy / wrap the device flow).  We store an
 // OidcAuthRequest so that when the browser verifies, we can link back to it.
 
@@ -695,7 +695,7 @@ async fn device_success() -> impl IntoResponse {
 
 // ─── GET /auth/oidc/cli-initiate ─────────────────────────────────────────────
 //
-// The MC CLI calls this to start a PKCE login.  Returns the authorize_url the
+// The edgeplane CLI calls this to start a PKCE login.  Returns the authorize_url the
 // CLI should open in a browser, plus a cli_nonce it will poll on.
 
 #[derive(serde::Deserialize)]

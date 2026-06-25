@@ -16,7 +16,7 @@ RestartSec=5s
 
 # Pass secrets via environment or a credentials file — never hardcode tokens.
 # EnvironmentFile=%h/.ep/edgeplaned/edgeplaned.env
-# EP_BACKEND_URL and MCD_WORK_DIR can also be set in ~/.ep/edgeplaned/config.yaml
+# EP_BACKEND_URL and EP_WORK_DIR can also be set in ~/.ep/edgeplaned/config.yaml
 
 WorkingDirectory=%h/.ep/edgeplaned
 
