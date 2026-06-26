@@ -2246,6 +2246,7 @@ mod tests {
             task_worker_strict_capabilities: false,
             task_worker_default_capabilities: vec![],
             task_worker_surface_command: None,
+            nightly_restart_hour: Some(3),
         }
     }
 
