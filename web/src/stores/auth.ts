@@ -16,6 +16,8 @@ interface AuthState {
   /** Human-readable display name from the OIDC preferred_username/name claim. Used for
    *  the avatar and sidebar label. Null for CLI/SA flows or older sessions. */
   userName: string | null;
+  /** True when the authenticated principal is in an admin group (EP_ADMIN_GROUPS). */
+  isAdmin: boolean;
   bootstrap: () => Promise<void>;
   loginWithCookieSession: () => void;
   logout: () => Promise<void>;
@@ -29,6 +31,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   userSubject: null,
   userEmail: null,
   userName: null,
+  isAdmin: false,
 
   setUserSubject: (subject) => set({ userSubject: subject }),
 
@@ -42,12 +45,14 @@ export const useAuthStore = create<AuthState>((set) => ({
           subject?: string;
           email?: string | null;
           name?: string | null;
+          is_admin?: boolean;
         };
         set({
           loggedIn: true,
           userSubject: data.subject ?? null,
           userEmail: data.email ?? null,
           userName: data.name ?? null,
+          isAdmin: data.is_admin ?? false,
           bootstrapped: true,
         });
         return;
@@ -73,7 +78,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch {
       // Local logout still proceeds.
     }
-    set({ loggedIn: false, userSubject: null, userEmail: null, userName: null });
+    set({ loggedIn: false, userSubject: null, userEmail: null, userName: null, isAdmin: false });
   },
 
   startOidcLogin: (redirect = typeof window !== 'undefined' ? window.location.href : '/') => {

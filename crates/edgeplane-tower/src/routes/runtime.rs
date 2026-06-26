@@ -579,6 +579,13 @@ async fn create_join_token(
     principal: Principal,
     Json(body): Json<JoinTokenCreate>,
 ) -> impl IntoResponse {
+    if !principal.is_admin {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "admin required to create join tokens"})),
+        )
+            .into_response();
+    }
     let now = Utc::now().naive_utc();
     let token = make_token_local();
     let token_hash = hash_token_local(&token);
