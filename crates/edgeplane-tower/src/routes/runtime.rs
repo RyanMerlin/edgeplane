@@ -579,10 +579,12 @@ async fn create_join_token(
     principal: Principal,
     Json(body): Json<JoinTokenCreate>,
 ) -> impl IntoResponse {
-    if !principal.is_admin {
+    // Node and agent JWTs must not be able to mint new enrollment tokens —
+    // that would let a compromised node credential bootstrap additional nodes.
+    if matches!(principal.auth_type.as_str(), "node" | "agent") {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"detail": "admin required to create join tokens"})),
+            Json(serde_json::json!({"detail": "node and agent credentials cannot create join tokens"})),
         )
             .into_response();
     }
