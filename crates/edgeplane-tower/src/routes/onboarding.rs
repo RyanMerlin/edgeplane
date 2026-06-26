@@ -105,17 +105,17 @@ fn build_manifest(base: &str) -> serde_json::Value {
                 base
             ),
             "remote_script": format!(
-                "bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/install.sh) --endpoint {} --join-token <TOKEN>",
+                "bash <(curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/install-edgeplane-node.sh) --endpoint {} --join-token <TOKEN>",
                 base
             ),
             "local_script": format!(
-                "bash install.sh --endpoint {} --join-token <TOKEN>",
+                "bash scripts/install-edgeplane-node.sh --endpoint {} --join-token <TOKEN>",
                 base
             )
         },
         "automation": {
             "config_generator_script": format!(
-                "git clone https://github.com/RyanMerlin/edgeplane.git && cd edgeplane && bash install.sh --endpoint {} --join-token <TOKEN>",
+                "git clone https://github.com/RyanMerlin/edgeplane.git && cd edgeplane && bash scripts/install-edgeplane-node.sh --endpoint {} --join-token <TOKEN>",
                 base
             )
         },
