@@ -32,6 +32,7 @@ vi.mock('@/stores/auth', () => ({
       userSubject: string | null;
       userEmail: string | null;
       userName: string | null;
+      isAdmin: boolean;
       logout: () => Promise<void>;
     }) => unknown,
   ) =>
@@ -39,6 +40,7 @@ vi.mock('@/stores/auth', () => ({
       userSubject: '73c5a571f3b774a535810a3835f3b8fa',
       userEmail: null,
       userName: null,
+      isAdmin: false,
       logout: logoutSpy,
     }),
 }));

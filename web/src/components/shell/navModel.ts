@@ -1,6 +1,7 @@
 export interface NavItem {
   to: string;
   label: string;
+  adminOnly?: boolean;
 }
 export interface NavGroup {
   heading: string | null;
@@ -13,7 +14,7 @@ export const NAV_GROUPS: NavGroup[] = [
   { heading: null, items: [{ to: '/nodes', label: 'Nodes' }] },
   { heading: null, items: [{ to: '/domains', label: 'Domains' }] },
   { heading: null, items: [{ to: '/feed', label: 'Feed' }] },
-  { heading: null, items: [{ to: '/admin', label: 'Admin' }] },
+  { heading: null, items: [{ to: '/admin', label: 'Admin', adminOnly: true }] },
 ];
 
 /** Active when pathname equals the item ("/" exact) or is a path-boundary descendant. */

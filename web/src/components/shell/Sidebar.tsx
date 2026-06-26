@@ -190,6 +190,7 @@ export function Sidebar() {
   const userSubject = useAuthStore((s) => s.userSubject);
   const userEmail = useAuthStore((s) => s.userEmail);
   const userName = useAuthStore((s) => s.userName);
+  const isAdmin = useAuthStore((s) => s.isAdmin);
   const logout = useAuthStore((s) => s.logout);
 
   const [showMenu, setShowMenu] = useState(false);
@@ -299,6 +300,7 @@ export function Sidebar() {
           if (item.to === '/domains') {
             return <SidebarDomainsSection key="/domains" pathname={pathname} />;
           }
+          if (item.adminOnly && !isAdmin) return null;
           const active = isNavItemActive(item.to, pathname);
           const icon = NAV_ICON[item.to] ?? '·';
           return (

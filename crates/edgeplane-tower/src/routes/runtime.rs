@@ -579,6 +579,15 @@ async fn create_join_token(
     principal: Principal,
     Json(body): Json<JoinTokenCreate>,
 ) -> impl IntoResponse {
+    // Node and agent JWTs must not be able to mint new enrollment tokens —
+    // that would let a compromised node credential bootstrap additional nodes.
+    if matches!(principal.auth_type.as_str(), "node" | "agent") {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "node and agent credentials cannot create join tokens"})),
+        )
+            .into_response();
+    }
     let now = Utc::now().naive_utc();
     let token = make_token_local();
     let token_hash = hash_token_local(&token);
