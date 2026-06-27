@@ -658,6 +658,13 @@ async fn rotate_join_token(
     principal: Principal,
     Path(token_id): Path<String>,
 ) -> impl IntoResponse {
+    if matches!(principal.auth_type.as_str(), "node" | "agent") {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "node and agent credentials cannot rotate join tokens"})),
+        )
+            .into_response();
+    }
     let now = Utc::now().naive_utc();
 
     // Fetch existing token
