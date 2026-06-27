@@ -1,5 +1,5 @@
-import { Outlet, createFileRoute, redirect } from '@tanstack/react-router';
 import { useAuthStore } from '@/stores/auth';
+import { Outlet, createFileRoute, redirect } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/admin')({
   beforeLoad: () => {
