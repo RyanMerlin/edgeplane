@@ -42,6 +42,14 @@ if [ -z "$NODE_NAME" ]; then
   NODE_NAME="$(hostname -s)"
 fi
 
+# ── Enforce HTTPS (dev/local loopback exempt) ────────────────────────────────
+
+case "$ENDPOINT" in
+  https://*) ;;
+  http://localhost*|http://127.0.0.1*) warn "using non-HTTPS endpoint — dev/local only" ;;
+  *) fatal "--endpoint must use https:// (got: $ENDPOINT)" ;;
+esac
+
 # ── Dependency check ─────────────────────────────────────────────────────────
 
 for cmd in curl systemctl useradd sha256sum; do
@@ -111,9 +119,11 @@ if [ ! -f "$CONFIG_DIR/edgeplaned.env" ]; then
 EP_BASE_URL=${ENDPOINT}
 EP_HOME=/var/lib/edgeplane
 ENVEOF
-  chmod 0600 "$CONFIG_DIR/edgeplaned.env"
   info "wrote $CONFIG_DIR/edgeplaned.env"
 fi
+# Always repair ownership and mode — corrects pre-existing bad perms on re-run.
+chown root:root "$CONFIG_DIR/edgeplaned.env"
+chmod 0600 "$CONFIG_DIR/edgeplaned.env"
 
 # ── Install systemd unit (embedded verbatim from crates/edgeplane/systemd/) ──
 
@@ -166,6 +176,10 @@ info "installed /etc/systemd/system/edgeplaned.service"
 
 # ── Enroll node ───────────────────────────────────────────────────────────────
 
+# NOTE: --join-token is briefly visible in /proc/<pid>/cmdline during enrollment
+# and may appear in sudo audit logs. Tokens are single-use and short-lived;
+# rotate immediately if exposure is a concern. Long-term fix: EP_JOIN_TOKEN env
+# var support in edgeplaned register (tracked separately).
 info "enrolling node '$NODE_NAME'"
 sudo -u edgeplane env EP_HOME=/var/lib/edgeplane \
   edgeplaned register \
