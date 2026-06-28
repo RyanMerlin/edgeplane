@@ -30,14 +30,14 @@ See the [documentation](https://edgeplane.ai/concepts/overview/) for the full ca
 └──────────────────────────────┬───────────────────────────────┘
                                │
                ┌───────────────▼─────────────────┐
-               │               edgeplane                │
+               │           edgeplane             │
                │     MCP stdio bridge · Rust     │
-               │        cargo install edgeplane         │
+               │     cargo install edgeplane     │
                │  tools/list · tools/call · CLI  │
                └───────────────┬─────────────────┘
                                │  HTTP
 ┌──────────────────────────────▼───────────────────────────────┐
-│                     EdgePlane API                       │
+│                       EdgePlane API                          │
 │                       Axum  ·  MQTT                          │
 ├─────────────────┬──────────────────────┬─────────────────────┤
 │  Domains &      │  Tasks · Overlap     │  Governance &       │
