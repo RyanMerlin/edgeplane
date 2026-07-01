@@ -204,3 +204,6 @@ crates/edgeplane/mission-*.md
 
 .worktrees/
 .superpowers/
+
+# CodeGraph SQLite index (rebuildable local artifact)
+.codegraph/
