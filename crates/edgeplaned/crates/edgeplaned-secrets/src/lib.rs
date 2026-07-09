@@ -1,4 +1,5 @@
 pub mod config;
+pub mod backend_types;
 pub mod error;
 pub mod secret_ref;
 pub mod types;
@@ -12,6 +13,7 @@ pub mod token_cache;
 pub mod keyring;
 
 pub use config::{InfisicalConfig, InfisicalProfileMap, migrate_legacy};
+pub use backend_types::{BackendCapabilities, BackendError, ResolveCtx, SecretValue};
 pub use client::InfisicalClient;
 pub use error::{SecretsError, Result};
 pub use secret_ref::SecretRef;
