@@ -23,6 +23,9 @@ pub enum SecretsError {
     #[error("invalid secret ref: {0}")]
     InvalidRef(String),
 
+    #[error("backend: {0}")]
+    Backend(String),
+
     #[error("Authentication error: {0}")]
     Auth(String),
 

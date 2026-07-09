@@ -26,7 +26,7 @@ pub use secret_ref::SecretRef;
 pub use registry::BackendRegistry;
 pub use types::{CredentialSource, CredentialKind, ResolvedCredentials};
 pub use redact::SecretRedactor;
-pub use resolver::{resolve_credentials, resolve_credentials_with_profiles};
+pub use resolver::{resolve_credentials, resolve_credentials_with_profiles, resolve_credentials_with_registry};
 pub use token_cache::TokenCache;
 pub use session::SessionStore;
 
