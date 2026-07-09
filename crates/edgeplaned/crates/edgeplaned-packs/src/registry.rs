@@ -48,6 +48,16 @@ impl PackRegistry {
         self.capabilities.insert(full_name, cap);
     }
 
+    /// Insert a synthetic capability from external tests or fixtures.
+    pub fn insert_capability(
+        &mut self,
+        pack_name: &str,
+        cap: CapabilityManifest,
+        tags: Vec<String>,
+    ) {
+        self.insert(pack_name, cap, tags);
+    }
+
     /// Return all capabilities, optionally filtered by tag.
     pub fn capabilities(&self, tag: Option<&str>) -> Vec<CapabilitySummary> {
         let mut summaries: Vec<CapabilitySummary> = self
