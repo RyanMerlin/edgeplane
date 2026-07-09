@@ -1756,6 +1756,7 @@ dependencies = [
 name = "edgeplaned-secrets"
 version = "0.16.0"
 dependencies = [
+ "async-trait",
  "keyring",
  "once_cell",
  "reqwest",
