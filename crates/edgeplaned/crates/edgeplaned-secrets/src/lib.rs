@@ -8,6 +8,7 @@ pub mod types;
 pub mod client;
 pub mod redact;
 pub mod resolver;
+pub mod registry;
 pub mod session;
 pub mod token_cache;
 
@@ -22,6 +23,7 @@ pub use backends::InfisicalBackend;
 pub use client::InfisicalClient;
 pub use error::{SecretsError, Result};
 pub use secret_ref::SecretRef;
+pub use registry::BackendRegistry;
 pub use types::{CredentialSource, CredentialKind, ResolvedCredentials};
 pub use redact::SecretRedactor;
 pub use resolver::{resolve_credentials, resolve_credentials_with_profiles};
