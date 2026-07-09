@@ -18,6 +18,7 @@ pub use config::{InfisicalConfig, InfisicalProfileMap, migrate_legacy};
 pub use backend::SecretsBackend;
 pub use backend_types::{BackendCapabilities, BackendError, ResolveCtx, SecretValue};
 pub use backends::{EnvBackend, LiteralBackend};
+pub use backends::InfisicalBackend;
 pub use client::InfisicalClient;
 pub use error::{SecretsError, Result};
 pub use secret_ref::SecretRef;

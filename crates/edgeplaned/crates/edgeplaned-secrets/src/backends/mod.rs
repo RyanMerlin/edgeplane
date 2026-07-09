@@ -1,7 +1,9 @@
 pub mod env;
+pub mod infisical;
 pub mod literal;
 
 pub use env::EnvBackend;
+pub use infisical::InfisicalBackend;
 pub use literal::LiteralBackend;
 
 #[cfg(test)]
