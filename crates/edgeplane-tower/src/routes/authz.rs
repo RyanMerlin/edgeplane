@@ -139,3 +139,37 @@ pub async fn domain_id_for_gate(db: &PgPool, gate_id: &str) -> Result<String, Re
     )
     .await
 }
+
+// ── Gate-only combinators ──────────────────────────────────────────────────────
+// Resolve the owning domain from a path object, then run the shared default-deny
+// `authz_domain`. For the many `/work/...` read handlers that receive only a
+// `task_id` / `mission_id` / `agent_id` and do not reuse the resolved domain
+// afterward. Because they route through `authz_domain` → `authorized_for`, they
+// honor admin, node blanket-trust (until Workstream 2 scopes it), per-agent
+// `domain_scope`, and owners/contributors — so the daemon (node or owner
+// credential) and scoped agents still pass while cross-domain non-members 403.
+// Do NOT hand-roll a local owners/contributors check here: mechanism-(2) style
+// checks ignore `domain_scope`/`auth_type` and would lock out the daemon and
+// scoped agents (see docs/plans/2026-07-10-authz-hardening.md § O2).
+
+/// Resolve a task's domain and authorize `p` for it.
+pub async fn authz_by_task(db: &PgPool, p: &Principal, task_id: &str) -> Result<(), Response> {
+    let domain_id = domain_id_for_task(db, task_id).await?;
+    authz_domain(db, p, &domain_id).await
+}
+
+/// Resolve a mission's domain and authorize `p`. See [`authz_by_task`].
+pub async fn authz_by_mission(
+    db: &PgPool,
+    p: &Principal,
+    mission_id: &str,
+) -> Result<(), Response> {
+    let domain_id = domain_id_for_mission(db, mission_id).await?;
+    authz_domain(db, p, &domain_id).await
+}
+
+/// Resolve an agent's domain and authorize `p`. See [`authz_by_task`].
+pub async fn authz_by_agent(db: &PgPool, p: &Principal, agent_id: &str) -> Result<(), Response> {
+    let domain_id = domain_id_for_agent(db, agent_id).await?;
+    authz_domain(db, p, &domain_id).await
+}

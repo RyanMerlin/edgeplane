@@ -354,9 +354,13 @@ async fn put_mission_brief_handler(
 
 async fn get_mission_brief_flat(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(mission_id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_by_mission(&state.db, &principal, &mission_id).await
+    {
+        return r;
+    }
     match sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1 AND archived_at IS NULL")
         .bind(&mission_id).fetch_optional(&state.db).await
     {
