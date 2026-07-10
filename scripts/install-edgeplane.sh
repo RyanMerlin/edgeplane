@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
 PREFIX="${EP_INSTALL_PREFIX:-$HOME/.local/bin}"
 VERSION="${EP_INSTALL_VERSION:-latest}"
@@ -64,7 +64,8 @@ detect_platform() {
     *) return 1 ;;
   esac
   case "$os" in
-    linux|darwin) ;;
+    linux)  ;;
+    darwin) os="macos" ;;   # release artifacts are named edgeplane-macos-*, not -darwin-*
     *) return 1 ;;
   esac
   echo "${os}-${arch}"
@@ -167,7 +168,7 @@ if [[ "$INSTALL_SERVICE" = "1" && "$INSTALL_DAEMON" = "1" ]]; then
     UNIT_DIR="${HOME}/.config/systemd/user"
     UNIT_FILE="${UNIT_DIR}/edgeplaned.service"
     SRC_UNIT="${ROOT_DIR}/crates/edgeplaned/systemd/edgeplaned.service"
-    mkdir -p "$UNIT_DIR" "${HOME}/.ep/edgeplaned"
+    mkdir -p "$UNIT_DIR" "${HOME}/.edgeplane/edgeplaned"
 
     # Remove legacy edgeplane-mesh unit if present (clean cutover).
     LEGACY_UNIT="${UNIT_DIR}/edgeplane-mesh.service"

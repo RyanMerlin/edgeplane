@@ -158,5 +158,5 @@ fi
 echo ""
 echo "Launch an agent:"
 echo "  source \"$ENV_FILE\""
-echo "  edgeplane claude run default"
-echo "  edgeplane codex run default"
+echo "  edgeplane run claude"
+echo "  edgeplane run codex"
