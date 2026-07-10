@@ -357,7 +357,7 @@ async fn get_mission_brief_flat(
     _principal: Principal,
     Path(mission_id): Path<String>,
 ) -> impl IntoResponse {
-    match sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1 AND archived_at IS NULL")
+    match sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1")
         .bind(&mission_id).fetch_optional(&state.db).await
     {
         Ok(Some(k)) => Json(serde_json::json!({
@@ -384,7 +384,7 @@ async fn put_mission_brief_flat(
              brief_modified_by = $2, \
              brief_modified_at = NOW(), \
              updated_at = NOW() \
-         WHERE id = $3 AND archived_at IS NULL \
+         WHERE id = $3 \
          RETURNING brief_md, brief_version, brief_modified_by, brief_modified_at"
     )
     .bind(&payload.content)
