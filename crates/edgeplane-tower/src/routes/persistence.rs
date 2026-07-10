@@ -877,7 +877,24 @@ async fn publish_execute(
         .map(|o| o.status.success())
         .unwrap_or(false);
     if !push_ok {
-        tracing::warn!("publish_execute: git push failed for domain {}", domain_id);
+        // The commit exists locally in the discarded tmpdir but never reached
+        // the remote — Git is the memory of record, so the ledger must not be
+        // marked published unless the push actually landed. Fail the request
+        // and leave the events in `pending` state so a retry (or operator
+        // investigation) can pick them up; do not touch the DB below.
+        tracing::error!(
+            "publish_execute: git push failed for domain {} (local commit {} not published)",
+            domain_id,
+            commit_sha
+        );
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "detail": "git push failed; ledger events were not marked published",
+                "commit_sha": commit_sha,
+            })),
+        )
+            .into_response();
     }
 
     // Update DB
