@@ -106,8 +106,11 @@ were already gated, so it was the lone hole. Now gated via `authz_by_mission` + 
 ### Group B — `agents.rs` (no authz on any handler) + `attach_domain`
 `attach_domain` (moves any agent into any domain) → owner/admin of the target domain.
 Agent CRUD/messaging → domain read/write as appropriate. **Highest breakage risk** — verify the
-web dashboard and daemon call these as owner/session (likely) before gating. `put_mission_brief_flat`
-(overwrite any brief by id) → domain-write.
+web dashboard and daemon call these as owner/session (likely) before gating.
+~~`put_mission_brief_flat` (overwrite any brief by id) → domain-write.~~ **DONE in PR #96**
+— the flat-brief `archived_at` correctness fix would have unmasked this write IDOR (and the
+`get_mission_brief_flat` read IDOR), so #96 gates both flat endpoints on the mission's domain
+via `authz_domain`. Removed from Group B scope.
 
 ### Group C — NULL-domain fail-open (`artifacts.rs`, `docs.rs`)
 `create/update/publish_{artifact,doc}` skip the check when the parent mission `domain_id` is NULL.
@@ -119,8 +122,20 @@ Add authz; clamp TTL and capability scope to server maxima. **Privilege-escalati
 
 ### Group E (lower) — unvalidated caller-supplied `domain_id`
 `runtime::create_job`, `budgets::record_usage_batch`: validate the caller may act on the supplied domain.
+**`feedback.rs::list_feedback` + `feedback_summary`** (`GET /feedback[/summary]?domain_id=…`) —
+`_principal` ignored; the query binds the caller-supplied `q.domain_id` with **zero** authorization
+(confused deputy: name any domain → read its full feedback). Gate on `q.domain_id` via `authz_domain`
+and reject empty/missing `domain_id` (422). *(Not in the original enumeration; surfaced by the
+2026-07-10 dual-review.)*
 
 ### Group F (lower) — `search.rs` `LIKE`-based readability filter → exact-match membership.
+
+### Group G — `ingestion.rs` no-gate reads *(surfaced by the 2026-07-10 dual-review; not in the original enumeration)*
+`list_jobs` (`GET /ingest/jobs?mission_id=…`) ignores `_principal`; **with no `mission_id` it dumps
+all tenants' jobs** (LIMIT 200), and with one it reads any mission's jobs. `get_job`
+(`GET /ingest/jobs/{id}`) returns any job by id, no check. Job `config` can name source
+systems/connectors. Require `mission_id`, gate via `authz_by_mission`; drop or admin-restrict the
+no-filter branch; resolve `get_job`'s mission → `authz_by_mission` (or admin).
 
 ---
 
@@ -166,7 +181,8 @@ operating domains instead of the whole fleet.
 ## Sequencing
 
 0. **[O1]/[O2] traces** — daemon per-call credential; confirm the shared-helper migration is safe.
-1. **Workstream 1** — Group A → C → B → D (→ E/F), each with caller-safety + tests + red-team + review.
+1. **Workstream 1** — Group A → C → B → D (→ E/F/G), each with caller-safety + tests + red-team + review.
+   (Group B's `put_mission_brief_flat` item already landed in PR #96; E adds `feedback.rs`; G is `ingestion.rs`.)
 2. **Workstream 2** — entities.md § Domain → resolver → `auth.rs:373` → tests → red-team → review.
 3. Optional consolidation: migrate mechanism-(2) files onto the shared `authorized_for_domain`.
 
