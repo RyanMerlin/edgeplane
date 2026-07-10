@@ -9,7 +9,7 @@ EdgePlane has three components:
 |-----------|---------|
 | `edgeplane` | Operator CLI and agent launcher — your primary interface |
 | `edgeplaned` | Headless executor daemon — manages agent subprocesses and secrets brokering |
-| `edgeplane-tower` | HTTP server backing the REST/SSE API — missions, tasks, approvals |
+| `edgeplane-tower` | HTTP server backing the REST/SSE API — domains, missions, tasks, artifacts, Git publication |
 
 ## Install Script (recommended)
 
@@ -85,7 +85,7 @@ EdgePlane uses three auth mechanisms — no static `EP_TOKEN` is required:
 | Auth mode | When to use | How |
 |-----------|-------------|-----|
 | OIDC (interactive) | Operators, interactive use | `edgeplane auth login` — browser flow, issues a session token |
-| Node JWT (machine) | Daemons, `edgeplaned` | `edgeplane agent node register --hostname <name>` — JWT stored at `/etc/edgeplane/node.json` |
+| Node JWT (machine) | Daemons, `edgeplaned` | `edgeplane agent node register --hostname <name>` — JWT stored at `~/.edgeplane/config/node.json` (`$EP_HOME/config/node.json`) |
 | Service account | CI, programmatic | `ep_sa_*` tokens — created via API, passed as `Bearer` |
 
 :::note[v0.13.0 breaking change]

@@ -134,7 +134,8 @@ engages with Edgeplane and their local AI toolchain.
 Profiles are:
 
 -   Stored on the Edgeplane backend, scoped strictly to the owner
--   Synced to the local machine automatically on agent startup
+-   Synced to the local machine via explicit publish/pull/activate flows
+    (goal: automatic sync on every agent startup; not yet built)
 -   Applied via atomic symlink swap for clean, instant transitions
 -   Versioned, pushable, and pullable from any client or machine
 -   User-creatable and user-switchable by design (for example:
@@ -150,8 +151,8 @@ The agent's operational identity — its environment, its instruction
 files, its tool profile — travels with the operator, not with the
 machine.
 
-Profile switching is structured and intentional. Context drift across
-machines or sessions is eliminated.
+Profile switching is structured and intentional. The goal is to
+eliminate context drift across machines or sessions.
 
 Operators should be able to create a profile once, switch profiles in
 seconds, and resume the same operational posture on any machine without
@@ -212,29 +213,36 @@ Agents and humans operate against durable, structured entities:
 -   Artifacts
 -   Documents
 -   Roles
--   Governance Policies
+-   Governance Policies (planned — see Governance and Permission Model below)
 
 This eliminates prompt-fragmentation and creates continuity across time
 and contributors.
 
-Search is semantic. State is durable. Ownership is explicit.
+Search is structured today; semantic search is on the roadmap. State is
+durable. Ownership is explicit.
 
 ------------------------------------------------------------------------
 
-# Overlap Detection as a First-Class Primitive
+# Overlap Detection as a First-Class Primitive (Roadmap)
 
-Edgeplane evaluates intent before mutation.
+The goal is for Edgeplane to evaluate intent before mutation.
 
-Before a task or artifact is created:
+Before a task or artifact is created, the design calls for:
 
--   Fuzzy similarity analysis runs
--   Vector similarity search runs
--   Existing domain and mission state is checked
--   Artifact history is evaluated
+-   Fuzzy similarity analysis
+-   Vector similarity search
+-   Existing domain and mission state checked
+-   Artifact history evaluated
 
-Collisions are detected proactively.
+so collisions are detected proactively.
 
-This enables safe parallelism at scale.
+**Current state:** the overlap-detection storage exists in the schema,
+but no similarity computation runs against it yet — only test fixtures
+populate it today. Existing domain/mission state is checked at
+mutation time via ownership; the fuzzy/vector similarity layer above
+it is not yet built.
+
+This is designed to enable safe parallelism at scale.
 
 ------------------------------------------------------------------------
 
@@ -242,16 +250,21 @@ This enables safe parallelism at scale.
 
 AI-native development without guardrails is not scalable.
 
-Edgeplane implements:
+Edgeplane implements membership-based, default-deny authorization today.
+A fuller governance model — role tiers, approval workflows, policy
+lifecycle — is the goal but is not yet built.
 
-## Role Types
+## Membership (shipped)
 
--   Admin: Full mutation and policy control
--   Contributor: Can create and modify within domain scope
--   Viewer: Can search, inspect, and utilize artifacts but cannot mutate
-    state
+-   Owner / Contributor: per-domain membership controls who can create
+    and modify within that domain's scope
+-   Admin allowlist: `EP_ADMIN_EMAILS` / `EP_ADMIN_GROUPS` grant
+    cross-domain override
 
-## Policy Enforcement
+A dedicated Viewer role (read-only, no mutation) is planned; today
+access within a domain is owner/contributor or nothing.
+
+## Policy Enforcement (roadmap)
 
 -   Approval requirements for sensitive mutations
 -   Publish controls
@@ -259,78 +272,87 @@ Edgeplane implements:
 -   Environment-specific overrides
 -   Draft → Active → Rollback lifecycle
 
-Governance is integrated directly into the execution path.
+**Current state:** a versioned policy-lifecycle and HMAC-signed approval
+engine existed in an earlier schema and was removed
+(`0009_drop_governance.sql`) as never-enforced, pending a redesign. The
+goal remains governance integrated directly into the execution path.
 
 ------------------------------------------------------------------------
 
 # Persistence Architecture: Three-Tier Memory Model
 
-Edgeplane uses three distinct, complementary persistence layers.
-Each serves a specific role in the information lifecycle.
+Edgeplane's target architecture is three distinct, complementary
+persistence layers, each serving a specific role in the information
+lifecycle. Today, artifact content lives inline in Postgres rather
+than in the S3 tier described below — see "Current state" under S3.
 
 ## PostgreSQL — Structured State and Collaboration
 
 The operational database. All structured entities — domains, missions,
-tasks, roles, governance policies, approval records — live in Postgres
-with pgvector for semantic indexing.
+tasks, roles — live in Postgres, along with artifact content itself
+(inline, not in object storage — see S3 below). pgvector-backed semantic
+indexing is planned; there is no embeddings/vector search in the
+current build.
 
 This is the source of truth for:
 
 -   Who owns what, and with what permissions
 -   Current task and artifact status
--   Overlap detection state
--   Approval lifecycle records
--   Vector-indexed search across all entities
+-   Overlap detection state (schema only — see Overlap Detection above)
 
 Postgres is the coordination substrate. Fast, queryable, role-scoped.
 
-## S3 — Working File Persistence
+## S3 — Working File Persistence (Roadmap)
 
-Artifact content — documents, binaries, skill bundles, agent outputs —
-is stored in S3-compatible object storage, not inline in the database.
-
-S3 is the working store: immediately available, mutable during active
-work, and scoped per domain and mission:
+The goal: artifact content — documents, binaries, skill bundles, agent
+outputs — stored in S3-compatible object storage, not inline in the
+database, scoped per domain and mission:
 
     domains/{domain_id}/missions/{mission_id}/{entity}/{filename}
 
-This means agents can read, write, and iterate on file content without
-polluting the structured state database. Storage scales independently.
-Any S3-compatible backend works — AWS S3, MinIO, RustFS — with no code
-changes.
+**Current state:** artifact content lives inline in Postgres today.
+The S3 write path for artifact content is not yet implemented — RustFS
+ships bundled in the Docker Compose stack, but nothing writes artifact
+bodies to it yet.
 
-Edgeplane ships with RustFS bundled in the Docker Compose stack.
-No external infrastructure required to run with full file persistence
-locally.
-
-S3 is not optional infrastructure. It is where active work lives.
+Once shipped, this is designed to let agents read, write, and iterate
+on file content without polluting the structured state database, with
+storage scaling independently. Any S3-compatible backend should work —
+AWS S3, MinIO, RustFS — with no code changes.
 
 ## Git — Long-Term Memory of Record
 
-When a mutation is approved and published, it is committed to Git.
+When an artifact is published, it is committed to Git through a
+policy-routed publish flow: connections and bindings resolved via
+`resolve_publish_plan` determine the target repo/branch/path.
 
 Git is the memory of record: immutable, auditable, and version-controlled.
 Artifact provenance metadata (repo, branch, path, commit hash) is written
 back to Postgres, creating a permanent link between the operational record
 and the historical record.
 
-The flow is:
+The flow today is:
 
-1.  Agent produces artifact → stored in S3 (working)
+1.  Agent produces artifact → stored inline in Postgres (working; see
+    S3 section above for the planned working-store tier)
 2.  Mutation recorded in Postgres (structured state)
-3.  Approval granted → committed to Git (memory of record)
+3.  Publish plan resolved against domain policy → committed to Git
+    (memory of record)
 4.  Provenance written back → full chain of custody established
 
 This creates:
 
 -   Traceable AI actions with deterministic lineage
 -   Audit-ready change history outside the control plane
--   Reproducible domain/mission state from Git alone if needed
+-   The goal of reproducible domain/mission state from Git alone —
+    today, Git holds published artifacts and their provenance, not the
+    full structured-state graph (ownership, task status, etc.), which
+    lives in Postgres
 -   A permanent organizational knowledge base that survives
     infrastructure changes
 
 AI activity becomes accountable. The full trail — who did what, when,
-approved by whom, committed where — is preserved at every layer.
+published where — is preserved at every layer.
 
 ------------------------------------------------------------------------
 
@@ -396,10 +418,12 @@ Without coordination:
 With Edgeplane:
 
 -   Parallel task execution is structured by domain and mission scope
--   Overlap is detected before damage occurs
--   Ownership is explicit and role-enforced
+-   Overlap detection catching collisions before damage occurs is the
+    goal (see Overlap Detection above for current state)
+-   Ownership is explicit and membership-enforced
 -   State is synchronized across agents, sessions, and machines
--   Policy is enforced at every mutation point
+-   Membership-based access is enforced at every mutation point (a
+    fuller policy engine is on the roadmap — see Governance above)
 -   Organizational stakeholders remain informed through whatever
     communication channel the team uses
 

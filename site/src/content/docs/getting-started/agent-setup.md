@@ -41,8 +41,8 @@ Key behaviors:
 Session tokens are revocable, expiring, and **never written to agent config files on disk**. They are injected at exec time from `~/.edgeplane/session.json`.
 
 ```bash
-edgeplane auth login                       # browser OIDC flow → ~/.edgeplane/session.json (8h TTL)
-edgeplane auth login --ttl-hours 24        # longer TTL
+edgeplane auth login                       # browser OIDC flow → ~/.edgeplane/session.json (default TTL: 365 days)
+edgeplane auth login --ttl-hours 24        # shorter TTL (max: 87600 hours / 10 years)
 edgeplane auth login --print-token         # print token value (for scripting)
 
 edgeplane auth whoami                      # verify identity and expiry
@@ -139,10 +139,11 @@ edgeplane auth whoami                   # verify auth before launching
 edgeplane health --json                 # verify server connectivity
 ```
 
-If an agent shows `MCP startup incomplete (failed: edgeplane)`:
+If an agent fails to bring up the `edgeplane` MCP server:
 
 - Confirm `edgeplane auth whoami` succeeds before launching
-- Try shim defaults: `EP_MCP_MODE=shim EP_STARTUP_PREFLIGHT=none edgeplane run <runtime>`
+- Confirm `EP_BASE_URL` points at the right tower and `edgeplane health --json` succeeds
+- Run `edgeplane run <runtime> doctor --json` for a full readiness report
 
 ## What's Next
 

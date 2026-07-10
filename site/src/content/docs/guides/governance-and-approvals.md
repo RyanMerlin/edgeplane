@@ -20,11 +20,10 @@ Subjects listed in the `EP_ADMIN_EMAILS` environment variable on edgeplane-tower
 # List current owners and contributors
 edgeplane domain show <domain-id>
 
-# Add a contributor
-edgeplane domain members add --domain-id <domain-id> --subject <email-or-id> --role contributor
-
-# Remove a member
-edgeplane domain members remove --domain-id <domain-id> --subject <email-or-id>
+# Owners and contributors are each a comma-separated list on the domain row —
+# `update` replaces the full list, it does not append a single member.
+edgeplane domain update <domain-id> --owners "alice@example.com,bob@example.com"
+edgeplane domain update <domain-id> --contributors "carol@example.com"
 ```
 
 ## See Also

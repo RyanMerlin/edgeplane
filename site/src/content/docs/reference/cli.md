@@ -40,7 +40,7 @@ edgeplane config                     # effective local runtime config (secrets r
 ### TUI
 
 ```bash
-edgeplane tui [--mission <id>]
+edgeplane tui [--domain <id>]
 ```
 
 Full-screen terminal UI. Server and token come from env or `~/.edgeplane/session.json`.
@@ -186,13 +186,11 @@ edgeplane receipts last [--json]
 ```bash
 edgeplane data tools list
 edgeplane data tools call --tool <name> --payload '<json>'
-edgeplane data sync status --domain-id <id> [--mission-id <id>]
-edgeplane data sync promote ...
 edgeplane data explorer tree
 edgeplane data explorer node ...
 
 edgeplane system doctor [--fix]
-edgeplane system backup --target postgres|s3|all
+edgeplane system backup --target postgres|rustfs|all
 edgeplane system profile-gc ...
 edgeplane system update ...
 ```

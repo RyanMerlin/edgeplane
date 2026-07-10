@@ -17,7 +17,7 @@ EdgePlane is the coordination layer: a control plane for AI agents and the human
 ## Core Capabilities
 
 - **Domains, Missions & Tasks** — organizational units that scope knowledge, tools, and membership. Agents and humans switch profiles without losing context, and every task carries durable ownership with claim coordination.
-- **Membership-based authorization** — default-deny access keyed on per-domain `owners` / `contributors`, plus an admin allowlist (`EP_ADMIN_EMAILS` / `EP_ADMIN_SUBJECTS`). Enforced on the MCP and HTTP surfaces alike. (A versioned policy/approvals engine is on the [roadmap](#status--roadmap).)
+- **Membership-based authorization** — default-deny access keyed on per-domain `owners` / `contributors`, plus an admin allowlist (`EP_ADMIN_EMAILS` / `EP_ADMIN_GROUPS`). Enforced on the MCP and HTTP surfaces alike. (A versioned policy/approvals engine is on the [roadmap](#status--roadmap).)
 - **Git artifact ledger** — on publish, artifacts are committed to a configured Git target with full provenance (`published_by`, `published_at`, publication metadata), routed via versioned persistence bindings.
 - **Persistent sessions** — `edgeplaned` supervises agent processes per node via ACP. Remote attach through the web UI renders structured conversation (assistant turns, tool calls, permission prompts), not raw terminal output — with a replay buffer so mid-session attachers catch up.
 - **MCP-native** — everything above is reachable through standard MCP stdio tools: no sidecar, no custom SDK, no per-agent token.
@@ -210,7 +210,7 @@ Publication is policy-routed. Configure repository targets via `/persistence/con
 
 ## Authorization
 
-Access control is membership-based and default-deny: each domain has `owners` and `contributors`, plus an admin allowlist (`EP_ADMIN_EMAILS` / `EP_ADMIN_SUBJECTS`). Checks are enforced on both the HTTP and MCP surfaces. There is currently **no** separate policy/approval engine — a versioned governance lifecycle is on the [roadmap](#status--roadmap).
+Access control is membership-based and default-deny: each domain has `owners` and `contributors`, plus an admin allowlist (`EP_ADMIN_EMAILS` / `EP_ADMIN_GROUPS`). Checks are enforced on both the HTTP and MCP surfaces. There is currently **no** separate policy/approval engine — a versioned governance lifecycle is on the [roadmap](#status--roadmap).
 
 See the [authorization guide](https://edgeplane.ai/guides/governance-and-approvals/) for details.
 

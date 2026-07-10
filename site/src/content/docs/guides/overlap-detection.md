@@ -5,11 +5,15 @@ description: Detect duplicate or conflicting work before claiming tasks using Ed
 
 ## What Overlap Detection Does
 
-When agents claim tasks independently, they can unknowingly start work that duplicates something already in progress. The earlier duplicate is discovered, the cheaper it is to fix — a pre-claim check costs milliseconds; discovering the collision after two agents have done equivalent work costs everything both agents spent.
+:::caution[Planned capability]
+The `overlapsuggestion` table and the `get_overlap_suggestions` MCP tool both exist today, but the background similarity analysis that would populate the table in a running deployment is **not implemented yet** — currently the table is only ever written by test fixtures. Calling the tool today is safe but will typically return an empty list. The rest of this page documents the intended design; treat it as advisory/roadmap until the analysis pipeline ships.
+:::
 
-`get_overlap_suggestions` is an MCP tool available to agents at runtime. Given a task ID, it returns a ranked list of existing tasks that are semantically similar, ordered by `similarity_score` descending. Each entry includes an `evidence` field summarizing why the overlap was detected and a `suggested_action` field with a recommended response.
+When agents claim tasks independently, they can unknowingly start work that duplicates something already in progress. The earlier a duplicate is discovered, the cheaper it is to fix — a pre-claim check costs milliseconds; discovering the collision after two agents have done equivalent work costs everything both agents spent.
 
-The tool queries the `overlapsuggestion` table, which is populated by EdgePlane's background similarity analysis. You do not drive the analysis — you query its results.
+`get_overlap_suggestions` is an MCP tool available to agents at runtime. Given a task ID, it is designed to return a ranked list of existing tasks that are semantically similar, ordered by `similarity_score` descending. Each entry includes an `evidence` field summarizing why the overlap was detected and a `suggested_action` field with a recommended response.
+
+The tool queries the `overlapsuggestion` table. Nothing populates that table in production yet — there is no background similarity job. You do not drive the analysis, and today there generally isn't one to query results from.
 
 ---
 
@@ -112,6 +116,6 @@ Running this check consistently keeps the domain clean. Tasks that would have du
 
 **The tool is pre-task by design.** Per ADR 0006, `get_overlap_suggestions` is kept in the runtime MCP surface specifically because it is called before claiming work. It is not a post-hoc audit tool.
 
-**Results depend on analysis currency.** The `overlapsuggestion` table is populated by EdgePlane's background process. Freshly submitted tasks may not have overlap candidates yet if the analysis has not run since submission. For tasks submitted just moments ago, a short delay before querying improves result quality.
+**Results depend on analysis currency.** As noted above, no background process populates the `overlapsuggestion` table in production today, so results are currently empty by default. Once the analysis pipeline ships, freshly submitted tasks may still lack overlap candidates until it has run since submission.
 
 **Empty results are not a guarantee of uniqueness.** They mean no overlap candidates were detected at analysis time. If you have reason to believe similar work exists — for example, you know a related task was submitted recently — check `list_mesh_tasks` with a status filter as a secondary signal.

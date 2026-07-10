@@ -15,13 +15,13 @@ EdgePlane has four core components that cooperate to provide coordination, gover
                       │ HTTP / REST / SSE
 ┌─────────────────────▼───────────────────────────────────┐
 │                edgeplane-tower                           │
-│     Domains, missions, tasks, artifacts, approvals       │
-│     Governance enforcement, SSE telemetry, OIDC auth     │
-└──────┬──────────────┬────────────────────────┬──────────┘
-       │              │                        │
-  Postgres        S3 Storage               Git repos
-  + pgvector    (artifact bytes)        (memory of record)
-  (structured state)
+│     Domains, missions, tasks, artifacts, ledger          │
+│     Authorization (membership-based), SSE, OIDC auth     │
+└──────┬─────────────────────────────────┬─────────────────┘
+       │                                 │
+  Postgres                          Git repos
+  (structured state +               (memory of record)
+   artifact content today)
 
 ┌─────────────────────────────────────────────────────────┐
 │                    edgeplaned (daemon)                          │
@@ -41,11 +41,11 @@ connect to edgeplane-tower via MCP stdio (edgeplane serve)
 The primary operator interface. All interactivity: fleet views, agent launch, capability dispatch, and the full-screen TUI.
 
 Key capabilities:
-- `edgeplane tui` — full-screen terminal UI (agents, missions, feed, approvals, secrets, config)
+- `edgeplane tui` — full-screen terminal UI (agents, domains, feed, secrets, config)
 - `edgeplane run <runtime>` — unified agent launcher
 - `edgeplane auth` — session token management
 - `edgeplane capabilities` — capability pack dispatch
-- `edgeplane domain, edgeplane daemon mission ls, edgeplane daemon task ls, edgeplane agent list` — entity management
+- `edgeplane domain, edgeplane mission list, edgeplane task list, edgeplane agent list` — entity management
 - `edgeplane health` — connectivity and server status
 
 ## edgeplane-tower — API Server
@@ -54,7 +54,7 @@ The Axum HTTP server backing the REST/SSE API. Runs independently from the CLI. 
 
 - Domain, mission, task, and artifact CRUD
 - Agent registration and status tracking
-- Governance enforcement (policy lifecycle, approval tokens)
+- Authorization enforcement — membership-based, default-deny (per-domain `owners`/`contributors` plus an `EP_ADMIN_EMAILS` admin allowlist). A versioned governance policy engine with approval tokens existed early on but was dropped (migration `0009_drop_governance.sql`) and is on the roadmap, not current behavior
 - SSE telemetry for real-time event streaming
 - OIDC authentication
 - Automatic database migrations on startup
@@ -84,7 +84,7 @@ Socket paths (`~/.edgeplane/edgeplaned/`):
 
 Two additional components extend EdgePlane for specific environments:
 
-- **Web Dashboard** — React SPA served by edgeplane-tower. Provides a browser-based fleet view, ACP terminal sessions, live event feed, and governance approvals. Communicates exclusively through the tower REST/SSE/WebSocket API.
+- **Web Dashboard** — React SPA served by edgeplane-tower. Provides a browser-based fleet view, ACP terminal sessions, live event feed, and domain/task drill-down. Communicates exclusively through the tower REST/SSE/WebSocket API.
 - **edgeplane-zrpc** — Optional Zellij WASM plugin. Adds focus-free PTY injection, scrollback reads, pane lifecycle events, and cancel signals for Zellij-hosted agents. Activated by setting `EDGEPLANE_ZRPC_PLUGIN_PATH`; unset means no behavior change.
 
 ## Persistence Layers
@@ -93,26 +93,26 @@ See [Persistence Model](/architecture/persistence/) for the full breakdown. Summ
 
 | Layer | What lives here | Authority |
 |-------|----------------|-----------|
-| **Postgres + pgvector** | All structured state — domains, missions, tasks, approvals, roles, ledger | Source of truth for coordination |
-| **S3-compatible storage** | Artifact bytes, workspace files, document content | Working store |
-| **Git** | Published, approved mutations | Memory of record |
+| **Postgres** | All structured state — domains, missions, tasks, artifact content, domain ownership, ledger | Source of truth for coordination |
+| **S3-compatible storage** (planned) | Artifact bytes, workspace files, document content — not implemented yet; content is inline in Postgres today | Working store (target design) |
+| **Git** | Published mutations | Memory of record |
+
+`pgvector` is not in use — there's no embedding generation or vector search anywhere in the stack today.
 
 ## MCP Interface
 
-Agents connect to EdgePlane via standard MCP stdio, served by `edgeplane serve`. This works with any MCP-compatible runtime — Claude Code, Codex, Gemini CLI, custom ACP agents.
+Agents connect to EdgePlane two ways: standard MCP stdio, served by `edgeplane serve`, and an HTTP MCP surface at `/api/mcp/tools` (catalogue) and `/api/mcp/call` (dispatch). Both work with any MCP-compatible runtime — Claude Code, Codex, Gemini CLI, custom ACP agents — with no sidecar or custom SDK required.
 
-Available MCP tools include: `create_domain`, `create_mission`, `create_task`, `claim_mesh_task`, `publish_pending_ledger_events`, `search_tasks`, `search_missions`, `get_entity_history`, and more. See [Reference: CLI](/reference/cli/) for the full surface.
+Available MCP tools include: `submit_mesh_task`, `claim_mesh_task`, `load_mission_workspace`, `commit_mission_workspace`, `publish_pending_ledger_events`, `resolve_publish_plan`, `get_overlap_suggestions`, `send_mesh_message`, and more. See [Reference: CLI](/reference/cli/) for the full surface.
 
 ## Request Lifecycle
 
 A typical agent mutation (creating a task) flows:
 
-1. Agent calls MCP tool → `edgeplane serve` → `edgeplane-tower` REST endpoint
-2. Policy check runs — role membership, governance policy, approval requirements
-3. If approved immediately: mutation recorded in Postgres, S3 updated if applicable
-4. If approval required: enters ledger as `pending`
-5. Approval granted (human via TUI, or automated via policy) → mutation promoted
-6. If publication policy configured: route resolver picks repo/branch/path → Git commit → provenance written back to Postgres
+1. Agent calls MCP tool → `edgeplane serve` (or the HTTP MCP surface) → `edgeplane-tower` REST endpoint
+2. Authorization check — caller must be a domain owner/contributor or an admin (`EP_ADMIN_EMAILS`); there is no separate approval-workflow gate on ordinary mutations
+3. If authorized: mutation recorded in Postgres immediately
+4. If the mutation is publish-eligible: it can be routed to Git — route resolver picks repo/branch/path (`resolve_publish_plan`) → Git commit → provenance written back to Postgres, and the ledger entry (initially `pending`) is marked published
 
 ## See Also
 
