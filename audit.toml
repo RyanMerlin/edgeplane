@@ -15,6 +15,19 @@ ignore = [
     "RUSTSEC-2026-0099",
     "RUSTSEC-2026-0104",
 
+    # quick-xml 0.32.0 DoS pair — quadratic-runtime duplicate-attribute check
+    # (0194) and unbounded namespace-declaration allocation (0195). Fix is
+    # quick-xml >=0.41.0. Blocked by the same rust-s3 0.35.1 pin as the entries
+    # above: rust-s3 0.35.1 (and aws-creds 0.37.0) require quick-xml 0.32, and
+    # the newest release, rust-s3 0.37.2, still only reaches quick-xml 0.38 —
+    # no released rust-s3 uses quick-xml >=0.41, and 0.37.2 additionally drags
+    # in an aws-lc-rs/cmake C toolchain. Mitigation: quick-xml here only parses
+    # S3 API XML from our own RustFS object-storage endpoint (not attacker-
+    # controlled); both advisories require adversarial XML input to trigger.
+    # Revisit when rust-s3 ships a quick-xml >=0.41 release.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+
     # sqlx 0.8.0 binary-protocol overflow on truncating casts. Fixed in 0.8.1+.
     # Bumping sqlx requires bumping libsqlite3-sys past rusqlite 0.31's pin —
     # tracked as a separate dependency-graph cleanup task.
