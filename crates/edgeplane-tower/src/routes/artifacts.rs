@@ -569,11 +569,23 @@ async fn get_artifact_content(
                 } else {
                     mime
                 };
-                return Response::builder()
-                    .header(header::CONTENT_TYPE, mime_val)
+                // mime_val is stored verbatim from the upload payload and is not
+                // guaranteed to be a valid HTTP header value (e.g. it could contain
+                // a newline or other control character). Never trust it enough to
+                // unwrap header/response construction on user input — fall back to
+                // a safe default instead of panicking the handler.
+                let content_type = header::HeaderValue::from_str(&mime_val)
+                    .unwrap_or_else(|_| header::HeaderValue::from_static("application/octet-stream"));
+                return match Response::builder()
+                    .header(header::CONTENT_TYPE, content_type)
                     .body(axum::body::Body::from(body_bytes))
-                    .unwrap()
-                    .into_response();
+                {
+                    Ok(resp) => resp.into_response(),
+                    Err(e) => {
+                        tracing::error!("get_artifact_content build response: {e}");
+                        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                    }
+                };
             }
             Err(e) => {
                 return (

@@ -176,17 +176,23 @@ fn run_provider_checks(provider: String, mode: CompatMode) -> ProviderResult {
         },
     });
 
+    // These checks do not yet perform any real validation. Report them as
+    // explicitly skipped rather than fabricating a "pass"/"warn" outcome —
+    // claiming success for a check that inspects nothing is worse than not
+    // running it at all.
     checks.push(CheckResult {
         name: "contract_payload_shape".into(),
-        status: if available { "pass" } else { "warn" }.into(),
-        detail: "placeholder contract check recorded for CI matrix aggregation".into(),
+        status: "skipped".into(),
+        detail: "not implemented: contract payload shape is not validated by this build"
+            .into(),
     });
 
     if mode == CompatMode::Full {
         checks.push(CheckResult {
             name: "approval_flow_contract".into(),
-            status: if available { "pass" } else { "warn" }.into(),
-            detail: "full-mode check placeholder for approval contract".into(),
+            status: "skipped".into(),
+            detail: "not implemented: approval flow contract is not validated by this build"
+                .into(),
         });
     }
 

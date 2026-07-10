@@ -6,21 +6,23 @@
 
 > **Kubernetes orchestrates containers. EdgePlane orchestrates agents.**
 
+> **Status — alpha (0.x).** Under active development; the API surface changes between minor versions. This README describes what runs **today** — see [Status & Roadmap](#status--roadmap) for what's built vs. planned.
+
 AI agents can write code, run tools, and reason over architecture. What they cannot do is coordinate. Without a shared system of record, parallel agents duplicate effort, diverge on state, and collide on artifacts with no resolution path. The capability compounds; the coordination does not.
 
-EdgePlane is the coordination layer: a control plane for AI agents and the humans working alongside them. It is not a workflow runner, not a pipeline framework, and not a chatbot UI. It gives agents structured domains, durable task ownership, overlap detection before mutations, HMAC-signed governance, and a three-tier persistence model spanning Postgres, S3, and Git.
+EdgePlane is the coordination layer: a control plane for AI agents and the humans working alongside them. It is not a workflow runner, not a pipeline framework, and not a chatbot UI. It gives agents structured domains, durable task ownership, membership-based authorization, and a Git-committed artifact ledger that carries full provenance on publish — all reachable through a standard MCP interface.
 
-**The MCP server is the control-plane boundary.** Agents interact through standard MCP stdio tools, with no sidecar, no custom SDK, and no separate auth token. The `edgeplane` CLI is a single compiled Rust binary, and `edgeplaned` keeps long-running agent sessions alive across crashes and reconnects through ACP (Agent Client Protocol). It works with Claude, Codex, Gemini, or any MCP-compatible runtime.
+**The MCP server is the control-plane boundary.** Agents interact through standard MCP stdio tools, with no sidecar, no custom SDK, and no separate auth token. The `edgeplane` CLI is a single compiled Rust binary, and `edgeplaned` supervises long-running agent sessions per node — with mid-session remote attach and event replay through ACP (Agent Client Protocol). It works with Claude, Codex, Gemini, or any MCP-compatible runtime.
 
 ## Core Capabilities
 
-- **Domains & Missions** — organizational units that scope knowledge, tools, permissions, and governance. Agents and humans switch profiles without losing context or integrity.
-- **Overlap Detection** — fuzzy and vector similarity run before task and artifact creation. Collisions surface as `overlap_suggestions` in the API response, before damage occurs.
-- **Governance & Approvals** — versioned policy lifecycle (draft → active → rollback), role-based access (Admin / Contributor / Viewer), and HMAC-signed approval tokens on sensitive mutations.
-- **Three-Tier Persistence** — structured state in Postgres with pgvector for semantic and hybrid search, artifact content in S3-compatible object storage, and a Git-committed artifact ledger carrying full provenance on publish.
-- **Persistent Sessions** — `edgeplaned` manages agent processes per node via ACP. Remote attach through the web UI renders structured conversation (assistant turns, tool calls, permission prompts), not raw terminal output.
+- **Domains, Missions & Tasks** — organizational units that scope knowledge, tools, and membership. Agents and humans switch profiles without losing context, and every task carries durable ownership with claim coordination.
+- **Membership-based authorization** — default-deny access keyed on per-domain `owners` / `contributors`, plus an admin allowlist (`EP_ADMIN_EMAILS` / `EP_ADMIN_GROUPS`). Enforced on the MCP and HTTP surfaces alike. (A versioned policy/approvals engine is on the [roadmap](#status--roadmap).)
+- **Git artifact ledger** — on publish, artifacts are committed to a configured Git target with full provenance (`published_by`, `published_at`, publication metadata), routed via versioned persistence bindings.
+- **Persistent sessions** — `edgeplaned` supervises agent processes per node via ACP. Remote attach through the web UI renders structured conversation (assistant turns, tool calls, permission prompts), not raw terminal output — with a replay buffer so mid-session attachers catch up.
+- **MCP-native** — everything above is reachable through standard MCP stdio tools: no sidecar, no custom SDK, no per-agent token.
 
-See the [documentation](https://edgeplane.ai/concepts/overview/) for the full capability set, including chat integration, semantic search, and the entity model.
+See the [documentation](https://edgeplane.ai/concepts/overview/) for the full capability set, including chat integration, the persistence model, and the entity model.
 
 ## Architecture
 
@@ -38,11 +40,11 @@ See the [documentation](https://edgeplane.ai/concepts/overview/) for the full ca
                                │  HTTP
 ┌──────────────────────────────▼───────────────────────────────┐
 │                       EdgePlane API                          │
-│                       Axum  ·  MQTT                          │
+│                       Axum HTTP API                          │
 ├─────────────────┬──────────────────────┬─────────────────────┤
-│  Domains &      │  Tasks · Overlap     │  Governance &       │
-│  Missions       │  Detection · Semantic│  Approvals          │
-│                 │  Search              │  Slack / ChatOps    │
+│  Domains &      │  Tasks · Claims      │  Authorization      │
+│  Missions       │  Publish · Ledger    │  Slack / ChatOps    │
+│                 │                      │                     │
 └─────────────────┴──────────────────────┴─────────────────────┘
          │                    │                      │
          ▼                    ▼                      ▼
@@ -52,7 +54,7 @@ See the [documentation](https://edgeplane.ai/concepts/overview/) for the full ca
 │                 │  │                 │  │  Artifact ledger │
 │  Structured     │  │  Artifact       │  │  long-term       │
 │  state · roles  │  │  content ·      │  │  memory of       │
-│  vector index   │  │  large objects  │  │  record          │
+│  artifacts      │  │  large objects  │  │  record          │
 │  status · collab│  │  file persist.  │  │                  │
 └─────────────────┘  └─────────────────┘  └──────────────────┘
                                │
@@ -86,8 +88,8 @@ edgeplane system doctor
 ```
 
 Then open:
-- API docs (Swagger): `http://localhost:8008/api/docs`
-- Web UI: `http://localhost:8008/ui/`
+- Web UI: `http://localhost:8008/`
+- OpenAPI spec: committed at `web/openapi.json` (used for typed client generation)
 
 ## Quick Links
 
@@ -97,14 +99,14 @@ Then open:
 | Install edgeplane CLI | `bash scripts/install-edgeplane.sh` or `.\scripts\install-edgeplane.ps1` |
 | Bootstrap edgeplane (curl) | `curl -fsSL https://raw.githubusercontent.com/RyanMerlin/edgeplane/main/scripts/bootstrap-edgeplane.sh \| bash` |
 | Philosophy & vision | [EDGEPLANE_PHILOSOPHY.md](PHILOSOPHY.md) |
-| API reference | `/api/docs` (Swagger UI) |
+| API reference | OpenAPI spec at `web/openapi.json` |
 | Agent install guide | [docs/guides/AGENT-INSTALL.md](docs/guides/AGENT-INSTALL.md) |
 | Web UI (React 19 + Vite) | [web/README.md](web/README.md) |
 | Persistent sessions | [docs/plans/edgeplaned-persistent-session-architecture.md](docs/plans/edgeplaned-persistent-session-architecture.md) |
 
 ## Running with Docker (Recommended)
 
-Full stack (Postgres + pgvector + MQTT + RustFS):
+Full stack (Postgres/pgvector + RustFS object storage + tower API + MCP daemon):
 
 ```bash
 bash scripts/dev-up.sh        # start
@@ -112,7 +114,7 @@ bash scripts/smoke.sh --profile full   # validate
 bash scripts/dev-down.sh      # stop
 ```
 
-Quickstart (SQLite + Chroma — no external deps):
+Quickstart (self-contained — Postgres + RustFS with baked-in dev credentials, no `.env` setup needed):
 
 ```bash
 EP_STACK_PROFILE=quickstart bash scripts/dev-up.sh
@@ -181,15 +183,15 @@ See [docs/guides/AGENT-INSTALL.md](docs/guides/AGENT-INSTALL.md) for session tok
 
 ```bash
 # List available tools
-curl http://localhost:8008/mcp/tools
+curl http://localhost:8008/api/mcp/tools
 
 # Search tasks
-curl -X POST http://localhost:8008/mcp/call \
+curl -X POST http://localhost:8008/api/mcp/call \
   -H "Content-Type: application/json" \
-  -d '{"tool":"search_tasks","args":{"query":"overlap detection","limit":5}}'
+  -d '{"tool":"search_tasks","args":{"query":"authorization","limit":5}}'
 
 # Load mission workspace
-curl -X POST http://localhost:8008/mcp/call \
+curl -X POST http://localhost:8008/api/mcp/call \
   -H "Content-Type: application/json" \
   -d '{"tool":"load_mission_workspace","args":{"mission_id":"<mission-id>"}}'
 ```
@@ -200,17 +202,17 @@ Three layers, each with a distinct role:
 
 | Layer | Role | When written |
 |-------|------|-------------|
-| PostgreSQL + pgvector | Structured state, ownership, vector index | Every mutation |
-| S3 / RustFS | Artifact content, large objects, working files | On create/update |
-| Git | Memory of record, provenance, audit trail | On publish/approval |
+| PostgreSQL | Structured state, ownership, artifact content | Every mutation |
+| Git | Memory of record, provenance, audit trail | On publish |
+| S3 / RustFS | Object storage for large artifacts (*roadmap — see [Status & Roadmap](#status--roadmap)*) | — |
 
-Publication is policy-routed. Configure repository targets via `/persistence/connections` and `/persistence/bindings`. Resolve targets before publish with MCP `resolve_publish_plan`. All responses include `x-request-id` for correlation.
+Publication is policy-routed. Configure repository targets via `/persistence/connections` and `/persistence/bindings`, and resolve targets before publish with MCP `resolve_publish_plan`.
 
-## Governance
+## Authorization
 
-Policy is DB-backed and versioned (`draft` → `active` → rollback). The Admin UI tab at `/ui` supports viewing, editing, and publishing policy. Conservative preset: `EP_GOV_PROFILE=production`.
+Access control is membership-based and default-deny: each domain has `owners` and `contributors`, plus an admin allowlist (`EP_ADMIN_EMAILS` / `EP_ADMIN_GROUPS`). Checks are enforced on both the HTTP and MCP surfaces. There is currently **no** separate policy/approval engine — a versioned governance lifecycle is on the [roadmap](#status--roadmap).
 
-See the [governance & approvals guide](https://edgeplane.ai/guides/governance-and-approvals/) for the full env var reference.
+See the [authorization guide](https://edgeplane.ai/guides/governance-and-approvals/) for details.
 
 ## Migrations
 
@@ -228,6 +230,28 @@ Migration files: `crates/edgeplane-tower/migrations/`
 bash scripts/dev-up.sh
 bash scripts/smoke.sh --profile full
 ```
+
+## Status & Roadmap
+
+EdgePlane is **alpha (0.x)** and under active development. The honest split:
+
+**Working today**
+- MCP-native control plane — standard stdio tools, no sidecar / SDK / per-agent token
+- Domains, Missions & Tasks with durable task ownership and claim coordination
+- Membership-based, default-deny authorization (owners/contributors + admin allowlist)
+- Persistent agent sessions via `edgeplaned` + ACP: supervise, remote-attach, event replay
+- Git-committed artifact ledger with provenance; policy-routed publish targets
+- Automatic sqlx migrations on startup; React web UI; Slack / Teams / Google Chat integration hooks
+
+**Planned / not yet implemented**
+- **Overlap detection** — the schema exists, but similarity analysis is not yet wired; treat as advisory-only for now
+- **Governance & approvals engine** — versioned policy lifecycle and signed approval tokens (removed pending redesign)
+- **Role model** beyond owners/contributors (e.g. Admin / Contributor / Viewer)
+- **Semantic / hybrid (vector) search** over structured state
+- **Object-storage (S3) artifact content** — artifact bodies currently live in Postgres
+- **Session context recovery across a daemon crash** — reconnect + event replay work; full context restore does not
+
+We'd rather ship a smaller true surface than a larger claimed one. If you hit a gap between the docs and the code, that's a bug — please file it.
 
 ## Contributing
 

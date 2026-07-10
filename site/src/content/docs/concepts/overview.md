@@ -22,13 +22,13 @@ It is infrastructure that enables parallel, governed, auditable AI execution ins
 
 ## Core Primitives
 
-**Domains** define the bounded objective, knowledge scope, permission boundary, and governance policy. Domains don't complete — they scope. Tasks complete.
+**Domains** define the bounded objective, knowledge scope, and permission boundary (owners/contributors). Domains don't complete — they scope. Tasks complete.
 
 **Missions** are workstreams inside a domain for a targeted outcome. Artifacts cohere here; context continuity lives here.
 
 **Tasks** are units of work inside a mission. They have owners, dependencies, definitions of done, and status.
 
-**Artifacts** are persisted outputs bound to a mission — documents, binaries, and agent results. Stored in S3-compatible object storage.
+**Artifacts** are persisted outputs bound to a mission — documents, binaries, and agent results. Content is stored inline in Postgres today; S3-compatible object storage for artifact bytes is planned but not yet implemented.
 
 **Agents** are identities (human or AI) that perform work. They carry capabilities, status, and a domain anchor.
 
@@ -36,14 +36,14 @@ It is infrastructure that enables parallel, governed, auditable AI execution ins
 
 | Capability | What it does |
 |------------|-------------|
-| **Overlap Detection** | Fuzzy + vector similarity runs before task and artifact creation — collisions surface before damage occurs |
-| **Artifact Ledger** | Every mutation recorded in Postgres, vector-indexed for search, committed to Git with full provenance |
-| **MCP-Native Interface** | Standard MCP stdio tools — works with any MCP-compatible agent runtime |
-| **Governance & Approvals** | Versioned policy lifecycle, role-based access, approval tokens |
-| **Agent Client Protocol (ACP)** | Persistent agent sessions — `edgeplaned` manages agent processes; sessions survive crashes and reconnect automatically |
+| **Overlap Detection** (planned) | The `get_overlap_suggestions` MCP tool and its backing table exist, but the background similarity analysis that would populate it isn't implemented yet — today the table is only ever written by tests |
+| **Artifact Ledger** | Every mutation recorded in Postgres, committed to Git with full provenance |
+| **MCP-Native Interface** | Standard MCP stdio tools via `edgeplane serve`, plus an HTTP MCP surface (`/api/mcp/tools`, `/api/mcp/call`) — works with any MCP-compatible agent runtime, no sidecar or custom SDK |
+| **Authorization** | Membership-based, default-deny — per-domain `owners`/`contributors` plus an admin allowlist, enforced on HTTP and MCP. A versioned policy engine with approval tokens is on the roadmap |
+| **Agent Client Protocol (ACP)** | Persistent agent sessions — `edgeplaned` manages agent processes; sessions reconnect after a restart with event replay for mid-session catch-up (full context restore across a daemon crash is not yet automatic) |
 | **Web Dashboard** | React UI for fleet monitoring, live event feed, domain/task drill-down, and ACP conversation panes |
 | **Mesh Execution** | Agents claim and execute `MeshTask` units from a shared queue — distributed work without a central scheduler |
-| **Semantic Search** | Tasks, docs, and missions are vector-indexed (pgvector) for similarity and hybrid search |
+| **Semantic Search** (planned) | Hybrid full-text + vector search across tasks, docs, and missions — no embeddings or vector queries are implemented yet |
 | **Personal Agent Profiles** | Operator profiles travel with the operator, not the machine — sync across devices instantly |
 
 ## The Stack Position
@@ -55,8 +55,8 @@ Models
 Agents
 Tooling Interfaces (Skills / MCP)
 Coordination Layer  ← EdgePlane
-Working File Store (S3)
-Governance + Policy
+Working File Store (Postgres today; S3-compatible storage planned)
+Authorization + Policy
 Organizational Memory of Record (Git)
 ```
 

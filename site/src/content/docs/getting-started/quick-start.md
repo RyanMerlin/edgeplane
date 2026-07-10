@@ -57,7 +57,7 @@ edgeplane run gemini         # Google Gemini CLI
 edgeplane tui
 ```
 
-The TUI gives you a full-screen fleet view. Key bindings: `a` — agents, `m` — domains, `f` — live event feed, `p` — pending approvals queue.
+The TUI gives you a full-screen fleet view. Key bindings: `a` — agents, `m` — domains, `f` — live event feed, `s` — secrets, `c` — config.
 
 ## What's Next
 
