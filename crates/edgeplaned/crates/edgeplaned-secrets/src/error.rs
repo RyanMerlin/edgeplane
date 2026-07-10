@@ -20,6 +20,12 @@ pub enum SecretsError {
     #[error("Secret not found: {0}")]
     SecretNotFound(String),
 
+    #[error("invalid secret ref: {0}")]
+    InvalidRef(String),
+
+    #[error("backend: {0}")]
+    Backend(String),
+
     #[error("Authentication error: {0}")]
     Auth(String),
 

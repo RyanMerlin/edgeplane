@@ -1,9 +1,14 @@
 pub mod config;
+pub mod backend;
+pub mod backend_types;
+pub mod backends;
 pub mod error;
+pub mod secret_ref;
 pub mod types;
 pub mod client;
 pub mod redact;
 pub mod resolver;
+pub mod registry;
 pub mod session;
 pub mod token_cache;
 
@@ -11,11 +16,17 @@ pub mod token_cache;
 pub mod keyring;
 
 pub use config::{InfisicalConfig, InfisicalProfileMap, migrate_legacy};
+pub use backend::SecretsBackend;
+pub use backend_types::{BackendCapabilities, BackendError, ResolveCtx, SecretValue};
+pub use backends::{EnvBackend, LiteralBackend};
+pub use backends::InfisicalBackend;
 pub use client::InfisicalClient;
 pub use error::{SecretsError, Result};
+pub use secret_ref::SecretRef;
+pub use registry::BackendRegistry;
 pub use types::{CredentialSource, CredentialKind, ResolvedCredentials};
 pub use redact::SecretRedactor;
-pub use resolver::{resolve_credentials, resolve_credentials_with_profiles};
+pub use resolver::{resolve_credentials, resolve_credentials_with_profiles, resolve_credentials_with_registry};
 pub use token_cache::TokenCache;
 pub use session::SessionStore;
 

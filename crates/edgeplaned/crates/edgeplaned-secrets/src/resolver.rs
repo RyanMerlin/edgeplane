@@ -1,6 +1,7 @@
 use crate::client::InfisicalClient;
 use crate::config::{InfisicalConfig, InfisicalProfileMap};
 use crate::error::{Result, SecretsError};
+use crate::{BackendRegistry, ResolveCtx, SecretRef};
 use crate::types::{CredentialKind, CredentialSource, ResolvedCredentials};
 
 /// Resolve a list of credential sources using a multi-profile map.
@@ -36,6 +37,47 @@ pub async fn resolve_credentials(
     resolve_credentials_with_config(sources, cfg).await
 }
 
+/// Resolve a list of credential sources using the backend registry.
+pub async fn resolve_credentials_with_registry(
+    sources: &[CredentialSource],
+    registry: &BackendRegistry,
+) -> Result<ResolvedCredentials> {
+    let mut env_vars = std::collections::HashMap::new();
+
+    for source in sources {
+        let value = match &source.source {
+            CredentialKind::Literal { value } => value.clone(),
+
+            CredentialKind::Env { env_var } => {
+                std::env::var(env_var)
+                    .map_err(|_| SecretsError::EnvVarMissing(env_var.clone()))?
+            }
+
+            CredentialKind::Ref { .. } | CredentialKind::Infisical { .. } => {
+                let raw = source
+                    .source
+                    .as_secret_ref()
+                    .ok_or_else(|| SecretsError::InvalidRef("unresolvable credential kind".into()))?;
+                let sr = SecretRef::parse(&raw)?;
+                let ctx = ResolveCtx {
+                    agent_id: None,
+                    purpose: format!("capability:{}", source.inject_as),
+                };
+                registry
+                    .resolve(&sr, &ctx)
+                    .await
+                    .map_err(|e| SecretsError::Backend(e.to_string()))?
+                    .expose()
+                    .to_string()
+            }
+        };
+
+        env_vars.insert(source.inject_as.clone(), value);
+    }
+
+    Ok(ResolvedCredentials { env_vars })
+}
+
 async fn resolve_credentials_with_config(
     sources: &[CredentialSource],
     cfg: &InfisicalConfig,
@@ -52,6 +94,12 @@ async fn resolve_credentials_with_config(
             CredentialKind::Env { env_var } => {
                 std::env::var(env_var)
                     .map_err(|_| SecretsError::EnvVarMissing(env_var.clone()))?
+            }
+
+            CredentialKind::Ref { .. } => {
+                return Err(SecretsError::InvalidRef(
+                    "registry-backed secret refs require resolve_credentials_with_registry".into(),
+                ));
             }
 
             CredentialKind::Infisical {
@@ -88,6 +136,8 @@ mod tests {
     use super::*;
     use crate::config::InfisicalConfig;
     use crate::types::CredentialKind;
+    use crate::{BackendRegistry, EnvBackend};
+    use std::sync::Arc;
 
     fn default_cfg() -> InfisicalConfig {
         InfisicalConfig::default()
@@ -179,5 +229,31 @@ mod tests {
         // into_env_pairs sorts by key
         assert_eq!(pairs[0], ("A".to_string(), "alpha".to_string()));
         assert_eq!(pairs[1], ("B".to_string(), "beta".to_string()));
+    }
+
+    #[tokio::test]
+    async fn resolves_ref_via_registry() {
+        std::env::set_var("EP_SECRETS_T6", "via-ref");
+        let mut reg = BackendRegistry::new();
+        reg.register(Arc::new(EnvBackend::new()));
+        let sources = vec![CredentialSource {
+            inject_as: "OUT".to_string(),
+            source: CredentialKind::Ref {
+                secret_ref: "secret://env/EP_SECRETS_T6".to_string(),
+            },
+        }];
+        let out = resolve_credentials_with_registry(&sources, &reg).await.unwrap();
+        assert_eq!(out.env_vars.get("OUT").unwrap(), "via-ref");
+        std::env::remove_var("EP_SECRETS_T6");
+    }
+
+    #[test]
+    fn legacy_infisical_yaml_still_deserializes() {
+        let yaml = r#"{ "inject_as": "K", "source": { "kind": "infisical",
+        "secret_name": "OPENAI_API_KEY", "environment": "prod", "secret_path": "/providers/openai" } }"#;
+        let cs: CredentialSource = serde_json::from_str(yaml).unwrap();
+        // normalizes to a SecretRef pointing at infisical
+        let sr = cs.source.as_secret_ref().unwrap();
+        assert_eq!(sr, "secret://infisical/providers/openai/OPENAI_API_KEY?env=prod");
     }
 }

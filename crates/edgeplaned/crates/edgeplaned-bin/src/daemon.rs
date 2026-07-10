@@ -6,6 +6,10 @@ use edgeplaned_core::client::BackendClient;
 use edgeplaned_core::machine::MachineInfo;
 use edgeplaned_core::paths;
 use edgeplaned_packs::{PackRegistry, PolicyBundle};
+use edgeplaned_secrets::{
+    BackendRegistry, EnvBackend, InfisicalBackend, InfisicalConfig, InfisicalProfileMap,
+    SessionStore,
+};
 use edgeplaned_runtimes::{
     claude_agent_acp::ClaudeAgentAcpRuntime,
     claude_code::ClaudeCodeRuntime,
@@ -50,6 +54,40 @@ pub struct CliOverrides {
     /// mgmt 7731) is in use. Default is fatal. Use only when you knowingly
     /// need partial functionality and are willing to lose attach/mgmt.
     pub allow_degraded: bool,
+}
+
+fn load_active_infisical_config() -> Option<InfisicalConfig> {
+    let path = edgeplaned_paths::infisical_profiles_path();
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!(
+                "could not read infisical profiles at {}: {e}",
+                path.display()
+            );
+            return None;
+        }
+    };
+    let profiles: InfisicalProfileMap = match serde_json::from_str(&contents) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                "infisical profiles file malformed at {}: {e}; Infisical backend disabled",
+                path.display()
+            );
+            return None;
+        }
+    };
+    match profiles.active_profile() {
+        Some(cfg) => Some(cfg.clone()),
+        None => {
+            tracing::warn!(
+                "infisical profiles present but no active profile selected; Infisical backend disabled"
+            );
+            None
+        }
+    }
 }
 
 pub async fn run(cli: CliOverrides) -> Result<()> {
@@ -582,7 +620,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     }
 
     // Create the session store shared between the secrets gateway and the dispatcher.
-    let session_store = Arc::new(edgeplaned_secrets::SessionStore::new());
+    let session_store = Arc::new(SessionStore::new());
     let secrets_socket = paths::secrets_socket_path();
 
     // Start the secrets gateway (broker for agent credential requests).
@@ -597,6 +635,17 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
 
     // Start the management gateway (Unix socket + TCP, JSON-RPC 2.0).
     {
+        let mut secrets_registry = BackendRegistry::new();
+        secrets_registry.register(Arc::new(EnvBackend::new()));
+        if let Some(cfg) = load_active_infisical_config().filter(|cfg| cfg.is_configured()) {
+            match InfisicalBackend::new(cfg) {
+                Ok(backend) => secrets_registry.register(Arc::new(backend)),
+                Err(e) => tracing::warn!(
+                    "infisical is configured but the backend failed to initialize (secret://infisical refs will fail): {e}"
+                ),
+            }
+        }
+        let secrets_registry = Arc::new(secrets_registry);
         let registry = Arc::new(match PackRegistry::load_builtin() {
             Ok(r) => r,
             Err(e) => {
@@ -608,7 +657,11 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         let receipt_store = ReceiptStore::open(&receipts_path)
             .map_err(|e| anyhow::anyhow!("failed to open receipt store at {}: {e}", receipts_path.display()))?;
         let dispatcher = Arc::new(
-            CapabilityDispatcher::new(Arc::clone(&registry), PolicyBundle::allow_all(), None)
+            CapabilityDispatcher::new(
+                Arc::clone(&registry),
+                PolicyBundle::allow_all(),
+                Some(secrets_registry),
+            )
                 .with_receipt_store(Arc::new(receipt_store))
                 .with_session_store(Arc::clone(&session_store), secrets_socket),
         );

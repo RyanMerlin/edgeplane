@@ -6,7 +6,7 @@ use edgeplaned_packs::{
     PolicyBundle,
 };
 use edgeplaned_receipts::{Receipt, ReceiptStore};
-use edgeplaned_secrets::{resolve_credentials, InfisicalConfig, SessionStore};
+use edgeplaned_secrets::{resolve_credentials_with_registry, SessionStore};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -67,7 +67,7 @@ impl DispatchResult {
 
 pub struct CapabilityDispatcher {
     registry: Arc<PackRegistry>,
-    infisical_config: Option<InfisicalConfig>,
+    secrets: Option<Arc<edgeplaned_secrets::BackendRegistry>>,
     policy: PolicyBundle,
     receipt_store: Option<Arc<ReceiptStore>>,
     /// When set, credentials are delivered via the secrets gateway socket
@@ -81,11 +81,11 @@ impl CapabilityDispatcher {
     pub fn new(
         registry: Arc<PackRegistry>,
         policy: PolicyBundle,
-        infisical_config: Option<InfisicalConfig>,
+        secrets: Option<Arc<edgeplaned_secrets::BackendRegistry>>,
     ) -> Self {
         CapabilityDispatcher {
             registry,
-            infisical_config,
+            secrets,
             policy,
             receipt_store: None,
             session_store: None,
@@ -205,9 +205,16 @@ impl CapabilityDispatcher {
         }
 
         // ── 4. Resolve credentials ───────────────────────────────────────────
-        let default_cfg = InfisicalConfig::default();
-        let infisical_cfg = self.infisical_config.as_ref().unwrap_or(&default_cfg);
-        let credentials = match resolve_credentials(&manifest.credentials, infisical_cfg).await {
+        let credentials = match &self.secrets {
+            Some(registry) => {
+                resolve_credentials_with_registry(&manifest.credentials, registry).await
+            }
+            None => {
+                let registry = edgeplaned_secrets::BackendRegistry::new();
+                resolve_credentials_with_registry(&manifest.credentials, &registry).await
+            }
+        };
+        let credentials = match credentials {
             Ok(c) => c,
             Err(e) => {
                 tracing::error!(capability = %req.full_name, error = %e, "credential resolution failed");
@@ -393,7 +400,11 @@ async fn run_builtin(name: &str, input_args: &Value, _timeout: Duration) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use edgeplaned_packs::{PackRegistry, PolicyBundle, PolicyAction, PolicyRule};
+    use edgeplaned_packs::{
+        Backend, CapabilityManifest, PackRegistry, PolicyAction, PolicyBundle, PolicyRule,
+        RiskLevel,
+    };
+    use edgeplaned_secrets::{BackendRegistry, CredentialKind, CredentialSource, EnvBackend};
 
     fn base_request(full_name: &str) -> DispatchRequest {
         DispatchRequest {
@@ -526,5 +537,117 @@ mod tests {
         assert_eq!(receipts[0].capability, "base.system.echo");
         assert_eq!(receipts[0].domain_id.as_deref(), Some("m-test"));
         assert_eq!(receipts[0].agent_id.as_deref(), Some("a-test"));
+    }
+
+    #[tokio::test]
+    async fn dispatcher_resolves_ref_credentials_via_registry() {
+        let mut registry = PackRegistry::load_builtin().expect("builtin registry");
+        let source_var = "EP_DISP_SRC_T7";
+        let output_var = "EP_DISP_OUT_T7";
+        let cap = CapabilityManifest {
+            name: "ref-secret".to_string(),
+            version: 1,
+            description: Some("test subprocess capability".to_string()),
+            backend: Backend::Subprocess {
+                command: "sh".to_string(),
+                args: vec![
+                    "-c".to_string(),
+                    "printf %s \"$EP_DISP_OUT_T7\"".to_string(),
+                ],
+            },
+            risk: RiskLevel::Low,
+            side_effect_class: Default::default(),
+            sandbox_profile: None,
+            input_schema: serde_json::json!({}),
+            credentials: vec![CredentialSource {
+                inject_as: output_var.to_string(),
+                source: CredentialKind::Ref {
+                    secret_ref: "secret://env/EP_DISP_SRC_T7".to_string(),
+                },
+            }],
+            tags: vec![],
+        };
+        registry.insert_capability("testpack", cap, vec!["test".to_string()]);
+
+        let mut secrets_registry = BackendRegistry::new();
+        secrets_registry.register(Arc::new(EnvBackend::new()));
+        let dispatcher = CapabilityDispatcher::new(
+            Arc::new(registry),
+            PolicyBundle::allow_all(),
+            Some(Arc::new(secrets_registry)),
+        );
+
+        unsafe {
+            std::env::set_var(source_var, "registry-value");
+            std::env::remove_var(output_var);
+        }
+        assert!(std::env::var_os(output_var).is_none());
+
+        let req = base_request("testpack.ref-secret");
+        let result = dispatcher.dispatch(req).await;
+
+        unsafe {
+            std::env::remove_var(source_var);
+            std::env::remove_var(output_var);
+        }
+
+        assert!(result.ok, "registry-backed secret ref should resolve");
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(
+            result.data.get("output").and_then(|v| v.as_str()),
+            Some("registry-value")
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatcher_ref_credentials_fail_without_registry() {
+        let mut registry = PackRegistry::load_builtin().expect("builtin registry");
+        let source_var = "EP_DISP_SRC_T7_FAIL";
+        let output_var = "EP_DISP_OUT_T7_FAIL";
+        let cap = CapabilityManifest {
+            name: "ref-secret-fail".to_string(),
+            version: 1,
+            description: Some("test subprocess capability".to_string()),
+            backend: Backend::Subprocess {
+                command: "sh".to_string(),
+                args: vec![
+                    "-c".to_string(),
+                    "printf %s \"$EP_DISP_OUT_T7_FAIL\"".to_string(),
+                ],
+            },
+            risk: RiskLevel::Low,
+            side_effect_class: Default::default(),
+            sandbox_profile: None,
+            input_schema: serde_json::json!({}),
+            credentials: vec![CredentialSource {
+                inject_as: output_var.to_string(),
+                source: CredentialKind::Ref {
+                    secret_ref: "secret://env/EP_DISP_SRC_T7_FAIL".to_string(),
+                },
+            }],
+            tags: vec![],
+        };
+        registry.insert_capability("testpack", cap, vec!["test".to_string()]);
+
+        unsafe {
+            std::env::remove_var(source_var);
+            std::env::remove_var(output_var);
+        }
+
+        let dispatcher = CapabilityDispatcher::new(
+            Arc::new(registry),
+            PolicyBundle::allow_all(),
+            None,
+        );
+
+        let req = base_request("testpack.ref-secret-fail");
+        let result = dispatcher.dispatch(req).await;
+
+        unsafe {
+            std::env::remove_var(source_var);
+            std::env::remove_var(output_var);
+        }
+
+        assert!(!result.ok, "dispatcher should fail closed without a secrets registry");
     }
 }
