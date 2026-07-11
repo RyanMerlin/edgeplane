@@ -114,12 +114,28 @@ async fn ingest_slack(
     }
 }
 
+/// Default-deny gate: resolve the mission's owning domain, then require the
+/// caller to be a member. Fails closed (404 on missing mission/NULL domain,
+/// 500 on DB error, 403 on non-member). Local rather than the shared
+/// `authz_by_mission` combinator, which lives on the Group A branch.
+async fn authz_mission(
+    db: &sqlx::PgPool,
+    principal: &Principal,
+    mission_id: &str,
+) -> Result<(), axum::response::Response> {
+    let domain_id = crate::routes::authz::domain_id_for_mission(db, mission_id).await?;
+    crate::routes::authz::authz_domain(db, principal, &domain_id).await
+}
+
 async fn list_jobs(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
     let rows = if let Some(mission_id) = &q.mission_id {
+        if let Err(resp) = authz_mission(&state.db, &principal, mission_id).await {
+            return resp;
+        }
         sqlx::query(
             "SELECT * FROM ingestionjob WHERE mission_id=$1 ORDER BY updated_at DESC",
         )
@@ -127,6 +143,15 @@ async fn list_jobs(
         .fetch_all(&state.db)
         .await
     } else {
+        // No mission filter would dump every tenant's jobs. Require a mission_id
+        // for ordinary callers; only an admin may list across all missions.
+        if !principal.is_admin {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"detail": "mission_id query parameter is required"})),
+            )
+                .into_response();
+        }
         sqlx::query("SELECT * FROM ingestionjob ORDER BY updated_at DESC LIMIT 200")
             .fetch_all(&state.db)
             .await
@@ -143,19 +168,27 @@ async fn list_jobs(
 
 async fn get_job(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(job_id): Path<i32>,
 ) -> impl IntoResponse {
-    match sqlx::query("SELECT * FROM ingestionjob WHERE id=$1")
+    let row = match sqlx::query("SELECT * FROM ingestionjob WHERE id=$1")
         .bind(job_id)
         .fetch_optional(&state.db)
         .await
     {
-        Ok(Some(row)) => Json(row_to_job(&row)).into_response(),
-        Ok(None) => not_found("Job not found"),
+        Ok(Some(row)) => row,
+        Ok(None) => return not_found("Job not found"),
         Err(e) => {
             tracing::error!("get_job: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
+    };
+    // Gate on the job's mission-domain before returning it (config can name
+    // source systems / connectors). NB: ingestionjob ids are a sequential serial,
+    // so the 403-vs-404 split is a minor existence oracle — tracked as follow-up.
+    let mission_id: String = row.get("mission_id");
+    if let Err(resp) = authz_mission(&state.db, &principal, &mission_id).await {
+        return resp;
     }
+    Json(row_to_job(&row)).into_response()
 }

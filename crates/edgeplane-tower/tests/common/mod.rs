@@ -339,6 +339,20 @@ pub async fn seed_node_agent(db: &PgPool, domain_id: &str, node_id: &str) -> Str
     agent_id
 }
 
+/// Insert an `ingestionjob` row for `mission_id`. Returns the integer `id`.
+/// Mirrors `ingestion::create_job` (id is a sequence-backed serial, omitted).
+pub async fn seed_ingestion_job(db: &PgPool, mission_id: &str) -> i32 {
+    sqlx::query_scalar(
+        "INSERT INTO ingestionjob \
+         (mission_id, source, status, config, logs, result_summary, created_at, updated_at) \
+         VALUES ($1, 'github', 'queued', '{}', '', '', now(), now()) RETURNING id",
+    )
+    .bind(mission_id)
+    .fetch_one(db)
+    .await
+    .expect("insert ingestionjob")
+}
+
 pub async fn setup() -> Option<(PgPool, Ctx)> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = PgPool::connect(&url)
