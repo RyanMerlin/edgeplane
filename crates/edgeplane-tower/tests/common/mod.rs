@@ -353,6 +353,27 @@ pub async fn seed_ingestion_job(db: &PgPool, mission_id: &str) -> i32 {
     .expect("insert ingestionjob")
 }
 
+/// Insert a control-plane `agent` row (the `agent` table, not `meshagent`) whose
+/// `current_domain_id` is `domain_id`. Returns its `public_id` for use in
+/// `/agents/{id}` paths.
+pub async fn seed_control_plane_agent(db: &PgPool, domain_id: &str) -> String {
+    let name = format!("cp-agent-{}", Uuid::new_v4().simple());
+    let public_id = format!("{}-{}", name, &Uuid::new_v4().simple().to_string()[..8]);
+    sqlx::query(
+        "INSERT INTO agent \
+         (name, capabilities, status, metadata, created_at, updated_at, last_seen_at, \
+          public_id, home_domain_id, current_domain_id) \
+         VALUES ($1, '[]', 'online', '{}', now(), now(), now(), $2, $3, $3)",
+    )
+    .bind(&name)
+    .bind(&public_id)
+    .bind(domain_id)
+    .execute(db)
+    .await
+    .expect("insert control-plane agent");
+    public_id
+}
+
 pub async fn setup() -> Option<(PgPool, Ctx)> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = PgPool::connect(&url)
