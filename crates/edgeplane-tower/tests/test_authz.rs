@@ -1243,3 +1243,210 @@ async fn delete_node_403_for_node_self_jwt() {
         "node must still exist after a forbidden self-delete attempt"
     );
 }
+
+// ── Group A: broken-access-control remediation — no-gate cross-domain reads ─────
+// Each of these read handlers previously ignored the principal (`_principal`) and
+// served any authenticated caller. They now route through the shared, default-deny
+// `authz_domain` (resolving the owning domain from the path object first). These
+// tests prove the IDOR is closed (outsider SA, member of no domain → 403) without
+// regressing legitimate callers (owner session / member-SA contributor → 200),
+// across all four resolver paths (mission / task / agent / direct) plus the flat
+// tasks.rs and missions.rs endpoints.
+
+fn bearer(token: &str) -> (axum::http::HeaderName, String) {
+    (axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+}
+
+// mission-resolver path: work.rs::list_tasks
+#[tokio::test]
+async fn group_a_list_tasks_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let (h, v) = bearer(&ctx.outsider_sa_token);
+    let res = server(pool)
+        .get(&format!("/api/work/missions/{}/tasks", ctx.mission_id))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 403);
+}
+
+#[tokio::test]
+async fn group_a_list_tasks_allowed_for_owner() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let (h, v) = bearer(&ctx.owner_session_token);
+    let res = server(pool)
+        .get(&format!("/api/work/missions/{}/tasks", ctx.mission_id))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 200);
+}
+
+// task-resolver path: work.rs::get_task
+#[tokio::test]
+async fn group_a_get_task_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let task_id = common::seed_ready_task(&pool, &ctx.mission_id, &ctx.domain_id).await;
+    let (h, v) = bearer(&ctx.outsider_sa_token);
+    let res = server(pool)
+        .get(&format!("/api/work/tasks/{task_id}"))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 403);
+}
+
+#[tokio::test]
+async fn group_a_get_task_allowed_for_member() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let task_id = common::seed_ready_task(&pool, &ctx.mission_id, &ctx.domain_id).await;
+    let (h, v) = bearer(&ctx.member_sa_token);
+    let res = server(pool)
+        .get(&format!("/api/work/tasks/{task_id}"))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 200);
+}
+
+// agent-resolver path: work.rs::get_agent
+#[tokio::test]
+async fn group_a_get_agent_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else { return };
+    // Unique per run: seed_agent's id is the PK with ON CONFLICT DO NOTHING, and the
+    // test DB persists across runs — a literal id would keep a stale row bound to an
+    // earlier run's domain, whose contributor SA no longer matches this run's token.
+    let agent_id = common::seed_agent(
+        &pool,
+        &ctx.domain_id,
+        &format!("agent-groupa-{}", uuid::Uuid::new_v4().simple()),
+    )
+    .await;
+    let (h, v) = bearer(&ctx.outsider_sa_token);
+    let res = server(pool)
+        .get(&format!("/api/work/agents/{agent_id}"))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 403);
+}
+
+#[tokio::test]
+async fn group_a_get_agent_allowed_for_member() {
+    let Some((pool, ctx)) = setup().await else { return };
+    // Unique per run — see the note in group_a_get_agent_denied_for_outsider.
+    let agent_id = common::seed_agent(
+        &pool,
+        &ctx.domain_id,
+        &format!("agent-groupa-ok-{}", uuid::Uuid::new_v4().simple()),
+    )
+    .await;
+    let (h, v) = bearer(&ctx.member_sa_token);
+    let res = server(pool)
+        .get(&format!("/api/work/agents/{agent_id}"))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 200);
+}
+
+// direct-domain path: work.rs::domain_roster
+#[tokio::test]
+async fn group_a_domain_roster_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let (h, v) = bearer(&ctx.outsider_sa_token);
+    let res = server(pool)
+        .get(&format!("/api/work/domains/{}/roster", ctx.domain_id))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 403);
+}
+
+#[tokio::test]
+async fn group_a_domain_roster_allowed_for_owner() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let (h, v) = bearer(&ctx.owner_session_token);
+    let res = server(pool)
+        .get(&format!("/api/work/domains/{}/roster", ctx.domain_id))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 200);
+}
+
+// mission-message read: work.rs::list_mission_messages. This handler was NOT in the
+// plan's Group A enumeration (it lists list_domain_messages by-domain but missed the
+// by-mission message read) — surfaced by the Codex (gpt-5.5) adversarial review, which
+// the Opus rust-reviewer missed. Same class (no-gate cross-domain read); every sibling
+// on the /work/missions/{id}/... route family (mission_stream GET, send_mission_message
+// POST) was already gated, making this the lone hole.
+#[tokio::test]
+async fn group_a_list_mission_messages_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let (h, v) = bearer(&ctx.outsider_sa_token);
+    let res = server(pool)
+        .get(&format!("/api/work/missions/{}/messages", ctx.mission_id))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 403);
+}
+
+#[tokio::test]
+async fn group_a_list_mission_messages_allowed_for_owner() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let (h, v) = bearer(&ctx.owner_session_token);
+    let res = server(pool)
+        .get(&format!("/api/work/missions/{}/messages", ctx.mission_id))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 200);
+}
+
+// flat tasks.rs path: list_tasks_by_mission (queries the `task` table)
+#[tokio::test]
+async fn group_a_list_tasks_by_mission_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let (h, v) = bearer(&ctx.outsider_sa_token);
+    let res = server(pool)
+        .get(&format!("/api/missions/{}/t", ctx.mission_id))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 403);
+}
+
+#[tokio::test]
+async fn group_a_list_tasks_by_mission_allowed_for_owner() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let (h, v) = bearer(&ctx.owner_session_token);
+    let res = server(pool)
+        .get(&format!("/api/missions/{}/t", ctx.mission_id))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 200);
+}
+
+// flat missions.rs path: get_mission_brief_flat
+#[tokio::test]
+async fn group_a_mission_brief_flat_denied_for_outsider() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let (h, v) = bearer(&ctx.outsider_sa_token);
+    let res = server(pool)
+        .get(&format!("/api/missions/{}/brief", ctx.mission_id))
+        .add_header(h, v)
+        .await;
+    assert_eq!(res.status_code(), 403);
+}
+
+#[tokio::test]
+async fn group_a_mission_brief_flat_admits_owner_past_gate() {
+    let Some((pool, ctx)) = setup().await else { return };
+    let (h, v) = bearer(&ctx.owner_session_token);
+    let res = server(pool)
+        .get(&format!("/api/missions/{}/brief", ctx.mission_id))
+        .add_header(h, v)
+        .await;
+    // NOTE: get_mission_brief_flat's *body* has a pre-existing bug independent of
+    // this authz change — it queries `WHERE archived_at IS NULL`, a column that
+    // does not exist on `mission` (only the non-flat /domains/.../brief variant is
+    // correct), so the handler 500s for every caller. Tracked separately. This
+    // Group-A change only controls the gate, so we assert the owner is ADMITTED
+    // past it (not 403) rather than coupling to the broken body's status.
+    assert_ne!(
+        res.status_code(),
+        403,
+        "owner must pass the domain gate (body 500 is a separate pre-existing bug)"
+    );
+}

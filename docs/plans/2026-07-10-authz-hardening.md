@@ -40,16 +40,43 @@ Domain authorization is **not** uniform — five distinct mechanisms coexist:
 
 ## Open items to resolve before/within the work
 
-- **[O1] Node-fleet credential (blocks node-scoping, not the IDOR work).** `edgeplaned`
-  calls `/runtime/nodes/{id}/heartbeat` and `/attach-secret` itself (daemon.rs), but those
-  are owner-gated (mechanism 4) and reject node-self JWTs. Either the daemon presents a
-  non-node credential for them, or node self-heartbeat is already broken. Resolve by tracing
-  the daemon's live token per call (`edgeplaned-bin/src/daemon.rs` token setup) and/or a live probe.
-- **[O2] Two-mechanism inconsistency (blocks IDOR fixes).** Mechanism (2) ignores
-  `domain_scope`; mechanism (1) honors it. Any new domain check MUST use the shared
-  `authorized_for_domain` (mechanism 1) so scoped agents/nodes still pass. Decide whether to
-  also migrate the mechanism-(2) files onto the shared helper (recommended, but a behavior
-  change for agents that rely on `domain_scope`).
+- **[O1] Node-fleet credential — RESOLVED (2026-07-10).** The daemon has two modes
+  (`daemon.rs:550` `is_node_credential_mode = active_profile.is_none() && node_id.is_some()`):
+  - **Profile mode** (`edgeplane auth login`): `cfg.token` = owner **OIDC session token**
+    (subject = owner). `BackendClient` (`edgeplaned-core/src/client.rs`) carries it; the
+    per-agent `task_loop` reads/claims as a full-trust **session**. `heartbeat_node`/
+    `attach-secret`/`rotate-token` pass their `owner_subject = principal.subject` filter.
+  - **Node-credential mode** (headless system-service, `node.json`): `cfg.token` = **node JWT**
+    (`sign_node_jwt` sets `sub = "node:{id}"`, `jwt.rs:32`). `task_loop` reads/claims pass via the
+    `auth.rs:373` blanket node-trust. **BUT** `heartbeat_node` (`runtime.rs:1055`),
+    `get_node_attach_secret`, and `rotate_node_token` gate on `owner_subject` (= the human owner,
+    copied from the join-token row at registration, `runtime.rs:818`), which `node:{id}` can never
+    match → **node self-heartbeat / attach-secret self-heal / token-rotation are a pre-existing
+    latent bug in node-credential mode** (heartbeat 404 logged non-fatally at `daemon.rs:523`;
+    rotation failure would expire the node token after its 24 h TTL). Out of scope for this
+    workstream (separate correctness bug), but it **intersects Workstream 2** — track separately.
+  - **Group-A consequence:** in *both* modes the task-loop reads pass `authz_domain`
+    (owner → full-trust/member; node → blanket-trust). Adding `authz_domain` does **not** break
+    the daemon. IDOR work is unblocked.
+- **[O2] Two-mechanism inconsistency — RESOLVED (2026-07-10).** Confirmed by reading every
+  mechanism-(2) reimplementation (`tasks.rs::domain_access`, `missions.rs::domain_readable/
+  writable/ownable`, `docs.rs`/`artifacts.rs`/`explorer.rs::can_read/write_domain`,
+  `persistence.rs::is_domain_owner`): **all check only `is_admin` + owners/contributors (± public
+  visibility); none reference `domain_scope` or `auth_type`.** Therefore:
+  - **New Group-A/B/C/D gates MUST use the shared `authz_domain` (mechanism 1)** — a local
+    mechanism-(2)-style check would deny the node-credentialed daemon (node → no blanket trust in
+    mechanism 2) and scoped agents. **Locked: use `authz_domain`.**
+  - **Migrating existing mechanism-(2) files onto the shared helper is NOT a clean swap and is
+    deferred (sequencing step 3, optional).** Two behavior changes: (a) it *widens* — scoped
+    agents/nodes would gain access they're currently denied (arguably more correct); (b) it
+    *narrows* — `authorized_for` has **no public-visibility branch**, so migrating READ paths
+    would remove public-domain read access. A migration must add a public-read-aware variant, or
+    it regresses public domains. Do not migrate as part of the IDOR fix.
+  - **Group-A public-visibility note:** Group-A endpoints are `work.rs` operational reads
+    (task graph, roster, get_agent) that were never gated and never consulted visibility.
+    `authz_domain` is default-deny (no public branch) — correct for operational endpoints
+    (cross-domain task reads should not be public). Flagged as a reversible decision; add a
+    public-read branch only if a public domain must expose these operational reads.
 - **[O3] `is_full_trust` second axis.** `session|node` bypass at `authz_task_owner`,
   claim-on-behalf, cross-agent heartbeat/status/profile, mesh impersonation, inbox reads.
   Node-scoping bounds these to scoped domains (good) — keep the axis (nodes legitimately
@@ -67,15 +94,23 @@ daemon, agents) before landing.
 ### Group A — no-gate cross-domain reads (highest ROI, lowest breakage risk)
 Add `authz_domain` (resolve domain from the path object first):
 `work.rs` `get_task`, `task_graph`, `get_task_progress`, `list_gates`, `list_tasks` (by mission),
-`list_domain_agents`, `list_domain_messages`, `domain_roster`, `get_agent`, `get_agent_messages`;
+`list_domain_agents`, `list_domain_messages`, `domain_roster`, `get_agent`, `get_agent_messages`,
+`list_mission_messages`;
 `tasks.rs::list_tasks_by_mission`; `missions.rs` `get_mission_brief_flat`.
 Caller-safety: daemon/agent read within their scope → pass; the closed hole is cross-domain reads.
+**`list_mission_messages` (`GET /work/missions/{id}/messages`) was missed by this enumeration** —
+surfaced by the Codex (gpt-5.5, xhigh) adversarial review on 2026-07-10 after the Opus rust-reviewer
+passed it. Same class; its route-family siblings (`mission_stream` GET, `send_mission_message` POST)
+were already gated, so it was the lone hole. Now gated via `authz_by_mission` + deny/allow tests.
 
 ### Group B — `agents.rs` (no authz on any handler) + `attach_domain`
 `attach_domain` (moves any agent into any domain) → owner/admin of the target domain.
 Agent CRUD/messaging → domain read/write as appropriate. **Highest breakage risk** — verify the
-web dashboard and daemon call these as owner/session (likely) before gating. `put_mission_brief_flat`
-(overwrite any brief by id) → domain-write.
+web dashboard and daemon call these as owner/session (likely) before gating.
+~~`put_mission_brief_flat` (overwrite any brief by id) → domain-write.~~ **DONE in PR #96**
+— the flat-brief `archived_at` correctness fix would have unmasked this write IDOR (and the
+`get_mission_brief_flat` read IDOR), so #96 gates both flat endpoints on the mission's domain
+via `authz_domain`. Removed from Group B scope.
 
 ### Group C — NULL-domain fail-open (`artifacts.rs`, `docs.rs`)
 `create/update/publish_{artifact,doc}` skip the check when the parent mission `domain_id` is NULL.
@@ -87,8 +122,20 @@ Add authz; clamp TTL and capability scope to server maxima. **Privilege-escalati
 
 ### Group E (lower) — unvalidated caller-supplied `domain_id`
 `runtime::create_job`, `budgets::record_usage_batch`: validate the caller may act on the supplied domain.
+**`feedback.rs::list_feedback` + `feedback_summary`** (`GET /feedback[/summary]?domain_id=…`) —
+`_principal` ignored; the query binds the caller-supplied `q.domain_id` with **zero** authorization
+(confused deputy: name any domain → read its full feedback). Gate on `q.domain_id` via `authz_domain`
+and reject empty/missing `domain_id` (422). *(Not in the original enumeration; surfaced by the
+2026-07-10 dual-review.)*
 
 ### Group F (lower) — `search.rs` `LIKE`-based readability filter → exact-match membership.
+
+### Group G — `ingestion.rs` no-gate reads *(surfaced by the 2026-07-10 dual-review; not in the original enumeration)*
+`list_jobs` (`GET /ingest/jobs?mission_id=…`) ignores `_principal`; **with no `mission_id` it dumps
+all tenants' jobs** (LIMIT 200), and with one it reads any mission's jobs. `get_job`
+(`GET /ingest/jobs/{id}`) returns any job by id, no check. Job `config` can name source
+systems/connectors. Require `mission_id`, gate via `authz_by_mission`; drop or admin-restrict the
+no-filter branch; resolve `get_job`'s mission → `authz_by_mission` (or admin).
 
 ---
 
@@ -134,7 +181,8 @@ operating domains instead of the whole fleet.
 ## Sequencing
 
 0. **[O1]/[O2] traces** — daemon per-call credential; confirm the shared-helper migration is safe.
-1. **Workstream 1** — Group A → C → B → D (→ E/F), each with caller-safety + tests + red-team + review.
+1. **Workstream 1** — Group A → C → B → D (→ E/F/G), each with caller-safety + tests + red-team + review.
+   (Group B's `put_mission_brief_flat` item already landed in PR #96; E adds `feedback.rs`; G is `ingestion.rs`.)
 2. **Workstream 2** — entities.md § Domain → resolver → `auth.rs:373` → tests → red-team → review.
 3. Optional consolidation: migrate mechanism-(2) files onto the shared `authorized_for_domain`.
 

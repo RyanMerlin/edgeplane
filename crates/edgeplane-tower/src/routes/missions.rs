@@ -357,16 +357,12 @@ async fn get_mission_brief_flat(
     principal: Principal,
     Path(mission_id): Path<String>,
 ) -> impl IntoResponse {
-    // Dropping the archived_at predicate (below) turns this from a dead 500 into a
-    // live endpoint; gate it on the mission's domain so the fix does not unmask a
-    // cross-domain read IDOR. (Group A gates the same handler via authz_by_mission;
-    // whichever merges second dedupes this hunk.)
-    let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
-        Ok(d) => d,
-        Err(resp) => return resp,
-    };
-    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
-        return resp;
+    // Gate on the mission's domain. The archived_at predicate was dropped in #96
+    // (the column doesn't exist on `mission`, so it 500'd every call); this handler
+    // was one of the read IDORs #96 would otherwise have unmasked.
+    if let Err(r) = crate::routes::authz::authz_by_mission(&state.db, &principal, &mission_id).await
+    {
+        return r;
     }
     match sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1")
         .bind(&mission_id).fetch_optional(&state.db).await
@@ -388,15 +384,12 @@ async fn put_mission_brief_flat(
     Path(mission_id): Path<String>,
     Json(payload): Json<BriefUpdate>,
 ) -> impl IntoResponse {
-    // Same unmask concern as the flat GET: dropping archived_at makes this UPDATE
-    // succeed, so without a gate any authenticated caller could overwrite any
-    // mission's brief by id (write IDOR). Deny cross-domain callers.
-    let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
-        Ok(d) => d,
-        Err(resp) => return resp,
-    };
-    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
-        return resp;
+    // Gate the write on the mission's domain: without it, any caller could
+    // overwrite any mission's brief by id (write IDOR) once #96 dropped the
+    // archived_at predicate that had 500'd every call.
+    if let Err(r) = crate::routes::authz::authz_by_mission(&state.db, &principal, &mission_id).await
+    {
+        return r;
     }
     let result = sqlx::query(
         "UPDATE mission \
