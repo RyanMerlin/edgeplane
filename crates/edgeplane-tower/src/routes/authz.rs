@@ -93,6 +93,29 @@ pub async fn domain_id_for_agent(db: &PgPool, agent_id: &str) -> Result<String, 
     .await
 }
 
+/// Resolve the owning domain of a **control-plane `agent` row** (the `agent`
+/// table, keyed by its integer id), preferring `current_domain_id` over
+/// `home_domain_id`. Distinct from [`domain_id_for_agent`], which resolves a
+/// `meshagent` topology row — a different table and id space. Fails closed: 404
+/// if the agent is absent or has no domain at all, 500 on DB error.
+pub async fn domain_id_for_control_plane_agent(
+    db: &PgPool,
+    agent_id: i32,
+) -> Result<String, Response> {
+    let v: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT COALESCE(current_domain_id, home_domain_id) FROM agent WHERE id=$1",
+    )
+    .bind(agent_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| {
+        tracing::error!("domain_id_for_control_plane_agent {agent_id}: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })?;
+    v.flatten()
+        .ok_or_else(|| deny(StatusCode::NOT_FOUND, "Agent not found"))
+}
+
 /// After domain authz: a non-full-trust caller may only act on a task it holds.
 /// Full-trust (session/node) and admin bypass. `lease_id` is the caller-presented
 /// claim_lease_id (None for endpoints that don't take one).
@@ -171,5 +194,17 @@ pub async fn authz_by_mission(
 /// Resolve an agent's domain and authorize `p`. See [`authz_by_task`].
 pub async fn authz_by_agent(db: &PgPool, p: &Principal, agent_id: &str) -> Result<(), Response> {
     let domain_id = domain_id_for_agent(db, agent_id).await?;
+    authz_domain(db, p, &domain_id).await
+}
+
+/// Resolve a control-plane `agent` row's domain (integer id) and authorize `p`.
+/// Use for `routes/agents.rs` handlers, which key off the `agent` table — NOT
+/// [`authz_by_agent`], which targets the separate `meshagent` topology table.
+pub async fn authz_by_control_plane_agent(
+    db: &PgPool,
+    p: &Principal,
+    agent_id: i32,
+) -> Result<(), Response> {
+    let domain_id = domain_id_for_control_plane_agent(db, agent_id).await?;
     authz_domain(db, p, &domain_id).await
 }
