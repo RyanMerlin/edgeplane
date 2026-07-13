@@ -357,11 +357,14 @@ async fn get_mission_brief_flat(
     principal: Principal,
     Path(mission_id): Path<String>,
 ) -> impl IntoResponse {
+    // Gate on the mission's domain. The archived_at predicate was dropped in #96
+    // (the column doesn't exist on `mission`, so it 500'd every call); this handler
+    // was one of the read IDORs #96 would otherwise have unmasked.
     if let Err(r) = crate::routes::authz::authz_by_mission(&state.db, &principal, &mission_id).await
     {
         return r;
     }
-    match sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1 AND archived_at IS NULL")
+    match sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1")
         .bind(&mission_id).fetch_optional(&state.db).await
     {
         Ok(Some(k)) => Json(serde_json::json!({
@@ -381,6 +384,13 @@ async fn put_mission_brief_flat(
     Path(mission_id): Path<String>,
     Json(payload): Json<BriefUpdate>,
 ) -> impl IntoResponse {
+    // Gate the write on the mission's domain: without it, any caller could
+    // overwrite any mission's brief by id (write IDOR) once #96 dropped the
+    // archived_at predicate that had 500'd every call.
+    if let Err(r) = crate::routes::authz::authz_by_mission(&state.db, &principal, &mission_id).await
+    {
+        return r;
+    }
     let result = sqlx::query(
         "UPDATE mission \
          SET brief_md = $1, \
@@ -388,7 +398,7 @@ async fn put_mission_brief_flat(
              brief_modified_by = $2, \
              brief_modified_at = NOW(), \
              updated_at = NOW() \
-         WHERE id = $3 AND archived_at IS NULL \
+         WHERE id = $3 \
          RETURNING brief_md, brief_version, brief_modified_by, brief_modified_at"
     )
     .bind(&payload.content)
