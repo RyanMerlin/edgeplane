@@ -551,10 +551,14 @@ async fn unblock_dependents(db: &sqlx::PgPool, mission_id: &str, finished_id: &s
 
 async fn list_tasks(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(mission_id): Path<String>,
     Query(q): Query<TaskListQuery>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_by_mission(&state.db, &principal, &mission_id).await
+    {
+        return r;
+    }
     expire_stale_leases(&state.db, &mission_id).await;
 
     let rows = if let Some(status) = &q.status {
@@ -711,9 +715,13 @@ async fn create_task(
 
 async fn task_graph(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(mission_id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_by_mission(&state.db, &principal, &mission_id).await
+    {
+        return r;
+    }
     let rows =
         sqlx::query("SELECT id, title, status, depends_on FROM meshtask WHERE mission_id=$1")
             .bind(&mission_id)
@@ -754,9 +762,12 @@ async fn task_graph(
 
 async fn get_task(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_by_task(&state.db, &principal, &task_id).await {
+        return r;
+    }
     match sqlx::query("SELECT * FROM meshtask WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
@@ -1559,10 +1570,13 @@ async fn unblock_task(
 
 async fn get_task_progress(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(task_id): Path<String>,
     Query(q): Query<ProgressQuery>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_by_task(&state.db, &principal, &task_id).await {
+        return r;
+    }
     let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
@@ -1673,9 +1687,12 @@ async fn create_gate(
 
 async fn list_gates(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_by_task(&state.db, &principal, &task_id).await {
+        return r;
+    }
     let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
@@ -2088,9 +2105,12 @@ async fn enroll_agent(
 
 async fn list_domain_agents(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(domain_id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
+        return r;
+    }
     let domain_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
         .bind(&domain_id)
         .fetch_optional(&state.db)
@@ -2363,9 +2383,12 @@ async fn update_agent_profile(
 
 async fn get_agent(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(agent_id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_by_agent(&state.db, &principal, &agent_id).await {
+        return r;
+    }
     match sqlx::query("SELECT * FROM meshagent WHERE id=$1")
         .bind(&agent_id)
         .fetch_optional(&state.db)
@@ -2382,10 +2405,13 @@ async fn get_agent(
 
 async fn get_agent_messages(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(agent_id): Path<String>,
     Query(q): Query<AgentMessagesQuery>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_by_agent(&state.db, &principal, &agent_id).await {
+        return r;
+    }
     // Look up the agent's domain so we can also surface domain broadcasts.
     let domain_id: String = match sqlx::query("SELECT domain_id FROM meshagent WHERE id=$1")
         .bind(&agent_id)
@@ -2446,10 +2472,13 @@ async fn get_agent_messages(
 
 async fn list_domain_messages(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(domain_id): Path<String>,
     Query(q): Query<MessageListQuery>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
+        return r;
+    }
     let domain_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
         .bind(&domain_id)
         .fetch_optional(&state.db)
@@ -2551,9 +2580,12 @@ async fn send_domain_message(
 
 async fn domain_roster(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(domain_id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
+        return r;
+    }
     let domain_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
         .bind(&domain_id)
         .fetch_optional(&state.db)
@@ -2589,10 +2621,14 @@ async fn domain_roster(
 
 async fn list_mission_messages(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(mission_id): Path<String>,
     Query(q): Query<MessageListQuery>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_by_mission(&state.db, &principal, &mission_id).await
+    {
+        return r;
+    }
     let mission_exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
         .bind(&mission_id)
         .fetch_optional(&state.db)

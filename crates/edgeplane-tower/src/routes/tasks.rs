@@ -243,9 +243,13 @@ async fn delete_task(
 
 async fn list_tasks_by_mission(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(mission_id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::routes::authz::authz_by_mission(&state.db, &principal, &mission_id).await
+    {
+        return r;
+    }
     match sqlx::query_as::<_, Task>(
         "SELECT * FROM task WHERE mission_id=$1 ORDER BY created_at ASC LIMIT 200"
     )
