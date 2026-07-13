@@ -170,9 +170,16 @@ async fn create_feedback(
 
 async fn list_feedback(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Query(q): Query<ListFeedbackQuery>,
 ) -> impl IntoResponse {
+    // The query filters on the CALLER-SUPPLIED domain_id; without this gate any
+    // authenticated principal could read any domain's feedback (confused deputy).
+    // authz_domain rejects an empty domain_id (422) and a non-member (403).
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &q.domain_id).await
+    {
+        return resp;
+    }
     let limit = q.limit.min(200);
 
     match sqlx::query(
@@ -255,9 +262,14 @@ async fn update_triage(
 
 async fn feedback_summary(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Query(q): Query<SummaryQuery>,
 ) -> impl IntoResponse {
+    // Same confused-deputy concern as list_feedback: gate the caller-supplied domain_id.
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &q.domain_id).await
+    {
+        return resp;
+    }
     let rows = match sqlx::query(
         "SELECT * FROM feedbackentry WHERE domain_id=$1",
     )
