@@ -1,6 +1,6 @@
 # Authorization Hardening — Plan
 
-**Status (2026-07-14):** **Workstream 1 and Workstream 2 are both COMPLETE.** W1: all groups (A, B, C, D, E, F, G) shipped, deployed, reviewed (#102/#103/#104, tower `sha-e2666eb`). W2: node domain-scoping shipped, deployed, and prod red-teamed (#105 docs, #106 code, tower `sha-34386f6a`). **Remaining: the delegated-session design item only** (see below) — owner decision pending.
+**Status (2026-07-14):** **Workstream 1 and Workstream 2 are both COMPLETE.** W1: all groups (A, B, C, D, E, F, G) shipped, deployed, reviewed (#102/#103/#104, tower `sha-e2666eb`). W2: node domain-scoping shipped, deployed, and prod red-teamed (#105 docs, #106 code, tower `sha-34386f6a`), plus a follow-up fix for a gap an adversarial review surfaced in the shipped W2 diff (#107, `assign_node_agent` missing domain authz, tower `sha-ffdda81`). **Remaining: the delegated-session design item only** (see below) — owner decision pending; a scoping review recommends a single contained design-and-patch, not a full architecture-review process.
 **Owner:** Merlin + Aria (engineer).
 **Origin:** claims-integrity audit (2026-07-09/10). A tower authorization-surface audit
 turned up (1) pre-existing broken-access-control gaps affecting *all* principals and
@@ -24,8 +24,9 @@ red-team probes against a live tower and a `rust-reviewer` (Opus) pass before me
 | #104 | **Group F** — search readability substring-LIKE → exact membership (`authorized_for`) | integration-tested (7/7, incl. reverted-code regression proof) |
 | #105 | docs — `entities.md § Domain` update, lands before W2 code per the entity HARD RULE | n/a (docs only) |
 | #106 | **Workstream 2** — dynamic per-node domain scope, removes `auth.rs` blanket node full-trust; cache invalidated on assign/revoke/detach/enroll/delete | ✅ live 6/6 (own-domain→200, foreign-domain→403, admin control→200) |
+| #107 | **W2 follow-up** — `assign_node_agent` never authorized the caller against the target domain before seeding a `meshagent` row, reopening W2's own fix; gated via `authz_domain`, mirroring `enroll_agent` | ✅ live 6/6 (deny-unauthorized→403, deny-read-after-deny→403, allow-owned→201, admin-bypass→201) |
 
-**Live red-team: 25/25 (reads) + 7/7 (D+E write-path, 2026-07-14, tower `sha-caec5a4`) + 6/6 (W2 node-scoping, 2026-07-14, tower `sha-34386f6a`)** — real domain-scoped **agent** and **node** tokens vs the prod tower; all cross-domain/priv-esc → 403, all legitimate controls → 200/201; throwaway domains/agents/nodes/launches cleaned up. Groups C + F verified via real-JWT integration tests (seeding NULL-domain missions / substring-owner scenarios on prod is impractical) + deployed-sha == tested-code. W2: registered a throwaway node, assigned it an agent in domain D1 (creating the `meshagent` row the resolver reads), confirmed the node reaches D1 (`agents`/`roster` → 200) but is denied in a domain D2 it doesn't operate (`agents`/`messages`/`roster` → 403) — the exact regression the blanket-trust removal targets.
+**Live red-team: 25/25 (reads) + 7/7 (D+E write-path, 2026-07-14, tower `sha-caec5a4`) + 6/6 (W2 node-scoping, 2026-07-14, tower `sha-34386f6a`) + 6/6 (W2 follow-up, 2026-07-14, tower `sha-ffdda81`)** — real domain-scoped **agent**, **node**, and throwaway **service-account** tokens vs the prod tower; all cross-domain/priv-esc → 403, all legitimate controls → 200/201; throwaway domains/agents/nodes/launches/service-accounts cleaned up. Groups C + F verified via real-JWT integration tests (seeding NULL-domain missions / substring-owner scenarios on prod is impractical) + deployed-sha == tested-code. W2: registered a throwaway node, assigned it an agent in domain D1 (creating the `meshagent` row the resolver reads), confirmed the node reaches D1 (`agents`/`roster` → 200) but is denied in a domain D2 it doesn't operate (`agents`/`messages`/`roster` → 403) — the exact regression the blanket-trust removal targets. W2 follow-up: a throwaway SA registered its own node, was denied assigning it into a domain it doesn't own (403) and denied reading that domain afterward (403, confirming no scope was granted), succeeded assigning into a domain it owns (201), and admin retained the ability to assign the same node into the other domain (201) — proving the fix targets exactly the caller-authorization gap, not legitimate assignment.
 
 ### Deferred residuals (low-risk for single-tenant; NOT bugs to chase now)
 - **`send_message` intra-domain impersonation** — the cross-domain case is gated; closing intra-domain fights the `signal.rs` shared-sender-peer design (would 403 agent-type `edgeplane agent signal`). Needs a signal-auth redesign, not a quick fix.
@@ -167,6 +168,36 @@ Root cause: a minted `usersession` always re-authenticates as `auth_type="sessio
 not a per-endpoint type gate. Design alongside Workstream 2 (node domain-scoping) — both hinge
 on `Principal` carrying real scope. Owner decision pending (Merlin: track separately).
 
+**Scoping review (2026-07-14, codex gpt-5.5 high, independently verified before treating as
+fact):** recommends a **single focused design-and-patch, not a full multi-workstream
+architecture-review program** — the privilege reinterpretation is centralized (only one
+construction site for `auth_type: "session"`, `auth.rs:315`), so the runtime surface is limited
+even though it needs a short explicit design first. Findings that sharpen the scope:
+- **Three** production paths mint a `usersession`, not one: `/auth/sessions` (broad, load-bearing
+  for bootstrap), `/remotectl/launches` (blocks node/agent, still allows `service_account`), and
+  OIDC web login (`routes/oidc_web.rs`, the intended interactive-human path — correctly full-trust
+  and out of scope for the fix).
+- **Broader blast radius than `is_full_trust` alone:** `create_join_token` and `rotate_join_token`
+  (`routes/runtime.rs`) reject `node|agent` by raw `auth_type`. A node/agent that first exchanges
+  through `/auth/sessions` presents as `"session"` and bypasses these gates too, not just the
+  per-task lease bypass.
+- **Do not** resolve a delegated session back to `auth_type: "node"`/`"agent"` — that collides
+  with node-self (`runtime.rs` reconcile/notify) and agent-self (`authz.rs`) special-case checks
+  elsewhere. The model needs a separate "bearer type" (stays `"session"` for `ep_*` token
+  mechanics) vs. "effective delegated authority" (what the session should actually be trusted for).
+- **Fold in the #107 adjacent finding:** `usersession.capability_scope` is written by
+  `issue_session_token` on launch but never read back at session-resolution time — it's dead as
+  an authorization mechanism today. The delegated-session fix is the natural place to either make
+  it load-bearing or replace it; don't design around it as if it already worked.
+- Minimum acceptance bar proposed: agent/node/service-account credentials can still use
+  `/auth/sessions` where bootstrap depends on it; the resulting session never gains more
+  `is_full_trust`/domain-scope/join-token/launch authority than the presenting principal had;
+  OIDC/human sessions stay full-trust; tests cover direct and exchanged credentials for agent,
+  node, service-account, and OIDC/session cases across `/auth/sessions`, `create_join_token`,
+  `create_launch`, and at least one `is_full_trust` task/MCP path. No `entities.md`/Domain rework
+  needed unless delegated sessions must track live node domain reassignment or inherit
+  source-token expiry — those are callable-out-but-deferrable, not blockers.
+
 ### Group E (lower) — unvalidated caller-supplied `domain_id` — ✅ SHIPPED (#103; feedback in #98)
 `runtime::create_job` + `budgets::record_usage_batch` now validate the caller may act on the
 supplied domain via `authz_domain` (create_job: empty domain → admin-only, mirroring Group C;
@@ -224,6 +255,24 @@ two invalidation gaps beyond the three the design named (`assign_node_agent`/`re
 were not invalidating. Both closed in #106, keyed off **both** `node_id` and `runtime_node_id`
 (a meshagent row's node association can live in either column). Live red-team (6/6) confirms the
 shipped behavior: node reaches its operating domain, denied everywhere else.
+
+**Follow-up fix (2026-07-14, #107): `assign_node_agent` missing domain authz.** An adversarial
+codex review of the shipped #106 diff (independently verified against the code before treating it
+as fact) found that `assign_node_agent` checked node ownership and that the target domain exists,
+but never checked the *caller* was authorized for that domain before inserting the `meshagent` row
+— since #106 made `meshagent` the source of truth for a node's domain scope, this let any node
+owner seed their node into an arbitrary domain and grant it cross-domain read access, reopening
+exactly what Workstream 2 closed. Root cause: no integration test exercised the node-scoping
+behavior end-to-end (only pure-logic unit tests against a hand-built `Principal`), which is likely
+how this slipped past both the original review and the red-team. Fixed via `authz_domain`,
+mirroring the sibling `enroll_agent` handler; two new integration tests added
+(`assign_node_agent_denied_for_domain_outsider`, `assign_node_agent_allowed_for_domain_owner`).
+`rust-reviewer` (Opus): ship, no blocking findings. Live red-team 6/6 against `sha-ffdda81`
+(deny-unauthorized, deny-read-after-deny, allow-owned, admin-bypass-intact, plus 2 self-cleaning
+checks). Same adversarial pass also flagged (adjacent, not fixed here — folded into the
+delegated-session item below) that `usersession.capability_scope` is write-only: `create_launch`
+stores it but session resolution never reads it back, so a "scoped" launch token is actually a
+full non-admin session for the subject, with a max TTL of 87,600 hours.
 
 ---
 
