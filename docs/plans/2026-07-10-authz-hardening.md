@@ -1,6 +1,6 @@
 # Authorization Hardening — Plan
 
-**Status (2026-07-14):** the READ + messaging IDORs are **shipped, deployed, and live-red-teamed** (Groups A, B, E-feedback, G). **Group D** (`create_launch` privilege escalation) is **fixed + tested + Opus-reviewed (SHIP)**, PR open, prod red-team pending post-deploy. **Remaining in Workstream 1: Groups C, E-remainder, F.** Then Workstream 2 (node domain-scoping) and the **delegated-session** design item (see below). 
+**Status (2026-07-14):** **Workstream 1 is COMPLETE** — all groups (A, B, C, D, E, F, G) are shipped, deployed, and reviewed; the write-path priv-esc/IDOR gaps (D, C, E-remainder, F) landed in #102/#103/#104 (tower `sha-e2666eb`). **Remaining: Workstream 2** (node domain-scoping — replace the `auth.rs:373` blanket node-trust; `entities.md § Domain` change lands FIRST) and the **delegated-session** design item (see below). 
 **Owner:** Merlin + Aria (engineer).
 **Origin:** claims-integrity audit (2026-07-09/10). A tower authorization-surface audit
 turned up (1) pre-existing broken-access-control gaps affecting *all* principals and
@@ -19,9 +19,11 @@ red-team probes against a live tower and a `rust-reviewer` (Opus) pass before me
 | #98 | **Group E (feedback)** + **Group G (ingestion)** reads | ✅ 20/20 run |
 | #99 | **Group B** — delete 7 dead `agents.rs` handlers + gate 4 write mutations | integration-tested |
 | #100 | **Group B Tier-3** — gate `list_messages`/`send_message`/`attach_domain` + `is_self_control_plane_agent` bridge | ✅ 5/5 run |
-| (PR open) | **Group D** — gate `create_launch` (reject node/agent) + clamp `ttl_hours`/`capability_scope` | integration-tested (6/6); prod red-team pending post-deploy |
+| #102 | **Group D** — gate `create_launch` (reject node/agent) + clamp `ttl_hours`/`capability_scope` | ✅ live 7/7 (agent→403, admin→201) |
+| #103 | **Group C** (NULL-domain fail-open artifact/doc writes) + **Group E-remainder** (`create_job` + `record_usage_batch` domain gate) | ✅ live 7/7 (E1/E2 cross-domain→403, own-domain→201/200) |
+| #104 | **Group F** — search readability substring-LIKE → exact membership (`authorized_for`) | integration-tested (7/7, incl. reverted-code regression proof) |
 
-**Live red-team: 25/25 clean** (2 runs, real domain-scoped agent tokens vs the prod tower; all cross-domain → 403, all legitimate controls → 200; artifacts cleaned up).
+**Live red-team: 25/25 (reads) + 7/7 (D+E write-path, 2026-07-14, tower `sha-caec5a4`)** — real domain-scoped **agent** tokens vs the prod tower; all cross-domain/priv-esc → 403, all legitimate controls → 200/201; throwaway domain+agent+launch cleaned up. Groups C + F verified via real-JWT integration tests (seeding NULL-domain missions / substring-owner scenarios on prod is impractical) + deployed-sha == tested-code.
 
 ### Deferred residuals (low-risk for single-tenant; NOT bugs to chase now)
 - **`send_message` intra-domain impersonation** — the cross-domain case is gated; closing intra-domain fights the `signal.rs` shared-sender-peer design (would 403 agent-type `edgeplane agent signal`). Needs a signal-auth redesign, not a quick fix.
@@ -129,11 +131,12 @@ web dashboard and daemon call these as owner/session (likely) before gating.
 `get_mission_brief_flat` read IDOR), so #96 gates both flat endpoints on the mission's domain
 via `authz_domain`. Removed from Group B scope.
 
-### Group C — NULL-domain fail-open (`artifacts.rs`, `docs.rs`) — ⬜ REMAINING
-`create/update/publish_{artifact,doc}` skip the check when the parent mission `domain_id` is NULL.
-Change NULL-domain to deny (or admin-only), never allow.
+### Group C — NULL-domain fail-open (`artifacts.rs`, `docs.rs`) — ✅ SHIPPED (#103)
+`create/update/publish_{artifact,doc}` skipped the check when the parent mission `domain_id` was
+NULL. Fixed: replaced `if let Some(mid) && !can_write` with `match { Some => can_write_domain,
+None => require is_admin }` (mirrors delete/read handlers). NULL-domain writes are now admin-only.
 
-### Group D — `remotectl::create_launch` — ✅ FIXED (PR open; prod red-team pending post-deploy)
+### Group D — `remotectl::create_launch` — ✅ SHIPPED (#102; prod red-team 7/7)
 Was: no gate + minted a full-trust `usersession` token with caller-supplied unclamped
 `ttl_hours`/`capability_scope` (raw `ttl_hours` into `chrono::Duration::hours` → `i64::MAX`
 overflow-panic; negatives → past-dated tokens). Fix: reject `node`/`agent` auth_types (403,
@@ -162,15 +165,22 @@ Root cause: a minted `usersession` always re-authenticates as `auth_type="sessio
 not a per-endpoint type gate. Design alongside Workstream 2 (node domain-scoping) — both hinge
 on `Principal` carrying real scope. Owner decision pending (Merlin: track separately).
 
-### Group E (lower) — unvalidated caller-supplied `domain_id`
-`runtime::create_job`, `budgets::record_usage_batch`: validate the caller may act on the supplied domain.
+### Group E (lower) — unvalidated caller-supplied `domain_id` — ✅ SHIPPED (#103; feedback in #98)
+`runtime::create_job` + `budgets::record_usage_batch` now validate the caller may act on the
+supplied domain via `authz_domain` (create_job: empty domain → admin-only, mirroring Group C;
+usage batch: authorize each distinct non-empty domain once, None/empty allowed as self-owned
+telemetry). Prod red-team 7/7 (cross-domain → 403, own-domain → 201/200).
 **`feedback.rs::list_feedback` + `feedback_summary`** (`GET /feedback[/summary]?domain_id=…`) —
 `_principal` ignored; the query binds the caller-supplied `q.domain_id` with **zero** authorization
 (confused deputy: name any domain → read its full feedback). Gate on `q.domain_id` via `authz_domain`
 and reject empty/missing `domain_id` (422). *(Not in the original enumeration; surfaced by the
 2026-07-10 dual-review.)*
 
-### Group F (lower) — `search.rs` `LIKE`-based readability filter → exact-match membership.
+### Group F (lower) — `search.rs` `LIKE`-based readability filter → exact-match membership. — ✅ SHIPPED (#104)
+Substring `LOWER(owners) LIKE '%subject%'` (leaked `alice` → owner `alicexyz@…`) replaced with
+exact CSV membership via `crate::auth::authorized_for` (also honors node + `domain_scope`) OR
+domain `visibility='public'`, filtered in Rust. Regression-proven: the substring-denied tests
+fail against the old LIKE code, pass after.
 
 ### Group G — `ingestion.rs` no-gate reads *(surfaced by the 2026-07-10 dual-review; not in the original enumeration)*
 `list_jobs` (`GET /ingest/jobs?mission_id=…`) ignores `_principal`; **with no `mission_id` it dumps
