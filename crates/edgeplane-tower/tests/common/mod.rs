@@ -391,6 +391,89 @@ pub async fn seed_null_domain_mission(db: &PgPool) -> String {
     mission_id
 }
 
+/// Insert a `domain` row with explicit `owners`/`contributors`/`visibility`.
+/// Returns the generated domain id. Used by the Group F (search.rs) authz
+/// tests to build exact-vs-substring owner scenarios independent of `setup()`.
+pub async fn seed_domain(db: &PgPool, owners: &str, contributors: &str, visibility: &str) -> String {
+    let domain_id = format!("dom-{}", Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO domain \
+         (id, name, description, owners, contributors, tags, visibility, status, \
+          northstar_md, northstar_version, northstar_created_by, northstar_modified_by, \
+          created_at, updated_at) \
+         VALUES ($1, $1, '', $2, $3, '', $4, 'active', '', 0, '', '', now(), now())",
+    )
+    .bind(&domain_id)
+    .bind(owners)
+    .bind(contributors)
+    .bind(visibility)
+    .execute(db)
+    .await
+    .expect("insert domain");
+    domain_id
+}
+
+/// Insert a `mission` row scoped to `domain_id` with a given `name` (missions
+/// are matched by name/tags in `/api/search/missions`). Mission-level
+/// owners/contributors are irrelevant to search readability (that comes from
+/// the parent domain), so a fixed placeholder satisfies the NOT-NULL/CHECK
+/// constraints. Returns the generated mission id.
+pub async fn seed_mission_in_domain(db: &PgPool, domain_id: &str, name: &str) -> String {
+    let mission_id = format!("mis-{}", Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO mission \
+         (id, domain_id, name, description, owners, contributors, tags, status, \
+          workstream_md, workstream_version, workstream_created_by, workstream_modified_by, \
+          created_at, updated_at) \
+         VALUES ($1, $2, $3, '', 'harness', '', '', 'active', '', 0, '', '', now(), now())",
+    )
+    .bind(&mission_id)
+    .bind(domain_id)
+    .bind(name)
+    .execute(db)
+    .await
+    .expect("insert mission");
+    mission_id
+}
+
+/// Insert a `task` row (the `/api/search/tasks` table) with an explicit title,
+/// so tests can seed a token the search LIKE-match will hit. Returns the
+/// integer `id`.
+pub async fn seed_task_titled(db: &PgPool, mission_id: &str, title: &str) -> i32 {
+    let public_id = format!("task-{}", Uuid::new_v4().simple());
+    sqlx::query_scalar(
+        "INSERT INTO task \
+         (public_id, mission_id, title, description, status, owner, contributors, \
+          dependencies, definition_of_done, related_artifacts, created_at, updated_at) \
+         VALUES ($1, $2, $3, '', 'open', 'harness', '', '', '', '', now(), now()) \
+         RETURNING id",
+    )
+    .bind(&public_id)
+    .bind(mission_id)
+    .bind(title)
+    .fetch_one(db)
+    .await
+    .expect("insert titled task")
+}
+
+/// Insert a `doc` row with an explicit title/body, so tests can seed a token
+/// the `/api/search/docs` LIKE-match will hit. Returns the integer `id`.
+pub async fn seed_doc(db: &PgPool, mission_id: &str, title: &str, body: &str) -> i32 {
+    sqlx::query_scalar(
+        "INSERT INTO doc \
+         (mission_id, title, body, doc_type, status, version, provenance, \
+          created_at, updated_at) \
+         VALUES ($1, $2, $3, 'note', 'active', 1, 'test', now(), now()) \
+         RETURNING id",
+    )
+    .bind(mission_id)
+    .bind(title)
+    .bind(body)
+    .fetch_one(db)
+    .await
+    .expect("insert doc")
+}
+
 pub async fn setup() -> Option<(PgPool, Ctx)> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = PgPool::connect(&url)
