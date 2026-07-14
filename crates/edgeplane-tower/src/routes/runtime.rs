@@ -1995,6 +1995,16 @@ async fn assign_node_agent(
         return not_found("Domain not found");
     }
 
+    // Node ownership alone says nothing about domain rights — without this,
+    // any node owner could seed their node into an arbitrary domain via the
+    // meshagent row below, which W2 made the source of truth for node domain
+    // scope (auth.rs::resolve_node_domain_scope). Mirrors enroll_agent.
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &body.domain_id).await
+    {
+        return resp;
+    }
+
     let agent_id = Uuid::new_v4().to_string();
     let now = Utc::now().naive_utc();
     let caps_json = serde_json::to_string(&body.capabilities).unwrap_or_else(|_| "[]".to_string());
