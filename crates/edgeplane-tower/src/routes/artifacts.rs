@@ -212,10 +212,18 @@ async fn create_artifact(
 
     let domain_id: Option<String> =
         mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
-    if let Some(ref mid) = domain_id
-        && !can_write_domain(&state.db, &principal, mid).await {
-            return StatusCode::FORBIDDEN.into_response();
+    match domain_id {
+        Some(ref mid) => {
+            if !can_write_domain(&state.db, &principal, mid).await {
+                return StatusCode::FORBIDDEN.into_response();
+            }
         }
+        None => {
+            if !principal.is_admin {
+                return StatusCode::FORBIDDEN.into_response();
+            }
+        }
+    }
 
     // Resolve storage fields
     let (
@@ -685,10 +693,18 @@ async fn update_artifact(
 
     let domain_id: Option<String> =
         mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
-    if let Some(ref mid) = domain_id
-        && !can_write_domain(&state.db, &principal, mid).await {
-            return StatusCode::FORBIDDEN.into_response();
+    match domain_id {
+        Some(ref mid) => {
+            if !can_write_domain(&state.db, &principal, mid).await {
+                return StatusCode::FORBIDDEN.into_response();
+            }
         }
+        None => {
+            if !principal.is_admin {
+                return StatusCode::FORBIDDEN.into_response();
+            }
+        }
+    }
 
     // Merge updatable fields
     let name = payload
@@ -867,10 +883,18 @@ async fn publish_artifact(
 
     let domain_id: Option<String> =
         mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
-    if let Some(ref mid) = domain_id
-        && !can_write_domain(&state.db, &principal, mid).await {
-            return StatusCode::FORBIDDEN.into_response();
+    match domain_id {
+        Some(ref mid) => {
+            if !can_write_domain(&state.db, &principal, mid).await {
+                return StatusCode::FORBIDDEN.into_response();
+            }
         }
+        None => {
+            if !principal.is_admin {
+                return StatusCode::FORBIDDEN.into_response();
+            }
+        }
+    }
 
     let current_version: i32 = artifact_row.get("version");
     let now = Utc::now().naive_utc();

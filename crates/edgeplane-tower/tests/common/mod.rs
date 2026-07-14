@@ -374,6 +374,23 @@ pub async fn seed_control_plane_agent(db: &PgPool, domain_id: &str) -> String {
     public_id
 }
 
+/// Insert a mission with NULL domain_id. Returns the mission id.
+pub async fn seed_null_domain_mission(db: &PgPool) -> String {
+    let mission_id = format!("mis-{}", Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO mission \
+         (id, domain_id, name, description, owners, contributors, tags, status, \
+          workstream_md, workstream_version, workstream_created_by, workstream_modified_by, \
+          created_at, updated_at) \
+         VALUES ($1, NULL, 'm', '', 'harness', '', '', 'active', '', 0, '', '', now(), now())",
+    )
+    .bind(&mission_id)
+    .execute(db)
+    .await
+    .expect("insert null-domain mission");
+    mission_id
+}
+
 pub async fn setup() -> Option<(PgPool, Ctx)> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = PgPool::connect(&url)

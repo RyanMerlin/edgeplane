@@ -7,6 +7,7 @@ use axum::{
 };
 use chrono::Utc;
 use sqlx::Row;
+use std::collections::HashSet;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -339,6 +340,19 @@ async fn record_usage_batch(
     principal: Principal,
     Json(body): Json<UsageBatchRequest>,
 ) -> impl IntoResponse {
+    // Validate each DISTINCT non-empty domain_id in the batch once — a caller
+    // must not be able to attribute usage/cost to a domain it isn't authorized
+    // for. None/empty domain_id is allowed (unattributed personal usage).
+    let mut checked: HashSet<&str> = HashSet::new();
+    for record in &body.records {
+        if let Some(did) = record.domain_id.as_deref().filter(|d| !d.is_empty())
+            && checked.insert(did)
+            && let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, did).await
+        {
+            return resp;
+        }
+    }
+
     let now = Utc::now().naive_utc();
     let count = body.records.len();
 

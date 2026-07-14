@@ -2177,6 +2177,22 @@ async fn create_job(
     principal: Principal,
     Json(body): Json<JobCreate>,
 ) -> impl IntoResponse {
+    // A runtime job must be scoped to a domain the caller can act on. An empty
+    // domain (a domainless job) is an admin-only operation, mirroring the
+    // NULL-domain policy for artifacts/docs (Group C); a non-admin must name a
+    // domain it owns/contributes to. authz_domain also honors node + domain_scope.
+    // (E2/record_usage_batch deliberately allows empty — usage records are benign
+    // self-owned telemetry, not a capability grant like job creation.)
+    if body.domain_id.is_empty() {
+        if !principal.is_admin {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    } else if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &body.domain_id).await
+    {
+        return resp;
+    }
+
     let now = Utc::now().naive_utc();
     let job_id = Uuid::new_v4().to_string();
 
