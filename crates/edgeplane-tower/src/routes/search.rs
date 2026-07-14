@@ -66,7 +66,7 @@ async fn search_tasks(
         return Json(serde_json::json!({"results": []})).into_response();
     }
 
-    let readable_task_ids = get_readable_task_ids(&state.db, &principal.subject, &rows).await;
+    let readable_task_ids = get_readable_task_ids(&state.db, &principal, &rows).await;
 
     let results: Vec<serde_json::Value> = rows
         .iter()
@@ -123,7 +123,7 @@ async fn search_docs(
         return Json(serde_json::json!({"results": results})).into_response();
     }
 
-    let readable_doc_ids = get_readable_doc_ids(&state.db, &principal.subject, &rows).await;
+    let readable_doc_ids = get_readable_doc_ids(&state.db, &principal, &rows).await;
 
     let results: Vec<serde_json::Value> = rows
         .iter()
@@ -163,21 +163,45 @@ async fn search_missions(
         .await
         .unwrap_or_default()
     } else {
-        sqlx::query(
-            "SELECT k.* FROM mission k \
+        // Text-match candidates in SQL (overfetch limit*4), then apply the
+        // exact-membership readability rule in Rust — see readable_mission_ids
+        // for why LIKE-based membership is wrong (substring leak). Read the
+        // JOINED domain's id (m.id AS d_domain_id), not the mission's raw FK, so
+        // an orphaned FK (domain row gone) fails closed like the task/doc paths.
+        let cand = sqlx::query(
+            "SELECT k.*, m.id AS d_domain_id, m.visibility AS d_visibility, \
+                    m.owners AS d_owners, m.contributors AS d_contributors \
+             FROM mission k \
              LEFT JOIN domain m ON m.id = k.domain_id \
              WHERE (LOWER(k.name) LIKE $1 OR LOWER(COALESCE(k.tags,'')) LIKE $1) \
-               AND (m.visibility='public' \
-                    OR LOWER(m.owners) LIKE $2 \
-                    OR LOWER(m.contributors) LIKE $2) \
-             ORDER BY k.updated_at DESC LIMIT $3",
+             ORDER BY k.updated_at DESC LIMIT $2",
         )
         .bind(&pattern)
-        .bind(format!("%{}%", principal.subject.to_lowercase()))
-        .bind(limit)
+        .bind(limit * 4)
         .fetch_all(&state.db)
         .await
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+        cand.into_iter()
+            .filter(|r| {
+                let visibility: Option<String> = r.get("d_visibility");
+                if visibility.as_deref() == Some("public") {
+                    return true;
+                }
+                let domain_id: Option<String> = r.get("d_domain_id");
+                match domain_id {
+                    Some(did) => {
+                        let owners: String =
+                            r.get::<Option<String>, _>("d_owners").unwrap_or_default();
+                        let contributors: String =
+                            r.get::<Option<String>, _>("d_contributors").unwrap_or_default();
+                        crate::auth::authorized_for(&did, &owners, &contributors, &principal)
+                    }
+                    None => false,
+                }
+            })
+            .take(limit as usize)
+            .collect::<Vec<_>>()
     };
 
     let results: Vec<serde_json::Value> = rows
@@ -196,77 +220,85 @@ async fn search_missions(
     Json(serde_json::json!({"results": results})).into_response()
 }
 
-// Returns set of task ids readable by the given subject (via mission → domain owners/contributors)
+/// Returns the readable-mission ids (of `mission_ids`) for `principal`, per the
+/// exact-membership rule: public domain visibility, OR
+/// `crate::auth::authorized_for` (admin/node/domain_scope/exact owner-or-contributor).
+/// A mission with no domain (`domain_id` NULL) is not readable by a non-admin
+/// (fail-closed — admins already short-circuit at the call sites).
+async fn readable_mission_ids(
+    db: &sqlx::PgPool,
+    principal: &Principal,
+    mission_ids: &[String],
+) -> std::collections::HashSet<String> {
+    if mission_ids.is_empty() {
+        return std::collections::HashSet::new();
+    }
+
+    let cand = sqlx::query(
+        "SELECT k.id AS mission_id, m.id AS domain_id, m.visibility, m.owners, m.contributors \
+         FROM mission k LEFT JOIN domain m ON m.id = k.domain_id \
+         WHERE k.id = ANY($1)",
+    )
+    .bind(mission_ids)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    cand.iter()
+        .filter(|r| {
+            let visibility: Option<String> = r.get("visibility");
+            if visibility.as_deref() == Some("public") {
+                return true;
+            }
+            let domain_id: Option<String> = r.get("domain_id");
+            match domain_id {
+                Some(did) => {
+                    let owners: String = r.get::<Option<String>, _>("owners").unwrap_or_default();
+                    let contributors: String =
+                        r.get::<Option<String>, _>("contributors").unwrap_or_default();
+                    crate::auth::authorized_for(&did, &owners, &contributors, principal)
+                }
+                None => false,
+            }
+        })
+        .map(|r| r.get::<String, _>("mission_id"))
+        .collect()
+}
+
+// Returns set of task ids readable by the given principal (via mission → domain
+// exact owners/contributors membership, or public domain visibility).
 async fn get_readable_task_ids(
     db: &sqlx::PgPool,
-    subject: &str,
+    principal: &Principal,
     rows: &[sqlx::postgres::PgRow],
 ) -> std::collections::HashSet<i32> {
     let mission_ids: Vec<String> = rows.iter().map(|r| r.get::<String, _>("mission_id")).collect();
     if mission_ids.is_empty() {
         return std::collections::HashSet::new();
     }
-    let subject_lower = subject.to_lowercase();
-    let like_pat = format!("%{}%", subject_lower);
 
-    let readable_missions: Vec<String> = sqlx::query(
-        "SELECT k.id FROM mission k \
-         LEFT JOIN domain m ON m.id = k.domain_id \
-         WHERE k.id = ANY($1) \
-           AND (m.visibility='public' \
-                OR LOWER(m.owners) LIKE $2 \
-                OR LOWER(m.contributors) LIKE $2)",
-    )
-    .bind(&mission_ids)
-    .bind(&like_pat)
-    .fetch_all(db)
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|r| r.get::<String, _>("id"))
-    .collect();
-
-    let readable_set: std::collections::HashSet<String> = readable_missions.into_iter().collect();
+    let readable_missions = readable_mission_ids(db, principal, &mission_ids).await;
 
     rows.iter()
-        .filter(|r| readable_set.contains(&r.get::<String, _>("mission_id")))
+        .filter(|r| readable_missions.contains(&r.get::<String, _>("mission_id")))
         .map(|r| r.get::<i32, _>("id"))
         .collect()
 }
 
 async fn get_readable_doc_ids(
     db: &sqlx::PgPool,
-    subject: &str,
+    principal: &Principal,
     rows: &[sqlx::postgres::PgRow],
 ) -> std::collections::HashSet<i32> {
     let mission_ids: Vec<String> = rows.iter().map(|r| r.get::<String, _>("mission_id")).collect();
     if mission_ids.is_empty() {
         return std::collections::HashSet::new();
     }
-    let subject_lower = subject.to_lowercase();
-    let like_pat = format!("%{}%", subject_lower);
 
-    let readable_missions: Vec<String> = sqlx::query(
-        "SELECT k.id FROM mission k \
-         LEFT JOIN domain m ON m.id = k.domain_id \
-         WHERE k.id = ANY($1) \
-           AND (m.visibility='public' \
-                OR LOWER(m.owners) LIKE $2 \
-                OR LOWER(m.contributors) LIKE $2)",
-    )
-    .bind(&mission_ids)
-    .bind(&like_pat)
-    .fetch_all(db)
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|r| r.get::<String, _>("id"))
-    .collect();
-
-    let readable_set: std::collections::HashSet<String> = readable_missions.into_iter().collect();
+    let readable_missions = readable_mission_ids(db, principal, &mission_ids).await;
 
     rows.iter()
-        .filter(|r| readable_set.contains(&r.get::<String, _>("mission_id")))
+        .filter(|r| readable_missions.contains(&r.get::<String, _>("mission_id")))
         .map(|r| r.get::<i32, _>("id"))
         .collect()
 }
