@@ -1244,6 +1244,109 @@ async fn delete_node_403_for_node_self_jwt() {
     );
 }
 
+// W2 follow-up: `assign_node_agent` checked node ownership and that the target
+// domain exists, but never authorized the caller against that domain. Since W2
+// made `meshagent` the source of truth for a node's domain scope
+// (auth::resolve_node_domain_scope), this let any node owner seed their node
+// into an arbitrary domain and grant it cross-domain read access via the node
+// JWT — reopening exactly what W2 closed. Now gated via `authz_domain`,
+// mirroring `enroll_agent`.
+#[tokio::test]
+async fn assign_node_agent_denied_for_domain_outsider() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    // outsider_sa_token's subject is neither an owner nor a contributor of
+    // ctx.domain_id (unlike ctx.other_domain_id, which setup() gives the same
+    // owner as ctx.domain_id — not a true outsider domain).
+    let outsider_subject = {
+        use edgeplane_tower::auth::hash_token;
+        let hash = hash_token(&ctx.outsider_sa_token);
+        let name: String = sqlx::query_scalar(
+            "SELECT sa.name FROM serviceaccount sa \
+             JOIN serviceaccounttoken t ON t.service_account_id = sa.id \
+             WHERE t.token_hash = $1",
+        )
+        .bind(&hash)
+        .fetch_one(&pool)
+        .await
+        .expect("find outsider sa name");
+        format!("sa:{name}")
+    };
+    let node_name = format!("node-assign-403-{}", uuid::Uuid::new_v4().simple());
+    let node_id = common::seed_runtime_node(&pool, &outsider_subject, &node_name).await;
+    let s = server(pool.clone());
+
+    // The node's owner (outsider_sa_token) has no rights in ctx.domain_id.
+    let res = s
+        .post(&format!("/api/runtime/nodes/{node_id}/agents"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.outsider_sa_token),
+        )
+        .json(&serde_json::json!({
+            "domain_id": ctx.domain_id,
+            "runtime_kind": "claude-code",
+        }))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "node owner with no rights in the target domain must be denied: {}",
+        res.text()
+    );
+
+    let seeded: Option<String> =
+        sqlx::query_scalar("SELECT id FROM meshagent WHERE node_id = $1 AND domain_id = $2")
+            .bind(&node_id)
+            .bind(&ctx.domain_id)
+            .fetch_optional(&pool)
+            .await
+            .expect("check meshagent after denied assignment");
+    assert!(
+        seeded.is_none(),
+        "denied assignment must not seed the node into the foreign domain's scope"
+    );
+}
+
+/// Regression: legitimate assignment into a domain the caller owns must still work.
+#[tokio::test]
+async fn assign_node_agent_allowed_for_domain_owner() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let owner_email = {
+        use edgeplane_tower::auth::hash_token;
+        let hash = hash_token(&ctx.owner_session_token);
+        sqlx::query_scalar::<_, String>("SELECT subject FROM usersession WHERE token_hash = $1")
+            .bind(&hash)
+            .fetch_one(&pool)
+            .await
+            .expect("find owner subject")
+    };
+    let node_name = format!("node-assign-200-{}", uuid::Uuid::new_v4().simple());
+    let node_id = common::seed_runtime_node(&pool, &owner_email, &node_name).await;
+    let s = server(pool);
+
+    let res = s
+        .post(&format!("/api/runtime/nodes/{node_id}/agents"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({
+            "domain_id": ctx.domain_id,
+            "runtime_kind": "claude-code",
+        }))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        201,
+        "domain owner must still be able to assign their node into their own domain: {}",
+        res.text()
+    );
+}
+
 // ── Group A: broken-access-control remediation — no-gate cross-domain reads ─────
 // Each of these read handlers previously ignored the principal (`_principal`) and
 // served any authenticated caller. They now route through the shared, default-deny
