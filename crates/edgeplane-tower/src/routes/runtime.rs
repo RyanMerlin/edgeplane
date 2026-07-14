@@ -15,7 +15,7 @@ use sqlx::Row;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::{auth::Principal, state::AppState};
+use crate::{auth::{invalidate_node_scope_cache, Principal}, state::AppState};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1861,6 +1861,10 @@ async fn delete_node(
         }
     }
 
+    if agent_count > 0 {
+        invalidate_node_scope_cache(&state, &node_id);
+    }
+
     Json(serde_json::json!({
         "deleted": true,
         "node_id": node_id,
@@ -2101,6 +2105,7 @@ async fn assign_node_agent(
     match row {
         Ok(r) => {
             let agent_json = crate::routes::work::row_to_agent(&r);
+            invalidate_node_scope_cache(&state, &node_id);
             crate::routes::work::broadcast_assignment_changed(
                 &node_id,
                 serde_json::json!({
@@ -2156,6 +2161,8 @@ async fn revoke_node_agent(
         tracing::error!("revoke_node_agent delete: {e}");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
+
+    invalidate_node_scope_cache(&state, &node_id);
 
     crate::routes::work::broadcast_assignment_changed(
         &node_id,
