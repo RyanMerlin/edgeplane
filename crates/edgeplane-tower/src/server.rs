@@ -7,7 +7,9 @@ use axum::{
 };
 use base64::Engine;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::{path::PathBuf, sync::Arc};
+use std::sync::RwLock;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::{auth, jwt, routes, state::{AppState, NodeInfo}};
@@ -43,6 +45,7 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
         jwt_decoding_key,
         admin_emails: config.admin_emails.clone(),
         admin_groups: config.admin_groups.clone(),
+        node_scope_cache: Arc::new(RwLock::new(HashMap::new())),
     });
 
     // Phase 2: API routes are nested under /api. The auth middleware is

@@ -212,9 +212,10 @@ pub async fn domain_id_for_gate(db: &PgPool, gate_id: &str) -> Result<String, Re
 // `authz_domain`. For the many `/work/...` read handlers that receive only a
 // `task_id` / `mission_id` / `agent_id` and do not reuse the resolved domain
 // afterward. Because they route through `authz_domain` → `authorized_for`, they
-// honor admin, node blanket-trust (until Workstream 2 scopes it), per-agent
-// `domain_scope`, and owners/contributors — so the daemon (node or owner
-// credential) and scoped agents still pass while cross-domain non-members 403.
+// honor admin, per-node dynamic `domain_scope` (Workstream 2 — the domains a
+// node currently hosts assigned agents in), per-agent `domain_scope`, and
+// owners/contributors — so the daemon (node or owner credential) and scoped
+// agents still pass while cross-domain non-members 403.
 // Do NOT hand-roll a local owners/contributors check here: mechanism-(2) style
 // checks ignore `domain_scope`/`auth_type` and would lock out the daemon and
 // scoped agents (see docs/plans/2026-07-10-authz-hardening.md § O2).

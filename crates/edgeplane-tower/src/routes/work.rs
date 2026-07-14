@@ -2072,6 +2072,18 @@ async fn enroll_agent(
     match row {
         Ok(r) => {
             let mut agent_json = row_to_agent(&r);
+            // This meshagent row may grant a node domain scope it didn't have
+            // before — invalidate both possible cache keys (the resolver
+            // matches on `runtime_node_id OR node_id`) so the node can act in
+            // this domain immediately rather than waiting out the TTL.
+            if let Some(ref n) = body.node_id {
+                crate::auth::invalidate_node_scope_cache(&state, n);
+            }
+            if let Some(ref n) = body.runtime_node_id
+                && body.node_id.as_deref() != Some(n.as_str())
+            {
+                crate::auth::invalidate_node_scope_cache(&state, n);
+            }
             // Notify the daemon for this node, if any, so it can spawn the
             // supervisor live. No-op when no `runtime_node_id` was set.
             if let Some(rn_id) = body.runtime_node_id.as_deref() {
@@ -2193,15 +2205,22 @@ async fn delete_agent(
     principal: Principal,
     Path(agent_id): Path<String>,
 ) -> impl IntoResponse {
-    let row =
-        sqlx::query("SELECT enrolled_by_subject, node_id, domain_id FROM meshagent WHERE id=$1")
-            .bind(&agent_id)
-            .fetch_optional(&state.db)
-            .await;
-    let (enrolled_by, node_id, domain_id): (String, Option<String>, String) = match row {
+    let row = sqlx::query(
+        "SELECT enrolled_by_subject, node_id, runtime_node_id, domain_id FROM meshagent WHERE id=$1",
+    )
+    .bind(&agent_id)
+    .fetch_optional(&state.db)
+    .await;
+    let (enrolled_by, node_id, runtime_node_id, domain_id): (
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+    ) = match row {
         Ok(Some(r)) => (
             r.get("enrolled_by_subject"),
             r.get::<Option<String>, _>("node_id"),
+            r.get::<Option<String>, _>("runtime_node_id"),
             r.get("domain_id"),
         ),
         Ok(None) => return not_found("Agent not found"),
@@ -2228,6 +2247,19 @@ async fn delete_agent(
     {
         tracing::error!("delete_agent delete: {e}");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    // This may have been the last meshagent row linking either node id to
+    // `domain_id` — invalidate both possible node-scope cache keys (the
+    // resolver matches on `runtime_node_id OR node_id`) so a node doesn't
+    // keep cached access to a domain it no longer operates.
+    if let Some(ref n) = node_id {
+        crate::auth::invalidate_node_scope_cache(&state, n);
+    }
+    if let Some(ref n) = runtime_node_id
+        && node_id.as_deref() != Some(n.as_str())
+    {
+        crate::auth::invalidate_node_scope_cache(&state, n);
     }
 
     // Change 13: revoke outstanding agent tokens immediately on delete so the

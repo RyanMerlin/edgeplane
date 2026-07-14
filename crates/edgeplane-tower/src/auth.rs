@@ -8,8 +8,9 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use crate::models::domain::Domain;
 use crate::state::AppState;
@@ -35,6 +36,69 @@ pub(crate) fn is_admin_groups(groups: &[String], admin_groups: &HashSet<String>)
     groups.iter().any(|g| admin_groups.contains(g))
 }
 
+const NODE_SCOPE_CACHE_TTL: Duration = Duration::from_secs(15);
+
+fn cached_node_scope(
+    cache: &RwLock<HashMap<String, (Instant, Vec<String>)>>,
+    raw_node_id: &str,
+) -> Option<Vec<String>> {
+    let cache = cache.read().ok()?;
+    let (inserted_at, scope) = cache.get(raw_node_id)?;
+    if inserted_at.elapsed() < NODE_SCOPE_CACHE_TTL {
+        Some(scope.clone())
+    } else {
+        None
+    }
+}
+
+pub(crate) fn invalidate_node_scope_cache(state: &AppState, raw_node_id: &str) {
+    if raw_node_id.trim().is_empty() {
+        return;
+    }
+    match state.node_scope_cache.as_ref().write() {
+        Ok(mut cache) => {
+            cache.remove(raw_node_id);
+        }
+        Err(_) => tracing::warn!(node_id = raw_node_id, "node scope cache poisoned during invalidation"),
+    }
+}
+
+async fn resolve_node_domain_scope(state: &AppState, raw_node_id: &str) -> Vec<String> {
+    if raw_node_id.trim().is_empty() {
+        return Vec::new();
+    }
+
+    if let Some(scope) = cached_node_scope(state.node_scope_cache.as_ref(), raw_node_id) {
+        return scope;
+    }
+
+    let scope = match sqlx::query_scalar::<_, String>(
+        "SELECT DISTINCT domain_id \
+         FROM meshagent \
+         WHERE (runtime_node_id = $1 OR node_id = $1) \
+           AND NULLIF(btrim(domain_id), '') IS NOT NULL \
+         ORDER BY domain_id",
+    )
+    .bind(raw_node_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(scope) => scope,
+        Err(e) => {
+            tracing::warn!(node_id = raw_node_id, error = %e, "failed to resolve node domain scope");
+            return Vec::new();
+        }
+    };
+
+    if let Ok(mut cache) = state.node_scope_cache.as_ref().write() {
+        cache.insert(raw_node_id.to_string(), (Instant::now(), scope.clone()));
+    } else {
+        tracing::warn!(node_id = raw_node_id, "node scope cache poisoned during update");
+    }
+
+    scope
+}
+
 /// Caller identity extracted from request headers.
 ///
 /// Note: `auth_type` is one of `"session"`, `"service_account"`, `"node"`, or `"agent"`.
@@ -51,8 +115,9 @@ pub struct Principal {
     pub session_id: Option<i32>,
     /// One of: "session", "service_account", "node", "agent".
     pub auth_type: String,
-    /// Domain ids this principal is intrinsically authorized for (per-agent JWT).
-    /// Empty for session/service_account/node.
+    /// Domain ids this principal is intrinsically authorized for.
+    /// Empty for session/service_account; populated dynamically for node and
+    /// agent principals.
     pub domain_scope: Vec<String>,
 }
 
@@ -137,12 +202,13 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                     if let Some(row) = row {
                         let revoked: bool = row.get("revoked");
                         if !revoked {
+                            let domain_scope = resolve_node_domain_scope(state, &claims.node_id).await;
                             return Ok(Principal {
                                 subject: claims.sub,
                                 is_admin: false,
                                 session_id: None,
                                 auth_type: "node".into(),
-                                domain_scope: Vec::new(),
+                                domain_scope,
                             });
                         }
                     }
@@ -358,9 +424,8 @@ pub fn split_csv(s: &str) -> Vec<String> {
 ///
 /// Authorization order (first match wins):
 /// 1. Admin flag — unrestricted access everywhere.
-/// 2. Node auth_type — first-party infra is full-trust (scope restriction comes in a later phase).
-/// 3. Per-agent domain_scope JWT claim — explicit domain enrollment.
-/// 4. Owners/contributors membership — lowercased subject match.
+/// 2. domain_scope membership — explicit enrollment for agents and nodes.
+/// 3. Owners/contributors membership — lowercased subject match.
 pub fn authorized_for(
     domain_id: &str,
     owners: &str,
@@ -369,9 +434,6 @@ pub fn authorized_for(
 ) -> bool {
     if p.is_admin {
         return true;
-    }
-    if p.auth_type == "node" {
-        return true; // first-party infra, full-trust (P0; §5 scopes later)
     }
     if p.domain_scope.iter().any(|d| d == domain_id) {
         return true;
@@ -410,9 +472,14 @@ mod authz_tests {
         assert!(authorized_for("d1", "", "", &principal("x@x.com", true, "session", &[])));
     }
     #[test]
-    fn node_is_full_trust_authorized_anywhere() {
-        let p = principal("node:node-0", false, "node", &[]);
+    fn node_authorized_only_in_scope() {
+        let p = principal("node:node-0", false, "node", &["d1"]);
         assert!(authorized_for("d1", "", "", &p));
+        assert!(!authorized_for("d2", "", "", &p));
+
+        let empty = principal("node:node-1", false, "node", &[]);
+        assert!(!authorized_for("d1", "", "", &empty));
+        assert!(!authorized_for("d2", "", "", &empty));
         assert!(is_full_trust(&p));
     }
     #[test]
