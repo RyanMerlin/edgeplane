@@ -14,6 +14,16 @@ use uuid::Uuid;
 
 use crate::{auth::Principal, state::AppState};
 
+/// Upper bound on a launch session token's TTL. Matches `routes/auth.rs`'s
+/// MAX_TTL_HOURS (10 years); expiry only bounds the leak window.
+const MAX_LAUNCH_TTL_HOURS: i64 = 87_600;
+
+/// Structural bounds on caller-supplied capability scope. `capability_scope` is
+/// not yet enforced at auth time; these caps prevent an unbounded/oversized scope
+/// from being persisted (defense-in-depth, not a semantic allowlist).
+const MAX_SCOPE_ENTRIES: usize = 64;
+const MAX_SCOPE_TOTAL_LEN: usize = 4096;
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         // Targets
@@ -357,10 +367,40 @@ async fn create_launch(
     principal: Principal,
     Json(body): Json<LaunchCreate>,
 ) -> impl IntoResponse {
-    let capability_scope = body.capability_scope.join(",");
+    // Minting a full-trust session token from a domain-scoped agent or a first-party
+    // node credential would be privilege escalation. Only interactive sessions /
+    // service accounts may create launches (mirrors create_join_token).
+    if matches!(principal.auth_type.as_str(), "node" | "agent") {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "node and agent credentials cannot create launches"})),
+        )
+            .into_response();
+    }
+
+    let ttl_hours = body.ttl_hours.clamp(1, MAX_LAUNCH_TTL_HOURS);
+    let capability_scope = {
+        let mut entries: Vec<String> = body
+            .capability_scope
+            .iter()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .take(MAX_SCOPE_ENTRIES)
+            .map(|s| s.to_string())
+            .collect();
+        let mut joined = entries.join(",");
+        if joined.len() > MAX_SCOPE_TOTAL_LEN {
+            // Trim on entry boundaries so we never store a partial token.
+            while joined.len() > MAX_SCOPE_TOTAL_LEN && !entries.is_empty() {
+                entries.pop();
+                joined = entries.join(",");
+            }
+        }
+        joined
+    };
 
     let (session_id, raw_token) =
-        match issue_session_token(&state.db, &principal.subject, body.ttl_hours, &capability_scope)
+        match issue_session_token(&state.db, &principal.subject, ttl_hours, &capability_scope)
             .await
         {
             Ok(v) => v,

@@ -1,6 +1,6 @@
 # Authorization Hardening — Plan
 
-**Status (2026-07-14):** the READ + messaging IDORs are **shipped, deployed, and live-red-teamed** (Groups A, B, E-feedback, G). **Remaining in Workstream 1: Groups C, D, E-remainder, F** — Group D (`create_launch`) is a live **HIGH-severity privilege-escalation** gap and should be next. Then Workstream 2.
+**Status (2026-07-14):** the READ + messaging IDORs are **shipped, deployed, and live-red-teamed** (Groups A, B, E-feedback, G). **Group D** (`create_launch` privilege escalation) is **fixed + tested + Opus-reviewed (SHIP)**, PR open, prod red-team pending post-deploy. **Remaining in Workstream 1: Groups C, E-remainder, F.** Then Workstream 2 (node domain-scoping) and the **delegated-session** design item (see below). 
 **Owner:** Merlin + Aria (engineer).
 **Origin:** claims-integrity audit (2026-07-09/10). A tower authorization-surface audit
 turned up (1) pre-existing broken-access-control gaps affecting *all* principals and
@@ -19,6 +19,7 @@ red-team probes against a live tower and a `rust-reviewer` (Opus) pass before me
 | #98 | **Group E (feedback)** + **Group G (ingestion)** reads | ✅ 20/20 run |
 | #99 | **Group B** — delete 7 dead `agents.rs` handlers + gate 4 write mutations | integration-tested |
 | #100 | **Group B Tier-3** — gate `list_messages`/`send_message`/`attach_domain` + `is_self_control_plane_agent` bridge | ✅ 5/5 run |
+| (PR open) | **Group D** — gate `create_launch` (reject node/agent) + clamp `ttl_hours`/`capability_scope` | integration-tested (6/6); prod red-team pending post-deploy |
 
 **Live red-team: 25/25 clean** (2 runs, real domain-scoped agent tokens vs the prod tower; all cross-domain → 403, all legitimate controls → 200; artifacts cleaned up).
 
@@ -132,9 +133,34 @@ via `authz_domain`. Removed from Group B scope.
 `create/update/publish_{artifact,doc}` skip the check when the parent mission `domain_id` is NULL.
 Change NULL-domain to deny (or admin-only), never allow.
 
-### Group D — `remotectl::create_launch` — ⬜ REMAINING · **live HIGH-severity (privilege escalation) — do this next**
-No gate + mints a session token with caller-supplied unclamped `ttl_hours`/`capability_scope`.
-Add authz; clamp TTL and capability scope to server maxima. **Privilege-escalation surface — careful.**
+### Group D — `remotectl::create_launch` — ✅ FIXED (PR open; prod red-team pending post-deploy)
+Was: no gate + minted a full-trust `usersession` token with caller-supplied unclamped
+`ttl_hours`/`capability_scope` (raw `ttl_hours` into `chrono::Duration::hours` → `i64::MAX`
+overflow-panic; negatives → past-dated tokens). Fix: reject `node`/`agent` auth_types (403,
+mirrors `create_join_token`); clamp `ttl_hours` to `[1, 87_600]`; structurally clamp
+`capability_scope` (≤64 entries, ≤4096 bytes, whole-entry trim — `capability_scope` is not
+yet enforced at auth time, so this is defense-in-depth, not a semantic allowlist). Tests:
+real agent/node JWTs → 403, session → 201, TTL + both scope-clamp paths verified. Opus
+review: SHIP.
+
+### Delegated-session design item — ⬜ NEW (surfaced investigating Group D; NOT a quick gate)
+`create_launch` is fixed, but two sibling paths let a **non-full-trust credential mint a
+full-trust `session` token** for its own subject — the same escalation class:
+- **`create_session` (`POST /auth/sessions`)** — ungated; ANY authenticated principal mints
+  a session. But this is *load-bearing*: the CLI `edgeplane auth login --non-interactive`
+  (`edgeplane/src/auth.rs:286`) deliberately exchanges `EP_AGENT_TOKEN` → a session, a **live
+  fleet bootstrap flow** (verified: this host's `state/session.json` was minted for an opaque
+  non-human subject). A blunt node/agent reject-gate here would **break bootstrap** — do NOT
+  copy the Group D gate.
+- **`create_launch` allowing `service_account`** — a `service_account` (itself not full-trust)
+  can still mint a full-trust session. Consistent with `create_join_token`; flagged for
+  conscious sign-off, same root cause.
+
+Root cause: a minted `usersession` always re-authenticates as `auth_type="session"` →
+`is_full_trust=true`, regardless of the presenting credential's privilege. Proper fix is a
+**delegated/scoped session** that inherits (never exceeds) the presenting credential's scope,
+not a per-endpoint type gate. Design alongside Workstream 2 (node domain-scoping) — both hinge
+on `Principal` carrying real scope. Owner decision pending (Merlin: track separately).
 
 ### Group E (lower) — unvalidated caller-supplied `domain_id`
 `runtime::create_job`, `budgets::record_usage_batch`: validate the caller may act on the supplied domain.
