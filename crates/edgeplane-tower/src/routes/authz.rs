@@ -116,6 +116,50 @@ pub async fn domain_id_for_control_plane_agent(
         .ok_or_else(|| deny(StatusCode::NOT_FOUND, "Agent not found"))
 }
 
+/// True iff `principal` IS the control-plane `agent` identified by `agent_id`
+/// (i.e. the agent acting on itself). Agent JWTs carry `sub = "agent:{meshagent.id}"`,
+/// so we bridge meshagent.id -> meshagent.agent_public_id and compare to the target
+/// agent.public_id. Only `auth_type == "agent"` principals can be "self"; admin /
+/// session / node are handled separately by callers. Fail-closed: any DB error,
+/// missing row, or NULL bridge column returns false.
+pub async fn is_self_control_plane_agent(db: &PgPool, p: &Principal, agent_id: i32) -> bool {
+    if p.auth_type != "agent" {
+        return false;
+    }
+
+    let mesh_id = p.subject.strip_prefix("agent:").unwrap_or(&p.subject);
+    let agent_public_id: Option<Option<String>> =
+        match sqlx::query_scalar("SELECT agent_public_id FROM meshagent WHERE id = $1")
+            .bind(mesh_id)
+            .fetch_optional(db)
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("is_self_control_plane_agent meshagent {mesh_id}: {e}");
+                return false;
+            }
+        };
+    let Some(agent_public_id) = agent_public_id.flatten() else {
+        return false;
+    };
+
+    let target_public_id: Option<String> =
+        match sqlx::query_scalar("SELECT public_id FROM agent WHERE id = $1")
+            .bind(agent_id)
+            .fetch_optional(db)
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("is_self_control_plane_agent agent {agent_id}: {e}");
+                return false;
+            }
+        };
+
+    target_public_id.as_deref() == Some(agent_public_id.as_str())
+}
+
 /// After domain authz: a non-full-trust caller may only act on a task it holds.
 /// Full-trust (session/node) and admin bypass. `lease_id` is the caller-presented
 /// claim_lease_id (None for endpoints that don't take one).

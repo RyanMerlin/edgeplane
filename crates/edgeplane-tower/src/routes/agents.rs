@@ -159,6 +159,8 @@ struct ListQuery {
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 
+// Intentionally an operational read (agent metadata, not secrets); gating would
+// break cross-domain `agent signal` recipient-lookup. Revisit if multi-tenant.
 async fn list_agents(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
@@ -189,6 +191,9 @@ async fn list_agents(
     }
 }
 
+// Authenticated self-registration is intended for the fleet enroll/signal flow
+// (agent-initiated `signal --remote` auto-creates a sender identity); restricting
+// principal type would break that. Reserved-name check stays. Revisit if multi-tenant.
 async fn create_agent(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
@@ -332,6 +337,8 @@ fn hex_id() -> String {
     hex::encode(bytes)
 }
 
+// Intentionally an operational read (agent metadata, not secrets); gating would
+// break cross-domain `agent signal` recipient-lookup. Revisit if multi-tenant.
 async fn get_agent(
     State(state): State<Arc<AppState>>,
     _principal: Principal,
@@ -505,7 +512,7 @@ struct AttachDomain {
 
 async fn attach_domain(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(ident): Path<AgentIdent>,
     Json(payload): Json<AttachDomain>,
 ) -> impl IntoResponse {
@@ -513,6 +520,17 @@ async fn attach_domain(
         Ok(id) => id,
         Err(resp) => return resp,
     };
+    if !principal.is_admin
+        && !crate::routes::authz::is_self_control_plane_agent(&state.db, &principal, agent_id).await
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "detail": "only an admin or the agent itself may change its domain"
+            })),
+        )
+            .into_response();
+    }
 
     let new_current_id: Option<String> = match &payload.domain_id {
         Some(mid) => {
@@ -554,7 +572,7 @@ async fn attach_domain(
 
 async fn send_message(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(from_ident): Path<AgentIdent>,
     Json(payload): Json<MessageSend>,
 ) -> impl IntoResponse {
@@ -562,6 +580,12 @@ async fn send_message(
         Ok(id) => id,
         Err(resp) => return resp,
     };
+    if let Err(resp) =
+        crate::routes::authz::authz_by_control_plane_agent(&state.db, &principal, from_id).await
+    {
+        return resp;
+    }
+    // Residual: intra-domain peer impersonation still needs a later ownership check.
     let to_id = match payload.to_agent_id.resolve_id(&state.db).await {
         Ok(Some(id)) => id,
         Ok(None) => return not_found("Recipient agent not found"),
@@ -586,7 +610,7 @@ async fn send_message(
 
 async fn list_messages(
     State(state): State<Arc<AppState>>,
-    _principal: Principal,
+    principal: Principal,
     Path(ident): Path<AgentIdent>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
@@ -594,6 +618,11 @@ async fn list_messages(
         Ok(id) => id,
         Err(resp) => return resp,
     };
+    if let Err(resp) =
+        crate::routes::authz::authz_by_control_plane_agent(&state.db, &principal, agent_id).await
+    {
+        return resp;
+    }
     let limit = q.limit.unwrap_or(50).min(200);
     let since_id = q.since_id.unwrap_or(0);
     match sqlx::query_as::<_, AgentMessage>(
