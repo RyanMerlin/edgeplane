@@ -1,6 +1,6 @@
 # Authorization Hardening — Plan
 
-**Status (2026-07-14):** **Workstream 1 is COMPLETE** — all groups (A, B, C, D, E, F, G) are shipped, deployed, and reviewed; the write-path priv-esc/IDOR gaps (D, C, E-remainder, F) landed in #102/#103/#104 (tower `sha-e2666eb`). **Remaining: Workstream 2** (node domain-scoping — replace the `auth.rs:373` blanket node-trust; `entities.md § Domain` change lands FIRST) and the **delegated-session** design item (see below). 
+**Status (2026-07-14):** **Workstream 1 and Workstream 2 are both COMPLETE.** W1: all groups (A, B, C, D, E, F, G) shipped, deployed, reviewed (#102/#103/#104, tower `sha-e2666eb`). W2: node domain-scoping shipped, deployed, and prod red-teamed (#105 docs, #106 code, tower `sha-34386f6a`). **Remaining: the delegated-session design item only** (see below) — owner decision pending.
 **Owner:** Merlin + Aria (engineer).
 **Origin:** claims-integrity audit (2026-07-09/10). A tower authorization-surface audit
 turned up (1) pre-existing broken-access-control gaps affecting *all* principals and
@@ -22,8 +22,10 @@ red-team probes against a live tower and a `rust-reviewer` (Opus) pass before me
 | #102 | **Group D** — gate `create_launch` (reject node/agent) + clamp `ttl_hours`/`capability_scope` | ✅ live 7/7 (agent→403, admin→201) |
 | #103 | **Group C** (NULL-domain fail-open artifact/doc writes) + **Group E-remainder** (`create_job` + `record_usage_batch` domain gate) | ✅ live 7/7 (E1/E2 cross-domain→403, own-domain→201/200) |
 | #104 | **Group F** — search readability substring-LIKE → exact membership (`authorized_for`) | integration-tested (7/7, incl. reverted-code regression proof) |
+| #105 | docs — `entities.md § Domain` update, lands before W2 code per the entity HARD RULE | n/a (docs only) |
+| #106 | **Workstream 2** — dynamic per-node domain scope, removes `auth.rs` blanket node full-trust; cache invalidated on assign/revoke/detach/enroll/delete | ✅ live 6/6 (own-domain→200, foreign-domain→403, admin control→200) |
 
-**Live red-team: 25/25 (reads) + 7/7 (D+E write-path, 2026-07-14, tower `sha-caec5a4`)** — real domain-scoped **agent** tokens vs the prod tower; all cross-domain/priv-esc → 403, all legitimate controls → 200/201; throwaway domain+agent+launch cleaned up. Groups C + F verified via real-JWT integration tests (seeding NULL-domain missions / substring-owner scenarios on prod is impractical) + deployed-sha == tested-code.
+**Live red-team: 25/25 (reads) + 7/7 (D+E write-path, 2026-07-14, tower `sha-caec5a4`) + 6/6 (W2 node-scoping, 2026-07-14, tower `sha-34386f6a`)** — real domain-scoped **agent** and **node** tokens vs the prod tower; all cross-domain/priv-esc → 403, all legitimate controls → 200/201; throwaway domains/agents/nodes/launches cleaned up. Groups C + F verified via real-JWT integration tests (seeding NULL-domain missions / substring-owner scenarios on prod is impractical) + deployed-sha == tested-code. W2: registered a throwaway node, assigned it an agent in domain D1 (creating the `meshagent` row the resolver reads), confirmed the node reaches D1 (`agents`/`roster` → 200) but is denied in a domain D2 it doesn't operate (`agents`/`messages`/`roster` → 403) — the exact regression the blanket-trust removal targets.
 
 ### Deferred residuals (low-risk for single-tenant; NOT bugs to chase now)
 - **`send_message` intra-domain impersonation** — the cross-domain case is gated; closing intra-domain fights the `signal.rs` shared-sender-peer design (would 403 agent-type `edgeplane agent signal`). Needs a signal-auth redesign, not a quick fix.
@@ -191,7 +193,7 @@ no-filter branch; resolve `get_job`'s mission → `authz_by_mission` (or admin).
 
 ---
 
-## Workstream 2 — Node domain-scoping (design approved: DYNAMIC)
+## Workstream 2 — Node domain-scoping — ✅ SHIPPED (#106; prod red-team 6/6)
 
 Confine a `node` principal to the domains it actually operates, replacing the `auth.rs:373`
 blanket `return true`.
@@ -215,6 +217,14 @@ blanket `return true`.
 Affects exactly the ~39 mechanism-(1) endpoints; a stolen node token is confined to that node's
 operating domains instead of the whole fleet.
 
+**As-built (2026-07-14):** 15s-TTL cache, fail-closed on any DB error/lock-poison. `rust-reviewer`
+(Opus) static pass found no lock/async/panic/fail-open defects in the resolver itself, but flagged
+two invalidation gaps beyond the three the design named (`assign_node_agent`/`revoke_node_agent`/
+`delete_node`): `enroll_agent` and `delete_agent` also mutate a node's `meshagent` footprint and
+were not invalidating. Both closed in #106, keyed off **both** `node_id` and `runtime_node_id`
+(a meshagent row's node association can live in either column). Live red-team (6/6) confirms the
+shipped behavior: node reaches its operating domain, denied everywhere else.
+
 ---
 
 ## Validation strategy (both workstreams)
@@ -233,10 +243,9 @@ operating domains instead of the whole fleet.
 ## Sequencing
 
 0. **[O1]/[O2] traces** — DONE (resolved 2026-07-10).
-1. **Workstream 1** — ✅ A (#97), B (#99/#100), E-feedback + G (#98), mission-brief (#96) shipped + red-teamed.
-   **Remaining, in priority order:** **Group D** (`create_launch` — HIGH, privilege escalation) → **Group C** (NULL-domain artifact/doc writes) → **Group E-remainder** (`runtime::create_job`, `budgets::record_usage_batch` caller-supplied `domain_id`) → **Group F** (`search.rs` readability). Each: caller-safety + tests + live red-team (reuse `scratchpad/redteam.sh` pattern) + review.
-2. **Workstream 2** — node domain-scoping. **entities.md § Domain change lands FIRST** (per the entity HARD RULE), then resolver → `auth.rs:373` → tests → red-team → review. This confines a stolen node token to its operating domains instead of the whole fleet.
-3. Optional consolidation: migrate mechanism-(2) files onto the shared `authorized_for_domain`.
+1. **Workstream 1** — ✅ COMPLETE. A (#97), B (#99/#100), E-feedback + G (#98), mission-brief (#96), D (#102), C + E-remainder (#103), F (#104) — all shipped + red-teamed.
+2. **Workstream 2** — ✅ COMPLETE (#105 docs, #106 code). Node domain-scoping shipped, deployed (`sha-34386f6a`), prod red-teamed 6/6.
+3. **Remaining:** the delegated-session design item (owner decision pending — see above). Optional consolidation (migrate mechanism-(2) files onto the shared `authorized_for_domain`) remains unscheduled.
 
 Do not batch across groups — land each with its own tests and review so a regression is bisectable.
 New authz helpers now available for the remaining groups: `authz_domain`, `authz_by_task/mission/agent`, `authz_by_control_plane_agent`, `domain_id_for_control_plane_agent`, `is_self_control_plane_agent` (all in `routes/authz.rs`). Test harness: `common::setup()` + `seed_*` helpers in `crates/edgeplane-tower/tests/common/mod.rs`.
