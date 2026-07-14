@@ -1,7 +1,6 @@
 # Authorization Hardening — Plan
 
-**Status:** design approved; implementation not started.
-**Branch:** `fix/claims-integrity-and-onboarding` (may split to `fix/authz-hardening`).
+**Status (2026-07-14):** the READ + messaging IDORs are **shipped, deployed, and live-red-teamed** (Groups A, B, E-feedback, G). **Remaining in Workstream 1: Groups C, D, E-remainder, F** — Group D (`create_launch`) is a live **HIGH-severity privilege-escalation** gap and should be next. Then Workstream 2.
 **Owner:** Merlin + Aria (engineer).
 **Origin:** claims-integrity audit (2026-07-09/10). A tower authorization-surface audit
 turned up (1) pre-existing broken-access-control gaps affecting *all* principals and
@@ -10,6 +9,23 @@ first**, then scope node credentials by domain.
 
 This is a **security-seam** effort. Per repo policy every phase ends with cross-boundary
 red-team probes against a live tower and a `rust-reviewer` (Opus) pass before merge.
+
+## Shipped log (all squash-merged to main + auto-deployed; tower `sha-7b9d5a8`)
+
+| PR | Scope | Red-team |
+|----|-------|----------|
+| #96 | mission-brief flat GET/PUT read+write IDOR | ✅ 20/20 run |
+| #97 | **Group A** — 13 cross-domain read IDORs | ✅ 20/20 run |
+| #98 | **Group E (feedback)** + **Group G (ingestion)** reads | ✅ 20/20 run |
+| #99 | **Group B** — delete 7 dead `agents.rs` handlers + gate 4 write mutations | integration-tested |
+| #100 | **Group B Tier-3** — gate `list_messages`/`send_message`/`attach_domain` + `is_self_control_plane_agent` bridge | ✅ 5/5 run |
+
+**Live red-team: 25/25 clean** (2 runs, real domain-scoped agent tokens vs the prod tower; all cross-domain → 403, all legitimate controls → 200; artifacts cleaned up).
+
+### Deferred residuals (low-risk for single-tenant; NOT bugs to chase now)
+- **`send_message` intra-domain impersonation** — the cross-domain case is gated; closing intra-domain fights the `signal.rs` shared-sender-peer design (would 403 agent-type `edgeplane agent signal`). Needs a signal-auth redesign, not a quick fix.
+- **`get_agent`/`list_agents`/`create_agent`** — intentionally left as operational reads / self-register (single-tenant); revisit if multi-tenant.
+- ~~Daemon `/agents/{id}/heartbeat|status|notify` 404 bug~~ — **NOT A BUG** (verified 2026-07-14): `solo_supervisor.rs` already uses correct `/work/agents/…` paths.
 
 ---
 
@@ -112,11 +128,11 @@ web dashboard and daemon call these as owner/session (likely) before gating.
 `get_mission_brief_flat` read IDOR), so #96 gates both flat endpoints on the mission's domain
 via `authz_domain`. Removed from Group B scope.
 
-### Group C — NULL-domain fail-open (`artifacts.rs`, `docs.rs`)
+### Group C — NULL-domain fail-open (`artifacts.rs`, `docs.rs`) — ⬜ REMAINING
 `create/update/publish_{artifact,doc}` skip the check when the parent mission `domain_id` is NULL.
 Change NULL-domain to deny (or admin-only), never allow.
 
-### Group D — `remotectl::create_launch`
+### Group D — `remotectl::create_launch` — ⬜ REMAINING · **live HIGH-severity (privilege escalation) — do this next**
 No gate + mints a session token with caller-supplied unclamped `ttl_hours`/`capability_scope`.
 Add authz; clamp TTL and capability scope to server maxima. **Privilege-escalation surface — careful.**
 
@@ -180,10 +196,11 @@ operating domains instead of the whole fleet.
 
 ## Sequencing
 
-0. **[O1]/[O2] traces** — daemon per-call credential; confirm the shared-helper migration is safe.
-1. **Workstream 1** — Group A → C → B → D (→ E/F/G), each with caller-safety + tests + red-team + review.
-   (Group B's `put_mission_brief_flat` item already landed in PR #96; E adds `feedback.rs`; G is `ingestion.rs`.)
-2. **Workstream 2** — entities.md § Domain → resolver → `auth.rs:373` → tests → red-team → review.
+0. **[O1]/[O2] traces** — DONE (resolved 2026-07-10).
+1. **Workstream 1** — ✅ A (#97), B (#99/#100), E-feedback + G (#98), mission-brief (#96) shipped + red-teamed.
+   **Remaining, in priority order:** **Group D** (`create_launch` — HIGH, privilege escalation) → **Group C** (NULL-domain artifact/doc writes) → **Group E-remainder** (`runtime::create_job`, `budgets::record_usage_batch` caller-supplied `domain_id`) → **Group F** (`search.rs` readability). Each: caller-safety + tests + live red-team (reuse `scratchpad/redteam.sh` pattern) + review.
+2. **Workstream 2** — node domain-scoping. **entities.md § Domain change lands FIRST** (per the entity HARD RULE), then resolver → `auth.rs:373` → tests → red-team → review. This confines a stolen node token to its operating domains instead of the whole fleet.
 3. Optional consolidation: migrate mechanism-(2) files onto the shared `authorized_for_domain`.
 
 Do not batch across groups — land each with its own tests and review so a regression is bisectable.
+New authz helpers now available for the remaining groups: `authz_domain`, `authz_by_task/mission/agent`, `authz_by_control_plane_agent`, `domain_id_for_control_plane_agent`, `is_self_control_plane_agent` (all in `routes/authz.rs`). Test harness: `common::setup()` + `seed_*` helpers in `crates/edgeplane-tower/tests/common/mod.rs`.
