@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="edgeplane/assets/edgeplane-git-hero-img.png" alt="Edgeplane" width="100%">
+  <img src="[edgeplane/assets/edgeplane-git-hero-img.png](https://github.com/RyanMerlin/edgeplane/blob/1c7b17682c8b1f16095e7545c264af4bbf9eb568/assets/edgeplane-git-hero-img.png)" alt="Edgeplane" width="100%">
 </p>
 
 # EdgePlane
