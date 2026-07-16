@@ -5,13 +5,15 @@ use std::sync::{Arc, RwLock};
 
 /// Thin HTTP client with bearer auth for the Edgeplane backend.
 ///
-/// `api_prefix` is prepended to every path passed into `get`/`post`/etc.
-/// Default is empty — the controlplane serves agent/domain/mission/task
-/// routes at the root (e.g. `/agents/{id}/messages`). Earlier versions of
-/// edgeplaned hardcoded a `/work/` prefix that no longer matches the
-/// controlplane router; setting `api_prefix = "/work"` reproduces the
-/// historical behaviour for environments that still front the API behind
-/// that path. See `docs/plans/2026-05-11-agent-public-id-edgeplaned-fix.md`.
+/// `api_prefix` is prepended to every path passed into `get`/`post`/etc. The
+/// daemon sets it to `/api` (see `edgeplaned-bin/src/config.rs`, env-overridable
+/// via `EP_API_PREFIX`) to match the tower's `.nest("/api", ...)` mount.
+///
+/// Within that `/api` root, MeshTask dispatch operations (claim, heartbeat,
+/// progress, complete, fail, and mission task listing) live under a further
+/// `/work` segment — see `edgeplane-tower/src/routes/work.rs`'s `router()`.
+/// Callers of those operations must include the `/work` segment explicitly in
+/// the path passed to `get`/`post`/etc.; it is not part of `api_prefix`.
 ///
 /// The bearer token is held in an `Arc<RwLock<String>>` so that all clones
 /// of a `BackendClient` share the same live credential.  Calling `set_token`
