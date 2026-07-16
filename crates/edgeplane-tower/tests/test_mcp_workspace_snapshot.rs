@@ -73,6 +73,12 @@ async fn load_mission_workspace_reflects_meshtask_not_legacy_task() {
     );
     assert_eq!(tasks[0]["id"], task_id);
     assert_eq!(tasks[0]["status"], "ready");
+    // Lock in the new meshtask-derived fields (seed_ready_task's known values),
+    // not just id/status — catches a same-type wrong-column mapping that a
+    // 500/panic wouldn't (e.g. priority silently pointed at another i32 column).
+    assert_eq!(tasks[0]["priority"], 0);
+    assert_eq!(tasks[0]["claim_policy"], "any");
+    assert_eq!(tasks[0]["claimed_by_agent_id"], "");
 }
 
 #[tokio::test]

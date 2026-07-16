@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 /// Thin HTTP client with bearer auth for the Edgeplane backend.
 ///
 /// `api_prefix` is prepended to every path passed into `get`/`post`/etc. The
-/// daemon sets it to `/api` (see `edgeplaned-bin/src/config.rs`, env-overridable
+/// daemon sets it to `/api` (see `edgeplaned-bin/src/daemon.rs`, env-overridable
 /// via `EP_API_PREFIX`) to match the tower's `.nest("/api", ...)` mount.
 ///
 /// Within that `/api` root, MeshTask dispatch operations (claim, heartbeat,
