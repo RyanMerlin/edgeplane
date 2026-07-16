@@ -1937,8 +1937,8 @@ fn lease_row_to_json(r: &sqlx::postgres::PgRow) -> Value {
 
 async fn build_workspace_snapshot(db: &sqlx::PgPool, domain_id: &str, mission_id: &str) -> Value {
     let tasks = sqlx::query(
-        "SELECT id, public_id, title, description, status, owner, priority, labels, updated_at \
-         FROM task WHERE mission_id=$1 AND status NOT IN ('done','cancelled') ORDER BY updated_at DESC LIMIT 200"
+        "SELECT id, title, description, status, priority, claimed_by_agent_id, claim_policy, updated_at \
+         FROM meshtask WHERE mission_id=$1 AND status NOT IN ('finished','cancelled') ORDER BY updated_at DESC LIMIT 200"
     )
     .bind(mission_id).fetch_all(db).await.unwrap_or_default();
 
@@ -1970,12 +1970,13 @@ async fn build_workspace_snapshot(db: &sqlx::PgPool, domain_id: &str, mission_id
         "domain_id": domain_id,
         "mission_id": mission_id,
         "tasks": tasks.iter().map(|r| json!({
-            "id": r.get::<i32,_>("id"),
-            "public_id": r.try_get::<String,_>("public_id").unwrap_or_default(),
+            "id": r.get::<String,_>("id"),
             "title": r.get::<String,_>("title"),
             "description": r.try_get::<String,_>("description").unwrap_or_default(),
             "status": r.get::<String,_>("status"),
-            "owner": r.try_get::<String,_>("owner").unwrap_or_default(),
+            "priority": r.get::<i32,_>("priority"),
+            "claimed_by_agent_id": r.try_get::<String,_>("claimed_by_agent_id").unwrap_or_default(),
+            "claim_policy": r.get::<String,_>("claim_policy"),
             "updated_at": r.get::<chrono::NaiveDateTime,_>("updated_at"),
         })).collect::<Vec<_>>(),
         "docs": docs.iter().map(|r| json!({

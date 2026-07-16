@@ -40,13 +40,13 @@ pub async fn poll_ready_tasks(
     _capabilities: &[edgeplaned_core::types::Capability],
 ) -> Result<Vec<MeshTaskRecord>> {
     let mut ready: Vec<MeshTaskRecord> = client
-        .get(&format!("/missions/{mission_id}/tasks?status=ready"))
+        .get(&format!("/work/missions/{mission_id}/tasks?status=ready"))
         .await
         .unwrap_or_default();
 
     // Also fetch broadcast tasks that are already running so every agent joins.
     let broadcast_running: Vec<MeshTaskRecord> = client
-        .get(&format!("/missions/{mission_id}/tasks?status=running"))
+        .get(&format!("/work/missions/{mission_id}/tasks?status=running"))
         .await
         .unwrap_or_default();
 
@@ -63,7 +63,7 @@ pub async fn poll_ready_tasks(
 /// status set to "claimed") and the `claim_lease_id` returned by the backend.
 pub async fn claim_task(client: &BackendClient, task_id: &str) -> Result<ClaimResult> {
     let resp: serde_json::Value = client
-        .post_empty(&format!("/tasks/{task_id}/claim"))
+        .post_empty(&format!("/work/tasks/{task_id}/claim"))
         .await?;
 
     let claim_lease_id = resp
@@ -91,7 +91,7 @@ pub async fn heartbeat_task(
         body["claim_lease_id"] = serde_json::Value::String(lid.to_string());
     }
     let resp = client
-        .raw_post_no_throw(&format!("/tasks/{task_id}/heartbeat"), &body)
+        .raw_post_no_throw(&format!("/work/tasks/{task_id}/heartbeat"), &body)
         .await
         .map_err(TaskError::Other)?;
 
@@ -117,7 +117,7 @@ pub async fn post_progress(
         "payload_json": event.payload.to_string(),
     });
     client
-        .raw_post(&format!("/tasks/{task_id}/progress"), &body)
+        .raw_post(&format!("/work/tasks/{task_id}/progress"), &body)
         .await?;
     Ok(())
 }
@@ -136,7 +136,7 @@ pub async fn complete_task(
         body["claim_lease_id"] = serde_json::Value::String(lid.to_string());
     }
     let resp = client
-        .raw_post_no_throw(&format!("/tasks/{task_id}/complete"), &body)
+        .raw_post_no_throw(&format!("/work/tasks/{task_id}/complete"), &body)
         .await
         .map_err(TaskError::Other)?;
 
@@ -160,7 +160,7 @@ pub async fn fetch_dependency_results(
     let mut out = Vec::with_capacity(depends_on.len());
     for dep_id in depends_on {
         match client
-            .get::<Vec<serde_json::Value>>(&format!("/tasks/{dep_id}/progress?since_seq=0"))
+            .get::<Vec<serde_json::Value>>(&format!("/work/tasks/{dep_id}/progress?since_seq=0"))
             .await
         {
             Ok(events) => {
@@ -214,7 +214,7 @@ pub async fn fail_task(
         body["claim_lease_id"] = serde_json::Value::String(lid.to_string());
     }
     let resp = client
-        .raw_post_no_throw(&format!("/tasks/{task_id}/fail"), &body)
+        .raw_post_no_throw(&format!("/work/tasks/{task_id}/fail"), &body)
         .await
         .map_err(TaskError::Other)?;
 
@@ -223,4 +223,167 @@ pub async fn fail_task(
     }
     resp.error_for_status().map_err(|e| TaskError::Other(anyhow!(e)))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Every field of MeshTaskRecord, explicit, so JSON deserialization can't
+    /// silently rely on serde defaults we haven't verified.
+    fn mesh_task_json(id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "mission_id": "m-1",
+            "domain_id": "d-1",
+            "title": "test",
+            "description": "",
+            "status": "claimed",
+            "claim_policy": "exclusive",
+            "required_capabilities": [],
+            "lease_expires_at": null,
+            "claim_lease_id": "lease-abc",
+            "depends_on": [],
+            "produces": {},
+            "consumes": {}
+        })
+    }
+
+    #[tokio::test]
+    async fn poll_ready_tasks_hits_work_prefixed_paths() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/work/missions/m-1/tasks"))
+            .and(query_param("status", "ready"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(vec![mesh_task_json("t-1")]))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/work/missions/m-1/tasks"))
+            .and(query_param("status", "running"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(Vec::<serde_json::Value>::new()))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = BackendClient::new(mock_server.uri(), "test-token");
+        let result = poll_ready_tasks(&client, "m-1", &[]).await;
+
+        assert!(result.is_ok(), "poll_ready_tasks should succeed: {:?}", result.err());
+        assert_eq!(result.unwrap().len(), 1, "should return the one ready task from the mock");
+        mock_server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn claim_task_hits_work_prefixed_path() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/work/tasks/t-1/claim"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(mesh_task_json("t-1")))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = BackendClient::new(mock_server.uri(), "test-token");
+        let result = claim_task(&client, "t-1").await;
+
+        assert!(result.is_ok(), "claim_task should succeed against /work/tasks/{{id}}/claim: {:?}", result.err());
+        assert_eq!(result.unwrap().claim_lease_id.as_deref(), Some("lease-abc"));
+    }
+
+    #[tokio::test]
+    async fn heartbeat_task_hits_work_prefixed_path() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/work/tasks/t-1/heartbeat"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = BackendClient::new(mock_server.uri(), "test-token");
+        let result = heartbeat_task(&client, "t-1", Some("lease-abc")).await;
+
+        assert!(result.is_ok(), "heartbeat_task should succeed against /work/tasks/{{id}}/heartbeat: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn post_progress_hits_work_prefixed_path() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/work/tasks/t-1/progress"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = BackendClient::new(mock_server.uri(), "test-token");
+        let event = edgeplaned_core::progress::ProgressEvent {
+            event_type: edgeplaned_core::progress::ProgressEventType::PhaseStarted,
+            phase: Some("test-phase".to_string()),
+            step: None,
+            summary: "test".to_string(),
+            payload: serde_json::json!({}),
+        };
+        let result = post_progress(&client, "t-1", &event).await;
+
+        assert!(result.is_ok(), "post_progress should succeed against /work/tasks/{{id}}/progress: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn complete_task_hits_work_prefixed_path() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/work/tasks/t-1/complete"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = BackendClient::new(mock_server.uri(), "test-token");
+        let result = complete_task(&client, "t-1", Some("lease-abc"), None).await;
+
+        assert!(result.is_ok(), "complete_task should succeed against /work/tasks/{{id}}/complete: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn fail_task_hits_work_prefixed_path() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/work/tasks/t-1/fail"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = BackendClient::new(mock_server.uri(), "test-token");
+        let result = fail_task(&client, "t-1", Some("lease-abc"), "test error").await;
+
+        assert!(result.is_ok(), "fail_task should succeed against /work/tasks/{{id}}/fail: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn fetch_dependency_results_hits_work_prefixed_path() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/work/tasks/dep-1/progress"))
+            .and(query_param("since_seq", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(vec![serde_json::json!({
+                "event_type": "phase_finished",
+                "summary": "done",
+                "occurred_at": "2026-07-16T00:00:00Z"
+            })]))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = BackendClient::new(mock_server.uri(), "test-token");
+        let results = fetch_dependency_results(&client, &["dep-1".to_string()]).await;
+
+        assert_eq!(results.len(), 1, "should surface the one phase_finished event from the mock");
+        assert_eq!(results[0].summary, "done");
+    }
 }
