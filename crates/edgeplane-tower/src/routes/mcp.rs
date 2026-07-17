@@ -373,8 +373,8 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let id = uuid::Uuid::new_v4().to_string();
             match sqlx::query(
                 "INSERT INTO meshtask (id, mission_id, domain_id, title, description, input_json, \
-                 priority, status, created_by_subject, created_at, updated_at) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,'ready',$8,$9,$9)",
+                 priority, status, claim_policy, version_counter, created_by_subject, created_at, updated_at) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,'ready','first_claim',0,$8,$9,$9)",
             )
             .bind(&id)
             .bind(&mission_id)

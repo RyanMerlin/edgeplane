@@ -9,7 +9,11 @@ use chrono::Utc;
 use sqlx::Row;
 use std::sync::Arc;
 
-use crate::{auth::Principal, routes::agents::is_reserved_agent_name, state::AppState};
+use crate::{
+    auth::Principal,
+    routes::agents::{generate_public_id, is_reserved_agent_name},
+    state::AppState,
+};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -252,14 +256,16 @@ async fn find_or_create_agent(state: &Arc<AppState>, subject: &str, capability: 
         return Ok(Some(row.get("id")));
     }
     let now = Utc::now().naive_utc();
+    let public_id = generate_public_id(subject);
     let id: i32 = sqlx::query_scalar(
-        "INSERT INTO agent (name, capabilities, status, metadata, created_at, updated_at, last_seen_at) \
-         VALUES ($1,$2,'offline','{}', $3,$3,$3) \
+        "INSERT INTO agent (name, capabilities, status, metadata, created_at, updated_at, last_seen_at, public_id) \
+         VALUES ($1,$2,'offline','{}', $3,$3,$3,$4) \
          ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id",
     )
     .bind(subject)
     .bind(if capability.is_empty() { "unknown" } else { capability })
     .bind(now)
+    .bind(&public_id)
     .fetch_one(&state.db)
     .await?;
     Ok(Some(id))
