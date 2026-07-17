@@ -2915,7 +2915,11 @@ async fn global_sse(State(state): State<Arc<AppState>>, principal: Principal) ->
                     "event_type": row.get::<String, _>("event_type"),
                     "phase": row.get::<Option<String>, _>("phase"),
                     "step": row.get::<Option<String>, _>("step"),
-                    "summary": row.get::<String, _>("summary"),
+                    // summary is nullable `text` (rows written via the MCP
+                    // progress_mesh_task path never populate it) — decoding as
+                    // non-Option panics via Row::get, same class as the
+                    // meshmessage/meshprogressevent fixes in #113.
+                    "summary": row.get::<Option<String>, _>("summary"),
                     "occurred_at": row.get::<chrono::NaiveDateTime, _>("occurred_at"),
                 });
                 let evt = Event::default()
