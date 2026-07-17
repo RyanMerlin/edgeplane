@@ -4,6 +4,29 @@ All notable changes to edgeplane, edgeplaned, and edgeplane-tower are recorded h
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.16.1] — 2026-07-17
+
+### Added
+
+- **`edgeplane task mesh <verb>` (#111).** CLI mirror of all 9 `mcp__edgeplane__*_mesh_task`
+  tools (`submit`/`claim`/`get`/`list`/`heartbeat`/`progress`/`complete`/`fail`/`block`),
+  closing the gap where the real, agent-claimable `meshtask` model was reachable only via
+  MCP or raw REST — EdgePlane's design goal is CLI-first, MCP only where no CLI equivalent
+  exists. Kept as a distinct `mesh` subcommand under `task` rather than folding into it,
+  since legacy `task create/list/show/update/delete` operates on the completely
+  disconnected, UI-only `task` table (see 0.16.0's #108 entry above).
+
+### Fixed
+
+- **`progress_mesh_task` MCP tool 500'd on every call (#111).** Its `meshprogressevent`
+  INSERT never set `seq` (NOT NULL, no DB default) — same missing-column class as #110.
+- **Progress-event sequence numbers have always been stuck at 0 (#111).** Both the new MCP
+  handler and the REST `post_progress` handler (the one `edgeplaned-work`'s daemon client
+  actually calls) decoded the `SELECT COALESCE(MAX(seq),-1)+1` query as `i64`, but `seq` is
+  Postgres `integer` (i32) — sqlx's runtime decode silently failed every time and fell
+  through to `unwrap_or(0)`. Every progress event ever posted, on either path, got `seq=0`
+  regardless of how many prior events existed for the task. Fixed the type in both files.
+
 ## [0.16.0] — 2026-07-17
 
 OSS hardening release: security hardening across auth, nodes, and the daemon install story;
