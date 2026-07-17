@@ -753,7 +753,10 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                     "from_agent_id": r.get::<String,_>("from_agent_id"),
                     "to_agent_id": r.get::<Option<String>,_>("to_agent_id"),
                     "channel": r.get::<String,_>("channel"),
-                    "body_json": r.get::<String,_>("body_json"),
+                    // body_json is nullable `text` — decoding as non-Option panics via
+                    // Row::get, same class as the row_to_message fix in #113 (this MCP
+                    // tool handler is a separate code path #113 didn't reach).
+                    "body_json": r.try_get::<Option<String>,_>("body_json").ok().flatten().unwrap_or_default(),
                     "read_at": r.get::<Option<chrono::NaiveDateTime>,_>("read_at"),
                 })).collect())),
                 Err(e) => { tracing::error!("mcp list_mesh_messages: {e}"); err_result("database_error") }
