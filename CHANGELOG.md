@@ -4,6 +4,36 @@ All notable changes to edgeplane, edgeplaned, and edgeplane-tower are recorded h
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [0.16.2] — 2026-07-17
+
+### Fixed
+
+- **Mesh-message read path could panic mid-request (#113).** Every table in the schema
+  types `id` as Postgres `integer` (i32), but 5 call sites across `edgeplane-tower`
+  decoded as `i64` or non-`Option` on a nullable column, causing a real thread panic
+  (`sqlx-core Row::get` → internal `try_get().unwrap()`) that surfaced as "Empty reply
+  from server". The worst of the 5 was `row_to_message` — the actual read path
+  `send_mesh_message`/`list_mesh_messages` (this fleet's inter-agent messaging) runs on.
+  All 5 sites fixed with regression tests; live-verified post-merge.
+- **Systemic audit of the integer-decode panic class (#114).** Followed up #113 with a
+  full pass over every `integer`-typed column (~90 across ~27 live tables) and every
+  sqlx decode call site in `edgeplane-tower`. Zero new integer-decode bugs found — but
+  the audit surfaced 2 more `Row::get` panics of the same mechanism on nullable `text`
+  columns, on code paths #113 didn't reach: `list_mesh_messages` MCP tool
+  (`meshmessage.body_json`) and the admin `GET /sse` stream (`meshprogressevent.summary`,
+  live-impactful since the MCP progress-submit path never populates it). Both fixed with
+  regression tests.
+- **`GET .../overlaps` always 500'd (#115).** Queried `overlapsuggestion` for
+  columns `score`/`reason` that don't exist — real columns are
+  `similarity_score`/`evidence`/`suggested_action`. Every call has 500'd since the route
+  was written; fixed to match the column names the MCP `get_overlap_suggestions` handler
+  already used correctly for the same table.
+- **`POST`/`GET /budgets` always failed (#115).** `BudgetPolicyCreate`/`row_to_policy`
+  referenced `token_hard_cap`/`token_soft_cap` columns that were never migrated —
+  inherited from the pre-fork MissionControl codebase, present since the very first
+  commit. Added migration `0013` (additive, nullable) to close the gap rather than
+  dropping the fields from the API contract.
+
 ## [0.16.1] — 2026-07-17
 
 ### Added
