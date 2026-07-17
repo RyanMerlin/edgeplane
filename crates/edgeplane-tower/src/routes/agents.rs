@@ -63,7 +63,7 @@ fn extract_metadata_fields(metadata: &str) -> (Option<String>, Option<String>) {
 /// doesn't collide with the previous one's identifier. Used only on the
 /// INSERT side of `create_agent`; the UPDATE path preserves the existing
 /// value because public_id is immutable after creation.
-fn generate_public_id(name: &str) -> String {
+pub(crate) fn generate_public_id(name: &str) -> String {
     let raw = uuid::Uuid::new_v4().to_string();
     // First 8 hex chars of the UUID, dashes stripped — matches the migration
     // backfill shape (md5-substr 1,8) so tooling that scans for the format
