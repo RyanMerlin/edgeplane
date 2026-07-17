@@ -61,6 +61,7 @@ async fn list_mesh_messages_does_not_panic_on_null_body_json() {
     assert_eq!(body["ok"], true, "response body: {body}");
     let messages = body["result"].as_array().expect("result must be array");
     assert_eq!(messages.len(), 1, "response body: {body}");
-    // body_json must decode to something (empty string default), not crash the request.
-    assert_eq!(messages[0]["body_json"], serde_json::json!(""));
+    // body_json must decode to a valid empty-JSON default, not crash the request and
+    // not break the always-parseable-JSON invariant every real body_json value upholds.
+    assert_eq!(messages[0]["body_json"], serde_json::json!("{}"));
 }
