@@ -263,10 +263,18 @@ fn row_to_gate(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 }
 
 fn row_to_message(row: &sqlx::postgres::PgRow) -> serde_json::Value {
-    let body_json: serde_json::Value =
-        serde_json::from_str(row.get::<&str, _>("body_json")).unwrap_or(serde_json::json!({}));
+    // meshmessage.id and .in_reply_to are `integer` (i32) in Postgres, and
+    // body_json is nullable `text` — decoding as i64/non-Option panics via
+    // `Row::get` (sqlx's `try_get().unwrap()`), crashing the request with an
+    // empty reply on any row where these are exercised.
+    let body_json: serde_json::Value = row
+        .try_get::<Option<String>, _>("body_json")
+        .ok()
+        .flatten()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .unwrap_or(serde_json::json!({}));
     serde_json::json!({
-        "id": row.get::<i64, _>("id"),
+        "id": row.get::<i32, _>("id"),
         "domain_id": row.get::<String, _>("domain_id"),
         "mission_id": row.get::<Option<String>, _>("mission_id"),
         "from_agent_id": row.get::<String, _>("from_agent_id"),
@@ -274,7 +282,7 @@ fn row_to_message(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         "task_id": row.get::<Option<String>, _>("task_id"),
         "channel": row.get::<String, _>("channel"),
         "body_json": body_json,
-        "in_reply_to": row.get::<Option<i64>, _>("in_reply_to"),
+        "in_reply_to": row.get::<Option<i32>, _>("in_reply_to"),
         "created_at": row.get::<chrono::NaiveDateTime, _>("created_at"),
         "read_at": row.get::<Option<chrono::NaiveDateTime>, _>("read_at"),
     })
@@ -1601,16 +1609,26 @@ async fn get_task_progress(
             let events: Vec<serde_json::Value> = rows
                 .iter()
                 .map(|r| {
+                    // id is `integer` (i32) in Postgres — decoding as i64 panics via
+                    // `Row::get` (sqlx's `try_get().unwrap()`), crashing the whole request
+                    // with an empty reply. summary/payload_json are nullable `text` but were
+                    // decoded as non-Option String/&str, same panic risk on a NULL row.
+                    let payload_json = r
+                        .try_get::<Option<String>, _>("payload_json")
+                        .ok()
+                        .flatten()
+                        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                        .unwrap_or(serde_json::json!({}));
                     serde_json::json!({
-                        "id": r.get::<i64, _>("id"),
+                        "id": r.get::<i32, _>("id"),
                         "task_id": r.get::<String, _>("task_id"),
                         "agent_id": r.get::<String, _>("agent_id"),
                         "seq": r.get::<i32, _>("seq"),
                         "event_type": r.get::<String, _>("event_type"),
                         "phase": r.get::<Option<String>, _>("phase"),
                         "step": r.get::<Option<String>, _>("step"),
-                        "summary": r.get::<String, _>("summary"),
-                        "payload_json": serde_json::from_str::<serde_json::Value>(r.get::<&str, _>("payload_json")).unwrap_or(serde_json::json!({})),
+                        "summary": r.try_get::<Option<String>, _>("summary").ok().flatten(),
+                        "payload_json": payload_json,
                         "occurred_at": r.get::<chrono::NaiveDateTime, _>("occurred_at"),
                         "agent_run_id": r.get::<Option<String>, _>("agent_run_id"),
                     })
@@ -2478,10 +2496,10 @@ async fn get_agent_messages(
         Ok(rows) => {
             // Mark only direct messages as read — broadcasts have N recipients
             // and would need a per-recipient read table to track properly.
-            let direct_ids: Vec<i64> = rows
+            let direct_ids: Vec<i32> = rows
                 .iter()
                 .filter(|r| r.get::<Option<String>, _>("to_agent_id").is_some())
-                .map(|r| r.get::<i64, _>("id"))
+                .map(|r| r.get::<i32, _>("id"))
                 .collect();
             if !direct_ids.is_empty() {
                 let now = Utc::now().naive_utc();
@@ -2600,7 +2618,7 @@ async fn send_domain_message(
         Ok(r) => (
             StatusCode::CREATED,
             Json(serde_json::json!({
-                "id": r.get::<i64, _>("id"),
+                "id": r.get::<i32, _>("id"),
                 "created_at": r.get::<chrono::NaiveDateTime, _>("created_at"),
             })),
         )
@@ -2748,7 +2766,7 @@ async fn send_mission_message(
         Ok(r) => (
             StatusCode::CREATED,
             Json(serde_json::json!({
-                "id": r.get::<i64, _>("id"),
+                "id": r.get::<i32, _>("id"),
                 "created_at": r.get::<chrono::NaiveDateTime, _>("created_at"),
             })),
         )

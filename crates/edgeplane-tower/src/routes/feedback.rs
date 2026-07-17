@@ -78,7 +78,9 @@ fn row_to_feedback(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         serde_json::from_str(row.get::<&str, _>("metadata_json"))
             .unwrap_or(serde_json::json!({}));
     serde_json::json!({
-        "id": row.get::<i64, _>("id"),
+        // feedbackentry.id is `integer` (i32) in Postgres — decoding as i64 panics
+        // via `Row::get`, crashing the request with an empty reply.
+        "id": row.get::<i32, _>("id"),
         "domain_id": row.get::<String, _>("domain_id"),
         "mission_id": row.get::<String, _>("mission_id"),
         "source_type": row.get::<String, _>("source_type"),
