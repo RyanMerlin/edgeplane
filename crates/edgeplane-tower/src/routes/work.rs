@@ -1155,8 +1155,10 @@ async fn append_progress(
         return resp;
     }
 
-    // Get next sequence number
-    let seq: i64 = sqlx::query_scalar(
+    // Get next sequence number. seq is `integer` (i32) in Postgres — decoding as i64
+    // here previously mismatched the wire type, so sqlx's runtime decode always failed
+    // and silently fell through to unwrap_or(0): every progress event got seq=0.
+    let seq: i32 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(seq), -1) + 1 FROM meshprogressevent WHERE task_id=$1",
     )
     .bind(&task_id)
@@ -1177,7 +1179,7 @@ async fn append_progress(
     )
     .bind(&task_id)
     .bind(agent_id)
-    .bind(seq as i32)
+    .bind(seq)
     .bind(&body.event_type)
     .bind(&body.phase)
     .bind(&body.step)

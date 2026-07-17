@@ -226,6 +226,16 @@ This document contains the help content for the `edgeplane` command-line program
 * [`edgeplane task show`↴](#edgeplane-task-show)
 * [`edgeplane task update`↴](#edgeplane-task-update)
 * [`edgeplane task delete`↴](#edgeplane-task-delete)
+* [`edgeplane task mesh`↴](#edgeplane-task-mesh)
+* [`edgeplane task mesh submit`↴](#edgeplane-task-mesh-submit)
+* [`edgeplane task mesh claim`↴](#edgeplane-task-mesh-claim)
+* [`edgeplane task mesh get`↴](#edgeplane-task-mesh-get)
+* [`edgeplane task mesh list`↴](#edgeplane-task-mesh-list)
+* [`edgeplane task mesh heartbeat`↴](#edgeplane-task-mesh-heartbeat)
+* [`edgeplane task mesh progress`↴](#edgeplane-task-mesh-progress)
+* [`edgeplane task mesh complete`↴](#edgeplane-task-mesh-complete)
+* [`edgeplane task mesh fail`↴](#edgeplane-task-mesh-fail)
+* [`edgeplane task mesh block`↴](#edgeplane-task-mesh-block)
 * [`edgeplane discover`↴](#edgeplane-discover)
 
 ## `edgeplane`
@@ -3501,6 +3511,7 @@ Task CRUD — create, list, show, update, delete
 * `show` — Show a single task
 * `update` — Update a task's metadata
 * `delete` — Delete a task
+* `mesh` — Mesh task operations — the real, agent-claimable task model backed by the `meshtask` table (submit/claim/heartbeat/progress/complete/fail/block). This is unrelated to `create`/`list`/`show`/`update`/`delete` above: those operate on the disconnected, UI-only `task` table and have zero synchronization with mesh tasks. Mesh tasks are what agents actually dispatch, claim, and report progress against. See `docs/plans/2026-07-16-fix-mcp-workspace-snapshot-meshtask.md` for history
 
 
 
@@ -3594,6 +3605,153 @@ Delete a task
 
 * `--mission-id <MISSION_ID>`
 * `--domain-id <DOMAIN_ID>` — Domain this task belongs to (required — tower only serves domain-scoped paths)
+
+
+
+## `edgeplane task mesh`
+
+Mesh task operations — the real, agent-claimable task model backed by the `meshtask` table (submit/claim/heartbeat/progress/complete/fail/block). This is unrelated to `create`/`list`/`show`/`update`/`delete` above: those operate on the disconnected, UI-only `task` table and have zero synchronization with mesh tasks. Mesh tasks are what agents actually dispatch, claim, and report progress against. See `docs/plans/2026-07-16-fix-mcp-workspace-snapshot-meshtask.md` for history
+
+**Usage:** `edgeplane task mesh <COMMAND>`
+
+###### **Subcommands:**
+
+* `submit` — Submit a new mesh task under a mission
+* `claim` — Claim an unclaimed mesh task (acquires a claim lease)
+* `get` — Fetch a single mesh task by ID
+* `list` — List mesh tasks for a mission
+* `heartbeat` — Heartbeat an active mesh task claim to keep the lease alive
+* `progress` — Record a progress event against a claimed mesh task
+* `complete` — Mark a mesh task complete with its output
+* `fail` — Mark a mesh task failed
+* `block` — Mark a mesh task blocked, pending external input
+
+
+
+## `edgeplane task mesh submit`
+
+Submit a new mesh task under a mission
+
+**Usage:** `edgeplane task mesh submit [OPTIONS] --mission-id <MISSION_ID> --title <TITLE>`
+
+###### **Options:**
+
+* `--mission-id <MISSION_ID>` — Mission this task belongs to (required). Domain is resolved server-side from the mission — there is no `--domain-id` flag here
+* `--title <TITLE>` — Task title
+* `--description <DESCRIPTION>`
+* `--kind <KIND>`
+* `--priority <PRIORITY>`
+* `--input-json <INPUT_JSON>` — Structured task input as a JSON string
+
+
+
+## `edgeplane task mesh claim`
+
+Claim an unclaimed mesh task (acquires a claim lease)
+
+**Usage:** `edgeplane task mesh claim [OPTIONS] --task-id <TASK_ID>`
+
+###### **Options:**
+
+* `--task-id <TASK_ID>` — Mesh task ID
+* `--agent-id <AGENT_ID>`
+* `--lease-seconds <LEASE_SECONDS>`
+
+
+
+## `edgeplane task mesh get`
+
+Fetch a single mesh task by ID
+
+**Usage:** `edgeplane task mesh get --task-id <TASK_ID>`
+
+###### **Options:**
+
+* `--task-id <TASK_ID>` — Mesh task ID
+
+
+
+## `edgeplane task mesh list`
+
+List mesh tasks for a mission
+
+**Usage:** `edgeplane task mesh list [OPTIONS] --mission-id <MISSION_ID>`
+
+###### **Options:**
+
+* `--mission-id <MISSION_ID>`
+* `--status <STATUS>`
+* `--limit <LIMIT>`
+
+
+
+## `edgeplane task mesh heartbeat`
+
+Heartbeat an active mesh task claim to keep the lease alive
+
+**Usage:** `edgeplane task mesh heartbeat [OPTIONS] --task-id <TASK_ID>`
+
+###### **Options:**
+
+* `--task-id <TASK_ID>` — Mesh task ID
+* `--claim-lease-id <CLAIM_LEASE_ID>`
+
+
+
+## `edgeplane task mesh progress`
+
+Record a progress event against a claimed mesh task
+
+**Usage:** `edgeplane task mesh progress [OPTIONS] --task-id <TASK_ID>`
+
+###### **Options:**
+
+* `--task-id <TASK_ID>` — Mesh task ID
+* `--claim-lease-id <CLAIM_LEASE_ID>`
+* `--event-type <EVENT_TYPE>`
+* `--payload-json <PAYLOAD_JSON>` — Structured progress payload as a JSON string
+
+
+
+## `edgeplane task mesh complete`
+
+Mark a mesh task complete with its output
+
+**Usage:** `edgeplane task mesh complete [OPTIONS] --task-id <TASK_ID>`
+
+###### **Options:**
+
+* `--task-id <TASK_ID>` — Mesh task ID
+* `--claim-lease-id <CLAIM_LEASE_ID>`
+* `--output-json <OUTPUT_JSON>` — Structured task output as a JSON string
+
+
+
+## `edgeplane task mesh fail`
+
+Mark a mesh task failed
+
+**Usage:** `edgeplane task mesh fail [OPTIONS] --task-id <TASK_ID>`
+
+###### **Options:**
+
+* `--task-id <TASK_ID>` — Mesh task ID
+* `--claim-lease-id <CLAIM_LEASE_ID>`
+* `--error <ERROR>`
+
+
+
+## `edgeplane task mesh block`
+
+Mark a mesh task blocked, pending external input
+
+**Usage:** `edgeplane task mesh block [OPTIONS] --task-id <TASK_ID>`
+
+###### **Options:**
+
+* `--task-id <TASK_ID>` — Mesh task ID
+* `--claim-lease-id <CLAIM_LEASE_ID>`
+* `--reason <REASON>`
 
 
 

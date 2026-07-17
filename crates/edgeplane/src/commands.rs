@@ -606,6 +606,117 @@ pub enum TaskCommand {
         #[arg(long, required = true)]
         domain_id: String,
     },
+    /// Mesh task operations — the real, agent-claimable task model backed by the
+    /// `meshtask` table (submit/claim/heartbeat/progress/complete/fail/block).
+    /// This is unrelated to `create`/`list`/`show`/`update`/`delete` above: those
+    /// operate on the disconnected, UI-only `task` table and have zero
+    /// synchronization with mesh tasks. Mesh tasks are what agents actually
+    /// dispatch, claim, and report progress against. See
+    /// `docs/plans/2026-07-16-fix-mcp-workspace-snapshot-meshtask.md` for history.
+    #[command(subcommand)]
+    Mesh(MeshTaskCommand),
+}
+
+/// Subcommands for `edgeplane task mesh` — CLI mirror of the `mcp__edgeplane__*_mesh_task`
+/// MCP tools. Each variant maps 1:1 to an MCP tool call against `/mcp/call`.
+#[derive(Subcommand, Debug)]
+pub enum MeshTaskCommand {
+    /// Submit a new mesh task under a mission.
+    Submit {
+        /// Mission this task belongs to (required). Domain is resolved
+        /// server-side from the mission — there is no `--domain-id` flag here.
+        #[arg(long, required = true)]
+        mission_id: String,
+        /// Task title.
+        #[arg(long, required = true)]
+        title: String,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long)]
+        priority: Option<i64>,
+        /// Structured task input as a JSON string.
+        #[arg(long)]
+        input_json: Option<String>,
+    },
+    /// Claim an unclaimed mesh task (acquires a claim lease).
+    Claim {
+        /// Mesh task ID.
+        #[arg(long, required = true)]
+        task_id: String,
+        #[arg(long)]
+        agent_id: Option<String>,
+        #[arg(long)]
+        lease_seconds: Option<i64>,
+    },
+    /// Fetch a single mesh task by ID.
+    Get {
+        /// Mesh task ID.
+        #[arg(long, required = true)]
+        task_id: String,
+    },
+    /// List mesh tasks for a mission.
+    List {
+        #[arg(long, required = true)]
+        mission_id: String,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        limit: Option<i64>,
+    },
+    /// Heartbeat an active mesh task claim to keep the lease alive.
+    Heartbeat {
+        /// Mesh task ID.
+        #[arg(long, required = true)]
+        task_id: String,
+        #[arg(long)]
+        claim_lease_id: Option<String>,
+    },
+    /// Record a progress event against a claimed mesh task.
+    Progress {
+        /// Mesh task ID.
+        #[arg(long, required = true)]
+        task_id: String,
+        #[arg(long)]
+        claim_lease_id: Option<String>,
+        #[arg(long)]
+        event_type: Option<String>,
+        /// Structured progress payload as a JSON string.
+        #[arg(long)]
+        payload_json: Option<String>,
+    },
+    /// Mark a mesh task complete with its output.
+    Complete {
+        /// Mesh task ID.
+        #[arg(long, required = true)]
+        task_id: String,
+        #[arg(long)]
+        claim_lease_id: Option<String>,
+        /// Structured task output as a JSON string.
+        #[arg(long)]
+        output_json: Option<String>,
+    },
+    /// Mark a mesh task failed.
+    Fail {
+        /// Mesh task ID.
+        #[arg(long, required = true)]
+        task_id: String,
+        #[arg(long)]
+        claim_lease_id: Option<String>,
+        #[arg(long)]
+        error: Option<String>,
+    },
+    /// Mark a mesh task blocked, pending external input.
+    Block {
+        /// Mesh task ID.
+        #[arg(long, required = true)]
+        task_id: String,
+        #[arg(long)]
+        claim_lease_id: Option<String>,
+        #[arg(long)]
+        reason: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -1133,7 +1244,9 @@ pub async fn run(
         EdgeplaneCommand::Context(cmd) => handle_context(cmd).await,
         EdgeplaneCommand::Domain(cmd) => handle_domain(cmd, client, &config, output_mode).await,
         EdgeplaneCommand::Mission(cmd) => handle_mission(cmd, client, output_mode).await,
-        EdgeplaneCommand::Task(cmd) => handle_task(cmd, client, output_mode).await,
+        EdgeplaneCommand::Task(cmd) => {
+            handle_task(cmd, client, &booster, &config.schema_pack, output_mode).await
+        }
         EdgeplaneCommand::Discover(args) => crate::cli_schema::run(args).await,
     }
 }
@@ -3875,6 +3988,8 @@ async fn handle_mission_brief(
 async fn handle_task(
     cmd: TaskCommand,
     client: EdgeplaneClient,
+    booster: &AgentBooster,
+    schema_pack: &SchemaPack,
     output_mode: OutputMode,
 ) -> Result<()> {
     match cmd {
@@ -3937,6 +4052,98 @@ async fn handle_task(
             } else {
                 println!("Deleted task {id}");
             }
+        }
+        TaskCommand::Mesh(mesh_cmd) => {
+            handle_mesh_task(mesh_cmd, &client, booster, schema_pack, output_mode).await?
+        }
+    }
+    Ok(())
+}
+
+// ── edgeplane task mesh ──────────────────────────────────────────────────────
+
+async fn handle_mesh_task(
+    cmd: MeshTaskCommand,
+    client: &EdgeplaneClient,
+    booster: &AgentBooster,
+    schema_pack: &SchemaPack,
+    output_mode: OutputMode,
+) -> Result<()> {
+    match cmd {
+        MeshTaskCommand::Submit {
+            title,
+            mission_id,
+            description,
+            kind,
+            priority,
+            input_json,
+        } => {
+            let mut args = json!({ "mission_id": mission_id, "title": title });
+            if let Some(v) = description { args["description"] = json!(v); }
+            if let Some(v) = kind        { args["kind"]        = json!(v); }
+            if let Some(v) = priority    { args["priority"]    = json!(v); }
+            if let Some(v) = input_json  { args["input_json"]  = json!(v); }
+            let result = call_mcp_tool(client, booster, schema_pack, "submit_mesh_task", args).await?;
+            output::print_value(output_mode, &result);
+        }
+        MeshTaskCommand::Claim { task_id, agent_id, lease_seconds } => {
+            let mut args = json!({ "task_id": task_id });
+            if let Some(v) = agent_id      { args["agent_id"]      = json!(v); }
+            if let Some(v) = lease_seconds { args["lease_seconds"] = json!(v); }
+            let result = call_mcp_tool(client, booster, schema_pack, "claim_mesh_task", args).await?;
+            output::print_value(output_mode, &result);
+        }
+        MeshTaskCommand::Get { task_id } => {
+            let args = json!({ "task_id": task_id });
+            let result = call_mcp_tool(client, booster, schema_pack, "get_mesh_task", args).await?;
+            output::print_value(output_mode, &result);
+        }
+        MeshTaskCommand::List { mission_id, status, limit } => {
+            let mut args = json!({ "mission_id": mission_id });
+            if let Some(v) = status { args["status"] = json!(v); }
+            if let Some(v) = limit  { args["limit"]  = json!(v); }
+            let result = call_mcp_tool(client, booster, schema_pack, "list_mesh_tasks", args).await?;
+            output::print_value(output_mode, &result);
+        }
+        MeshTaskCommand::Heartbeat { task_id, claim_lease_id } => {
+            let mut args = json!({ "task_id": task_id });
+            if let Some(v) = claim_lease_id { args["claim_lease_id"] = json!(v); }
+            let result = call_mcp_tool(client, booster, schema_pack, "heartbeat_mesh_task", args).await?;
+            output::print_value(output_mode, &result);
+        }
+        MeshTaskCommand::Progress {
+            task_id,
+            claim_lease_id,
+            event_type,
+            payload_json,
+        } => {
+            let mut args = json!({ "task_id": task_id });
+            if let Some(v) = claim_lease_id { args["claim_lease_id"] = json!(v); }
+            if let Some(v) = event_type     { args["event_type"]     = json!(v); }
+            if let Some(v) = payload_json   { args["payload_json"]   = json!(v); }
+            let result = call_mcp_tool(client, booster, schema_pack, "progress_mesh_task", args).await?;
+            output::print_value(output_mode, &result);
+        }
+        MeshTaskCommand::Complete { task_id, claim_lease_id, output_json } => {
+            let mut args = json!({ "task_id": task_id });
+            if let Some(v) = claim_lease_id { args["claim_lease_id"] = json!(v); }
+            if let Some(v) = output_json    { args["output_json"]    = json!(v); }
+            let result = call_mcp_tool(client, booster, schema_pack, "complete_mesh_task", args).await?;
+            output::print_value(output_mode, &result);
+        }
+        MeshTaskCommand::Fail { task_id, claim_lease_id, error } => {
+            let mut args = json!({ "task_id": task_id });
+            if let Some(v) = claim_lease_id { args["claim_lease_id"] = json!(v); }
+            if let Some(v) = error          { args["error"]          = json!(v); }
+            let result = call_mcp_tool(client, booster, schema_pack, "fail_mesh_task", args).await?;
+            output::print_value(output_mode, &result);
+        }
+        MeshTaskCommand::Block { task_id, claim_lease_id, reason } => {
+            let mut args = json!({ "task_id": task_id });
+            if let Some(v) = claim_lease_id { args["claim_lease_id"] = json!(v); }
+            if let Some(v) = reason         { args["reason"]         = json!(v); }
+            let result = call_mcp_tool(client, booster, schema_pack, "block_mesh_task", args).await?;
+            output::print_value(output_mode, &result);
         }
     }
     Ok(())

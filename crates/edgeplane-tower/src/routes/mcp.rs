@@ -609,11 +609,22 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let payload_json = args.get("payload_json").cloned().unwrap_or(json!({}));
             let phase = args.get("phase").and_then(|v| v.as_str());
             let step = args.get("step").and_then(|v| v.as_str());
-            match sqlx::query(
-                "INSERT INTO meshprogressevent (task_id, agent_id, event_type, phase, step, payload_json, occurred_at) \
-                 VALUES ($1,$2,$3,$4,$5,$6,NOW()) RETURNING id"
+            // seq has no DB default (see meshprogressevent in migrations/0001) — mirror the
+            // REST post_progress handler (routes/work.rs) and compute the next value ourselves.
+            // seq is `integer` (i32) in Postgres; must match exactly or sqlx's runtime decode
+            // fails silently into unwrap_or(0) (see routes/work.rs for the same fix).
+            let seq: i32 = sqlx::query_scalar(
+                "SELECT COALESCE(MAX(seq), -1) + 1 FROM meshprogressevent WHERE task_id=$1",
             )
-            .bind(&task_id).bind(&agent_id).bind(&event_type).bind(phase).bind(step)
+            .bind(&task_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0);
+            match sqlx::query(
+                "INSERT INTO meshprogressevent (task_id, agent_id, seq, event_type, phase, step, payload_json, occurred_at) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,NOW()) RETURNING id"
+            )
+            .bind(&task_id).bind(&agent_id).bind(seq).bind(&event_type).bind(phase).bind(step)
             .bind(payload_json.to_string())
             .fetch_one(&state.db).await
             {
