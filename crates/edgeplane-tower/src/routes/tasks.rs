@@ -287,8 +287,14 @@ async fn list_overlaps(
     };
 
     let limit = q.limit.unwrap_or(20).min(100);
+    // overlapsuggestion's real columns are similarity_score/evidence/suggested_action
+    // (all NOT NULL) — score/reason never existed; every call here 500'd with
+    // "column does not exist" since this route was written. Mirrors the correct
+    // column names/types already used by the MCP get_overlap_suggestions handler
+    // (routes/mcp.rs) for the same table.
     match sqlx::query(
-        "SELECT * FROM overlapsuggestion WHERE task_id=$1 ORDER BY score DESC LIMIT $2"
+        "SELECT id, task_id, candidate_task_id, similarity_score, evidence, suggested_action, created_at \
+         FROM overlapsuggestion WHERE task_id=$1 ORDER BY similarity_score DESC LIMIT $2"
     )
     .bind(task.id).bind(limit)
     .fetch_all(&state.db).await {
@@ -296,8 +302,9 @@ async fn list_overlaps(
             "id": r.get::<i32,_>("id"),
             "task_id": r.get::<i32,_>("task_id"),
             "candidate_task_id": r.get::<i32,_>("candidate_task_id"),
-            "score": r.get::<Option<f64>,_>("score"),
-            "reason": r.get::<Option<String>,_>("reason"),
+            "similarity_score": r.get::<f64,_>("similarity_score"),
+            "evidence": r.get::<String,_>("evidence"),
+            "suggested_action": r.get::<String,_>("suggested_action"),
             "created_at": r.get::<chrono::NaiveDateTime,_>("created_at"),
         })).collect::<Vec<_>>()).into_response(),
         Err(e) => { tracing::error!("list_overlaps: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
