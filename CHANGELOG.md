@@ -4,10 +4,13 @@ All notable changes to edgeplane, edgeplaned, and edgeplane-tower are recorded h
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
-## [0.16.0] — 2026-06-25
+## [0.16.0] — 2026-07-17
 
 OSS hardening release: security hardening across auth, nodes, and the daemon install story;
-breaking identity rebrands completing the MissionControl → EdgePlane migration.
+breaking identity rebrands completing the MissionControl → EdgePlane migration. Also folds in
+a full authorization-hardening audit (closing pre-existing cross-domain IDORs and moving node
+credentials from full-trust to domain-scoped), Phase 1a of first-class secrets, and a
+live-tower task-claim regression fix.
 
 ### Security
 
@@ -24,6 +27,32 @@ breaking identity rebrands completing the MissionControl → EdgePlane migration
   from the IdP.  Device-flow (`edgeplane auth login`) gains equivalent enforcement at the
   exchange step.
 - **`quinn-proto` 0.11.14 → 0.11.15 (#74).** Resolves RUSTSEC-2026-0185.
+- **Authorization hardening — Workstream 1: closed broken-access-control gaps across the
+  tower (#96–#104).** A tower authorization-surface audit found unauthenticated or ungated
+  cross-domain access across REST and MCP. Fixed by domain: 13 cross-domain read IDORs
+  (Group A, #97), dead agent-handler deletion + gated write mutations (Group B, #99, #100),
+  feedback/ingestion cross-tenant reads (Groups E/G, #98), NULL-domain fail-open artifact/doc
+  writes + `create_job`/`record_usage_batch` domain gate (Groups C/E-remainder, #103),
+  `remotectl create_launch` reject node/agent + clamp ttl/scope (Group D, #102), and search
+  readability narrowed from substring-LIKE to exact membership (Group F, #104). Also closes a
+  live IDOR unmasked by the flat mission-brief `archived_at` correctness fix (#96) — the
+  endpoint was a dead 500 for every caller until the bad predicate was removed, which would
+  otherwise have exposed an ungated cross-domain read+write. 25 read-path + 7 write-path cases
+  red-teamed live against prod with real domain-scoped tokens.
+- **Authorization hardening — Workstream 2: node credentials are domain-scoped, not
+  full-trust (#106, #107).** Node JWTs previously bypassed domain checks entirely
+  (`auth_type == "node"` was a blanket grant in `authorized_for`). Node scope is now dynamic,
+  derived from the node's assigned `meshagent` rows, and invalidated on assign/revoke/detach/
+  enroll/delete. A follow-up (#107) closed a gap an adversarial review found in the shipped
+  fix: `assign_node_agent` itself wasn't authorizing the caller against the target domain
+  before seeding the `meshagent` row, which could reopen the same hole it fixed. 6/6 live
+  red-team on each.
+- **Join-token privilege escalation closed (#90, #92).** Any authenticated principal —
+  including node and agent JWTs — could mint or rotate node-enrollment join tokens.
+  `create_join_token` and `rotate_join_token` now reject `node`/`agent`-type credentials;
+  only session/service-account principals can mint tokens, scoped to their own identity. The
+  web `/admin` route also gained a `beforeLoad` redirect guard — the previous nav-hiding was
+  cosmetic and didn't stop direct URL navigation.
 
 ### Breaking
 
@@ -58,6 +87,16 @@ breaking identity rebrands completing the MissionControl → EdgePlane migration
   force-confirm.  `edgeplane agent node ls` lists nodes visible to the current principal.
 - **Nightly restart is now configurable.** `EP_NIGHTLY_RESTART_HOUR` (0–23, default 3)
   and `EP_NIGHTLY_RESTART_ENABLED` (true/false) control the daemon maintenance window.
+- **First-class secrets, Phase 1a (#93).** `SecretsBackend` trait (async, dyn-safe) with
+  `Env` and `Infisical` implementations behind a scheme-routed `BackendRegistry`;
+  `CredentialKind::Ref` is the canonical secret-reference form with legacy back-compat
+  preserved. Also fixes a bug where the Infisical resolution path was silently inert (the
+  daemon built the capability dispatcher with no registry, so `Ref`/`Infisical` credentials
+  fell through). Phase 1b (JIT broker) is not yet built.
+- **System-mode node enrollment script (#91).** `scripts/install-edgeplane-node.sh`
+  downloads `edgeplaned` from GitHub releases, verifies its SHA256 checksum, creates the
+  dedicated `edgeplane` system user, installs the hardened systemd unit, and enrolls the
+  node — replacing the old binary-required `install.sh` path.
 
 ### Hardening
 
@@ -75,6 +114,30 @@ breaking identity rebrands completing the MissionControl → EdgePlane migration
 - **Tower Dockerfile used a non-existent `edgeplaned-paths` source path (#75).**
 - **`edgeplane auth whoami` / `Logged in as` showed the IdP subject instead of the display
   name (#81).**
+- **Tower Helm chart's alembic initContainer was dead on arrival (#88).** The tower
+  auto-migrates via `sqlx` on startup; the Python/alembic initContainer had no Python in the
+  Rust image and never worked. Removed; chart bumped to 0.2.0.
+- **RUSTSEC advisories + stale lockfile (#94).** `crossbeam-epoch` and `anyhow` patched;
+  two `quick-xml` DoS advisories in an upstream-pinned `rust-s3` transitive dependency
+  documented and ignored (XML is parsed only from our own object-storage responses, not
+  attacker-controlled). `Cargo.lock` also resynced — it had drifted to pin workspace crates
+  at 0.15.1 against 0.16.0 manifests.
+- **Claims-integrity pass: docs matched to what's actually built, plus three correctness
+  fixes (#95).** README/PHILOSOPHY/site docs no longer claim unbuilt features (overlap
+  detection, HMAC governance, pgvector semantic search, S3 artifact-content tier) as shipped
+  — reframed as roadmap. `install.sh`'s `curl | bash` path is fixed (died on unbound
+  `BASH_SOURCE`). Also: artifact download no longer panics on a malformed `mime_type` (was a
+  user-triggerable 500 via `unwrap()`), `system compat` no longer reports fabricated
+  pass/warn for unimplemented checks, and `publish_execute` returns 409 instead of silently
+  diverging Postgres from the Git ledger of record when the git push fails.
+- **`SessionMode::Task` claim/heartbeat/complete/progress/fail 404'd against the live tower
+  (#108).** `edgeplaned-work`'s HTTP client was missing the `/work` path segment on 8
+  request paths across 7 functions; `poll_ready_tasks` swallowed the resulting error via
+  `unwrap_or_default()`, so the failure mode was an agent silently seeing zero ready tasks
+  rather than a visible error. Also fixes `load_mission_workspace`'s MCP snapshot, which was
+  querying the legacy, UI-only `task` table instead of `meshtask` — the table every real
+  claim/heartbeat/complete actually reads and writes — so the snapshot never reflected real
+  agent work.
 
 ## [0.15.1] — 2026-06-19
 
