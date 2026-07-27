@@ -447,6 +447,28 @@ pub fn authorized_for_domain(domain: &Domain, p: &Principal) -> bool {
     authorized_for(&domain.id, &domain.owners, &domain.contributors, p)
 }
 
+/// Owner-only variant of [`authorized_for`]: same admin and `domain_scope`
+/// branches, but the membership check is against `owners` only —
+/// contributors do NOT count. For actions that must stay stricter than a
+/// normal domain write (e.g. deleting a task) while still gaining the
+/// `domain_scope` path for consistency with every other `authz_domain`-gated
+/// write in this codebase.
+///
+/// Authorization order (first match wins):
+/// 1. Admin flag — unrestricted access everywhere.
+/// 2. domain_scope membership — explicit enrollment for agents and nodes.
+/// 3. Owners membership (contributors excluded) — lowercased subject match.
+pub fn authorized_for_owner(domain_id: &str, owners: &str, p: &Principal) -> bool {
+    if p.is_admin {
+        return true;
+    }
+    if p.domain_scope.iter().any(|d| d == domain_id) {
+        return true;
+    }
+    let id = p.subject.to_lowercase();
+    split_csv(owners).contains(&id)
+}
+
 /// Full-trust principals: interactive human/admin sessions and first-party nodes.
 /// They bypass the per-task lease check and may act on behalf of other agents.
 pub fn is_full_trust(p: &Principal) -> bool {
@@ -508,6 +530,39 @@ mod authz_tests {
         assert!(!is_full_trust(&principal("agent:x", false, "agent", &[])));
         assert!(is_full_trust(&principal("u@x.com", false, "session", &[])));
         assert!(is_full_trust(&principal("node:n", false, "node", &[])));
+    }
+
+    #[test]
+    fn owner_variant_admin_authorized_anywhere() {
+        assert!(authorized_for_owner(
+            "d1",
+            "",
+            &principal("x@x.com", true, "session", &[])
+        ));
+    }
+    #[test]
+    fn owner_variant_domain_scope_authorized() {
+        let p = principal("agent:w7", false, "agent", &["d1", "d2"]);
+        assert!(authorized_for_owner("d2", "", &p));
+        assert!(!authorized_for_owner("d3", "", &p));
+    }
+    #[test]
+    fn owner_variant_owner_authorized_case_insensitive() {
+        let p = principal("Alice@Example.COM", false, "session", &[]);
+        assert!(authorized_for_owner("d1", "alice@example.com", &p));
+    }
+    #[test]
+    fn owner_variant_contributor_is_not_authorized() {
+        // The whole point of the owner-only variant: a contributor (who would
+        // pass `authorized_for`) must NOT pass `authorized_for_owner`.
+        let p = principal("sa:worker", false, "service_account", &[]);
+        assert!(authorized_for("d1", "alice@x.com", "sa:worker", &p));
+        assert!(!authorized_for_owner("d1", "alice@x.com", &p));
+    }
+    #[test]
+    fn owner_variant_outsider_denied() {
+        let p = principal("sa:mallory", false, "service_account", &["d9"]);
+        assert!(!authorized_for_owner("d1", "alice@x.com", &p));
     }
 }
 

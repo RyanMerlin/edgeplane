@@ -7,7 +7,7 @@ use axum::{
 use serde_json::json;
 use sqlx::{PgPool, Row};
 
-use crate::auth::{authorized_for, Principal};
+use crate::auth::{authorized_for, authorized_for_owner, Principal};
 
 fn deny(status: StatusCode, detail: &str) -> Response {
     (status, Json(json!({ "detail": detail }))).into_response()
@@ -45,6 +45,104 @@ pub async fn authz_domain(db: &PgPool, p: &Principal, domain_id: &str) -> Result
     }
 }
 
+/// Public-read-aware variant of [`authz_domain`], for READ paths that were
+/// previously gated by a local mechanism-(2) check honoring domain
+/// `visibility=='public'` (e.g. `tasks.rs::domain_access` with
+/// `require_write=false, require_owner=false`). Grants if the domain is
+/// public, OR [`authorized_for`] (admin / `domain_scope` / owners /
+/// contributors). The public-visibility bypass is checked first.
+///
+/// The comparison is case-insensitive (`visibility` is never normalized or
+/// constrained at write time — `routes/domains.rs::create_domain` binds the
+/// caller-supplied string as-is, no CHECK constraint on the column) — this
+/// matches the dominant convention used at five other read-path call sites
+/// (`explorer.rs`, `artifacts.rs`, `missions.rs`, `docs.rs`, `domains.rs`,
+/// all `.to_lowercase() == "public"`) and restores the exact behavior of the
+/// `domain_access()` this replaces (`vis.to_lowercase() != "public"`).
+/// `routes/search.rs` uses a case-sensitive `Some("public")` exact match —
+/// that is the minority/outlier convention in this codebase (a pre-existing,
+/// separately-tracked issue) and is deliberately NOT mirrored here.
+///
+/// Returns `Ok(())` on success, or an `Err(Response)` with the appropriate
+/// status code: 422 on empty domain_id, 404 if absent, 403 if unauthorized,
+/// 500 on DB error.
+pub async fn authz_domain_readable(
+    db: &PgPool,
+    p: &Principal,
+    domain_id: &str,
+) -> Result<(), Response> {
+    if domain_id.is_empty() {
+        return Err(deny(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "target has no domain",
+        ));
+    }
+    let row = sqlx::query("SELECT visibility, owners, contributors FROM domain WHERE id = $1")
+        .bind(domain_id)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("authz_domain_readable load {domain_id}: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
+    let Some(row) = row else {
+        return Err(deny(StatusCode::NOT_FOUND, "Domain not found"));
+    };
+    let visibility: Option<String> = row.get("visibility");
+    if visibility.is_some_and(|v| v.eq_ignore_ascii_case("public")) {
+        return Ok(());
+    }
+    let owners: String = row.get("owners");
+    let contributors: String = row.get("contributors");
+    if authorized_for(domain_id, &owners, &contributors, p) {
+        Ok(())
+    } else {
+        Err(deny(StatusCode::FORBIDDEN, "not authorized for domain"))
+    }
+}
+
+/// Owner-only variant of [`authz_domain`]: grants if admin, `domain_scope`
+/// membership, or `owners` CSV membership — contributors do NOT count. See
+/// [`crate::auth::authorized_for_owner`]. For actions stricter than a normal
+/// domain write (e.g. `tasks.rs::delete_task`, migrated from
+/// `domain_access(..., require_owner=true)`).
+///
+/// Returns `Ok(())` on success, or an `Err(Response)` with the appropriate
+/// status code: 422 on empty domain_id, 404 if absent, 403 if unauthorized,
+/// 500 on DB error.
+pub async fn authz_domain_owner(
+    db: &PgPool,
+    p: &Principal,
+    domain_id: &str,
+) -> Result<(), Response> {
+    if domain_id.is_empty() {
+        return Err(deny(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "target has no domain",
+        ));
+    }
+    let row = sqlx::query("SELECT owners FROM domain WHERE id = $1")
+        .bind(domain_id)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("authz_domain_owner load {domain_id}: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
+    let Some(row) = row else {
+        return Err(deny(StatusCode::NOT_FOUND, "Domain not found"));
+    };
+    let owners: String = row.get("owners");
+    if authorized_for_owner(domain_id, &owners, p) {
+        Ok(())
+    } else {
+        Err(deny(
+            StatusCode::FORBIDDEN,
+            "not authorized (owner-only) for domain",
+        ))
+    }
+}
+
 async fn resolve(
     db: &PgPool,
     sql: &'static str,
@@ -76,11 +174,33 @@ pub async fn domain_id_for_mission(db: &PgPool, mission_id: &str) -> Result<Stri
 pub async fn domain_id_for_task(db: &PgPool, task_id: &str) -> Result<String, Response> {
     resolve(
         db,
-        "SELECT domain_id FROM meshtask WHERE id=$1",
+        "SELECT domain_id FROM task WHERE id=$1",
         task_id,
         "Task not found",
     )
     .await
+}
+
+/// Resolve both `domain_id` and `kind` for a task in one round trip. Used by
+/// callers (routes/mcp.rs's mesh-task tool handlers) that need to authorize
+/// on domain AND reject claim/lease operations against a `kind='assigned'`
+/// row — an assigned task is never claimable, leased, or heartbeat-able.
+pub async fn domain_and_kind_for_task(
+    db: &PgPool,
+    task_id: &str,
+) -> Result<(String, String), Response> {
+    let row = sqlx::query("SELECT domain_id, kind FROM task WHERE id=$1")
+        .bind(task_id)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("domain_and_kind_for_task {task_id}: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
+    let Some(row) = row else {
+        return Err(deny(StatusCode::NOT_FOUND, "Task not found"));
+    };
+    Ok((row.get("domain_id"), row.get("kind")))
 }
 
 pub async fn domain_id_for_agent(db: &PgPool, agent_id: &str) -> Result<String, Response> {
@@ -163,6 +283,13 @@ pub async fn is_self_control_plane_agent(db: &PgPool, p: &Principal, agent_id: i
 /// After domain authz: a non-full-trust caller may only act on a task it holds.
 /// Full-trust (session/node) and admin bypass. `lease_id` is the caller-presented
 /// claim_lease_id (None for endpoints that don't take one).
+///
+/// Kind-agnostic: works for both `kind='claimable'` rows (ownership via
+/// `claimed_by_agent_id`, set by `claim_task`) and `kind='assigned'` rows
+/// (ownership via `owner`, set at creation/update) — either kind's row is
+/// also ownable by presenting the matching `claim_lease_id`, the completion
+/// token minted for both kinds. See docs/plans (task/meshtask unification)
+/// for why one primitive validates ownership the same way regardless of mode.
 pub async fn authz_task_owner(
     db: &PgPool,
     p: &Principal,
@@ -172,21 +299,25 @@ pub async fn authz_task_owner(
     if crate::auth::is_full_trust(p) || p.is_admin {
         return Ok(());
     }
-    let row = sqlx::query("SELECT claimed_by_agent_id, claim_lease_id FROM meshtask WHERE id=$1")
-        .bind(task_id)
-        .fetch_optional(db)
-        .await
-        .map_err(|e| {
-            tracing::error!("authz_task_owner {task_id}: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        })?;
+    let row = sqlx::query(
+        "SELECT claimed_by_agent_id, claim_lease_id, owner FROM task WHERE id=$1",
+    )
+    .bind(task_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| {
+        tracing::error!("authz_task_owner {task_id}: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })?;
     let Some(row) = row else {
         return Err(deny(StatusCode::NOT_FOUND, "Task not found"));
     };
     let claimed: Option<String> = row.get("claimed_by_agent_id");
     let lease: Option<String> = row.get("claim_lease_id");
+    let owner: Option<String> = row.get("owner");
     let subject_id = p.subject.strip_prefix("agent:").unwrap_or(&p.subject);
     let owns = claimed.as_deref() == Some(subject_id)
+        || owner.as_deref() == Some(subject_id)
         || (lease_id.is_some() && lease.as_deref() == lease_id);
     if owns {
         Ok(())
@@ -196,11 +327,11 @@ pub async fn authz_task_owner(
 }
 
 pub async fn domain_id_for_gate(db: &PgPool, gate_id: &str) -> Result<String, Response> {
-    // reviewgate.mesh_task_id → meshtask.domain_id
+    // reviewgate.mesh_task_id → task.domain_id
     // (schema: reviewgate FK column is `mesh_task_id`, not `task_id`)
     resolve(
         db,
-        "SELECT t.domain_id FROM reviewgate g JOIN meshtask t ON t.id = g.mesh_task_id WHERE g.id=$1",
+        "SELECT t.domain_id FROM reviewgate g JOIN task t ON t.id = g.mesh_task_id WHERE g.id=$1",
         gate_id,
         "Gate not found",
     )

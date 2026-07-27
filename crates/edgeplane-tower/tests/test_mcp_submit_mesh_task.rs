@@ -47,12 +47,18 @@ async fn submit_mesh_task_inserts_a_claimable_meshtask() {
 
     // Prove the row actually landed with a valid, non-null claim_policy —
     // not just that the handler returned 200 while the INSERT silently no-op'd.
-    let (claim_policy, status): (String, String) =
-        sqlx::query_as("SELECT claim_policy, status FROM meshtask WHERE id = $1")
-            .bind(&task_id)
-            .fetch_one(&pool)
-            .await
-            .expect("submitted meshtask row must exist");
+    // `meshtask` was renamed to `task` by migration 0014 (task/meshtask
+    // unification); claim_policy is nullable post-unification (NULL for
+    // kind='assigned' rows), but this row is kind='claimable' and must still
+    // carry a real value.
+    let (claim_policy, status): (Option<String>, String) = sqlx::query_as(
+        "SELECT claim_policy, status FROM task WHERE id = $1 AND kind = 'claimable'",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .expect("submitted meshtask row must exist");
+    let claim_policy = claim_policy.expect("claimable row must have a non-null claim_policy");
     assert_eq!(claim_policy, "first_claim");
     assert_eq!(status, "ready");
 

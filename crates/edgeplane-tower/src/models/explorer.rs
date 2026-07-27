@@ -20,11 +20,12 @@ use utoipa::ToSchema;
 /// A task summary inside an explorer tree node.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExplorerTaskSummary {
-    pub id: i32,
+    /// `character varying` post migration 0014 (task/meshtask unification) — was `i32`.
+    pub id: String,
     pub mission_id: String,
     pub title: String,
     pub status: String,
-    pub owner: String,
+    pub owner: Option<String>,
     #[schema(value_type = String)]
     pub updated_at: chrono::NaiveDateTime,
 }
@@ -122,9 +123,13 @@ pub struct ExplorerMission {
 /// A task detail record (nested inside ExplorerNodeDetail).
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExplorerTask {
-    pub id: i32,
+    /// `character varying` post migration 0014 (task/meshtask unification) — was `i32`.
+    pub id: String,
     pub public_id: String,
     pub mission_id: String,
+    /// `kind` discriminator ('assigned' | 'claimable') — new column, exposed
+    /// rather than filtered at the SQL layer (see routes/explorer.rs).
+    pub kind: String,
     pub title: String,
     pub description: String,
     pub status: String,

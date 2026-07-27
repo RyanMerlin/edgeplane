@@ -135,55 +135,109 @@ pub async fn mint_sa(db: &PgPool, name: &str) -> String {
     token
 }
 
-/// Insert a meshtask row with `status='running'` and a specific `claimed_by_agent_id`.
+/// Insert a `kind='claimable'` row of the unified `task` table (migration
+/// 0014's task/meshtask merge) with an explicit `status`, optional claimer,
+/// and `max_attempts` (the bounded-retry column the migration adds; DB
+/// column default is 1). `seed_ready_task`/`seed_claimed_task` are thin
+/// convenience wrappers over this for the two common shapes; use this
+/// directly when a test needs to control `max_attempts` (retry/backoff,
+/// fencing) or an unusual status.
 ///
-/// meshtask NOT-NULL columns (0001_initial_schema.sql):
-///   id, mission_id, domain_id, title, claim_policy, status,
-///   priority, version_counter, created_by_subject, created_at, updated_at.
-/// Returns the inserted task id.
-pub async fn seed_claimed_task(db: &PgPool, mission_id: &str, domain_id: &str, claimed_by: &str) -> String {
+/// Supplies empty-string defaults for all text columns that `row_to_task`
+/// reads as non-Option &str (description, depends_on, produces, consumes,
+/// required_capabilities, input_json) to avoid UnexpectedNullError panics.
+/// Returns the inserted task's `id`.
+pub async fn seed_claimable_task(
+    db: &PgPool,
+    mission_id: &str,
+    domain_id: &str,
+    status: &str,
+    claimed_by: Option<&str>,
+    max_attempts: i16,
+) -> String {
     let task_id = format!("task-{}", Uuid::new_v4().simple());
-    // Supplying empty-string defaults for all text columns that row_to_task reads
-    // as non-Option &str (description, depends_on, produces, consumes,
-    // required_capabilities, input_json) to avoid UnexpectedNullError panics.
+    let public_id = format!("task-{}", Uuid::new_v4().simple());
     sqlx::query(
-        "INSERT INTO meshtask \
-         (id, mission_id, domain_id, title, description, input_json, claim_policy, \
-          depends_on, produces, consumes, required_capabilities, \
+        "INSERT INTO task \
+         (id, public_id, mission_id, domain_id, kind, title, description, input_json, \
+          claim_policy, depends_on, produces, consumes, required_capabilities, \
           status, priority, version_counter, created_by_subject, claimed_by_agent_id, \
-          created_at, updated_at) \
-         VALUES ($1, $2, $3, 'test-task', '', '{}', 'any', '[]', '{}', '{}', '[]', \
-                 'running', 0, 1, 'harness', $4, now(), now())",
+          max_attempts, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, 'claimable', 'test-task', '', '{}', 'any', '[]', '{}', '{}', \
+                 '[]', $5, 0, 1, 'harness', $6, $7, now(), now())",
     )
     .bind(&task_id)
+    .bind(&public_id)
     .bind(mission_id)
     .bind(domain_id)
+    .bind(status)
     .bind(claimed_by)
+    .bind(max_attempts)
     .execute(db)
     .await
-    .expect("insert meshtask");
+    .expect("insert claimable task");
     task_id
 }
 
-/// Insert a ready meshtask (no claimer). Returns the inserted task id.
+/// Insert a `kind='claimable'` task row with `status='running'` and a
+/// specific `claimed_by_agent_id`. Returns the inserted task id.
+pub async fn seed_claimed_task(
+    db: &PgPool,
+    mission_id: &str,
+    domain_id: &str,
+    claimed_by: &str,
+) -> String {
+    seed_claimable_task(db, mission_id, domain_id, "running", Some(claimed_by), 1).await
+}
+
+/// Insert a ready `kind='claimable'` task (no claimer). Returns the inserted task id.
 pub async fn seed_ready_task(db: &PgPool, mission_id: &str, domain_id: &str) -> String {
+    seed_claimable_task(db, mission_id, domain_id, "ready", None, 1).await
+}
+
+/// Insert a `kind='assigned'` row of the unified `task` table (migration
+/// 0014's task/meshtask merge) — the human/PM-facing shape (no claim/lease
+/// semantics; `claim_policy`/`claimed_by_agent_id`/`lease_expires_at`/
+/// `claim_lease_id` are all left NULL). Returns the inserted task's `id`.
+pub async fn seed_assigned_task(
+    db: &PgPool,
+    mission_id: &str,
+    domain_id: &str,
+    owner: &str,
+) -> String {
     let task_id = format!("task-{}", Uuid::new_v4().simple());
+    let public_id = format!("task-{}", Uuid::new_v4().simple());
     sqlx::query(
-        "INSERT INTO meshtask \
-         (id, mission_id, domain_id, title, description, input_json, claim_policy, \
-          depends_on, produces, consumes, required_capabilities, \
-          status, priority, version_counter, created_by_subject, \
-          created_at, updated_at) \
-         VALUES ($1, $2, $3, 'test-task', '', '{}', 'any', '[]', '{}', '{}', '[]', \
-                 'ready', 0, 1, 'harness', now(), now())",
+        "INSERT INTO task \
+         (id, public_id, mission_id, domain_id, kind, title, description, status, owner, \
+          contributors, dependencies_note, done_criteria, related_artifacts_note, \
+          priority, version_counter, created_by_subject, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, 'assigned', 'test-task', '', 'open', $5, '', '', '', '', \
+                 0, 0, 'harness', now(), now())",
     )
     .bind(&task_id)
+    .bind(&public_id)
     .bind(mission_id)
     .bind(domain_id)
+    .bind(owner)
     .execute(db)
     .await
-    .expect("insert ready meshtask");
+    .expect("insert assigned task");
     task_id
+}
+
+/// Resolve `mission_id`'s `domain_id` — a plain-lookup helper for fixtures
+/// (`seed_task`/`seed_task_titled`) whose callers only pass `mission_id`
+/// (pre-migration-0014 convention, kept to minimize call-site churn).
+/// Panics if the mission is absent or has no domain — every mission this
+/// harness seeds (`setup()`, `seed_mission_in_domain`) always sets one.
+async fn domain_id_for_mission_harness(db: &PgPool, mission_id: &str) -> String {
+    let domain_id: Option<String> = sqlx::query_scalar("SELECT domain_id FROM mission WHERE id=$1")
+        .bind(mission_id)
+        .fetch_one(db)
+        .await
+        .expect("mission must exist for task fixture");
+    domain_id.expect("mission must have a domain_id for task fixture")
 }
 
 /// Insert a meshmessage (broadcast when to_agent_id is None). Returns the id.
@@ -251,31 +305,20 @@ pub async fn seed_artifact(db: &PgPool, mission_id: &str) -> i32 {
     id
 }
 
-/// Insert a workspace `task` row linked to `mission_id`. Returns the integer `id`.
-///
-/// task NOT-NULL columns: public_id, mission_id, title, description, status,
-///   owner, contributors, dependencies, definition_of_done, related_artifacts,
-///   created_at, updated_at. `epic_id` is nullable.
-pub async fn seed_task(db: &PgPool, mission_id: &str) -> i32 {
-    let public_id = format!("task-{}", Uuid::new_v4().simple());
-    let id: i32 = sqlx::query_scalar(
-        "INSERT INTO task \
-         (public_id, mission_id, title, description, status, owner, contributors, \
-          dependencies, definition_of_done, related_artifacts, created_at, updated_at) \
-         VALUES ($1, $2, 'test-task', '', 'open', 'harness', '', '', '', '', now(), now()) \
-         RETURNING id",
-    )
-    .bind(&public_id)
-    .bind(mission_id)
-    .fetch_one(db)
-    .await
-    .expect("insert task");
-    id
+/// Insert a `kind='assigned'` task row linked to `mission_id` (domain_id is
+/// resolved from the mission — see [`domain_id_for_mission_harness`]).
+/// Returns the inserted task's `id`. Thin wrapper over [`seed_assigned_task`]
+/// that keeps the pre-migration-0014 `(db, mission_id)` call shape used by
+/// existing callers (overlap-suggestion tests).
+pub async fn seed_task(db: &PgPool, mission_id: &str) -> String {
+    let domain_id = domain_id_for_mission_harness(db, mission_id).await;
+    seed_assigned_task(db, mission_id, &domain_id, "harness").await
 }
 
-/// Insert an `overlapsuggestion` row for `task_id` (integer FK to task.id).
-/// Returns the inserted overlap suggestion `id`.
-pub async fn seed_overlap_suggestion(db: &PgPool, task_id: i32) -> i32 {
+/// Insert an `overlapsuggestion` row for `task_id` (`character varying` FK to
+/// task.id post migration 0014 — was `integer`). Returns the inserted
+/// overlap suggestion `id`.
+pub async fn seed_overlap_suggestion(db: &PgPool, task_id: &str) -> i32 {
     // candidate_task_id must reference a real task row; reuse task_id itself
     // (self-reference is valid for testing purposes).
     let id: i32 = sqlx::query_scalar(
@@ -394,7 +437,12 @@ pub async fn seed_null_domain_mission(db: &PgPool) -> String {
 /// Insert a `domain` row with explicit `owners`/`contributors`/`visibility`.
 /// Returns the generated domain id. Used by the Group F (search.rs) authz
 /// tests to build exact-vs-substring owner scenarios independent of `setup()`.
-pub async fn seed_domain(db: &PgPool, owners: &str, contributors: &str, visibility: &str) -> String {
+pub async fn seed_domain(
+    db: &PgPool,
+    owners: &str,
+    contributors: &str,
+    visibility: &str,
+) -> String {
     let domain_id = format!("dom-{}", Uuid::new_v4().simple());
     sqlx::query(
         "INSERT INTO domain \
@@ -436,24 +484,31 @@ pub async fn seed_mission_in_domain(db: &PgPool, domain_id: &str, name: &str) ->
     mission_id
 }
 
-/// Insert a `task` row (the `/api/search/tasks` table) with an explicit title,
-/// so tests can seed a token the search LIKE-match will hit. Returns the
-/// integer `id`.
-pub async fn seed_task_titled(db: &PgPool, mission_id: &str, title: &str) -> i32 {
+/// Insert a `kind='assigned'` task row (the `/api/search/tasks` table) with
+/// an explicit title, so tests can seed a token the search LIKE-match will
+/// hit. domain_id is resolved from the mission (see
+/// [`domain_id_for_mission_harness`]). Returns the inserted task's `id`.
+pub async fn seed_task_titled(db: &PgPool, mission_id: &str, title: &str) -> String {
+    let domain_id = domain_id_for_mission_harness(db, mission_id).await;
+    let task_id = format!("task-{}", Uuid::new_v4().simple());
     let public_id = format!("task-{}", Uuid::new_v4().simple());
-    sqlx::query_scalar(
+    sqlx::query(
         "INSERT INTO task \
-         (public_id, mission_id, title, description, status, owner, contributors, \
-          dependencies, definition_of_done, related_artifacts, created_at, updated_at) \
-         VALUES ($1, $2, $3, '', 'open', 'harness', '', '', '', '', now(), now()) \
-         RETURNING id",
+         (id, public_id, mission_id, domain_id, kind, title, description, status, owner, \
+          contributors, dependencies_note, done_criteria, related_artifacts_note, \
+          priority, version_counter, created_by_subject, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, 'assigned', $5, '', 'open', 'harness', '', '', '', '', \
+                 0, 0, 'harness', now(), now())",
     )
+    .bind(&task_id)
     .bind(&public_id)
     .bind(mission_id)
+    .bind(&domain_id)
     .bind(title)
-    .fetch_one(db)
+    .execute(db)
     .await
-    .expect("insert titled task")
+    .expect("insert titled task");
+    task_id
 }
 
 /// Insert a `doc` row with an explicit title/body, so tests can seed a token

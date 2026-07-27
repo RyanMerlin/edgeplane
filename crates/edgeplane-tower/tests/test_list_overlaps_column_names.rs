@@ -25,7 +25,7 @@ async fn list_overlaps_returns_similarity_score_evidence_suggested_action() {
     };
 
     let task_id = seed_task(&pool, &ctx.mission_id).await;
-    seed_overlap_suggestion(&pool, task_id).await;
+    seed_overlap_suggestion(&pool, &task_id).await;
 
     let s = server(pool);
     let res = s
