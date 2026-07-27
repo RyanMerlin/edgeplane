@@ -35,7 +35,14 @@ ALTER TABLE public.meshtask
     ADD COLUMN IF NOT EXISTS dependencies_note text,
     ADD COLUMN IF NOT EXISTS related_artifacts_note text,
     ADD COLUMN IF NOT EXISTS attempt smallint NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS max_attempts smallint NOT NULL DEFAULT 1,
+    -- Default raised from 1 to 3 (dual-review finding): with the original
+    -- default of 1, a claimable task's *first* lease timeout permanently
+    -- failed it (attempt 0->1, 1>=1) instead of retrying -- a real
+    -- regression from the pre-migration behavior (infinite reclaim-to-ready).
+    -- 3 restores a meaningful retry margin without full caller-configurable
+    -- max_attempts plumbing, which is a reasonable fast-follow, not done here
+    -- (neither create_task nor submit_mesh_task exposes it as an input yet).
+    ADD COLUMN IF NOT EXISTS max_attempts smallint NOT NULL DEFAULT 3,
     ADD COLUMN IF NOT EXISTS attempted_by text[],
     ADD COLUMN IF NOT EXISTS errors jsonb[],
     ADD COLUMN IF NOT EXISTS finalized_at timestamptz;
@@ -57,11 +64,15 @@ ALTER TABLE public.meshtask ALTER COLUMN claim_policy DROP NOT NULL;
 -- this UPDATE is expected to be a no-op in every real environment; it's a
 -- defensive guard so the type change can't fail the migration if some
 -- out-of-band value doesn't cast cleanly to integer -- such values are
--- nulled rather than aborting the migration.
+-- nulled rather than aborting the migration. The 1-9 digit bound (rather
+-- than a bare `+`) also catches values too large for i32 (e.g.
+-- "999999999999" would pass `^[0-9]+$` but fail the `::integer` cast below)
+-- -- a cheap approximation, not a full int32-range check, judged sufficient
+-- given zero code paths write this column today.
 UPDATE public.meshtask
    SET result_artifact_id = NULL
  WHERE result_artifact_id IS NOT NULL
-   AND result_artifact_id !~ '^[0-9]+$';
+   AND result_artifact_id !~ '^[0-9]{1,9}$';
 
 ALTER TABLE public.meshtask
     ALTER COLUMN result_artifact_id TYPE integer USING result_artifact_id::integer;
@@ -129,7 +140,7 @@ SELECT
     t.created_at,
     t.updated_at
   FROM public.task t
-  JOIN public.mission mi ON mi.id = t.mission_id
+  JOIN public.mission mi ON mi.id = t.mission_id AND mi.domain_id IS NOT NULL
   JOIN public.task_id_migration_map map ON map.old_int_id = t.id;
 
 -- ── 5. Backfill public_id for pre-existing meshtask rows, then constrain ────

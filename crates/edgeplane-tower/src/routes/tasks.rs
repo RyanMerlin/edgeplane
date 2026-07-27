@@ -110,6 +110,26 @@ fn not_found(msg: &str) -> axum::response::Response {
     (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
 }
 
+/// Blank `claim_lease_id` for callers who aren't full-trust/admin/the task's
+/// designated owner. `AssignedTask` deliberately does NOT `#[serde(skip)]`
+/// this field, because `create_task`/`update_task` need to return the
+/// freshly minted token to the caller who just performed the transition that
+/// minted it — the field is only sensitive on *read* paths (`list_tasks`,
+/// `get_task`, `list_tasks_by_mission`), which are gated by
+/// `authz_domain_readable`'s public-visibility bypass (admits any
+/// authenticated principal in a public domain, not just members). Mirrors
+/// `mcp.rs::get_mesh_task`'s `is_owner` blanking for the claimable side.
+fn redact_lease(principal: &Principal, mut task: AssignedTask) -> AssignedTask {
+    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+    let is_owner = crate::auth::is_full_trust(principal)
+        || principal.is_admin
+        || task.owner.as_str() == subject_id;
+    if !is_owner {
+        task.claim_lease_id = None;
+    }
+    task
+}
+
 /// Validates that the URL's `mission_id`/`domain_id` pair are actually
 /// related — a consistency check, not an authorization decision. Extracted
 /// from the former `domain_access` (which ran this unconditionally after its
@@ -152,7 +172,7 @@ async fn list_tasks(
         .bind(&mission_id).bind(limit).fetch_all(&state.db).await
     };
     match rows {
-        Ok(tasks) => Json(tasks).into_response(),
+        Ok(tasks) => Json(tasks.into_iter().map(|t| redact_lease(&principal, t)).collect::<Vec<_>>()).into_response(),
         Err(e) => { tracing::error!("list_tasks: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
 }
@@ -242,7 +262,7 @@ async fn get_task(
     if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await { return r; }
 
     match fetch_assigned_task(&state.db, &task_id, &mission_id).await {
-        Ok(Some(t)) => Json(t).into_response(),
+        Ok(Some(t)) => Json(redact_lease(&principal, t)).into_response(),
         Ok(None) => not_found("Task not found"),
         Err(e) => { tracing::error!("get_task: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
     }
@@ -358,7 +378,6 @@ async fn delete_task(
 
 // ── Shortcut: GET /missions/{mission_id}/t ────────────────────────────────────
 // Used by the TUI which only knows mission_id, not the parent domain_id.
-// No auth check — mirrors the unauthenticated pattern; add Principal if auth is needed.
 
 async fn list_tasks_by_mission(
     State(state): State<Arc<AppState>>,
@@ -376,7 +395,7 @@ async fn list_tasks_by_mission(
     .fetch_all(&state.db)
     .await
     {
-        Ok(tasks) => Json(tasks).into_response(),
+        Ok(tasks) => Json(tasks.into_iter().map(|t| redact_lease(&principal, t)).collect::<Vec<_>>()).into_response(),
         Err(e) => {
             tracing::error!("list_tasks_by_mission: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()

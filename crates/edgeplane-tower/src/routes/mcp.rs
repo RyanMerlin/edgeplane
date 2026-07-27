@@ -655,7 +655,10 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if kind != "claimable" {
                 return err_result("task is not claimable (kind='assigned')");
             }
-            let lease_seconds = int_arg(args, "lease_seconds").unwrap_or(300);
+            // Clamped to the same bounds as load_mission_workspace's
+            // equivalent lease_seconds input — was unbounded (an i64 straight
+            // into chrono::Duration::seconds).
+            let lease_seconds = int_arg(args, "lease_seconds").unwrap_or(300).clamp(60, 3600);
             let lease_id = uuid::Uuid::new_v4().to_string();
             let expires_at = now + chrono::Duration::seconds(lease_seconds);
             match sqlx::query(
@@ -790,10 +793,24 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() {
                 return err_result("task_id is required");
             }
-            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
-                Ok(d) => d,
-                Err(_) => return err_result("task not found"),
+            // Fetch domain_id/kind/status in one round trip — kind gates the
+            // status-precondition branch below, status is the precondition
+            // itself.
+            let task_row = match sqlx::query("SELECT domain_id, kind, status FROM task WHERE id=$1")
+                .bind(&task_id)
+                .fetch_optional(&state.db)
+                .await
+            {
+                Ok(Some(r)) => r,
+                Ok(None) => return err_result("task not found"),
+                Err(e) => {
+                    tracing::error!("mcp {tool} fetch: {e}");
+                    return err_result("database_error");
+                }
             };
+            let domain_id: String = task_row.get("domain_id");
+            let kind: String = task_row.get("kind");
+            let status: String = task_row.get("status");
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
@@ -813,6 +830,23 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                 "block_mesh_task" => "blocked",
                 _ => return err_result("unknown_tool"),
             };
+            // Status precondition — mirrors this handler's REST siblings
+            // individually (work.rs): complete_task/fail_task reject unless
+            // status is claimed/running/waiting_review (claimable) or not
+            // already terminal (assigned, via is_terminal_status);
+            // block_task has no precondition at all, so block_mesh_task
+            // doesn't gain one here either. Without this, an authorized
+            // owner/claimer could re-fail an already-finished task or
+            // complete repeatedly.
+            if tool != "block_mesh_task" {
+                if kind == "claimable" {
+                    if status != "claimed" && status != "running" && status != "waiting_review" {
+                        return err_result(&format!("task cannot be {new_status} from status: {status}"));
+                    }
+                } else if crate::routes::tasks::is_terminal_status(&status) {
+                    return err_result(&format!("task cannot be {new_status} from status: {status}"));
+                }
+            }
             let now_tz = Utc::now();
             match sqlx::query(
                 "UPDATE task SET status=$2, updated_at=NOW(), \
@@ -2157,7 +2191,11 @@ async fn build_workspace_snapshot(db: &sqlx::PgPool, domain_id: &str, mission_id
             "status": r.get::<String,_>("status"),
             "priority": r.get::<i32,_>("priority"),
             "claimed_by_agent_id": r.try_get::<String,_>("claimed_by_agent_id").unwrap_or_default(),
-            "claim_policy": r.get::<String,_>("claim_policy"),
+            // Currently safe (this query already filters kind='claimable',
+            // which guarantees non-null claim_policy today) but fragile
+            // against any future change — match every other reader in this
+            // diff rather than rely on the filter alone.
+            "claim_policy": r.try_get::<Option<String>,_>("claim_policy").ok().flatten().unwrap_or_default(),
             "updated_at": r.get::<chrono::NaiveDateTime,_>("updated_at"),
         })).collect::<Vec<_>>(),
         "docs": docs.iter().map(|r| json!({

@@ -529,8 +529,12 @@ pub(crate) async fn detect_cycle(
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
     for r in &rows {
         let id: String = r.get("id");
-        let deps: Vec<String> =
-            serde_json::from_str(r.get::<&str, _>("depends_on")).unwrap_or_default();
+        // depends_on is nullable `text` (no NOT NULL) — non-Option `Row::get`
+        // panics on NULL.
+        let deps: Vec<String> = serde_json::from_str(
+            r.try_get::<Option<&str>, _>("depends_on").ok().flatten().unwrap_or("[]"),
+        )
+        .unwrap_or_default();
         adj.insert(id, deps);
     }
     adj.insert(new_id.to_string(), depends_on.to_vec());
@@ -576,8 +580,10 @@ async fn unblock_dependents(db: &sqlx::PgPool, mission_id: &str, finished_id: &s
 
     for c in &candidates {
         let cid: String = c.get("id");
-        let dep_ids: Vec<String> =
-            serde_json::from_str(c.get::<&str, _>("depends_on")).unwrap_or_default();
+        let dep_ids: Vec<String> = serde_json::from_str(
+            c.try_get::<Option<&str>, _>("depends_on").ok().flatten().unwrap_or("[]"),
+        )
+        .unwrap_or_default();
         if !dep_ids.contains(&finished_id.to_string()) {
             continue;
         }
@@ -826,8 +832,10 @@ async fn task_graph(
             let mut edges: Vec<serde_json::Value> = Vec::new();
             for r in &rows {
                 let from: String = r.get("id");
-                let deps: Vec<String> =
-                    serde_json::from_str(r.get::<&str, _>("depends_on")).unwrap_or_default();
+                let deps: Vec<String> = serde_json::from_str(
+                    r.try_get::<Option<&str>, _>("depends_on").ok().flatten().unwrap_or("[]"),
+                )
+                .unwrap_or_default();
                 for dep in deps {
                     edges.push(serde_json::json!({"from": dep, "to": from}));
                 }
