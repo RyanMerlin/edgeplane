@@ -62,32 +62,33 @@ Do not call domains workstreams. Missions are workstreams.
 
 | Entity | Description |
 |--------|-------------|
-| Tasks | Units of work with owners and definitions of done |
-| MeshTasks | Agent-claimable tasks for distributed execution |
+| Tasks | Units of work — one `task` table, split by `kind` into human-tracked (`'assigned'`) and agent-claimable (`'claimable'`) rows |
 | Artifacts | Persisted outputs (documents, binaries) |
 
 ## Tasks
 
-A Task is a **unit of work inside a mission**. It has:
+A Task is a **unit of work inside a mission**. One primitive serves both human-tracked and agent-dispatched work, discriminated by a `kind` column (`'assigned'` | `'claimable'`) rather than two separate tables. Every task has:
 
-- An owner
+- An owner (set at creation for `kind='assigned'`; the claiming agent for `kind='claimable'`)
 - Optional dependencies on other tasks
 - A definition of done
 - Status lifecycle (pending → in progress → complete / blocked)
 - Links to related artifacts
 
-Tasks complete. That is their purpose.
+Tasks complete. That is their purpose — through one unified completion path regardless of `kind`.
 
-### Task vs. MeshTask
+### Two routing modes, one entity
 
-| | Task | MeshTask |
+`kind` encodes routing (push vs. pull), not who's involved — an agent can be directly `assigned` a task exactly like a human can, and a human can review or complete a `claimable` task's result.
+
+| | `kind='assigned'` | `kind='claimable'` |
 |---|---|---|
 | **Purpose** | UI/operator-facing work tracking | Agent-claimable distributed execution |
-| **Claim model** | Manual assignment | Lease-based claim by capable agents |
+| **Claim model** | Manual assignment, no lease | Lease-based claim by capable agents |
 | **Capabilities** | Not required | Required capabilities gated by `claim_policy` |
-| **Result** | Status update | Recorded as an artifact (`result_artifact_id`) |
+| **Result** | Recorded as an artifact (`result_artifact_id`) via the unified completion path | Recorded as an artifact (`result_artifact_id`) via the unified completion path |
 
-For human-driven workflows, use Tasks. For agent swarms executing work autonomously, use MeshTasks. Whether these surfaces will converge is an open architecture question — for now, treat them as parallel.
+This used to be an open architecture question — whether `Task` and `MeshTask` (the prior name for the `kind='claimable'` surface) would converge. They did, in migration `0014_unify_task_meshtask.sql`. See [MeshTask System](/concepts/mesh-tasks/) for the `kind='claimable'` claim-execute-complete lifecycle in detail.
 
 ## Overlap Detection
 
@@ -107,9 +108,9 @@ Domain: "Build Authentication System"
 ├── Northstar, owners, governance policy
 ├── Mission: "OIDC Integration"
 │   ├── brief_md, artifacts
-│   ├── Task: "Implement /callback route"
-│   ├── Task: "Write integration tests"
-│   └── MeshTask: "Generate API docs"
+│   ├── Task (kind=assigned): "Implement /callback route"
+│   ├── Task (kind=assigned): "Write integration tests"
+│   └── Task (kind=claimable): "Generate API docs"
 └── Mission: "Token Management"
     ├── Task: "Design refresh token schema"
     └── Task: "Implement revocation endpoint"

@@ -11,7 +11,7 @@ EdgePlane's target design is three complementary persistence layers. Two are liv
 
 The operational database. All structured entities live here:
 
-- Domains, missions, tasks, meshtasks
+- Domains, missions, tasks (one `task` table, `kind='assigned'` \| `'claimable'`)
 - Artifacts, **including content** — bytes are stored inline (`content_b64`), not in an external object store
 - Agents, mesh agents, agent runs
 - Domain ownership (`owners`/`contributors` columns on the `domain` row)

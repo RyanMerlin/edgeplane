@@ -231,9 +231,10 @@ entities_touched:
   - name: Agent / MeshAgent / AISession / AgentSession / AgentRun
     via: edgeplane-tower HTTP API + edgeplaned local socket
     operations: [list, describe, signal, cancel, attach]
-  - name: Mission / Domain / Task / MeshTask / Artifact
+  - name: Mission / Domain / Task / Artifact
     via: edgeplane-tower HTTP API
     operations: [list, describe, mutate (per ADR-0003 owner/contributor gates)]
+    # Task is one primitive, kind='assigned'|'claimable' (see entities.md#task)
 
 external_dependencies:
   - name: OIDC provider (Authentik)

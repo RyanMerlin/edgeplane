@@ -4,6 +4,59 @@ All notable changes to edgeplane, edgeplaned, and edgeplane-tower are recorded h
 
 This project follows semantic versioning where possible, but pre-1.0 minor bumps may include breaking changes when the cost of a major bump outweighs the signal value.
 
+## [Unreleased]
+
+### Changed
+
+- **Task and MeshTask unified into one primitive (PR1: schema + backend).** Merges the two
+  disconnected "unit of work" tables — legacy `task` (integer PK, human/PM-facing) and `meshtask`
+  (varchar PK, agent-claimable) — into one `public.task` table, discriminated by a new `kind`
+  column (`'assigned'` | `'claimable'`) rather than by table. Migration `0014_unify_task_meshtask.sql`
+  extends `meshtask` with `kind` plus the assigned-only columns (`owner`, `contributors`,
+  `done_criteria`, `dependencies_note`, `related_artifacts_note`), migrates every legacy `task` row
+  in as `kind='assigned'`, remaps satellite FKs (`agentmessage`, `overlapsuggestion`) via an
+  id-mapping table, drops the now-dead `taskassignment`/`epic`/`task` tables, retypes
+  `result_artifact_id` to match `artifact.id`'s real integer type, and renames `meshtask` → `task`.
+  `claim`/`heartbeat`/`progress`/`retry` remain `kind='claimable'`-only (there is structurally no
+  lease on an `assigned` row); `complete`/`fail`/`block`/`cancel` accept both kinds through one path.
+  Closes a real, previously-shipped bug (#108) where the two tables had zero synchronization.
+- **Unified completion-token design.** `claim_lease_id` is now minted for `kind='assigned'` rows too
+  (on their first status transition away from `proposed`), not just at claim time for `kind='claimable'`
+  rows. `complete`/`fail`/`block`/`cancel` all authorize via `authz_task_owner`, which accepts a
+  matching `claim_lease_id`, OR `claimed_by_agent_id` (claimable), OR `owner` (assigned) —
+  full-trust/admin bypass all of it. One completion endpoint, token-gated, usable interchangeably by
+  an autonomous worker or a human/assigned owner (the same pattern as Temporal / AWS SWF / Step
+  Functions task tokens). Also fixes a real fencing gap: lease reclaim previously cleared
+  `claimed_by_agent_id`/`lease_expires_at` but left the stale `claim_lease_id` valid, so a token from
+  before a reclaim could still complete the task after another agent claimed it; reclaim now clears
+  all three together.
+- **Bounded retry for claimable tasks.** New `attempt`/`max_attempts`/`attempted_by`/`errors` columns
+  replace the prior unconditional/infinite reclaim-on-lease-expiry — a lease timeout no longer loops a
+  task forever. Default `max_attempts` is 3.
+- **`routes/tasks.rs::domain_access()` retired onto the shared `authz_domain` mechanism.** The bespoke
+  owners/contributors/visibility check (which ignored `domain_scope`) is replaced by
+  `authz_domain`/`authz_domain_readable`/`authz_domain_owner`. `authz_domain_readable` preserves the
+  public-visibility read bypass; `authz_domain_owner` preserves delete's owners-only bar (contributors
+  excluded) while closing the `domain_scope` gap for consistency with every other `authz_domain`-gated
+  write in the codebase — a deliberate widening (domain-scoped agents can now delete assigned tasks;
+  contributors still cannot).
+
+### Fixed (dual-review follow-up)
+
+- Migration's NULL-`domain_id` join now correctly skips a legacy task whose mission had a NULL
+  `domain_id`, instead of aborting the whole migration transaction.
+- `max_attempts` default raised 1 → 3 — the shipped default of 1 meant every claimable task's first
+  lease timeout permanently failed it, a regression from the pre-migration infinite-reclaim behavior.
+- `claim_lease_id` (the completion token) no longer leaks to any authenticated principal reading a
+  public-visibility domain's tasks via REST (`list_tasks`/`get_task`/`list_tasks_by_mission`) — now
+  owner-gated, matching the MCP `get_mesh_task` handler's existing redaction.
+- MCP's combined complete/fail/block handler now has the same kind-branched status precondition its
+  REST siblings already had, closing a re-complete/re-fail race on an already-finished task.
+- Nullable `depends_on` panic risk fixed in `detect_cycle`, `unblock_dependents`, and `task_graph`.
+
+Docs (`docs/architecture/entities.md` and downstream references) updated to match; CLI/TUI/web
+consumers of the unified model are tracked separately as PR2/PR3.
+
 ## [0.16.2] — 2026-07-17
 
 ### Fixed

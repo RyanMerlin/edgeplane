@@ -27,7 +27,7 @@ The `kind` column (values `'work'` | `'home'`) was a write-only tag that leaked 
 - Columns: `brief_md`, `brief_version`, `brief_created_by`, `brief_modified_by`, `brief_created_at`, `brief_modified_at`, `brief_s3_path`, `domain_id` (nullable), `owners`, `status`
 - Legacy compat: `workstream_md`, `workstream_version` (kept for backward compatibility; `brief_md` is the canonical field)
 - S3 layout: `domains/{domain_id}/missions/{mission_id}/{entity}/{filename}`
-- Owns: tasks, meshtasks, artifacts
+- Owns: tasks (both `kind`s), artifacts
 
 A mission *is* a workstream. The mission Brief (`brief_md`) documents its targeted outcome. Do not call domains workstreams.
 
@@ -35,24 +35,21 @@ A mission *is* a workstream. The mission Brief (`brief_md`) documents its target
 
 ## Task
 
-**A unit of work inside a mission.** Has owner, dependencies, definition of done, status. Completes.
+**A unit of work inside a mission.** One primitive serving both human-tracked and agent-dispatched work, discriminated by `kind`. Completes.
 
-- Columns: `mission_id` (FK, required), `epic_id` (optional), `owner`, `definition_of_done`, `dependencies`, `related_artifacts`
-- No direct `domain_id` — domain is reached via mission
-
-This is the local/UI-facing task. See `MeshTask` for the agent-claimable mesh variant.
-
----
-
-## MeshTask
-
-**An agent-claimable task in the mesh.** Same role as `task`, but built for distributed claim-and-execute by agents with leases, capabilities, and parent/child structure.
-
-- Columns: `mission_id` (required), `domain_id` (denormalized, required), `parent_task_id`, `claim_policy`, `required_capabilities`, `claimed_by_agent_id`, `claim_lease_id`, `lease_expires_at`, `result_artifact_id`
+- Table: `public.task` (was `meshtask`; absorbed the legacy integer-PK `task` table and took its name in migration `0014_unify_task_meshtask.sql`)
+- Columns: `id` (string, the SSOT identity), `public_id`, `mission_id` (FK, required), `domain_id` (denormalized, required — reached via `mission.domain_id` for `kind='assigned'` rows too), `parent_task_id` (self-FK, parent/child fan-out), `kind` (`'assigned'` | `'claimable'`), `status`, `owner`, `contributors`, `done_criteria`, `dependencies_note`/`related_artifacts_note` (display-only, migrated from the legacy `task` table's free-text columns), `claim_policy`/`required_capabilities`/`claimed_by_agent_id`/`claim_lease_id`/`lease_expires_at` (claimable-only, nullable), `attempt`/`max_attempts`/`attempted_by`/`errors` (bounded retry), `depends_on`/`produces`/`consumes`, `result_artifact_id`, `finalized_at`
 - Result is recorded as an artifact (`result_artifact_id`)
-- Links to artifacts via `meshtaskartifact` (input/output role)
+- Links to artifacts via `meshtaskartifact` (input/output role; table name unchanged by the rename)
 
-Whether `task` and `meshtask` will converge is an open architecture question — treat them as parallel surfaces for now; mesh for agents.
+The `kind` discriminator resolves what earlier revisions of this page called "an open architecture question": whether `Task` and `MeshTask` would converge. They did, 2026-07, via migration `0014_unify_task_meshtask.sql`:
+
+- **`kind='assigned'`** (was the standalone `task` table) — explicit owner set at creation, manual completion, no lease. Human-facing: the web dashboard, CLI `task create/list/show/update/delete`.
+- **`kind='claimable'`** (was `MeshTask`) — no owner until claimed; capability-routed pool; atomic claim with a lease; self-healing on lease expiry, bounded by `attempt`/`max_attempts`. Agent-dispatch: CLI `task mesh <verb>`, the MCP mesh tools, the daemon's poll/claim loop.
+
+`kind` encodes routing (push vs. pull), not actor (human vs. agent) — an agent can be directly `assigned` a task exactly like a human can, and a human can complete a `claimable` task's result. Completion is one unified path for both kinds: a `claim_lease_id` completion token, minted at claim time for `claimable` rows and on first status transition for `assigned` rows, validated by `authz_task_owner` (lease-token match, or `claimed_by_agent_id`/`owner` match).
+
+See [MeshTask System](/concepts/mesh-tasks/) for the `kind='claimable'` claim-execute-complete lifecycle in detail.
 
 ---
 
@@ -120,7 +117,7 @@ Distinct from `AgentSession` — an `AiSession` is the conversation record; `Age
 
 ## MeshAgent
 
-**The runtime-bound, discoverable projection of an agent into the mesh.** This is the row the controlplane scheduler matches against when claiming a `meshtask`. Distinct from `agent` (the canonical identity row).
+**The runtime-bound, discoverable projection of an agent into the mesh.** This is the row the controlplane scheduler matches against when claiming a `kind='claimable'` task. Distinct from `agent` (the canonical identity row).
 
 - Columns: `domain_id`, `node_id`, `runtime_kind`, `runtime_version`, `capabilities`, `labels`, `status`, `current_task_id`, `enrolled_by_subject`, `enrolled_at`, `last_heartbeat_at`, `runtime_node_id`, `profile_json`, `machine_json`, `runtime_json`, `supervision_mode`
 - `discovered_capabilities`: runtime-introspected capability set, unioned with declared `capabilities` during scheduling
@@ -148,7 +145,7 @@ Distinct from `AgentSession` (live process record) and `AiSession` (conversation
 **A single execution of an agent doing a task.** This is where agent + task + runtime-session converge.
 
 - Columns: `mesh_agent_id`, `mesh_task_id`, `runtime_kind`, `runtime_session_id`, `status`, `resume_token`, `parent_run_id`, `total_cost_cents`, `idempotency_key`
-- To answer "what session did agent X use last time it touched mission Y?" — join `agentrun → meshtask → mission`
+- To answer "what session did agent X use last time it touched mission Y?" — join `agentrun → task → mission` (the `mesh_task_id` column name is unchanged by the `meshtask` → `task` rename — only the table it targets was renamed)
 
 ---
 

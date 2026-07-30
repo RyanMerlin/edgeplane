@@ -181,7 +181,7 @@ edgeplane run claude --domain <id>
 |----------|---------|---------|
 | `EP_BASE_URL` | `http://localhost:8008` | Backend URL |
 
-**Creating a MeshTask for dispatch:**
+**Creating a claimable task (`kind='claimable'`) for dispatch:**
 
 The `/work/missions/$MISSION_ID/tasks` REST path is an internal API path. The agent-facing interface is via MCP tools — prefer `submit_mesh_task` from within an agent session and `claim_mesh_task` for claiming. The curl example below is for direct API access (e.g. from automation scripts or debugging):
 
@@ -217,7 +217,7 @@ curl -X POST http://<edgeplane-host>/work/tasks/<task-id>/retry \
 - **Event bus threading:** `task_ready` WebSocket events may not wake the work loop reliably in single-worker deployments. The startup poll is the reliable dispatch path — restart the loop after creating tasks if events don't fire.
 - **sudo in tasks:** agent subprocesses run without a TTY; `sudo` will fail unless the node has passwordless sudo configured.
 - **GLIBC mismatch:** build `edgeplane`/`edgeplaned` natively on the target node if it runs an older glibc than your build machine.
-- **Tasks vs MeshTasks:** the regular task API (`/domains/{id}/m/{id}/t`) is Kanban-style tracking. The work loop only operates on `MeshTask` objects at `/work/missions/{id}/tasks`. Always use the `/work/` API when creating tasks for agent dispatch.
+- **One `task` table, two routing surfaces:** `task` and `meshtask` were merged into one `public.task` table by migration `0014_unify_task_meshtask.sql`, discriminated by a `kind` column (`'assigned'` \| `'claimable'`) instead of by table. The regular task API (`/domains/{id}/m/{id}/t`) is Kanban-style tracking over `kind='assigned'` rows. The work loop only operates on `kind='claimable'` rows at `/work/missions/{id}/tasks`. Always use the `/work/` API when creating tasks for agent dispatch.
 
 ## See Also
 

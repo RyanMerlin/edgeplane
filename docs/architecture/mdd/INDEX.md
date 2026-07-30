@@ -9,9 +9,12 @@ ADRs reference the MDD they were written against; MDDs reference ADRs only
 for stable rationale.
 
 **MDD ≠ entities.md.** `entities.md` is the canonical reference for shared
-data primitives (Domain, Mission, Task, MeshTask, Artifact, Agent, …) that
-span the whole system. MDDs describe a single binary's surface, dependencies,
-and roadmap — and reference entities.md for any primitive they touch.
+data primitives (Domain, Mission, Task, Artifact, Agent, …) that span the
+whole system. (`Task` is one primitive with a `kind` discriminator —
+`'assigned'` | `'claimable'`, formerly the separate `task`/`meshtask`
+tables, unified in migration `0014_unify_task_meshtask.sql`.) MDDs describe
+a single binary's surface, dependencies, and roadmap — and reference
+entities.md for any primitive they touch.
 
 **MDD ≠ OpenAPI.** OpenAPI describes a wire protocol in exhaustive detail.
 MDDs describe a binary's intent and contract at a level a reviewer can scan
@@ -86,9 +89,9 @@ commands:
 
 # Entities from entities.md that this binary owns or mutates
 entities_owned:
-  - name: MeshTask
-    ref: docs/architecture/entities.md#meshtask
-    operations: [create, claim, complete, fail]
+  - name: Task
+    ref: docs/architecture/entities.md#task
+    operations: [create, claim, complete, fail]  # kind='claimable' rows
 
 # External services this binary depends on (databases, third-party APIs, etc.)
 external_dependencies:

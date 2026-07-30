@@ -9,10 +9,11 @@ last_reviewed: 2026-05-24
 description: |
   edgeplane-tower is the central API server and persistent state authority
   for Edgeplane. It owns the Postgres-backed schema for Domains, Missions,
-  Tasks, MeshTasks, Agents, Sessions, AgentRuns, and Artifacts. It exposes
-  the HTTP API consumed by edgeplane (CLI) and edgeplaned (daemon).
-  OIDC-authenticated, authz via owners/contributors columns + EP_ADMIN_EMAILS
-  override, real-time SSE-capable for inbox streams.
+  Tasks (one `task` table, `kind='assigned'|'claimable'`), Agents, Sessions,
+  AgentRuns, and Artifacts. It exposes the HTTP API consumed by edgeplane
+  (CLI) and edgeplaned (daemon). OIDC-authenticated, authz via
+  owners/contributors columns + EP_ADMIN_EMAILS override, real-time
+  SSE-capable for inbox streams.
 
 position_in_stack: |
   Stateful core of the Edgeplane control plane. Typically runs as a single
@@ -120,11 +121,15 @@ api_resource_families:
 
   - family: missions / domains / tasks
     paths:
-      # (full set in OpenAPI; abbreviated here)
+      # (full set in OpenAPI; abbreviated here) — one `task` table, routed by
+      # `kind`: /domains/*/m/*/t and /missions/*/t serve kind='assigned'
+      # (dashboard/CLI task CRUD); /work/tasks/* and
+      # /work/missions/*/tasks serve kind='claimable' (agent claim/dispatch)
       - /missions/*
       - /domains/*
       - /tasks/*
-      - /meshtasks/*
+      - /work/tasks/*
+      - /work/missions/{mission_id}/tasks
     purpose: Coordination entity CRUD
     status: implemented
     stability: stable
@@ -153,10 +158,9 @@ entities_owned:
     operations: [create, read, update, archive]
   - name: Task
     ref: docs/architecture/entities.md#task
-    operations: [create, read, update, complete]
-  - name: MeshTask
-    ref: docs/architecture/entities.md#meshtask
-    operations: [create, claim-via-lease, update, complete, fail]
+    operations: [create, read, update, claim-via-lease, complete, fail]
+    # One table, `kind` discriminator: 'assigned' (dashboard/CLI CRUD, no
+    # lease) | 'claimable' (agent claim-via-lease, dispatch). See ref.
   - name: Artifact
     ref: docs/architecture/entities.md#artifact
     operations: [create, read, version, archive]
@@ -217,8 +221,10 @@ adr_refs:
 
 notes: |
   Migration policy: auto-migrate on startup unless --no-migrate. Migration
-  files at crates/edgeplane-tower/migrations/. Latest: 0012_swap_mission_domain
-  (renamed kluster→mission, mission→domain — see entities.md vocabulary notes).
+  files at crates/edgeplane-tower/migrations/. Notable: 0012_swap_mission_domain
+  (renamed kluster→mission, mission→domain — see entities.md vocabulary notes);
+  0014_unify_task_meshtask (renamed meshtask→task, added `kind` discriminator,
+  absorbed the legacy integer-PK task table — see entities.md § Task).
 
   Currently single-node. The /raft/status endpoint exists and returns
   topology data, but multi-node consensus is not active. Future ADR will
@@ -238,8 +244,9 @@ proposed_changes:
       template declares: cadence, runtime_kind, target node, exec/prompt,
       artifact contract, mission_id (FK), on_failure, timeouts.
 
-      Templates emit MeshTasks when due (via edgeplaned's dispatcher loop).
-      The CLI's `edgeplane modules ...` queries this surface.
+      Templates emit claimable Task rows (`kind='claimable'`) when due (via
+      edgeplaned's dispatcher loop). The CLI's `edgeplane modules ...`
+      queries this surface.
 
     fields_affected:
       - field: entities_owned
@@ -254,7 +261,7 @@ proposed_changes:
         embedded as enum on the template?
       - Compositor pattern (depends_on with freshness gating) — schema
         in v1 or deferred?
-      - Audit retention on emitted MeshTask rows when their template is
+      - Audit retention on emitted claimable Task rows when their template is
         deleted (cascade vs soft-delete)?
 
   - id: tower-modules-api-policy

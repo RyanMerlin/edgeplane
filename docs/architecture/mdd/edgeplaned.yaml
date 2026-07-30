@@ -148,15 +148,16 @@ proposed_changes:
     status: proposed
     target_release: 0.16.0
     summary: |
-      Introduce a `RecurringTaskTemplate` entity that emits MeshTasks on
-      cadence (named tier, raw cron, or freshness_max_age). The template
-      declares: runtime_kind (subprocess | agent_dispatch), target node,
-      execution spec, artifact contract, mission_id, on_failure, timeouts.
+      Introduce a `RecurringTaskTemplate` entity that emits claimable Task
+      rows (`kind='claimable'`) on cadence (named tier, raw cron, or
+      freshness_max_age). The template declares: runtime_kind (subprocess |
+      agent_dispatch), target node, execution spec, artifact contract,
+      mission_id, on_failure, timeouts.
 
-      A new edgeplaned loop watches templates and emits MeshTasks when due,
-      reusing all existing MeshTask/Agent/Artifact machinery for actual
-      execution. CLI sugar: `edgeplane modules {list,apply,describe,run,
-      disable,enable,logs}` queries templates + their emitted MeshTasks.
+      A new edgeplaned loop watches templates and emits claimable Task rows
+      when due, reusing all existing Task/Agent/Artifact machinery for
+      actual execution. CLI sugar: `edgeplane modules {list,apply,describe,run,
+      disable,enable,logs}` queries templates + their emitted Task rows.
 
       This replaces the ad-hoc "anonymous prompt at agent" cron entries
       currently in cron.toml when those prompts produce a durable artifact.
