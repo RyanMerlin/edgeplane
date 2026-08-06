@@ -80,3 +80,14 @@ When adding a new feature that needs to be accessible to operators:
 - Implement `edgeplane domain / mission / task` CRUD commands (see TODO.md)
 - Audit all ~65 MCP tools and tag each: `protocol-only` | `needs-cli-equivalent` | `cli-exists`
 - Update COMMAND-MAP.md as CLI commands are added
+
+## Addendum (2026-07-26)
+
+The table above lists `task` CRUD (`edgeplane task create/list/...` ↔ `create_task`/`list_tasks`/...)
+and mesh CRUD/dispatch as if they were two independent surfaces over two independent tables. As of
+migration `0014_unify_task_meshtask.sql`, `task` and `meshtask` are one Postgres table (`public.task`),
+discriminated by a `kind` column (`'assigned'` | `'claimable'`) rather than separate tables. The
+CLI-vs-MCP decision this ADR makes is unaffected — `edgeplane task <verb>` still fronts `kind='assigned'`
+rows, `edgeplane task mesh <verb>` still fronts `kind='claimable'` rows, and the corresponding MCP tools
+are still the right ones for in-flight agent protocol — but readers should not infer a second table from
+this doc's original phrasing. See `docs/architecture/entities.md` § Task for the current model.

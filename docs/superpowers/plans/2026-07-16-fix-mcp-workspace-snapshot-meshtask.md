@@ -1,3 +1,8 @@
+> **Historical record.** The `task`/`meshtask` split this plan diagnoses and works around was resolved
+> by migration `0014_unify_task_meshtask.sql` (2026-07-26), which merged both tables into one `public.task`
+> table with a `kind` discriminator. This plan is preserved as-is for the record; do not use it as current
+> architecture guidance. See `docs/architecture/entities.md` § Task.
+
 # Fix MCP Workspace Snapshot to Read meshtask Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

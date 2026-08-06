@@ -170,3 +170,14 @@ Delete the dispatch arm in `mcp.rs` after verifying the CLI command works.
 - ADR 0003: EdgePlane CLI Hierarchy Hard Cutover
 - `crates/edgeplane-tower/src/routes/mcp.rs`: current catalogue + dispatch
 - `crates/edgeplane/src/mcp_server.rs`: stdio gateway (discover + exec land here)
+
+## Addendum (2026-07-26)
+
+The Task CRUD and mesh (`submit`/`claim`/`heartbeat`/.../`complete_mesh_task` etc.) tool families
+above are described as separate surfaces over separate tables (`task` vs. `meshtask`). As of migration
+`0014_unify_task_meshtask.sql`, both are backed by one Postgres table (`public.task`), split by a `kind`
+column (`'assigned'` | `'claimable'`) instead of by table. The keep-set / move-and-delete reasoning in
+this ADR is unaffected — the mesh tools stay in the "keep" (runtime protocol) set because they operate
+mid-execution on `kind='claimable'` rows under an active lease, and Task CRUD tools stay in the
+"move-and-delete" set because they operate on `kind='assigned'` rows with no lease — but this ADR's
+original table-per-surface framing is now inaccurate. See `docs/architecture/entities.md` § Task.

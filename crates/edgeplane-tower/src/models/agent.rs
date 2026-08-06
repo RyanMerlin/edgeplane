@@ -59,6 +59,13 @@ pub struct AgentSession {
 }
 
 /// A task-to-agent assignment record.
+///
+/// NOTE: the backing `taskassignment` table was dropped as write-dead by
+/// migration 0014 (task/meshtask unification) — no INSERT/UPDATE/SELECT
+/// anywhere in the Rust codebase targets it. This struct is retained only
+/// because `openapi.rs` registers it in the generated schema; it has no live
+/// query site. `task_id` is left as `i32` since there is no real row shape to
+/// reconcile against.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, sqlx::FromRow)]
 pub struct TaskAssignment {
     pub id: i32,
@@ -72,6 +79,10 @@ pub struct TaskAssignment {
 }
 
 /// A message sent between two control-plane agents.
+///
+/// `task_id` references the unified `task` table (migration 0014 retyped
+/// `agentmessage.task_id` from `integer` to `character varying` to remap onto
+/// the new string-keyed task ids) — was `Option<i32>`.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, sqlx::FromRow)]
 pub struct AgentMessage {
     pub id: i32,
@@ -79,7 +90,7 @@ pub struct AgentMessage {
     pub to_agent_id: i32,
     pub content: String,
     pub message_type: String,
-    pub task_id: Option<i32>,
+    pub task_id: Option<String>,
     pub read: bool,
     #[schema(value_type = String)]
     pub created_at: NaiveDateTime,
@@ -134,7 +145,8 @@ pub struct MessageSend {
     pub content: String,
     #[serde(default = "default_info")]
     pub message_type: String,
-    pub task_id: Option<i32>,
+    /// References the unified `task` table (string-keyed) — was `Option<i32>`.
+    pub task_id: Option<String>,
 }
 
 fn default_offline() -> String { "offline".into() }

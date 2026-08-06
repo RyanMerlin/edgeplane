@@ -3,7 +3,7 @@
 edgeplaned is the work-first agent coordination daemon. Think Temporal, not RKE2:
 - **Domain** = namespace / long-lived workspace
 - **Mission** = objective owning a task DAG
-- **MeshTask** = unit of work (claimed, executed, finished)
+- **Task (`kind='claimable'`)** = unit of work (claimed, executed, finished) — a row in the unified `task` table (migration `0014_unify_task_meshtask.sql`; `MeshTask` is still the name for this routing surface in prose, CLI verbs, and MCP tool names, but it is no longer a separate table — see `docs/architecture/entities.md` § Task)
 - **AgentRuntime** = worker. Runtime impls today include `claude_code` (one-shot `claude -p`), `claude_agent_acp` (persistent JSON-RPC; ACP), `codex`, `gemini`, and `zellij_hosted` (long-running agents hosted in a Zellij pane — Aria fleet; signals via `edgeplane agent signal`). See `crates/edgeplaned/crates/edgeplaned-runtimes/src/`.
 
 The daemon (`edgeplaned`) runs a headless attach gateway. The work loop (`edgeplane run <runtime>`) connects to a mission, claims tasks, and supervises agent child processes.
@@ -117,7 +117,7 @@ systemctl --user enable --now edgeplane-claude
 
 ## Create and dispatch work
 
-### Create a MeshTask (via work API)
+### Create a claimable task (`kind='claimable'`, via work API)
 
 ```bash
 TOKEN=ep_…
@@ -159,4 +159,4 @@ curl -X POST http://<edgeplane-host>/work/tasks/<task-id>/retry \
 
 - **Event bus threading**: `task_ready` WebSocket events from sync API handlers may not wake the work loop reliably in single-worker deployments. The startup poll (`/work/missions/{id}/tasks?status=ready`) is the reliable dispatch path — restart the loop after creating tasks if events don't fire.
 - **GLIBC mismatch**: Build `edgeplane` natively on the target node if it runs an older glibc than the build machine.
-- **Tasks vs MeshTasks**: The regular `/domains/{id}/missions/{id}/tasks` task API is the Kanban-style tracker. The work loop only operates on `MeshTask` objects at `/work/missions/{id}/tasks`. Always use the `/work/` API when creating tasks for agent dispatch.
+- **One `task` table, two routing surfaces**: `task` and `meshtask` used to be separate tables; migration `0014_unify_task_meshtask.sql` merged them into one `task` table with a `kind` column (`'assigned'` | `'claimable'`) instead. The Kanban-style, human/PM-facing surface (`kind='assigned'`) is reachable at `/domains/{id}/m/{id}/t` (dashboard, CLI `task create/list/show/update/delete`). The work loop only operates on `kind='claimable'` rows via the `/work/` API (`/work/missions/{id}/tasks`, `/work/tasks/{id}/...`) — those endpoints continue to create and act on `kind='claimable'` rows exactly as they did on the old `meshtask` table. Always use the `/work/` API when creating tasks for agent dispatch.

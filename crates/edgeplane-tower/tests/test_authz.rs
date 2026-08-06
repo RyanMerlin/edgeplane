@@ -112,7 +112,10 @@ async fn domain_stream_denied_for_outsider() {
         .add_header(axum::http::header::CONNECTION, "upgrade")
         .add_header(axum::http::header::UPGRADE, "websocket")
         .add_header(axum::http::header::SEC_WEBSOCKET_VERSION, "13")
-        .add_header(axum::http::header::SEC_WEBSOCKET_KEY, "dGhlIHNhbXBsZSBub25jZQ==")
+        .add_header(
+            axum::http::header::SEC_WEBSOCKET_KEY,
+            "dGhlIHNhbXBsZSBub25jZQ==",
+        )
         .await;
     assert_eq!(res.status_code(), 403);
 }
@@ -124,13 +127,8 @@ async fn agent_cannot_complete_unassigned_task() {
     };
     // Seed a task claimed by "agent-A" — member_sa is a domain contributor so
     // the domain guard passes, but it is NOT agent-A, so the owner guard fires.
-    let task_id = common::seed_claimed_task(
-        &pool,
-        &ctx.mission_id,
-        &ctx.domain_id,
-        "agent-A",
-    )
-    .await;
+    let task_id =
+        common::seed_claimed_task(&pool, &ctx.mission_id, &ctx.domain_id, "agent-A").await;
     let s = server(pool.clone());
 
     // A domain-member SA that is not the claimer must get 403.
@@ -247,30 +245,10 @@ async fn agent_cannot_spoof_claim_agent_id() {
     // Enroll two agents.
     let (agent_a_id, agent_a_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
-    let (agent_b_id, _) =
-        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let (agent_b_id, _) = enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
 
     // Create a ready task in the domain.
-    let task_id = {
-        use uuid::Uuid;
-        let tid = format!("task-{}", Uuid::new_v4().simple());
-        sqlx::query(
-            "INSERT INTO meshtask \
-             (id, mission_id, domain_id, title, description, input_json, claim_policy, \
-              depends_on, produces, consumes, required_capabilities, \
-              status, priority, version_counter, created_by_subject, \
-              created_at, updated_at) \
-             VALUES ($1, $2, $3, 'spoof-test', '', '{}', 'any', '[]', '{}', '{}', '[]', \
-                     'ready', 0, 1, 'harness', now(), now())",
-        )
-        .bind(&tid)
-        .bind(&ctx.mission_id)
-        .bind(&ctx.domain_id)
-        .execute(&pool)
-        .await
-        .expect("insert task");
-        tid
-    };
+    let task_id = common::seed_ready_task(&pool, &ctx.mission_id, &ctx.domain_id).await;
 
     // Agent-A tries to claim the task on behalf of Agent-B (agent_id spoofing).
     let res = s
@@ -316,12 +294,7 @@ async fn enroll_and_get_token(
         )
         .json(&serde_json::json!({"runtime_kind": "test"}))
         .await;
-    assert_eq!(
-        res.status_code(),
-        201,
-        "enroll failed: {}",
-        res.text()
-    );
+    assert_eq!(res.status_code(), 201, "enroll failed: {}", res.text());
     let body: serde_json::Value = res.json();
     let agent_id = body["id"].as_str().unwrap().to_string();
     let agent_token = body["agent_token"].as_str().unwrap().to_string();
@@ -380,7 +353,10 @@ async fn enrolled_agent_token_denied_in_foreign_domain() {
         .add_header(axum::http::header::CONNECTION, "upgrade")
         .add_header(axum::http::header::UPGRADE, "websocket")
         .add_header(axum::http::header::SEC_WEBSOCKET_VERSION, "13")
-        .add_header(axum::http::header::SEC_WEBSOCKET_KEY, "dGhlIHNhbXBsZSBub25jZQ==")
+        .add_header(
+            axum::http::header::SEC_WEBSOCKET_KEY,
+            "dGhlIHNhbXBsZSBub25jZQ==",
+        )
         .await;
     assert_eq!(
         res.status_code(),
@@ -398,8 +374,7 @@ async fn full_trust_session_can_mint_agent_token() {
     let s = server(pool);
 
     // Enroll an agent via the owner session (to get the agent_id).
-    let (agent_id, _) =
-        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let (agent_id, _) = enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
 
     // A full-trust session should be able to re-mint a token for the agent.
     let res = s
@@ -608,7 +583,7 @@ async fn domain_peer_cannot_unblock_foreign_task() {
     let task_id =
         common::seed_claimed_task(&pool, &ctx.mission_id, &ctx.domain_id, "agent-A").await;
     // Mark it blocked so unblock makes sense.
-    sqlx::query("UPDATE meshtask SET status='blocked' WHERE id=$1")
+    sqlx::query("UPDATE task SET status='blocked' WHERE id=$1")
         .bind(&task_id)
         .execute(&pool)
         .await
@@ -747,7 +722,7 @@ async fn mcp_get_overlap_suggestions_denied_for_outsider() {
     };
     // Seed a workspace task + overlap suggestion in ctx.domain's mission.
     let task_id = common::seed_task(&pool, &ctx.mission_id).await;
-    let _ = common::seed_overlap_suggestion(&pool, task_id).await;
+    let _ = common::seed_overlap_suggestion(&pool, &task_id).await;
 
     let s = server(pool);
     let res = s
@@ -775,7 +750,7 @@ async fn mcp_get_overlap_suggestions_allowed_for_owner() {
         return;
     };
     let task_id = common::seed_task(&pool, &ctx.mission_id).await;
-    let _ = common::seed_overlap_suggestion(&pool, task_id).await;
+    let _ = common::seed_overlap_suggestion(&pool, &task_id).await;
 
     let s = server(pool);
     let res = s
@@ -966,13 +941,11 @@ async fn delete_node_403_for_non_owner() {
     let owner_email = {
         use edgeplane_tower::auth::hash_token;
         let hash = hash_token(&ctx.owner_session_token);
-        sqlx::query_scalar::<_, String>(
-            "SELECT subject FROM usersession WHERE token_hash = $1",
-        )
-        .bind(&hash)
-        .fetch_one(&pool)
-        .await
-        .expect("find owner subject")
+        sqlx::query_scalar::<_, String>("SELECT subject FROM usersession WHERE token_hash = $1")
+            .bind(&hash)
+            .fetch_one(&pool)
+            .await
+            .expect("find owner subject")
     };
     let node_id = common::seed_runtime_node(&pool, &owner_email, &node_name).await;
     let s = server(pool);
@@ -985,7 +958,12 @@ async fn delete_node_403_for_non_owner() {
             format!("Bearer {}", ctx.outsider_sa_token),
         )
         .await;
-    assert_eq!(res.status_code(), 403, "non-owner must be denied: {}", res.text());
+    assert_eq!(
+        res.status_code(),
+        403,
+        "non-owner must be denied: {}",
+        res.text()
+    );
 }
 
 /// DELETE without ?force=true when agents are assigned must return 409.
@@ -997,13 +975,11 @@ async fn delete_node_409_with_assigned_agents_no_force() {
     let owner_email = {
         use edgeplane_tower::auth::hash_token;
         let hash = hash_token(&ctx.owner_session_token);
-        sqlx::query_scalar::<_, String>(
-            "SELECT subject FROM usersession WHERE token_hash = $1",
-        )
-        .bind(&hash)
-        .fetch_one(&pool)
-        .await
-        .expect("find owner subject")
+        sqlx::query_scalar::<_, String>("SELECT subject FROM usersession WHERE token_hash = $1")
+            .bind(&hash)
+            .fetch_one(&pool)
+            .await
+            .expect("find owner subject")
     };
     let node_name = format!("node-409-{}", uuid::Uuid::new_v4().simple());
     let node_id = common::seed_runtime_node(&pool, &owner_email, &node_name).await;
@@ -1039,13 +1015,11 @@ async fn delete_node_success_with_force_detaches_agents_and_revokes_tokens() {
     let owner_email = {
         use edgeplane_tower::auth::hash_token;
         let hash = hash_token(&ctx.owner_session_token);
-        sqlx::query_scalar::<_, String>(
-            "SELECT subject FROM usersession WHERE token_hash = $1",
-        )
-        .bind(&hash)
-        .fetch_one(&pool)
-        .await
-        .expect("find owner subject")
+        sqlx::query_scalar::<_, String>("SELECT subject FROM usersession WHERE token_hash = $1")
+            .bind(&hash)
+            .fetch_one(&pool)
+            .await
+            .expect("find owner subject")
     };
     let node_name = format!("node-force-{}", uuid::Uuid::new_v4().simple());
     let node_id = common::seed_runtime_node(&pool, &owner_email, &node_name).await;
@@ -1081,36 +1055,41 @@ async fn delete_node_success_with_force_detaches_agents_and_revokes_tokens() {
     assert_eq!(body["detached_agents"], 1);
 
     // Verify: runtimenode row is gone.
-    let node_gone: Option<String> =
-        sqlx::query_scalar("SELECT id FROM runtimenode WHERE id = $1")
-            .bind(&node_id)
-            .fetch_optional(&pool)
-            .await
-            .expect("check runtimenode");
+    let node_gone: Option<String> = sqlx::query_scalar("SELECT id FROM runtimenode WHERE id = $1")
+        .bind(&node_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("check runtimenode");
     assert!(node_gone.is_none(), "runtimenode row must be deleted");
 
     // Verify: meshagent is detached (runtime_node_id = NULL, status = 'offline').
-    let agent_row = sqlx::query(
-        "SELECT runtime_node_id, status FROM meshagent WHERE id = $1",
-    )
-    .bind(&agent_id)
-    .fetch_optional(&pool)
-    .await
-    .expect("check meshagent");
+    let agent_row = sqlx::query("SELECT runtime_node_id, status FROM meshagent WHERE id = $1")
+        .bind(&agent_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("check meshagent");
     let agent_row = agent_row.expect("meshagent row must still exist (identity preserved)");
     let rnid: Option<String> = agent_row.try_get("runtime_node_id").ok().flatten();
-    assert!(rnid.is_none(), "meshagent.runtime_node_id must be NULL after detach");
+    assert!(
+        rnid.is_none(),
+        "meshagent.runtime_node_id must be NULL after detach"
+    );
     let status: String = agent_row.try_get("status").expect("status");
-    assert_eq!(status, "offline", "meshagent.status must be 'offline' after detach");
+    assert_eq!(
+        status, "offline",
+        "meshagent.status must be 'offline' after detach"
+    );
 
     // Verify: nodetoken row is cascaded/gone (ON DELETE CASCADE on runtimenode).
-    let token_gone: Option<String> =
-        sqlx::query_scalar("SELECT jti FROM nodetoken WHERE jti = $1")
-            .bind(&jti)
-            .fetch_optional(&pool)
-            .await
-            .expect("check nodetoken");
-    assert!(token_gone.is_none(), "nodetoken must be CASCADE-deleted with the node");
+    let token_gone: Option<String> = sqlx::query_scalar("SELECT jti FROM nodetoken WHERE jti = $1")
+        .bind(&jti)
+        .fetch_optional(&pool)
+        .await
+        .expect("check nodetoken");
+    assert!(
+        token_gone.is_none(),
+        "nodetoken must be CASCADE-deleted with the node"
+    );
 }
 
 /// DELETE with no assigned agents (no force required) must succeed.
@@ -1122,13 +1101,11 @@ async fn delete_node_success_no_agents() {
     let owner_email = {
         use edgeplane_tower::auth::hash_token;
         let hash = hash_token(&ctx.owner_session_token);
-        sqlx::query_scalar::<_, String>(
-            "SELECT subject FROM usersession WHERE token_hash = $1",
-        )
-        .bind(&hash)
-        .fetch_one(&pool)
-        .await
-        .expect("find owner subject")
+        sqlx::query_scalar::<_, String>("SELECT subject FROM usersession WHERE token_hash = $1")
+            .bind(&hash)
+            .fetch_one(&pool)
+            .await
+            .expect("find owner subject")
     };
     let node_name = format!("node-noagents-{}", uuid::Uuid::new_v4().simple());
     let node_id = common::seed_runtime_node(&pool, &owner_email, &node_name).await;
@@ -1150,12 +1127,11 @@ async fn delete_node_success_no_agents() {
     assert_eq!(body["deleted"], true);
     assert_eq!(body["detached_agents"], 0);
 
-    let node_gone: Option<String> =
-        sqlx::query_scalar("SELECT id FROM runtimenode WHERE id = $1")
-            .bind(&node_id)
-            .fetch_optional(&pool)
-            .await
-            .expect("check runtimenode after no-agent delete");
+    let node_gone: Option<String> = sqlx::query_scalar("SELECT id FROM runtimenode WHERE id = $1")
+        .bind(&node_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("check runtimenode after no-agent delete");
     assert!(node_gone.is_none(), "node must be deleted");
 }
 
@@ -1191,7 +1167,9 @@ async fn delete_node_403_for_node_self_jwt() {
         jt_res.text()
     );
     let jt_body: serde_json::Value = jt_res.json();
-    let bootstrap_token = jt_body["token"].as_str().expect("join token must contain 'token'");
+    let bootstrap_token = jt_body["token"]
+        .as_str()
+        .expect("join token must contain 'token'");
 
     // 2. Register a node using the bootstrap token.
     let node_name = format!("node-selfdelete-{}", uuid::Uuid::new_v4().simple());
@@ -1211,7 +1189,9 @@ async fn delete_node_403_for_node_self_jwt() {
     );
     let reg_body: serde_json::Value = reg_res.json();
     let node_id = reg_body["id"].as_str().expect("register must return id");
-    let node_jwt = reg_body["node_jwt"].as_str().expect("register must return node_jwt");
+    let node_jwt = reg_body["node_jwt"]
+        .as_str()
+        .expect("register must return node_jwt");
 
     // 3. Attempt self-delete with the node's own JWT — must be 403.
     //    Per spec §M1: node-self is excluded from delete authz; only owner
@@ -1231,13 +1211,12 @@ async fn delete_node_403_for_node_self_jwt() {
     );
 
     // Confirm the node was NOT deleted (the 403 must have been a hard stop).
-    let still_exists: Option<String> = sqlx::query_scalar(
-        "SELECT id FROM runtimenode WHERE id = $1",
-    )
-    .bind(node_id)
-    .fetch_optional(&pool)
-    .await
-    .expect("check runtimenode after self-delete attempt");
+    let still_exists: Option<String> =
+        sqlx::query_scalar("SELECT id FROM runtimenode WHERE id = $1")
+            .bind(node_id)
+            .fetch_optional(&pool)
+            .await
+            .expect("check runtimenode after self-delete attempt");
     assert!(
         still_exists.is_some(),
         "node must still exist after a forbidden self-delete attempt"
@@ -1363,7 +1342,9 @@ fn bearer(token: &str) -> (axum::http::HeaderName, String) {
 // mission-resolver path: work.rs::list_tasks
 #[tokio::test]
 async fn group_a_list_tasks_denied_for_outsider() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let (h, v) = bearer(&ctx.outsider_sa_token);
     let res = server(pool)
         .get(&format!("/api/work/missions/{}/tasks", ctx.mission_id))
@@ -1374,7 +1355,9 @@ async fn group_a_list_tasks_denied_for_outsider() {
 
 #[tokio::test]
 async fn group_a_list_tasks_allowed_for_owner() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let (h, v) = bearer(&ctx.owner_session_token);
     let res = server(pool)
         .get(&format!("/api/work/missions/{}/tasks", ctx.mission_id))
@@ -1386,7 +1369,9 @@ async fn group_a_list_tasks_allowed_for_owner() {
 // task-resolver path: work.rs::get_task
 #[tokio::test]
 async fn group_a_get_task_denied_for_outsider() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let task_id = common::seed_ready_task(&pool, &ctx.mission_id, &ctx.domain_id).await;
     let (h, v) = bearer(&ctx.outsider_sa_token);
     let res = server(pool)
@@ -1398,7 +1383,9 @@ async fn group_a_get_task_denied_for_outsider() {
 
 #[tokio::test]
 async fn group_a_get_task_allowed_for_member() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let task_id = common::seed_ready_task(&pool, &ctx.mission_id, &ctx.domain_id).await;
     let (h, v) = bearer(&ctx.member_sa_token);
     let res = server(pool)
@@ -1411,7 +1398,9 @@ async fn group_a_get_task_allowed_for_member() {
 // agent-resolver path: work.rs::get_agent
 #[tokio::test]
 async fn group_a_get_agent_denied_for_outsider() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     // Unique per run: seed_agent's id is the PK with ON CONFLICT DO NOTHING, and the
     // test DB persists across runs — a literal id would keep a stale row bound to an
     // earlier run's domain, whose contributor SA no longer matches this run's token.
@@ -1431,7 +1420,9 @@ async fn group_a_get_agent_denied_for_outsider() {
 
 #[tokio::test]
 async fn group_a_get_agent_allowed_for_member() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     // Unique per run — see the note in group_a_get_agent_denied_for_outsider.
     let agent_id = common::seed_agent(
         &pool,
@@ -1450,7 +1441,9 @@ async fn group_a_get_agent_allowed_for_member() {
 // direct-domain path: work.rs::domain_roster
 #[tokio::test]
 async fn group_a_domain_roster_denied_for_outsider() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let (h, v) = bearer(&ctx.outsider_sa_token);
     let res = server(pool)
         .get(&format!("/api/work/domains/{}/roster", ctx.domain_id))
@@ -1461,7 +1454,9 @@ async fn group_a_domain_roster_denied_for_outsider() {
 
 #[tokio::test]
 async fn group_a_domain_roster_allowed_for_owner() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let (h, v) = bearer(&ctx.owner_session_token);
     let res = server(pool)
         .get(&format!("/api/work/domains/{}/roster", ctx.domain_id))
@@ -1478,7 +1473,9 @@ async fn group_a_domain_roster_allowed_for_owner() {
 // POST) was already gated, making this the lone hole.
 #[tokio::test]
 async fn group_a_list_mission_messages_denied_for_outsider() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let (h, v) = bearer(&ctx.outsider_sa_token);
     let res = server(pool)
         .get(&format!("/api/work/missions/{}/messages", ctx.mission_id))
@@ -1489,7 +1486,9 @@ async fn group_a_list_mission_messages_denied_for_outsider() {
 
 #[tokio::test]
 async fn group_a_list_mission_messages_allowed_for_owner() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let (h, v) = bearer(&ctx.owner_session_token);
     let res = server(pool)
         .get(&format!("/api/work/missions/{}/messages", ctx.mission_id))
@@ -1501,7 +1500,9 @@ async fn group_a_list_mission_messages_allowed_for_owner() {
 // flat tasks.rs path: list_tasks_by_mission (queries the `task` table)
 #[tokio::test]
 async fn group_a_list_tasks_by_mission_denied_for_outsider() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let (h, v) = bearer(&ctx.outsider_sa_token);
     let res = server(pool)
         .get(&format!("/api/missions/{}/t", ctx.mission_id))
@@ -1512,7 +1513,9 @@ async fn group_a_list_tasks_by_mission_denied_for_outsider() {
 
 #[tokio::test]
 async fn group_a_list_tasks_by_mission_allowed_for_owner() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let (h, v) = bearer(&ctx.owner_session_token);
     let res = server(pool)
         .get(&format!("/api/missions/{}/t", ctx.mission_id))
@@ -1524,7 +1527,9 @@ async fn group_a_list_tasks_by_mission_allowed_for_owner() {
 // flat missions.rs path: get_mission_brief_flat
 #[tokio::test]
 async fn group_a_mission_brief_flat_denied_for_outsider() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let (h, v) = bearer(&ctx.outsider_sa_token);
     let res = server(pool)
         .get(&format!("/api/missions/{}/brief", ctx.mission_id))
@@ -1535,7 +1540,9 @@ async fn group_a_mission_brief_flat_denied_for_outsider() {
 
 #[tokio::test]
 async fn group_a_mission_brief_flat_admits_owner_past_gate() {
-    let Some((pool, ctx)) = setup().await else { return };
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
     let (h, v) = bearer(&ctx.owner_session_token);
     let res = server(pool)
         .get(&format!("/api/missions/{}/brief", ctx.mission_id))

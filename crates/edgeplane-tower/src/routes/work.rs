@@ -172,18 +172,31 @@ fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         "mission_id": row.get::<String, _>("mission_id"),
         "domain_id": row.get::<String, _>("domain_id"),
         "parent_task_id": row.get::<Option<String>, _>("parent_task_id"),
+        // kind discriminator ('assigned' | 'claimable') from migration 0014's
+        // task/meshtask unification — this route family (`/work/...`) only
+        // ever writes/lists kind='claimable' rows, but row_to_task is also
+        // used to render single-row fetches (get_task), so surface it rather
+        // than assume.
+        "kind": row.get::<String, _>("kind"),
         "title": row.get::<String, _>("title"),
         "description": row.try_get::<Option<String>, _>("description").ok().flatten().unwrap_or_default(),
-        "claim_policy": row.get::<String, _>("claim_policy"),
+        // claim_policy is claimable-only and nullable post-unification (NULL
+        // for kind='assigned' rows) — was a non-Option `row.get::<String,_>`
+        // that would panic decoding a NULL from an assigned row.
+        "claim_policy": row.get::<Option<String>, _>("claim_policy"),
         "depends_on": serde_json::from_str::<serde_json::Value>(&row.try_get::<Option<String>, _>("depends_on").ok().flatten().unwrap_or_default()).unwrap_or(serde_json::json!([])),
         "produces": serde_json::from_str::<serde_json::Value>(&row.try_get::<Option<String>, _>("produces").ok().flatten().unwrap_or_default()).unwrap_or(serde_json::json!({})),
         "consumes": serde_json::from_str::<serde_json::Value>(&row.try_get::<Option<String>, _>("consumes").ok().flatten().unwrap_or_default()).unwrap_or(serde_json::json!({})),
         "required_capabilities": serde_json::from_str::<serde_json::Value>(&row.try_get::<Option<String>, _>("required_capabilities").ok().flatten().unwrap_or_default()).unwrap_or(serde_json::json!([])),
         "status": row.get::<String, _>("status"),
         "claimed_by_agent_id": row.get::<Option<String>, _>("claimed_by_agent_id"),
-        "result_artifact_id": row.get::<Option<String>, _>("result_artifact_id"),
+        // result_artifact_id is now `integer` (matches artifact.id) — was varchar.
+        "result_artifact_id": row.get::<Option<i32>, _>("result_artifact_id"),
         "priority": row.get::<i32, _>("priority"),
         "lease_expires_at": row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at").map(|dt| dt.and_utc()),
+        "attempt": row.get::<i16, _>("attempt"),
+        "max_attempts": row.get::<i16, _>("max_attempts"),
+        "finalized_at": row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("finalized_at").ok().flatten(),
         "created_by_subject": row.get::<String, _>("created_by_subject"),
         "created_at": row.get::<chrono::NaiveDateTime, _>("created_at").and_utc(),
         "updated_at": row.get::<chrono::NaiveDateTime, _>("updated_at").and_utc(),
@@ -454,35 +467,74 @@ struct AgentMessagesQuery {
 const LEASE_TTL_SECS: i64 = 120;
 
 /// Expire stale leases for a mission before listing tasks.
+///
+/// Two behavior changes from the pre-unification version (migration 0014):
+///
+/// 1. **Fencing fix (real bug, not speculative):** the old UPDATE cleared
+///    `claimed_by_agent_id`/`lease_expires_at` on expiry but left the stale
+///    `claim_lease_id` in place. A slow-but-alive agent A whose lease expired
+///    and got reclaimed by agent B could still present A's old lease id to
+///    `complete_task`/`fail_task`/etc. This was only masked by
+///    `heartbeat_task`'s incidental `status != claimed/running` check, not by
+///    intentional fencing. Now `claim_lease_id=NULL` is cleared here too, so a
+///    stale token can never validate against a reclaimed (or re-readied) row.
+/// 2. **Bounded retry (new — `attempt`/`max_attempts`, migration 0014):**
+///    previously every expiry unconditionally reset the row to `status='ready'`
+///    (infinitely reclaimable). Now `attempt` increments on every expiry, and
+///    once `attempt >= max_attempts` the row goes to `status='failed'`
+///    (`finalized_at` stamped) instead of back to `ready`. Default
+///    `max_attempts=1` (the migration's column default) reproduces today's
+///    exact single-shot-then-failed behavior is NOT preserved as-is: previously
+///    a timed-out task looped back to `ready` forever; now, with the default
+///    max_attempts=1, the FIRST expiry (attempt 0->1, 1>=1) already fails it
+///    instead of re-readying it. This is an intentional behavior change (the
+///    plan's point — bounded retry replaces unbounded silent reclaim) and is
+///    called out explicitly in this PR's report, not shipped silently.
 async fn expire_stale_leases(db: &sqlx::PgPool, mission_id: &str) {
     let now = Utc::now().naive_utc();
+    let now_tz = Utc::now();
     let _ = sqlx::query(
-        "UPDATE meshtask SET status='ready', claimed_by_agent_id=NULL, lease_expires_at=NULL, updated_at=$1 \
-         WHERE mission_id=$2 AND status IN ('claimed','running') AND claim_policy != 'broadcast' \
+        "UPDATE task SET \
+           attempt = attempt + 1, \
+           status = CASE WHEN attempt + 1 >= max_attempts THEN 'failed' ELSE 'ready' END, \
+           finalized_at = CASE WHEN attempt + 1 >= max_attempts THEN $3 ELSE finalized_at END, \
+           claimed_by_agent_id = NULL, lease_expires_at = NULL, claim_lease_id = NULL, \
+           updated_at = $1 \
+         WHERE mission_id=$2 AND kind='claimable' AND status IN ('claimed','running') \
+           AND claim_policy != 'broadcast' \
            AND lease_expires_at IS NOT NULL AND lease_expires_at < $1",
     )
     .bind(now)
     .bind(mission_id)
+    .bind(now_tz)
     .execute(db)
     .await;
 }
 
-/// DFS cycle detection when adding a new task with dependencies.
-async fn detect_cycle(
+/// DFS cycle detection when adding a new task with dependencies. `pub(crate)`
+/// so `routes::mcp::submit_mesh_task` can reuse it — the migration 0014
+/// column-population unification (REST `create_task` vs. MCP
+/// `submit_mesh_task`) now has the MCP path accept `depends_on` too, and it
+/// needs the same cycle guard `create_task` already had.
+pub(crate) async fn detect_cycle(
     db: &sqlx::PgPool,
     mission_id: &str,
     new_id: &str,
     depends_on: &[String],
 ) -> Result<bool, sqlx::Error> {
-    let rows = sqlx::query("SELECT id, depends_on FROM meshtask WHERE mission_id=$1")
+    let rows = sqlx::query("SELECT id, depends_on FROM task WHERE mission_id=$1 AND kind='claimable'")
         .bind(mission_id)
         .fetch_all(db)
         .await?;
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
     for r in &rows {
         let id: String = r.get("id");
-        let deps: Vec<String> =
-            serde_json::from_str(r.get::<&str, _>("depends_on")).unwrap_or_default();
+        // depends_on is nullable `text` (no NOT NULL) — non-Option `Row::get`
+        // panics on NULL.
+        let deps: Vec<String> = serde_json::from_str(
+            r.try_get::<Option<&str>, _>("depends_on").ok().flatten().unwrap_or("[]"),
+        )
+        .unwrap_or_default();
         adj.insert(id, deps);
     }
     adj.insert(new_id.to_string(), depends_on.to_vec());
@@ -516,7 +568,7 @@ async fn detect_cycle(
 /// After a task finishes, find and unblock any dependents whose deps are all finished.
 async fn unblock_dependents(db: &sqlx::PgPool, mission_id: &str, finished_id: &str) -> Vec<String> {
     let candidates = sqlx::query(
-        "SELECT id, depends_on FROM meshtask WHERE mission_id=$1 AND status IN ('pending','blocked')",
+        "SELECT id, depends_on FROM task WHERE mission_id=$1 AND kind='claimable' AND status IN ('pending','blocked')",
     )
     .bind(mission_id)
     .fetch_all(db)
@@ -528,13 +580,15 @@ async fn unblock_dependents(db: &sqlx::PgPool, mission_id: &str, finished_id: &s
 
     for c in &candidates {
         let cid: String = c.get("id");
-        let dep_ids: Vec<String> =
-            serde_json::from_str(c.get::<&str, _>("depends_on")).unwrap_or_default();
+        let dep_ids: Vec<String> = serde_json::from_str(
+            c.try_get::<Option<&str>, _>("depends_on").ok().flatten().unwrap_or("[]"),
+        )
+        .unwrap_or_default();
         if !dep_ids.contains(&finished_id.to_string()) {
             continue;
         }
         // Check all deps are finished
-        let dep_rows = sqlx::query("SELECT status FROM meshtask WHERE id = ANY($1)")
+        let dep_rows = sqlx::query("SELECT status FROM task WHERE id = ANY($1)")
             .bind(dep_ids.as_slice())
             .fetch_all(db)
             .await
@@ -544,7 +598,7 @@ async fn unblock_dependents(db: &sqlx::PgPool, mission_id: &str, finished_id: &s
                 .iter()
                 .all(|r| r.get::<String, _>("status") == "finished")
         {
-            let _ = sqlx::query("UPDATE meshtask SET status='ready', updated_at=$2 WHERE id=$1")
+            let _ = sqlx::query("UPDATE task SET status='ready', updated_at=$2 WHERE id=$1")
                 .bind(&cid)
                 .bind(now)
                 .execute(db)
@@ -553,6 +607,40 @@ async fn unblock_dependents(db: &sqlx::PgPool, mission_id: &str, finished_id: &s
         }
     }
     ready_ids
+}
+
+/// Generate a `public_id` matching the convention used across the unified
+/// `task` table (migration 0014: `'task-' || substr(replace(gen_random_uuid()
+/// ::text,'-',''),1,8)`, and `routes/agents.rs::generate_public_id`'s pattern):
+/// `task-{8 hex chars}`.
+pub(crate) fn new_public_id() -> String {
+    let hex = Uuid::new_v4().simple().to_string();
+    format!("task-{}", &hex[..8])
+}
+
+/// Compute a new claimable task's initial status: `ready` if it has no
+/// dependencies (or all of them are already `finished`), else `pending`.
+/// `pub(crate)` — shared between `create_task` (REST) and
+/// `routes::mcp::submit_mesh_task` (MCP) so the two column-population paths
+/// (migration 0014's unification requirement) don't diverge on this logic.
+pub(crate) async fn compute_initial_status(db: &sqlx::PgPool, depends_on: &[String]) -> &'static str {
+    if depends_on.is_empty() {
+        return "ready";
+    }
+    let dep_rows = sqlx::query("SELECT status FROM task WHERE id = ANY($1)")
+        .bind(depends_on)
+        .fetch_all(db)
+        .await
+        .unwrap_or_default();
+    if dep_rows.len() == depends_on.len()
+        && dep_rows
+            .iter()
+            .all(|r| r.get::<String, _>("status") == "finished")
+    {
+        "ready"
+    } else {
+        "pending"
+    }
 }
 
 // ── Task handlers ──────────────────────────────────────────────────────────────
@@ -569,9 +657,15 @@ async fn list_tasks(
     }
     expire_stale_leases(&state.db, &mission_id).await;
 
+    // kind='claimable' filter: this route (`/work/missions/{id}/tasks`) is the
+    // mesh/claimable-pool listing API — historically it only ever saw meshtask
+    // rows. Post-unification the table also holds kind='assigned' rows (PM-style
+    // status vocabulary, no claim_policy/lease semantics); without this filter
+    // they'd leak into what daemon pollers (poll_ready_tasks) treat as claimable
+    // work.
     let rows = if let Some(status) = &q.status {
         sqlx::query(
-            "SELECT * FROM meshtask WHERE mission_id=$1 AND status=$2 ORDER BY priority DESC, created_at ASC",
+            "SELECT * FROM task WHERE mission_id=$1 AND kind='claimable' AND status=$2 ORDER BY priority DESC, created_at ASC",
         )
         .bind(&mission_id)
         .bind(status)
@@ -579,7 +673,7 @@ async fn list_tasks(
         .await
     } else {
         sqlx::query(
-            "SELECT * FROM meshtask WHERE mission_id=$1 ORDER BY priority DESC, created_at ASC",
+            "SELECT * FROM task WHERE mission_id=$1 AND kind='claimable' ORDER BY priority DESC, created_at ASC",
         )
         .bind(&mission_id)
         .fetch_all(&state.db)
@@ -621,10 +715,12 @@ async fn create_task(
         return resp;
     }
 
-    // Validate depends_on tasks exist
+    // Validate depends_on tasks exist (claimable-only: dependency graph is a
+    // claimable-pool concept, and depends_on/produces/consumes are
+    // claimable-only columns post-unification).
     for dep_id in &body.depends_on {
         let exists: Option<i32> =
-            sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1 AND mission_id=$2")
+            sqlx::query_scalar("SELECT 1 FROM task WHERE id=$1 AND mission_id=$2 AND kind='claimable'")
                 .bind(dep_id)
                 .bind(&mission_id)
                 .fetch_optional(&state.db)
@@ -650,25 +746,7 @@ async fn create_task(
     }
 
     // Determine initial status: pending if has unfinished deps, else ready
-    let initial_status = if body.depends_on.is_empty() {
-        "ready"
-    } else {
-        // Check if all deps are already finished
-        let dep_rows = sqlx::query("SELECT status FROM meshtask WHERE id = ANY($1)")
-            .bind(body.depends_on.as_slice())
-            .fetch_all(&state.db)
-            .await
-            .unwrap_or_default();
-        if dep_rows.len() == body.depends_on.len()
-            && dep_rows
-                .iter()
-                .all(|r| r.get::<String, _>("status") == "finished")
-        {
-            "ready"
-        } else {
-            "pending"
-        }
-    };
+    let initial_status = compute_initial_status(&state.db, &body.depends_on).await;
 
     let now = Utc::now().naive_utc();
     let depends_on_json =
@@ -677,17 +755,19 @@ async fn create_task(
     let consumes_json = serde_json::to_string(&body.consumes).unwrap_or_else(|_| "{}".to_string());
     let req_caps_json =
         serde_json::to_string(&body.required_capabilities).unwrap_or_else(|_| "[]".to_string());
+    let public_id = new_public_id();
 
     let row = sqlx::query(
-        "INSERT INTO meshtask (id, mission_id, domain_id, parent_task_id, title, description, \
+        "INSERT INTO task (id, public_id, mission_id, domain_id, parent_task_id, kind, title, description, \
          input_json, claim_policy, depends_on, produces, consumes, required_capabilities, \
          status, claimed_by_agent_id, result_artifact_id, priority, \
          lease_expires_at, claim_lease_id, version_counter, \
          created_by_subject, created_at, updated_at) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULL,NULL,$14,NULL,NULL,0,$15,$16,$16) \
+         VALUES ($1,$2,$3,$4,$5,'claimable',$6,$7,$8,$9,$10,$11,$12,$13,$14,NULL,NULL,$15,NULL,NULL,0,$16,$17,$17) \
          RETURNING *",
     )
     .bind(&new_id)
+    .bind(&public_id)
     .bind(&mission_id)
     .bind(&domain_id)
     .bind(&body.parent_task_id)
@@ -731,7 +811,7 @@ async fn task_graph(
         return r;
     }
     let rows =
-        sqlx::query("SELECT id, title, status, depends_on FROM meshtask WHERE mission_id=$1")
+        sqlx::query("SELECT id, title, status, depends_on FROM task WHERE mission_id=$1 AND kind='claimable'")
             .bind(&mission_id)
             .fetch_all(&state.db)
             .await;
@@ -752,8 +832,10 @@ async fn task_graph(
             let mut edges: Vec<serde_json::Value> = Vec::new();
             for r in &rows {
                 let from: String = r.get("id");
-                let deps: Vec<String> =
-                    serde_json::from_str(r.get::<&str, _>("depends_on")).unwrap_or_default();
+                let deps: Vec<String> = serde_json::from_str(
+                    r.try_get::<Option<&str>, _>("depends_on").ok().flatten().unwrap_or("[]"),
+                )
+                .unwrap_or_default();
                 for dep in deps {
                     edges.push(serde_json::json!({"from": dep, "to": from}));
                 }
@@ -776,7 +858,7 @@ async fn get_task(
     if let Err(r) = crate::routes::authz::authz_by_task(&state.db, &principal, &task_id).await {
         return r;
     }
-    match sqlx::query("SELECT * FROM meshtask WHERE id=$1")
+    match sqlx::query("SELECT * FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
@@ -795,7 +877,7 @@ async fn cancel_task(
     principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let row = sqlx::query("SELECT * FROM meshtask WHERE id=$1")
+    let row = sqlx::query("SELECT * FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await;
@@ -816,15 +898,39 @@ async fn cancel_task(
         return resp;
     }
 
+    // Cancellation is a mode-agnostic terminal transition, same as
+    // complete/fail/block — an assigned task's owner should be able to
+    // cancel it too. authz_task_owner branches internally on ownership proof
+    // by kind (claimed_by_agent_id/lease for claimable, owner/lease for
+    // assigned); call it unconditionally.
+    //
+    // NOTE: this is a narrowing behavior change for kind='claimable' rows —
+    // cancel_task previously had no per-task ownership check at all (any
+    // domain member could cancel any claimable task, only complete_task/
+    // fail_task were claimer-gated). It is now claimer-or-full-trust/admin
+    // like its siblings. Flagged explicitly since it wasn't separately
+    // discussed for the claimable side.
+    let kind: String = task_row.get("kind");
+    if let Err(resp) =
+        crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
+    {
+        return resp;
+    }
+
+    // Status precondition is kind-specific — see complete_task.
     let status: String = task_row.get("status");
-    if status == "finished" || status == "cancelled" {
+    if kind == "claimable" {
+        if status == "finished" || status == "cancelled" {
+            return conflict(&format!("Task is already {status}"));
+        }
+    } else if crate::routes::tasks::is_terminal_status(&status) {
         return conflict(&format!("Task is already {status}"));
     }
 
     let now = Utc::now().naive_utc();
     match sqlx::query(
-        "UPDATE meshtask SET status='cancelled', claimed_by_agent_id=NULL, \
-         lease_expires_at=NULL, updated_at=$2 WHERE id=$1 RETURNING *",
+        "UPDATE task SET status='cancelled', claimed_by_agent_id=NULL, \
+         lease_expires_at=NULL, claim_lease_id=NULL, updated_at=$2 WHERE id=$1 RETURNING *",
     )
     .bind(&task_id)
     .bind(now)
@@ -844,7 +950,7 @@ async fn retry_task(
     principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let row = sqlx::query("SELECT * FROM meshtask WHERE id=$1")
+    let row = sqlx::query("SELECT * FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await;
@@ -865,6 +971,13 @@ async fn retry_task(
         return resp;
     }
 
+    // Kind-gating: 'ready' is claimable-pool vocabulary; retry re-enters the
+    // claim pool, which is meaningless for a kind='assigned' row.
+    let kind: String = task_row.get("kind");
+    if kind != "claimable" {
+        return conflict("Task is not claimable (kind='assigned'); retry does not apply");
+    }
+
     let status: String = task_row.get("status");
     if status != "failed" && status != "cancelled" {
         return conflict(&format!("Task cannot be retried from status: {status}"));
@@ -872,8 +985,8 @@ async fn retry_task(
 
     let now = Utc::now().naive_utc();
     match sqlx::query(
-        "UPDATE meshtask SET status='ready', claimed_by_agent_id=NULL, result_artifact_id=NULL, \
-         lease_expires_at=NULL, claim_lease_id=NULL, updated_at=$2 WHERE id=$1 RETURNING *",
+        "UPDATE task SET status='ready', claimed_by_agent_id=NULL, result_artifact_id=NULL, \
+         lease_expires_at=NULL, claim_lease_id=NULL, finalized_at=NULL, updated_at=$2 WHERE id=$1 RETURNING *",
     )
     .bind(&task_id)
     .bind(now)
@@ -910,7 +1023,7 @@ async fn claim_task(
     };
 
     // First fetch the task to check claim_policy
-    let task_row = match sqlx::query("SELECT * FROM meshtask WHERE id=$1")
+    let task_row = match sqlx::query("SELECT * FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
@@ -930,7 +1043,14 @@ async fn claim_task(
         return resp;
     }
 
-    let claim_policy: String = task_row.get("claim_policy");
+    // Kind-gating: an assigned task is never claimable, full stop.
+    let kind: String = task_row.get("kind");
+    if kind != "claimable" {
+        return conflict("Task is not claimable (kind='assigned')");
+    }
+
+    let claim_policy: Option<String> = task_row.get("claim_policy");
+    let claim_policy = claim_policy.unwrap_or_default();
     let status: String = task_row.get("status");
 
     if status != "ready" {
@@ -948,7 +1068,7 @@ async fn claim_task(
     // Broadcast: no locking needed, just update status to running
     if claim_policy == "broadcast" {
         let row = sqlx::query(
-            "UPDATE meshtask SET status='running', claimed_by_agent_id=$2, \
+            "UPDATE task SET status='running', claimed_by_agent_id=$2, \
              claim_lease_id=$3, lease_expires_at=$4, updated_at=$5 \
              WHERE id=$1 RETURNING *",
         )
@@ -989,7 +1109,7 @@ async fn claim_task(
     };
 
     let locked =
-        sqlx::query("SELECT * FROM meshtask WHERE id=$1 AND status='ready' FOR UPDATE SKIP LOCKED")
+        sqlx::query("SELECT * FROM task WHERE id=$1 AND status='ready' FOR UPDATE SKIP LOCKED")
             .bind(&task_id)
             .fetch_optional(&mut *tx)
             .await;
@@ -1015,7 +1135,7 @@ async fn claim_task(
     let new_version = version_counter + 1;
 
     let updated = sqlx::query(
-        "UPDATE meshtask SET status='claimed', claimed_by_agent_id=$2, claim_lease_id=$3, \
+        "UPDATE task SET status='claimed', claimed_by_agent_id=$2, claim_lease_id=$3, \
          version_counter=$4, lease_expires_at=$5, updated_at=$6 \
          WHERE id=$1 AND version_counter=$7 RETURNING *",
     )
@@ -1060,7 +1180,7 @@ async fn heartbeat_task(
 ) -> impl IntoResponse {
     let body = body.map(|b| b.0).unwrap_or_default();
 
-    let row = sqlx::query("SELECT * FROM meshtask WHERE id=$1")
+    let row = sqlx::query("SELECT * FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await;
@@ -1080,6 +1200,13 @@ async fn heartbeat_task(
     {
         return resp;
     }
+
+    // Kind-gating: an assigned task is never heartbeat-able, full stop.
+    let kind: String = task_row.get("kind");
+    if kind != "claimable" {
+        return conflict("Task is not claimable (kind='assigned')");
+    }
+
     if let Err(resp) = crate::routes::authz::authz_task_owner(
         &state.db,
         &principal,
@@ -1114,7 +1241,7 @@ async fn heartbeat_task(
     let lease_expires = now + chrono::Duration::seconds(LEASE_TTL_SECS);
 
     match sqlx::query(
-        "UPDATE meshtask SET status='running', lease_expires_at=$2, updated_at=$3 WHERE id=$1 RETURNING *",
+        "UPDATE task SET status='running', lease_expires_at=$2, updated_at=$3 WHERE id=$1 RETURNING *",
     )
     .bind(&task_id)
     .bind(lease_expires)
@@ -1136,15 +1263,15 @@ async fn append_progress(
     Path(task_id): Path<String>,
     Json(body): Json<ProgressCreate>,
 ) -> impl IntoResponse {
-    // Verify task exists
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1")
+    // Verify task exists and fetch its kind for gating below.
+    let kind: Option<String> = sqlx::query_scalar("SELECT kind FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
         .unwrap_or(None);
-    if exists.is_none() {
+    let Some(kind) = kind else {
         return not_found("Task not found");
-    }
+    };
 
     let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
         Ok(d) => d,
@@ -1155,6 +1282,13 @@ async fn append_progress(
     {
         return resp;
     }
+
+    // Kind-gating: an assigned task is never progress-reportable via this
+    // claim/lease-scoped route, full stop.
+    if kind != "claimable" {
+        return conflict("Task is not claimable (kind='assigned')");
+    }
+
     // Change 8: ownership check — only the task's claimer (or full-trust/admin) may post progress.
     // ProgressCreate has no claim_lease_id field; pass None (ownership via claimed_by_agent_id).
     if let Err(resp) =
@@ -1230,7 +1364,7 @@ async fn complete_task(
 ) -> impl IntoResponse {
     let body = body.map(|b| b.0).unwrap_or_default();
 
-    let task_row = match sqlx::query("SELECT * FROM meshtask WHERE id=$1")
+    let task_row = match sqlx::query("SELECT * FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
@@ -1249,6 +1383,14 @@ async fn complete_task(
     {
         return resp;
     }
+
+    // Completion is the unified path for both kinds (migration 0014's design
+    // point — one completion token, validated the same way regardless of
+    // routing mode): authz_task_owner already branches internally on how
+    // ownership is proven (claimed_by_agent_id/lease for claimable, owner/lease
+    // for assigned), so call it unconditionally rather than rejecting
+    // kind='assigned' up front.
+    let kind: String = task_row.get("kind");
     if let Err(resp) = crate::routes::authz::authz_task_owner(
         &state.db,
         &principal,
@@ -1260,8 +1402,16 @@ async fn complete_task(
         return resp;
     }
 
+    // Status precondition is kind-specific: claimable rows use the meshtask
+    // claim/lease vocabulary (unchanged from before this migration); assigned
+    // rows use free-text PM-style status and are completable from any
+    // non-terminal state (see routes::tasks::is_terminal_status).
     let status: String = task_row.get("status");
-    if status != "claimed" && status != "running" && status != "waiting_review" {
+    if kind == "claimable" {
+        if status != "claimed" && status != "running" && status != "waiting_review" {
+            return conflict(&format!("Task cannot be completed from status: {status}"));
+        }
+    } else if crate::routes::tasks::is_terminal_status(&status) {
         return conflict(&format!("Task cannot be completed from status: {status}"));
     }
 
@@ -1281,6 +1431,7 @@ async fn complete_task(
 
     let mission_id: String = task_row.get("mission_id");
     let now = Utc::now().naive_utc();
+    let now_tz = Utc::now();
 
     // Check for pending review gates
     let pending_gates =
@@ -1296,7 +1447,7 @@ async fn complete_task(
             .map(|r| r.get::<String, _>("id"))
             .collect();
         let _ =
-            sqlx::query("UPDATE meshtask SET status='waiting_review', updated_at=$2 WHERE id=$1")
+            sqlx::query("UPDATE task SET status='waiting_review', updated_at=$2 WHERE id=$1")
                 .bind(&task_id)
                 .bind(now)
                 .execute(&state.db)
@@ -1310,14 +1461,23 @@ async fn complete_task(
         .into_response();
     }
 
+    // result_artifact_id is now `integer` (matches artifact.id) — was varchar.
+    // The wire body still carries it as an optional string (CompleteBody);
+    // parse it defensively rather than trusting the caller sent a clean int.
+    let result_artifact_id: Option<i32> = body
+        .result_artifact_id
+        .as_deref()
+        .and_then(|s| s.parse::<i32>().ok());
+
     // Complete the task
     match sqlx::query(
-        "UPDATE meshtask SET status='finished', result_artifact_id=$2, \
-         lease_expires_at=NULL, updated_at=$3 WHERE id=$1 RETURNING *",
+        "UPDATE task SET status='finished', result_artifact_id=$2, \
+         lease_expires_at=NULL, claim_lease_id=NULL, finalized_at=$4, updated_at=$3 WHERE id=$1 RETURNING *",
     )
     .bind(&task_id)
-    .bind(&body.result_artifact_id)
+    .bind(result_artifact_id)
     .bind(now)
+    .bind(now_tz)
     .fetch_one(&state.db)
     .await
     {
@@ -1346,7 +1506,7 @@ async fn fail_task(
 ) -> impl IntoResponse {
     let body = body.map(|b| b.0).unwrap_or_default();
 
-    let task_row = match sqlx::query("SELECT * FROM meshtask WHERE id=$1")
+    let task_row = match sqlx::query("SELECT * FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
@@ -1365,6 +1525,11 @@ async fn fail_task(
     {
         return resp;
     }
+
+    // Completion is the unified path for both kinds — see complete_task for
+    // the full rationale. authz_task_owner branches internally on ownership
+    // proof by kind; call it unconditionally.
+    let kind: String = task_row.get("kind");
     if let Err(resp) = crate::routes::authz::authz_task_owner(
         &state.db,
         &principal,
@@ -1376,8 +1541,13 @@ async fn fail_task(
         return resp;
     }
 
+    // Status precondition is kind-specific — see complete_task.
     let status: String = task_row.get("status");
-    if status != "claimed" && status != "running" && status != "waiting_review" {
+    if kind == "claimable" {
+        if status != "claimed" && status != "running" && status != "waiting_review" {
+            return conflict(&format!("Task cannot be failed from status: {status}"));
+        }
+    } else if crate::routes::tasks::is_terminal_status(&status) {
         return conflict(&format!("Task cannot be failed from status: {status}"));
     }
 
@@ -1396,11 +1566,14 @@ async fn fail_task(
     }
 
     let now = Utc::now().naive_utc();
+    let now_tz = Utc::now();
     match sqlx::query(
-        "UPDATE meshtask SET status='failed', lease_expires_at=NULL, updated_at=$2 WHERE id=$1 RETURNING *",
+        "UPDATE task SET status='failed', lease_expires_at=NULL, claim_lease_id=NULL, \
+         finalized_at=$3, updated_at=$2 WHERE id=$1 RETURNING *",
     )
     .bind(&task_id)
     .bind(now)
+    .bind(now_tz)
     .fetch_one(&state.db)
     .await
     {
@@ -1417,7 +1590,7 @@ async fn block_task(
     principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1")
+    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
@@ -1435,6 +1608,11 @@ async fn block_task(
     {
         return resp;
     }
+
+    // "Blocked" (waiting on external input) is mode-agnostic — applies the
+    // same to either kind (see docs/plans task/meshtask unification design:
+    // blocked/waiting_review are independent of ownership routing mode).
+    // authz_task_owner branches internally on ownership proof by kind.
     if let Err(resp) =
         crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
     {
@@ -1442,7 +1620,7 @@ async fn block_task(
     }
 
     let now = Utc::now().naive_utc();
-    match sqlx::query("UPDATE meshtask SET status='blocked', updated_at=$2 WHERE id=$1 RETURNING *")
+    match sqlx::query("UPDATE task SET status='blocked', updated_at=$2 WHERE id=$1 RETURNING *")
         .bind(&task_id)
         .bind(now)
         .fetch_one(&state.db)
@@ -1472,7 +1650,7 @@ async fn dispatch_task(
     principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let row = sqlx::query("SELECT status, created_by_subject, domain_id FROM meshtask WHERE id=$1")
+    let row = sqlx::query("SELECT status, created_by_subject, domain_id FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await;
@@ -1498,7 +1676,7 @@ async fn dispatch_task(
     }
     if status == "finished" {
         // Idempotent: re-fetch and return.
-        let r = sqlx::query("SELECT * FROM meshtask WHERE id=$1")
+        let r = sqlx::query("SELECT * FROM task WHERE id=$1")
             .bind(&task_id)
             .fetch_one(&state.db)
             .await;
@@ -1518,7 +1696,7 @@ async fn dispatch_task(
 
     let now = Utc::now().naive_utc();
     match sqlx::query(
-        "UPDATE meshtask SET status='finished', updated_at=$2 WHERE id=$1 RETURNING *",
+        "UPDATE task SET status='finished', updated_at=$2 WHERE id=$1 RETURNING *",
     )
     .bind(&task_id)
     .bind(now)
@@ -1538,7 +1716,7 @@ async fn unblock_task(
     principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1")
+    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
@@ -1564,7 +1742,7 @@ async fn unblock_task(
     }
 
     let now = Utc::now().naive_utc();
-    match sqlx::query("UPDATE meshtask SET status='ready', updated_at=$2 WHERE id=$1 RETURNING *")
+    match sqlx::query("UPDATE task SET status='ready', updated_at=$2 WHERE id=$1 RETURNING *")
         .bind(&task_id)
         .bind(now)
         .fetch_one(&state.db)
@@ -1587,7 +1765,7 @@ async fn get_task_progress(
     if let Err(r) = crate::routes::authz::authz_by_task(&state.db, &principal, &task_id).await {
         return r;
     }
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1")
+    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
@@ -1651,7 +1829,7 @@ async fn create_gate(
     Path(task_id): Path<String>,
     Json(body): Json<GateCreate>,
 ) -> impl IntoResponse {
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1")
+    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
@@ -1713,7 +1891,7 @@ async fn list_gates(
     if let Err(r) = crate::routes::authz::authz_by_task(&state.db, &principal, &task_id).await {
         return r;
     }
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM meshtask WHERE id=$1")
+    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
@@ -1804,7 +1982,7 @@ async fn resolve_gate(
     };
 
     // Re-fetch task to check if waiting_review
-    let task_row = match sqlx::query("SELECT * FROM meshtask WHERE id=$1")
+    let task_row = match sqlx::query("SELECT * FROM task WHERE id=$1")
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
@@ -1837,14 +2015,14 @@ async fn resolve_gate(
         });
 
         if any_rejected {
-            let _ = sqlx::query("UPDATE meshtask SET status='failed', updated_at=$2 WHERE id=$1")
+            let _ = sqlx::query("UPDATE task SET status='failed', updated_at=$2 WHERE id=$1")
                 .bind(&task_id)
                 .bind(now)
                 .execute(&state.db)
                 .await;
         } else if all_resolved {
             let _ = sqlx::query(
-                "UPDATE meshtask SET status='finished', lease_expires_at=NULL, updated_at=$2 WHERE id=$1",
+                "UPDATE task SET status='finished', lease_expires_at=NULL, updated_at=$2 WHERE id=$1",
             )
             .bind(&task_id)
             .bind(now)

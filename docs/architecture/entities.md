@@ -34,7 +34,7 @@ Domains do **not** complete. They scope. Tasks complete.
 - Philosophy: line 207 ("Klusters - knowledge cluster inside mission for a targeted outcome") — now refers to Mission
 - Schema: `public.mission` (0001 as `kluster`, renamed in 0012) — has `workstream_md`, `workstream_version`, `domain_id` (nullable — missions can be domain-free), `owners`, `status`
 - S3 layout: `domains/{domain_id}/missions/{mission_id}/{entity}/{filename}`
-- Owns: tasks (`task.mission_id`), meshtasks (`meshtask.mission_id`), artifacts (`artifact.mission_id`)
+- Owns: tasks (`task.mission_id`), artifacts (`artifact.mission_id`)
 
 The column `mission.workstream_md` is the literal name. A mission *is* a workstream. Do not call domains workstreams.
 
@@ -44,24 +44,24 @@ The column `mission.workstream_md` is the literal name. A mission *is* a workstr
 
 ## Task
 
-**A unit of work inside a mission.** Has owner, dependencies, definition of done, status. Completes.
+**A unit of work inside a mission.** One primitive serving both human-tracked and agent-dispatched work, discriminated by `kind`. Completes.
 
-- Schema: `public.task` (line 1070) — has `mission_id` (FK, required), `epic_id` (optional), `owner`, `definition_of_done`, `dependencies`, `related_artifacts`
-- No direct `domain_id` — domain is reached via mission
+- Schema: `public.task` (0001 as `meshtask`; absorbed the legacy integer-PK `task` table and took its name in migration `0014_unify_task_meshtask.sql`, 2026-07) — `id` (varchar, the SSOT identity — the pre-0014 `task` table's integer PK does not survive; migrated rows got a fresh string id), `public_id`, `mission_id` (FK, required), `domain_id` (denormalized, required — reached via `mission.domain_id` for `kind='assigned'` rows too, backfilled at migration time), `parent_task_id` (self-FK, parent/child fan-out), `kind` (`'assigned'` | `'claimable'`, `CHECK`-constrained), `status`, `owner`, `contributors`, `done_criteria`, `dependencies_note`/`related_artifacts_note` (migrated from the legacy `task` table's free-text `dependencies`/`related_artifacts` columns — display-only, not parsed), `claim_policy`/`required_capabilities`/`claimed_by_agent_id`/`claim_lease_id`/`lease_expires_at` (claimable-only, nullable), `attempt`/`max_attempts`/`attempted_by`/`errors` (bounded retry, added in 0014), `depends_on`/`produces`/`consumes` (dependency graph), `result_artifact_id`, `finalized_at`
+- Result is recorded as an artifact (`result_artifact_id`, an `artifact.id` FK — retyped from `varchar` to `integer` in 0014 to actually match `artifact.id`'s real type)
+- Links to artifacts via `meshtaskartifact` (input/output role; table name unchanged by the 0014 rename — only the core task table itself was renamed)
 
-The local/UI-facing task. See `meshtask` for the agent-claimable mesh variant.
+**The `kind` discriminator resolves what earlier revisions of this doc called "an open architecture question": whether `task` and `meshtask` would converge.** They did, 2026-07, via migration `0014_unify_task_meshtask.sql`. The two prior surfaces map onto `kind`:
 
----
+- **`kind='assigned'`** (was the standalone `task` table) — explicit owner set at creation, human **or** agent, manual completion, no lease. Human-facing project tracking: the web dashboard, CLI `task create/list/show/update/delete`.
+- **`kind='claimable'`** (was `meshtask`) — no owner until claimed; capability-routed pool; atomic claim with a lease; self-healing on lease expiry, bounded by `attempt`/`max_attempts` (added in 0014 — prior to this, reclaim was unconditional/infinite). Agent-dispatch: CLI `task mesh <verb>`, the 9 MCP mesh tools, the daemon's poll/claim loop.
 
-## MeshTask
+**The axis `kind` encodes is routing (push vs. pull), not actor (human vs. agent).** An agent can be directly `assigned` a task (push) exactly like a human can; a human can review or complete a `claimable` task's result without the schema caring which. The claim/lease/capability machinery in `routes/work.rs` engages only when `kind='claimable'` — `claim`/`heartbeat`/`progress`/`retry` reject `kind='assigned'` rows outright, since there is structurally no lease to act on for them.
 
-**An agent-claimable task in the mesh.** Same role as `task`, but built for distributed claim-and-execute by agents with leases, capabilities, and parent/child structure.
+**Completion is one unified path for both kinds** — the design point of the merge, and the reason `claim_lease_id` exists on `kind='assigned'` rows at all. It is minted the moment a row leaves its initial state: for `claimable` rows, at claim time (unchanged from before); for `assigned` rows, on the first status transition away from `INITIAL_STATUS` (`"proposed"`). `complete`/`fail`/`block`/`cancel` (REST `routes/work.rs` and the MCP `complete_mesh_task`/`fail_mesh_task`/`block_mesh_task` tools) authorize via `authz_task_owner`, which accepts the presented `claim_lease_id` matching the row's current one, OR `claimed_by_agent_id` match (claimable), OR `owner` match (assigned) — full-trust/admin bypass all of it. This mirrors the completion-token pattern in Temporal / AWS SWF / Step Functions: one completion endpoint, token-gated, usable interchangeably by an autonomous worker or a human/assigned owner.
 
-- Schema: `public.meshtask` (line 550) — has `mission_id` (required), `domain_id` (denormalized, required), `parent_task_id`, `claim_policy`, `required_capabilities`, `claimed_by_agent_id`, `claim_lease_id`, `lease_expires_at`, `result_artifact_id`
-- Result is recorded as an artifact (`result_artifact_id`)
-- Links to artifacts via `meshtaskartifact` (input/output role)
+**Fencing:** lease reclaim (`expire_stale_leases`) clears `claim_lease_id` along with `claimed_by_agent_id`/`lease_expires_at`, so a stale token from before a reclaim cannot complete the task after another agent has claimed it. Before migration 0014 this token was left in place on reclaim — a real fencing gap, since fixed.
 
-Whether `task` and `meshtask` will converge is an open architecture question — for now, treat them as parallel surfaces, mesh for agents.
+**Deferred, not built:** a durable handoff/reassignment transition log (who → who, when, why — a transition as a first-class record, not just a status change) and an approval-gate concept distinct from ownership (a specific action needing sign-off, independent of who owns the task). Both are treated as first-class primitives by mature durable-execution and agent-coordination systems (Temporal's task tokens, A2A's `input-required` state, MS Agent Framework's approval gates) but weren't required to resolve the `task`/`meshtask` split — noted here as real follow-on work, not lost.
 
 ---
 
@@ -96,7 +96,7 @@ See `MeshAgent` (below) for the discoverable, runtime-bound projection.
 
 ## MeshAgent
 
-**The runtime-bound, discoverable projection of an agent into the mesh.** This is the row the controlplane scheduler matches against when claiming a `meshtask`. Distinct from `agent` (the canonical identity row).
+**The runtime-bound, discoverable projection of an agent into the mesh.** This is the row the controlplane scheduler matches against when claiming a `kind='claimable'` task. Distinct from `agent` (the canonical identity row).
 
 - Schema: `public.meshagent` (0001) — has `domain_id`, `node_id`, `runtime_kind`, `runtime_version`, `capabilities`, `labels`, `status`, `current_task_id`, `enrolled_by_subject`, `enrolled_at`, `last_heartbeat_at`, `runtime_node_id`, `profile_json`, `machine_json`, `runtime_json`, `supervision_mode`
 - Migration 0004 adds: `discovered_capabilities` — runtime-introspected capability set, union'd with declared `capabilities` during scheduling
@@ -139,9 +139,9 @@ There are three "session" tables. Confusion here is the root cause of past archi
 **A single execution of an agent doing a task.** This is where agent + task + runtime-session converge.
 
 - Schema: `public.agentrun` (line 36) — has `mesh_agent_id`, `mesh_task_id`, `runtime_kind`, `runtime_session_id`, `status`, `resume_token`, `parent_run_id`, `total_cost_cents`, `idempotency_key`
-- This is what you query to answer "what session did agent X use last time it touched mission Y?" — join `agentrun → meshtask → mission`.
+- This is what you query to answer "what session did agent X use last time it touched mission Y?" — join `agentrun → task → mission`. The `mesh_task_id` column name is unchanged by migration 0014 (only the table it targets was renamed, `meshtask` → `task`).
 
-**Resume-key for AI session continuity:** `(agent_id, mission_id) → claude_session_id` is derived via `agentrun.mesh_task_id → meshtask.mission_id` and `agentrun.runtime_session_id → aisession`. No new table needed.
+**Resume-key for AI session continuity:** `(agent_id, mission_id) → claude_session_id` is derived via `agentrun.mesh_task_id → task.mission_id` and `agentrun.runtime_session_id → aisession`. No new table needed.
 
 ---
 

@@ -52,14 +52,23 @@ fn row_to_mission(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 
 fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     json!({
-        "id": row.get::<i32, _>("id"),
+        // id/public_id are `character varying` post migration 0014 (task/meshtask
+        // unification) — was `i32`.
+        "id": row.get::<String, _>("id"),
         "public_id": row.get::<String, _>("public_id"),
         "mission_id": row.get::<String, _>("mission_id"),
+        // kind discriminator ('assigned' | 'claimable') — exposed rather than
+        // filtered at the SQL layer, so PR2 can decide whether the dashboard
+        // shows claimable tasks too without this PR pre-committing that
+        // product call.
+        "kind": row.get::<String, _>("kind"),
         "title": row.get::<String, _>("title"),
-        "description": row.get::<String, _>("description"),
+        // description/owner/contributors are nullable on the unified table
+        // (claimable rows never set them); were NOT NULL on the legacy `task`.
+        "description": row.try_get::<Option<String>, _>("description").ok().flatten().unwrap_or_default(),
         "status": row.get::<String, _>("status"),
-        "owner": row.get::<String, _>("owner"),
-        "contributors": row.get::<String, _>("contributors"),
+        "owner": row.try_get::<Option<String>, _>("owner").ok().flatten().unwrap_or_default(),
+        "contributors": row.try_get::<Option<String>, _>("contributors").ok().flatten().unwrap_or_default(),
         "updated_at": row.get::<chrono::NaiveDateTime, _>("updated_at"),
         "created_at": row.get::<chrono::NaiveDateTime, _>("created_at"),
     })
@@ -354,15 +363,18 @@ async fn explorer_tree(
                     .iter()
                     .filter(|t| {
                         let title: String = t.get("title");
-                        let desc: String = t.get("description");
-                        let owner: String = t.get("owner");
+                        // description/owner are nullable post migration 0014
+                        // (task/meshtask unification) — claimable rows never set
+                        // them; were NOT NULL on the legacy `task` table.
+                        let desc: Option<String> = t.try_get("description").ok().flatten();
+                        let owner: Option<String> = t.try_get("owner").ok().flatten();
                         let status: String = t.get("status");
                         matches_query(
                             &needle,
                             &[
                                 Some(title.as_str()),
-                                Some(desc.as_str()),
-                                Some(owner.as_str()),
+                                desc.as_deref(),
+                                owner.as_deref(),
                                 Some(status.as_str()),
                             ],
                         )
@@ -395,11 +407,11 @@ async fn explorer_tree(
                 .take(limit_tasks_per_cluster)
                 .map(|t| {
                     json!({
-                        "id": t.get::<i32, _>("id"),
+                        "id": t.get::<String, _>("id"),
                         "mission_id": t.get::<String, _>("mission_id"),
                         "title": t.get::<String, _>("title"),
                         "status": t.get::<String, _>("status"),
-                        "owner": t.get::<String, _>("owner"),
+                        "owner": t.try_get::<Option<String>, _>("owner").ok().flatten(),
                         "updated_at": t.get::<chrono::NaiveDateTime, _>("updated_at"),
                     })
                 })
@@ -480,15 +492,15 @@ async fn explorer_tree(
                 .iter()
                 .filter(|t| {
                     let title: String = t.get("title");
-                    let desc: String = t.get("description");
-                    let owner: String = t.get("owner");
+                    let desc: Option<String> = t.try_get("description").ok().flatten();
+                    let owner: Option<String> = t.try_get("owner").ok().flatten();
                     let status: String = t.get("status");
                     matches_query(
                         &needle,
                         &[
                             Some(title.as_str()),
-                            Some(desc.as_str()),
-                            Some(owner.as_str()),
+                            desc.as_deref(),
+                            owner.as_deref(),
                             Some(status.as_str()),
                         ],
                     )
@@ -518,11 +530,11 @@ async fn explorer_tree(
             .take(limit_tasks_per_cluster)
             .map(|t| {
                 json!({
-                    "id": t.get::<i32, _>("id"),
+                    "id": t.get::<String, _>("id"),
                     "mission_id": t.get::<String, _>("mission_id"),
                     "title": t.get::<String, _>("title"),
                     "status": t.get::<String, _>("status"),
-                    "owner": t.get::<String, _>("owner"),
+                    "owner": t.try_get::<Option<String>, _>("owner").ok().flatten(),
                     "updated_at": t.get::<chrono::NaiveDateTime, _>("updated_at"),
                 })
             })
@@ -740,31 +752,26 @@ async fn explorer_node(
         }
 
         "task" => {
-            // Try public_id first, then numeric id
+            // Try public_id first, then the raw (string) id — task ids are
+            // varchar UUIDs post migration 0014 (task/meshtask unification);
+            // there is no more numeric id to fall back to.
             let task_row_opt = match sqlx::query("SELECT * FROM task WHERE public_id=$1 LIMIT 1")
                 .bind(&node_id)
                 .fetch_optional(&state.db)
                 .await
             {
                 Ok(Some(r)) => Some(r),
-                Ok(None) => {
-                    // Try numeric id
-                    if let Ok(numeric_id) = node_id.parse::<i32>() {
-                        match sqlx::query("SELECT * FROM task WHERE id=$1")
-                            .bind(numeric_id)
-                            .fetch_optional(&state.db)
-                            .await
-                        {
-                            Ok(r) => r,
-                            Err(e) => {
-                                tracing::error!("explorer_node task fetch by id: {e}");
-                                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-                            }
-                        }
-                    } else {
-                        None
+                Ok(None) => match sqlx::query("SELECT * FROM task WHERE id=$1")
+                    .bind(&node_id)
+                    .fetch_optional(&state.db)
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::error!("explorer_node task fetch by id: {e}");
+                        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
                     }
-                }
+                },
                 Err(e) => {
                     tracing::error!("explorer_node task fetch: {e}");
                     return StatusCode::INTERNAL_SERVER_ERROR.into_response();

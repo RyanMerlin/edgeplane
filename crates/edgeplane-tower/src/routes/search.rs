@@ -49,9 +49,13 @@ async fn search_tasks(
             .take(limit as usize)
             .map(|r| {
                 serde_json::json!({
-                    "id": r.get::<i32, _>("id"),
+                    // id is `character varying` post migration 0014 (task/meshtask
+                    // unification) — was `i32`.
+                    "id": r.get::<String, _>("id"),
                     "title": r.get::<String, _>("title"),
-                    "description": r.get::<String, _>("description"),
+                    // description is nullable on the unified table (claimable
+                    // rows never set it) — was NOT NULL on the legacy `task`.
+                    "description": r.try_get::<Option<String>, _>("description").ok().flatten().unwrap_or_default(),
                     "status": r.get::<String, _>("status"),
                     "mission_id": r.get::<String, _>("mission_id"),
                 })
@@ -70,13 +74,13 @@ async fn search_tasks(
 
     let results: Vec<serde_json::Value> = rows
         .iter()
-        .filter(|r| readable_task_ids.contains(&r.get::<i32, _>("id")))
+        .filter(|r| readable_task_ids.contains(&r.get::<String, _>("id")))
         .take(limit as usize)
         .map(|r| {
             serde_json::json!({
-                "id": r.get::<i32, _>("id"),
+                "id": r.get::<String, _>("id"),
                 "title": r.get::<String, _>("title"),
-                "description": r.get::<String, _>("description"),
+                "description": r.try_get::<Option<String>, _>("description").ok().flatten().unwrap_or_default(),
                 "status": r.get::<String, _>("status"),
                 "mission_id": r.get::<String, _>("mission_id"),
             })
@@ -271,7 +275,7 @@ async fn get_readable_task_ids(
     db: &sqlx::PgPool,
     principal: &Principal,
     rows: &[sqlx::postgres::PgRow],
-) -> std::collections::HashSet<i32> {
+) -> std::collections::HashSet<String> {
     let mission_ids: Vec<String> = rows.iter().map(|r| r.get::<String, _>("mission_id")).collect();
     if mission_ids.is_empty() {
         return std::collections::HashSet::new();
@@ -281,7 +285,7 @@ async fn get_readable_task_ids(
 
     rows.iter()
         .filter(|r| readable_missions.contains(&r.get::<String, _>("mission_id")))
-        .map(|r| r.get::<i32, _>("id"))
+        .map(|r| r.get::<String, _>("id"))
         .collect()
 }
 

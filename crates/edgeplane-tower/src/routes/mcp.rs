@@ -42,7 +42,7 @@ async fn list_tools() -> impl IntoResponse {
         tool_def(
             "submit_mesh_task",
             "Create a task in a mission (mesh work model)",
-            json!({"type":"object","properties":{"mission_id":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"kind":{"type":"string"},"input_json":{"type":"string"},"priority":{"type":"integer"},"domain_id":{"type":"string"}}}),
+            json!({"type":"object","properties":{"mission_id":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"kind":{"type":"string","description":"'claimable' (default) or 'assigned'"},"input_json":{"type":"string"},"priority":{"type":"integer"},"domain_id":{"type":"string"},"parent_task_id":{"type":"string"},"claim_policy":{"type":"string","description":"claimable only"},"depends_on":{"type":"array","items":{"type":"string"}},"produces":{"type":"object"},"consumes":{"type":"object"},"required_capabilities":{"type":"array","items":{"type":"string"}},"owner":{"type":"string","description":"assigned only; defaults to the submitting principal"},"contributors":{"type":"string","description":"assigned only"},"done_criteria":{"type":"string","description":"assigned only"},"dependencies_note":{"type":"string","description":"assigned only, display-only text"},"related_artifacts_note":{"type":"string","description":"assigned only, display-only text"}}}),
         ),
         tool_def(
             "list_mesh_tasks",
@@ -305,19 +305,21 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
     match tool {
         // ── Overlap ───────────────────────────────────────────────────────────
         "get_overlap_suggestions" => {
-            let task_id = match int_arg(args, "task_id") {
-                Some(v) => v as i32,
-                None => return err_result("task_id is required"),
-            };
+            // task_id is a varchar task id post migration 0014 (task/meshtask
+            // unification retyped overlapsuggestion.task_id/candidate_task_id
+            // from integer to character varying) — was parsed as an int.
+            let task_id = str_arg(args, "task_id");
+            if task_id.is_empty() {
+                return err_result("task_id is required");
+            }
             // Change 4: resolve domain via task→mission→domain and authz before the SELECT.
-            // overlapsuggestion.task_id is integer FK to task.id (workspace task model).
             let domain_id_result = sqlx::query_scalar::<_, Option<String>>(
                 "SELECT m.domain_id FROM overlapsuggestion o \
                  JOIN task t ON t.id = o.task_id \
                  JOIN mission m ON m.id = t.mission_id \
                  WHERE o.task_id = $1 LIMIT 1"
             )
-            .bind(task_id)
+            .bind(&task_id)
             .fetch_optional(&state.db)
             .await;
             let domain_id = match domain_id_result {
@@ -338,12 +340,12 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                 "SELECT id, task_id, candidate_task_id, similarity_score, evidence, suggested_action \
                  FROM overlapsuggestion WHERE task_id=$1 ORDER BY similarity_score DESC LIMIT $2"
             )
-            .bind(task_id).bind(limit).fetch_all(&state.db).await
+            .bind(&task_id).bind(limit).fetch_all(&state.db).await
             {
                 Ok(rows) => ok_result(Value::Array(rows.iter().map(|r| json!({
                     "id": r.get::<i32,_>("id"),
-                    "task_id": r.get::<i32,_>("task_id"),
-                    "candidate_task_id": r.get::<i32,_>("candidate_task_id"),
+                    "task_id": r.get::<String,_>("task_id"),
+                    "candidate_task_id": r.get::<String,_>("candidate_task_id"),
                     "similarity_score": r.get::<f64,_>("similarity_score"),
                     "evidence": r.get::<String,_>("evidence"),
                     "suggested_action": r.get::<String,_>("suggested_action"),
@@ -367,29 +369,159 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
+            // kind discriminator (migration 0014): the CLI has forwarded a
+            // `--kind` flag into this tool since before the column existed
+            // (previously silently ignored); now it's real. This tool's name
+            // and historical meaning is "claimable mesh task", so anything
+            // other than an explicit "assigned" defaults to "claimable".
+            let kind = str_arg_or(args, "kind", "claimable");
+            if kind != "claimable" && kind != "assigned" {
+                return err_result("kind must be 'claimable' or 'assigned'");
+            }
             let description = str_arg(args, "description");
             let input_json = args.get("input_json").cloned().unwrap_or(json!({}));
             let priority = int_arg(args, "priority").unwrap_or(0) as i32;
+            let parent_task_id = args.get("parent_task_id").and_then(|v| v.as_str());
+            // claim_policy is claimable-only (migration 0014 made the column
+            // nullable specifically so assigned rows don't carry claimable
+            // semantics) — NULL for kind='assigned'.
+            let claim_policy: Option<String> = if kind == "claimable" {
+                Some(str_arg_or(args, "claim_policy", "first_claim"))
+            } else {
+                None
+            };
+            // owner/contributors/done_criteria/dependencies_note/
+            // related_artifacts_note are assigned-only, mirroring
+            // tasks.rs::create_task's column set — NULL for kind='claimable'
+            // (unowned, pool-routed). owner defaults to the submitting
+            // principal when unset (matching how a human creating their own
+            // task via the dashboard implicitly owns it); the rest default to
+            // "" like tasks.rs::TaskCreate's own serde defaults.
+            let owner: Option<String> = if kind == "assigned" {
+                Some(str_arg_or(args, "owner", &principal.subject))
+            } else {
+                None
+            };
+            let contributors: Option<String> = if kind == "assigned" {
+                Some(str_arg_or(args, "contributors", ""))
+            } else {
+                None
+            };
+            let done_criteria: Option<String> = if kind == "assigned" {
+                Some(str_arg_or(args, "done_criteria", ""))
+            } else {
+                None
+            };
+            let dependencies_note: Option<String> = if kind == "assigned" {
+                Some(str_arg_or(args, "dependencies_note", ""))
+            } else {
+                None
+            };
+            let related_artifacts_note: Option<String> = if kind == "assigned" {
+                Some(str_arg_or(args, "related_artifacts_note", ""))
+            } else {
+                None
+            };
+            let depends_on: Vec<String> = args
+                .get("depends_on")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let produces = args.get("produces").cloned().unwrap_or(json!({}));
+            let consumes = args.get("consumes").cloned().unwrap_or(json!({}));
+            let required_capabilities: Vec<String> = args
+                .get("required_capabilities")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+
+            // Column-population unification (migration 0014): this REST path
+            // (routes/work.rs::create_task) and this MCP path previously
+            // populated different column subsets for the same table; this now
+            // accepts and stores the same fields create_task does, including
+            // the same dependency-graph safety checks (cycle detection) that
+            // come with accepting depends_on input.
+            for dep_id in &depends_on {
+                let exists: Option<i32> = sqlx::query_scalar(
+                    "SELECT 1 FROM task WHERE id=$1 AND mission_id=$2 AND kind='claimable'",
+                )
+                .bind(dep_id)
+                .bind(&mission_id)
+                .fetch_optional(&state.db)
+                .await
+                .unwrap_or(None);
+                if exists.is_none() {
+                    return err_result(&format!("dependency task not found: {dep_id}"));
+                }
+            }
+
             let id = uuid::Uuid::new_v4().to_string();
+
+            if !depends_on.is_empty() {
+                match crate::routes::work::detect_cycle(&state.db, &mission_id, &id, &depends_on).await {
+                    Ok(true) => return err_result("dependency cycle detected"),
+                    Ok(false) => {}
+                    Err(e) => {
+                        tracing::error!("mcp submit_mesh_task detect_cycle: {e}");
+                        return err_result("database_error");
+                    }
+                }
+            }
+
+            // status: claimable rows go through the dependency-gated
+            // ready/pending computation; assigned rows start at
+            // INITIAL_STATUS ("proposed"), matching tasks.rs::create_task —
+            // load-bearing, not cosmetic: tasks.rs::update_task only mints
+            // the completion token (claim_lease_id) on the transition *away
+            // from* INITIAL_STATUS, so a row that started at "ready" could
+            // never get a token minted.
+            let status = if kind == "claimable" {
+                crate::routes::work::compute_initial_status(&state.db, &depends_on).await
+            } else {
+                crate::routes::tasks::INITIAL_STATUS
+            };
+
+            let public_id = crate::routes::work::new_public_id();
+            let depends_on_json = serde_json::to_string(&depends_on).unwrap_or_else(|_| "[]".to_string());
+            let required_capabilities_json =
+                serde_json::to_string(&required_capabilities).unwrap_or_else(|_| "[]".to_string());
+
             match sqlx::query(
-                "INSERT INTO meshtask (id, mission_id, domain_id, title, description, input_json, \
-                 priority, status, claim_policy, version_counter, created_by_subject, created_at, updated_at) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,'ready','first_claim',0,$8,$9,$9)",
+                "INSERT INTO task (id, public_id, mission_id, domain_id, parent_task_id, kind, \
+                 title, description, input_json, claim_policy, depends_on, produces, consumes, \
+                 required_capabilities, priority, status, owner, contributors, done_criteria, \
+                 dependencies_note, related_artifacts_note, version_counter, created_by_subject, \
+                 created_at, updated_at) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,0,$22,$23,$23)",
             )
             .bind(&id)
+            .bind(&public_id)
             .bind(&mission_id)
             .bind(&domain_id)
+            .bind(parent_task_id)
+            .bind(&kind)
             .bind(&title)
             .bind(&description)
             .bind(input_json.to_string())
+            .bind(&claim_policy)
+            .bind(&depends_on_json)
+            .bind(produces.to_string())
+            .bind(consumes.to_string())
+            .bind(&required_capabilities_json)
             .bind(priority)
+            .bind(status)
+            .bind(&owner)
+            .bind(&contributors)
+            .bind(&done_criteria)
+            .bind(&dependencies_note)
+            .bind(&related_artifacts_note)
             .bind(&principal.subject)
             .bind(now)
             .execute(&state.db)
             .await
             {
                 Ok(_) => ok_result(
-                    json!({"task_id": id, "mission_id": mission_id, "domain_id": domain_id, "title": title, "status": "ready"}),
+                    json!({"task_id": id, "mission_id": mission_id, "domain_id": domain_id, "title": title, "kind": kind, "status": status}),
                 ),
                 Err(e) => {
                     tracing::error!("mcp submit_mesh_task: {e}");
@@ -413,11 +545,15 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             }
             let status_filter = args.get("status").and_then(|v| v.as_str());
             let limit = int_arg(args, "limit").unwrap_or(50).min(200);
+            // kind='claimable' filter: this tool's name and historical
+            // meaning is "mesh task" (the claimable pool) — post migration
+            // 0014 the table also holds kind='assigned' rows, which this
+            // listing should not surface.
             match sqlx::query(
                 "SELECT id, mission_id, domain_id, title, description, status, priority, \
                  claimed_by_agent_id, created_at, updated_at \
-                 FROM meshtask \
-                 WHERE mission_id=$1 \
+                 FROM task \
+                 WHERE mission_id=$1 AND kind='claimable' \
                    AND ($2::text IS NULL OR status=$2) \
                  ORDER BY priority DESC, created_at ASC LIMIT $3"
             )
@@ -453,7 +589,7 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             match sqlx::query(
                 "SELECT id, mission_id, domain_id, title, description, status, priority, \
                  input_json, claimed_by_agent_id, claim_lease_id, lease_expires_at, \
-                 created_at, updated_at FROM meshtask WHERE id=$1",
+                 created_at, updated_at FROM task WHERE id=$1",
             )
             .bind(&task_id)
             .fetch_optional(&state.db)
@@ -472,7 +608,10 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                         "mission_id": r.get::<String,_>("mission_id"),
                         "domain_id": r.get::<String,_>("domain_id"),
                         "title": r.get::<String,_>("title"),
-                        "description": r.get::<String,_>("description"),
+                        // description is nullable `text` on the unified table
+                        // (carried over from meshtask) — a non-Option `Row::get`
+                        // panics on NULL. Match explorer.rs::row_to_task verbatim.
+                        "description": r.try_get::<Option<String>, _>("description").ok().flatten().unwrap_or_default(),
                         "status": r.get::<String,_>("status"),
                         "priority": r.get::<i32,_>("priority"),
                         "claimed_by_agent_id": claimed_by,
@@ -504,19 +643,26 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if agent_id.is_empty() {
                 return err_result("agent_id is required (or authenticate as an agent)");
             }
-            // resolve domain and guard
-            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
-                Ok(d) => d,
+            // resolve domain + kind and guard
+            let (domain_id, kind) = match crate::routes::authz::domain_and_kind_for_task(&state.db, &task_id).await {
+                Ok(v) => v,
                 Err(_) => return err_result("task not found"),
             };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
-            let lease_seconds = int_arg(args, "lease_seconds").unwrap_or(300);
+            // Kind-gating: an assigned task is never claimable, full stop.
+            if kind != "claimable" {
+                return err_result("task is not claimable (kind='assigned')");
+            }
+            // Clamped to the same bounds as load_mission_workspace's
+            // equivalent lease_seconds input — was unbounded (an i64 straight
+            // into chrono::Duration::seconds).
+            let lease_seconds = int_arg(args, "lease_seconds").unwrap_or(300).clamp(60, 3600);
             let lease_id = uuid::Uuid::new_v4().to_string();
             let expires_at = now + chrono::Duration::seconds(lease_seconds);
             match sqlx::query(
-                "UPDATE meshtask SET status='claimed', claimed_by_agent_id=$2, claim_lease_id=$3, \
+                "UPDATE task SET status='claimed', claimed_by_agent_id=$2, claim_lease_id=$3, \
                  lease_expires_at=$4, version_counter=version_counter+1, updated_at=NOW() \
                  WHERE id=$1 AND status='ready' RETURNING id",
             )
@@ -546,12 +692,16 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() || claim_lease_id.is_empty() {
                 return err_result("task_id and claim_lease_id are required");
             }
-            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
-                Ok(d) => d,
+            let (domain_id, kind) = match crate::routes::authz::domain_and_kind_for_task(&state.db, &task_id).await {
+                Ok(v) => v,
                 Err(_) => return err_result("task not found"),
             };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
+            }
+            // Kind-gating: an assigned task is never heartbeat-able, full stop.
+            if kind != "claimable" {
+                return err_result("task is not claimable (kind='assigned')");
             }
             let lease_opt = if claim_lease_id.is_empty() { None } else { Some(claim_lease_id.as_str()) };
             if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, lease_opt).await.is_err() {
@@ -559,7 +709,7 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             }
             let expires_at = now + chrono::Duration::seconds(300);
             match sqlx::query(
-                "UPDATE meshtask SET lease_expires_at=$3, updated_at=NOW() \
+                "UPDATE task SET lease_expires_at=$3, updated_at=NOW() \
                  WHERE id=$1 AND claim_lease_id=$2 RETURNING id",
             )
             .bind(&task_id)
@@ -593,12 +743,17 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() || event_type.is_empty() {
                 return err_result("task_id and event_type are required");
             }
-            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
-                Ok(d) => d,
+            let (domain_id, kind) = match crate::routes::authz::domain_and_kind_for_task(&state.db, &task_id).await {
+                Ok(v) => v,
                 Err(_) => return err_result("task not found"),
             };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
+            }
+            // Kind-gating: an assigned task is never progress-reportable via
+            // this claim/lease-scoped tool, full stop.
+            if kind != "claimable" {
+                return err_result("task is not claimable (kind='assigned')");
             }
             // Change 7: ownership check (mirrors heartbeat_mesh_task); use caller-presented lease.
             let claim_lease_str = str_arg(args, "claim_lease_id");
@@ -638,13 +793,32 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() {
                 return err_result("task_id is required");
             }
-            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
-                Ok(d) => d,
-                Err(_) => return err_result("task not found"),
+            // Fetch domain_id/kind/status in one round trip — kind gates the
+            // status-precondition branch below, status is the precondition
+            // itself.
+            let task_row = match sqlx::query("SELECT domain_id, kind, status FROM task WHERE id=$1")
+                .bind(&task_id)
+                .fetch_optional(&state.db)
+                .await
+            {
+                Ok(Some(r)) => r,
+                Ok(None) => return err_result("task not found"),
+                Err(e) => {
+                    tracing::error!("mcp {tool} fetch: {e}");
+                    return err_result("database_error");
+                }
             };
+            let domain_id: String = task_row.get("domain_id");
+            let kind: String = task_row.get("kind");
+            let status: String = task_row.get("status");
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
+            // Completion is the unified path for both kinds (migration 0014's
+            // design point). authz_task_owner branches internally on
+            // ownership proof by kind (claimed_by_agent_id/lease for
+            // claimable, owner/lease for assigned) — call it unconditionally
+            // rather than rejecting kind='assigned' up front.
             let lease_str = str_arg(args, "claim_lease_id");
             let lease_opt = if lease_str.is_empty() { None } else { Some(lease_str.as_str()) };
             if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, lease_opt).await.is_err() {
@@ -656,13 +830,32 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                 "block_mesh_task" => "blocked",
                 _ => return err_result("unknown_tool"),
             };
+            // Status precondition — mirrors this handler's REST siblings
+            // individually (work.rs): complete_task/fail_task reject unless
+            // status is claimed/running/waiting_review (claimable) or not
+            // already terminal (assigned, via is_terminal_status);
+            // block_task has no precondition at all, so block_mesh_task
+            // doesn't gain one here either. Without this, an authorized
+            // owner/claimer could re-fail an already-finished task or
+            // complete repeatedly.
+            if tool != "block_mesh_task" {
+                if kind == "claimable" {
+                    if status != "claimed" && status != "running" && status != "waiting_review" {
+                        return err_result(&format!("task cannot be {new_status} from status: {status}"));
+                    }
+                } else if crate::routes::tasks::is_terminal_status(&status) {
+                    return err_result(&format!("task cannot be {new_status} from status: {status}"));
+                }
+            }
+            let now_tz = Utc::now();
             match sqlx::query(
-                "UPDATE meshtask SET status=$2, updated_at=NOW(), \
+                "UPDATE task SET status=$2, updated_at=NOW(), \
                  claim_lease_id=CASE WHEN $2 IN ('finished','failed','cancelled') THEN NULL ELSE claim_lease_id END, \
-                 claimed_by_agent_id=CASE WHEN $2 IN ('finished','failed','cancelled') THEN NULL ELSE claimed_by_agent_id END \
+                 claimed_by_agent_id=CASE WHEN $2 IN ('finished','failed','cancelled') THEN NULL ELSE claimed_by_agent_id END, \
+                 finalized_at=CASE WHEN $2 IN ('finished','failed','cancelled') THEN $3 ELSE finalized_at END \
                  WHERE id=$1 RETURNING id"
             )
-            .bind(&task_id).bind(new_status).fetch_optional(&state.db).await
+            .bind(&task_id).bind(new_status).bind(now_tz).fetch_optional(&state.db).await
             {
                 Ok(Some(_)) => ok_result(json!({"task_id": task_id, "status": new_status})),
                 Ok(None) => err_result("mesh_task_not_found"),
@@ -1954,9 +2147,13 @@ fn lease_row_to_json(r: &sqlx::postgres::PgRow) -> Value {
 }
 
 async fn build_workspace_snapshot(db: &sqlx::PgPool, domain_id: &str, mission_id: &str) -> Value {
+    // kind='claimable' filter: this is the mesh/claimable task working set for
+    // the workspace snapshot; claim_policy (selected below, non-Option) is
+    // NULL for kind='assigned' rows post migration 0014, so the filter is
+    // also load-bearing for avoiding a decode failure, not just scope.
     let tasks = sqlx::query(
         "SELECT id, title, description, status, priority, claimed_by_agent_id, claim_policy, updated_at \
-         FROM meshtask WHERE mission_id=$1 AND status NOT IN ('finished','cancelled') ORDER BY updated_at DESC LIMIT 200"
+         FROM task WHERE mission_id=$1 AND kind='claimable' AND status NOT IN ('finished','cancelled') ORDER BY updated_at DESC LIMIT 200"
     )
     .bind(mission_id).fetch_all(db).await.unwrap_or_default();
 
@@ -1994,7 +2191,11 @@ async fn build_workspace_snapshot(db: &sqlx::PgPool, domain_id: &str, mission_id
             "status": r.get::<String,_>("status"),
             "priority": r.get::<i32,_>("priority"),
             "claimed_by_agent_id": r.try_get::<String,_>("claimed_by_agent_id").unwrap_or_default(),
-            "claim_policy": r.get::<String,_>("claim_policy"),
+            // Currently safe (this query already filters kind='claimable',
+            // which guarantees non-null claim_policy today) but fragile
+            // against any future change — match every other reader in this
+            // diff rather than rely on the filter alone.
+            "claim_policy": r.try_get::<Option<String>,_>("claim_policy").ok().flatten().unwrap_or_default(),
             "updated_at": r.get::<chrono::NaiveDateTime,_>("updated_at"),
         })).collect::<Vec<_>>(),
         "docs": docs.iter().map(|r| json!({
