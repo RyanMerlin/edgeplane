@@ -1,15 +1,8 @@
-interface TaskRecord {
-  id: number;
-  public_id: string;
-  mission_id: string;
-  title: string;
-  description?: string | null;
-  status: string;
-  owner?: string | null;
-  contributors?: string | null;
-  created_at: string;
-  updated_at: string;
-}
+import type { components } from '@/api/schema.gen';
+
+// Derived from the generated spec — `task.id` is `character varying` post
+// migration 0014, so a hand-written mirror silently rots (it declared `number`).
+export type TaskRecord = components['schemas']['ExplorerTask'];
 
 interface TaskSlideOverProps {
   task: TaskRecord | null;

@@ -1,7 +1,7 @@
 import { apiClient, unwrap } from '@/api/client';
 import type { components } from '@/api/schema.gen';
 import { NarrativeEditor } from '@/components/domains/NarrativeEditor';
-import { TaskSlideOver } from '@/components/domains/TaskSlideOver';
+import { type TaskRecord, TaskSlideOver } from '@/components/domains/TaskSlideOver';
 import { queryKeys } from '@/lib/queryKeys';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, createFileRoute, useParams } from '@tanstack/react-router';
@@ -14,19 +14,6 @@ interface BriefResponse {
   brief_version: number;
   brief_modified_by: string | null;
   brief_modified_at: string | null;
-}
-
-interface TaskRecord {
-  id: number;
-  public_id: string;
-  mission_id: string;
-  title: string;
-  description?: string | null;
-  status: string;
-  owner?: string | null;
-  contributors?: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export const Route = createFileRoute('/domains/$domainId/missions/$missionId')({
@@ -50,7 +37,7 @@ export function MissionPage() {
   });
 
   const mission = detail?.mission as ExplorerMission | undefined;
-  const tasks = (detail?.tasks ?? []) as TaskRecord[];
+  const tasks = detail?.tasks ?? [];
 
   const { data: brief, isLoading: briefLoading } = useQuery({
     queryKey: queryKeys.domains.brief(domainId, missionId),
