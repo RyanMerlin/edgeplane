@@ -221,7 +221,13 @@ export interface components {
             status: string;
             updated_at: string;
         };
-        /** @description A message sent between two control-plane agents. */
+        /**
+         * @description A message sent between two control-plane agents.
+         *
+         *     `task_id` references the unified `task` table (migration 0014 retyped
+         *     `agentmessage.task_id` from `integer` to `character varying` to remap onto
+         *     the new string-keyed task ids) — was `Option<i32>`.
+         */
         AgentMessage: {
             content: string;
             created_at: string;
@@ -231,8 +237,7 @@ export interface components {
             id: number;
             message_type: string;
             read: boolean;
-            /** Format: int32 */
-            task_id?: number | null;
+            task_id?: string | null;
             /** Format: int32 */
             to_agent_id: number;
         };
@@ -336,8 +341,13 @@ export interface components {
             contributors: string;
             created_at: string;
             description: string;
-            /** Format: int32 */
-            id: number;
+            /** @description `character varying` post migration 0014 (task/meshtask unification) — was `i32`. */
+            id: string;
+            /**
+             * @description `kind` discriminator ('assigned' | 'claimable') — new column, exposed
+             *     rather than filtered at the SQL layer (see routes/explorer.rs).
+             */
+            kind: string;
             mission_id: string;
             owner: string;
             public_id: string;
@@ -347,10 +357,10 @@ export interface components {
         };
         /** @description A task summary inside an explorer tree node. */
         ExplorerTaskSummary: {
-            /** Format: int32 */
-            id: number;
+            /** @description `character varying` post migration 0014 (task/meshtask unification) — was `i32`. */
+            id: string;
             mission_id: string;
-            owner: string;
+            owner?: string | null;
             status: string;
             title: string;
             updated_at: string;
@@ -536,7 +546,16 @@ export interface components {
             trust_tier: string;
             updated_at: string;
         };
-        /** @description A task-to-agent assignment record. */
+        /**
+         * @description A task-to-agent assignment record.
+         *
+         *     NOTE: the backing `taskassignment` table was dropped as write-dead by
+         *     migration 0014 (task/meshtask unification) — no INSERT/UPDATE/SELECT
+         *     anywhere in the Rust codebase targets it. This struct is retained only
+         *     because `openapi.rs` registers it in the generated schema; it has no live
+         *     query site. `task_id` is left as `i32` since there is no real row shape to
+         *     reconcile against.
+         */
         TaskAssignment: {
             /** Format: int32 */
             agent_id: number;

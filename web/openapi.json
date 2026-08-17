@@ -567,7 +567,7 @@
       },
       "AgentMessage": {
         "type": "object",
-        "description": "A message sent between two control-plane agents.",
+        "description": "A message sent between two control-plane agents.\n\n`task_id` references the unified `task` table (migration 0014 retyped\n`agentmessage.task_id` from `integer` to `character varying` to remap onto\nthe new string-keyed task ids) — was `Option<i32>`.",
         "required": [
           "id",
           "from_agent_id",
@@ -600,10 +600,9 @@
           },
           "task_id": {
             "type": [
-              "integer",
+              "string",
               "null"
-            ],
-            "format": "int32"
+            ]
           },
           "to_agent_id": {
             "type": "integer",
@@ -963,6 +962,7 @@
           "id",
           "public_id",
           "mission_id",
+          "kind",
           "title",
           "description",
           "status",
@@ -982,8 +982,12 @@
             "type": "string"
           },
           "id": {
-            "type": "integer",
-            "format": "int32"
+            "type": "string",
+            "description": "`character varying` post migration 0014 (task/meshtask unification) — was `i32`."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`kind` discriminator ('assigned' | 'claimable') — new column, exposed\nrather than filtered at the SQL layer (see routes/explorer.rs)."
           },
           "mission_id": {
             "type": "string"
@@ -1013,19 +1017,21 @@
           "mission_id",
           "title",
           "status",
-          "owner",
           "updated_at"
         ],
         "properties": {
           "id": {
-            "type": "integer",
-            "format": "int32"
+            "type": "string",
+            "description": "`character varying` post migration 0014 (task/meshtask unification) — was `i32`."
           },
           "mission_id": {
             "type": "string"
           },
           "owner": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "status": {
             "type": "string"
@@ -1533,7 +1539,7 @@
       },
       "TaskAssignment": {
         "type": "object",
-        "description": "A task-to-agent assignment record.",
+        "description": "A task-to-agent assignment record.\n\nNOTE: the backing `taskassignment` table was dropped as write-dead by\nmigration 0014 (task/meshtask unification) — no INSERT/UPDATE/SELECT\nanywhere in the Rust codebase targets it. This struct is retained only\nbecause `openapi.rs` registers it in the generated schema; it has no live\nquery site. `task_id` is left as `i32` since there is no real row shape to\nreconcile against.",
         "required": [
           "id",
           "task_id",
