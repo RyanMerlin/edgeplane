@@ -1,5 +1,8 @@
 nameOverride: ""
 replicaCount: 1
+# NOTE: the tower keeps per-node browser-attach state and task/agent
+# notification channels in memory, so it is single-replica by design. Do not
+# raise replicaCount without first moving that state to a shared store.
 
 image:
   # Override with your registry/repository when deploying.
@@ -19,6 +22,22 @@ config:
   EP_OBJECT_STORAGE_ENDPOINT: http://minio.edgeplane.svc.cluster.local
   EP_OBJECT_STORAGE_BUCKET: edgeplane
 
+  # --- Authentication / authorization (non-secret) -------------------------
+  # The tower reads these at startup. Without OIDC_* the web login flow cannot
+  # complete; without EP_ADMIN_EMAILS/GROUPS no principal is an admin. Uncomment
+  # and set per deployment. OIDC_CLIENT_SECRET is a secret — see `secrets:`.
+  # OIDC_ISSUER_URL: https://sso.example.com/application/o/edgeplane/
+  # OIDC_CLIENT_ID: edgeplane
+  # OIDC_REDIRECT_URI: https://edgeplane.internal/api/auth/oidc/callback
+  # OIDC_SCOPES: openid,profile,email,groups
+  # EP_ADMIN_EMAILS: you@example.com
+  # EP_ADMIN_GROUPS: edgeplane-admins
+  # Set to "true" whenever the tower is served over HTTPS so the session cookie
+  # carries the Secure attribute.
+  # EP_SESSION_COOKIE_SECURE: "true"
+  # Tailnet domain used to rewrite node attach dials for in-cluster egress.
+  # EP_ATTACH_EGRESS_DOMAIN: your-tailnet.ts.net
+
 # SECURITY: These values MUST be overridden in production via a K8s Secret.
 # The secret.yaml template renders these into an Opaque Secret — never put
 # real credentials in values.yaml or pass them as plain --set flags.
@@ -29,7 +48,40 @@ secrets:
   EP_OBJECT_STORAGE_ACCESS_KEY: ""  # REQUIRED — set per deployment
   EP_OBJECT_STORAGE_ACCESS_SECRET: ""  # REQUIRED — set per deployment
 
-resources: {}
+  # Base64-encoded RSA PKCS#8 PEM used to sign node/session JWTs. REQUIRED for
+  # any multi-restart deployment: if unset the tower generates an ephemeral
+  # keypair on every start, so every restart (rollout, drain, OOM) invalidates
+  # every node's JWT until it re-enrolls. Generate once and store it:
+  #   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+  #     -outform PEM | base64 -w0
+  EP_JWT_SIGNING_KEY: ""  # STRONGLY RECOMMENDED — set per deployment
+  # OIDC client secret (paired with config.OIDC_CLIENT_ID). Required for the
+  # web login flow.
+  OIDC_CLIENT_SECRET: ""  # set per deployment if OIDC is enabled
+
+# Probe tuning. The tower serves liveness at /healthz (process up, no I/O) and
+# readiness at /readyz (gated on a live database round-trip).
+probes:
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Resource requests/limits. Defaults are a starting point — tune to your load.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

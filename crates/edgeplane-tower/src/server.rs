@@ -67,12 +67,14 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
         let serve = ServeDir::new(&web_path)
             .not_found_service(ServeFile::new(web_path.join("index.html")));
         Router::new()
+            .merge(routes::health::probe_router())
             .nest("/api", authed)
             .fallback_service(serve)
             .layer(middleware::from_fn(web_cache_control))
             .with_state(state)
     } else {
         Router::new()
+            .merge(routes::health::probe_router())
             .nest("/api", authed)
             .fallback(proxy_fallback)
             .with_state(state)
