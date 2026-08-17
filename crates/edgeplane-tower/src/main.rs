@@ -87,9 +87,41 @@ async fn main() -> anyhow::Result<()> {
     let app = build_app(db, config);
     let listener = tokio::net::TcpListener::bind(&cli.bind).await?;
     tracing::info!(bind = %cli.bind, "listening");
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
     Ok(())
+}
+
+/// Resolve when the process receives SIGTERM (Kubernetes rollout / ArgoCD sync)
+/// or Ctrl-C. Returning here lets `axum::serve` stop accepting new connections
+/// and drain in-flight HTTP requests, SSE streams, and attach WebSockets before
+/// the runtime exits, instead of severing them mid-flight.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl-C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    tracing::info!("shutdown signal received — draining connections");
 }
 
 async fn backfill_home_domains(db: &sqlx::PgPool) -> anyhow::Result<()> {

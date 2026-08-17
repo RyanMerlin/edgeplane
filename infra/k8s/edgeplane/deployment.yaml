@@ -3,7 +3,10 @@ kind: Deployment
 metadata:
   name: edgeplane-api
 spec:
-  replicas: 2
+  # Single replica by design: the tower keeps per-node browser-attach state and
+  # task/agent notification channels in memory. Do not raise this without first
+  # moving that state to a shared store.
+  replicas: 1
   selector:
     matchLabels:
       app: edgeplane-api
@@ -18,13 +21,34 @@ spec:
           envFrom:
             - configMapRef:
                 name: edgeplane-config
+            # Provides POSTGRES_PASSWORD, EP_OBJECT_STORAGE_ACCESS_*, and
+            # EP_JWT_SIGNING_KEY (base64 RSA PKCS#8 PEM). Without the signing
+            # key the tower mints an ephemeral keypair per restart, invalidating
+            # all node JWTs. Create the Secret before applying this manifest.
+            - secretRef:
+                name: edgeplane-secrets
           ports:
             - containerPort: 8008
           readinessProbe:
             httpGet:
               path: /readyz
               port: 8008
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /healthz
               port: 8008
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
