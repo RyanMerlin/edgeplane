@@ -164,6 +164,51 @@ fn bad_request(msg: &str) -> axum::response::Response {
         .into_response()
 }
 
+/// After a fenced UPDATE's WHERE clause rejects a caller (zero rows
+/// returned), classify why. Mirrors `claim_task`'s `conflict()`-on-`None`
+/// pattern but adds the 403 split: a caller who presented no ownership
+/// proof at all (no matching `claimed_by_agent_id`/`owner`, no lease
+/// supplied) and isn't full-trust/admin gets 403; anyone who presented
+/// *some* proof — a stale lease, a real-but-wrong-status claim — gets 409,
+/// since from their perspective the request looked legitimate and lost a
+/// race, not unauthorized access. See spec §1 "403 vs 409, done correctly".
+async fn classify_fenced_rejection(
+    db: &sqlx::PgPool,
+    p: &Principal,
+    task_id: &str,
+    lease_id: Option<&str>,
+) -> axum::response::Response {
+    let row = match sqlx::query("SELECT claimed_by_agent_id, owner FROM task WHERE id=$1")
+        .bind(task_id)
+        .fetch_optional(db)
+        .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return not_found("Task not found"),
+        Err(e) => {
+            tracing::error!("classify_fenced_rejection fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    if crate::auth::is_full_trust(p) || p.is_admin {
+        return conflict("Task is not in the required state for this transition");
+    }
+    let claimed: Option<String> = row.get("claimed_by_agent_id");
+    let owner: Option<String> = row.get("owner");
+    let subject_id = p.subject.strip_prefix("agent:").unwrap_or(&p.subject);
+    let owns_directly =
+        claimed.as_deref() == Some(subject_id) || owner.as_deref() == Some(subject_id);
+    if owns_directly || lease_id.is_some() {
+        conflict("Task is not in the required state for this transition")
+    } else {
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "not the task's claimer"})),
+        )
+            .into_response()
+    }
+}
+
 // ── Row helpers ────────────────────────────────────────────────────────────────
 
 fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
@@ -1065,7 +1110,12 @@ async fn claim_task(
     let lease_expires = now + chrono::Duration::seconds(LEASE_TTL_SECS);
     let lease_id = Uuid::new_v4().to_string();
 
-    // Broadcast: no locking needed, just update status to running
+    // Broadcast: no locking needed, just update status to running.
+    // Intentionally unfenced — broadcast tasks are meant to be claimable by
+    // multiple agents simultaneously, so there is no single "owner" for a
+    // CAS to protect. This is a deliberate, stated exception to the fencing
+    // pattern the rest of this file converges on, not an oversight. See
+    // spec §1 "Broadcast claims and full-trust/admin bypass".
     if claim_policy == "broadcast" {
         let row = sqlx::query(
             "UPDATE task SET status='running', claimed_by_agent_id=$2, \
@@ -1180,76 +1230,40 @@ async fn heartbeat_task(
 ) -> impl IntoResponse {
     let body = body.map(|b| b.0).unwrap_or_default();
 
-    let row = sqlx::query("SELECT * FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await;
-
-    let task_row = match row {
-        Ok(Some(r)) => r,
-        Ok(None) => return not_found("Task not found"),
-        Err(e) => {
-            tracing::error!("heartbeat_task fetch: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
     };
-
-    let domain_id: String = task_row.get("domain_id");
     if let Err(resp) =
         crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
     {
         return resp;
     }
 
-    // Kind-gating: an assigned task is never heartbeat-able, full stop.
-    let kind: String = task_row.get("kind");
-    if kind != "claimable" {
-        return conflict("Task is not claimable (kind='assigned')");
-    }
-
-    if let Err(resp) = crate::routes::authz::authz_task_owner(
-        &state.db,
-        &principal,
-        &task_id,
-        body.claim_lease_id.as_deref(),
-    )
-    .await
-    {
-        return resp;
-    }
-
-    let status: String = task_row.get("status");
-    if status != "claimed" && status != "running" {
-        return conflict(&format!("Task is not in a claimable state: {status}"));
-    }
-
-    // Lease ID mismatch check
-    if let Some(caller_lease) = &body.claim_lease_id {
-        let task_lease: Option<String> = task_row.get("claim_lease_id");
-        if let Some(tl) = task_lease
-            && &tl != caller_lease
-        {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({"detail": "Lease ID mismatch"})),
-            )
-                .into_response();
-        }
-    }
-
+    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
     let now = Utc::now().naive_utc();
     let lease_expires = now + chrono::Duration::seconds(LEASE_TTL_SECS);
 
-    match sqlx::query(
-        "UPDATE task SET status='running', lease_expires_at=$2, updated_at=$3 WHERE id=$1 RETURNING *",
+    let updated = sqlx::query(
+        "UPDATE task SET status='running', lease_expires_at=$2, updated_at=$3 \
+         WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
+           AND lease_expires_at >= now() AND (claim_lease_id = $4 OR $5) \
+         RETURNING *",
     )
     .bind(&task_id)
     .bind(lease_expires)
     .bind(now)
-    .fetch_one(&state.db)
-    .await
-    {
-        Ok(r) => Json(row_to_task(&r)).into_response(),
+    .bind(body.claim_lease_id.as_deref())
+    .bind(is_bypass)
+    .fetch_optional(&state.db)
+    .await;
+
+    match updated {
+        Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
+        Ok(None) => {
+            classify_fenced_rejection(&state.db, &principal, &task_id, body.claim_lease_id.as_deref())
+                .await
+        }
         Err(e) => {
             tracing::error!("heartbeat_task update: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()

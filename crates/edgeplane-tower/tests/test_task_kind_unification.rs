@@ -517,6 +517,88 @@ async fn fencing_second_claimer_gets_fresh_lease_original_token_rejected() {
     );
 }
 
+#[tokio::test]
+async fn fencing_heartbeat_stale_lease_is_409_not_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        None,
+        2,
+    )
+    .await;
+    sqlx::query("UPDATE task SET claim_lease_id='stale-lease', lease_expires_at=now()+interval '1 hour' WHERE id=$1")
+        .bind(&task_id)
+        .execute(&pool)
+        .await
+        .expect("seed a live lease");
+
+    // A restricted principal presenting a lease that doesn't match the row's
+    // current lease — this is the "wrong owner-with-a-lease-supplied" case
+    // from spec §1, which must classify as 409 (a proof was offered, it was
+    // just wrong), not 403.
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/heartbeat"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "not-the-real-lease"}))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "a caller presenting a (wrong) lease must get 409, not 403: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_heartbeat_no_proof_at_all_is_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-someone-else"),
+        2,
+    )
+    .await;
+    sqlx::query("UPDATE task SET claim_lease_id='real-lease', lease_expires_at=now()+interval '1 hour' WHERE id=$1")
+        .bind(&task_id)
+        .execute(&pool)
+        .await
+        .expect("seed a live lease");
+
+    // A restricted principal presenting NO lease at all, and not the row's
+    // claimed_by_agent_id — zero ownership proof of any kind. Must be 403.
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/heartbeat"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "a caller with zero ownership proof must get 403: {}",
+        res.text()
+    );
+}
+
 // ── Bounded retry / backoff (attempt vs. max_attempts) ───────────────────────
 
 #[tokio::test]
