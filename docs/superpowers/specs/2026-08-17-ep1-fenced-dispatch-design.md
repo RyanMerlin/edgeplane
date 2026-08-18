@@ -58,10 +58,28 @@ Converge on the `claim_task` pattern instead: don't precheck ownership as a gate
 | `cancel_task` | any non-terminal | already calls `authz_task_owner`; needs the same fenced-CAS treatment, not new authz logic |
 | `block_task` | `claimed`, `running` | **Currently has no precondition at all** (Codex finding) — this is net-new, not a hardening of an existing check |
 | `unblock_task` | `blocked` (or whatever the block transition sets) | verify against current schema/status vocabulary at implementation time |
-| `resolve_gate` | — | Must clear `claim_lease_id`/`claimed_by_agent_id` on whichever terminal transition it drives, matching what `complete_task` already does. Today it doesn't, which is the "stale claimer stays valid past a terminal state" hole. |
+| `resolve_gate` | — | See its own subsection below — it needs a bespoke transaction, not the generic predicate. |
 | `append_progress` (REST) | `claimed`, `running` | REST progress currently has **no lease field at all**. Add one, required, checked in the same insert (a transaction: verify current lease/status, then insert — not a separate precheck, to avoid reintroducing the exact TOCTOU being fixed elsewhere). |
 
 The pending-gates branch inside `complete_task` gets its own fix: today it does an *earlier*, separate, unfenced `UPDATE ... WHERE id=$1` to set `waiting_review` before the final completion update — and a gate can be created in the window between the pending-gate `SELECT` and that update (a second, independent race Codex found). Fold both updates into one transaction: fence the pending-gate check and the resulting transition (to either `waiting_review` or `finished`) together, e.g. via a CTE that computes gate existence and performs one fenced transition.
+
+### Correction: terminal transitions don't fully clear ownership today (third review pass)
+
+The first two revisions of this spec claimed `resolve_gate` should clear claim fields "matching what `complete_task` already does." **That's false** — verified against source. `complete_task`/`fail_task` clear `lease_expires_at` and `claim_lease_id` on their terminal `UPDATE`, but leave `claimed_by_agent_id` behind (`work.rs:1474`, `work.rs:1571`). Since `authz_task_owner` accepts `claimed_by_agent_id` alone as ownership proof (independent of a live lease), this is itself a residual gap in the *existing* endpoints, not just something `resolve_gate` needs to newly implement. Fix: every terminal transition (`complete_task`, `fail_task`, and `resolve_gate`) clears `claim_lease_id`, `lease_expires_at`, **and** `claimed_by_agent_id` together.
+
+### `resolve_gate`: bespoke transaction, not the generic predicate
+
+`resolve_gate` can't literally reuse the claim-lease predicate above — the caller resolving the gate is the *gate's* owner, not necessarily the task's current lease holder. It needs its own transaction: a fenced `reviewgate` update keyed on `status='pending'` + gate ownership, then a fenced task transition out of `waiting_review` that recomputes remaining-gate state in the same transaction (so a second gate created concurrently isn't missed). The current rejected-gate path clears none of the task's lease fields at all (`work.rs:2017`, `work.rs:2024`) — needs the same three-field clear as above.
+
+### `block`/`unblock`: lease retention is an undecided design question, not an oversight
+
+Today, `block_task` keeps all claim fields when it mutates a task to `blocked`, and `unblock_task` sets status back to `ready` without clearing them either (`work.rs:1623`, `work.rs:1745`). Before fencing these, the spec needs to actually decide: does blocking release the claimer's lease (so a different agent can pick the task back up if the original claimer never returns), or does it preserve the claim (so only the original claimer can unblock/resume it)? This spec proposes: **block releases the lease** (clears `claim_lease_id`/`lease_expires_at`/`claimed_by_agent_id`, same as a terminal transition) — a blocked task re-enters the claimable pool rather than pinning it to a claimer that may never come back. `block_task` also currently has ownership auth but no lease-or-status precondition on the mutation itself (`work.rs:1616`, `work.rs:1623`) — add the fenced predicate regardless of the lease-retention answer.
+
+### Broadcast claims and full-trust/admin bypass — explicitly in scope, explicitly unfenced by design
+
+`claim_task`'s broadcast branch (no `FOR UPDATE`/CAS, by design — broadcast tasks are meant to be claimable by multiple agents) is still a blind `UPDATE ... WHERE id=$1` after only a precheck (`work.rs:1068`). This is intentional for broadcast semantics, but should be an explicit, stated exception in this spec rather than something that reads as an oversight once every other endpoint is fenced.
+
+Separately: `authz_task_owner` today lets full-trust/admin principals bypass ownership entirely. The fenced predicates above require an exact live-lease match for `kind='claimable'` rows — that would silently break legitimate full-trust/admin operations (e.g. an operator force-completing a stuck task) unless the predicate explicitly carries an admin/full-trust bypass branch. State it: the fenced `UPDATE` becomes `WHERE ... AND (claim_lease_id = $lease OR $is_full_trust_or_admin)`.
 
 ### MCP mirrors the same gap independently
 
@@ -85,6 +103,11 @@ Two bugs, not one:
 2. **Lease-loss is miscategorized as an ordinary failure.** On `LeaseMismatch`, `stream_and_heartbeat` returns `Ok(false)` (`task_loop.rs:340`), and the caller (`task_loop.rs:291`) treats `false` identically to "the agent reported failure" and calls `fail_task` — itself now a lease-less-ish call into a task that isn't this loop's anymore. Fix: give `stream_and_heartbeat` a third outcome (e.g. `Completed(bool) | LeaseLost`), and skip complete/fail entirely on `LeaseLost` — the task already belongs to whoever reclaimed it.
 
 Also apply `task_worker.rs`'s "missing lease after claim is fatal" rule here too: `task_loop.rs` currently accepts `Option<&str>` for the lease and proceeds even when it's `None` (`task_loop.rs:192`). Abort before injecting the task if the claim response carried no lease.
+
+Two more, found on the third review pass:
+
+- **`post_progress` doesn't carry a lease today.** If `append_progress` becomes lease-required per the tower section above, `edgeplaned_work::task::post_progress` (`task.rs:106`) needs to actually send `claim_lease_id` — right now it sends none, so `task_loop.rs`'s progress-forwarding calls would start failing the moment the tower side requires one.
+- **Dead code found, adjacent enough to fold in:** `current_task_id`/`current_lease_id` (`task_loop.rs:83`) are declared specifically to let the watchdog's strict/autonomous offline policy fail an in-flight task — but nothing in the loop ever actually sets them. The offline-fail path has silently never worked. Since this is the same lease-tracking surface EP-1 is already touching, wire these up rather than leaving a second, unrelated dead lease-discipline bug next to the one being fixed.
 
 ## 3. Daemon: `task_worker.rs` unification
 
@@ -123,6 +146,8 @@ On `LeaseMismatch`, the caller does **not** call complete/fail afterward — the
 
 **Additional fixes bundled here:**
 - Missing `claim_lease_id` after claim is fatal — abort before spawning.
+- **The agent-scoped client must copy `api_prefix`.** The daemon's own client is constructed with an `/api` prefix (`daemon.rs:200`); a naive `BackendClient::new(base_url, agent_token)` for the agent-scoped client would drop that and call the wrong URLs. Copy the daemon client's `api_prefix` into the new client explicitly.
+- **Missing `agent_token` at enrollment must become fatal, not a silent fallback.** Today, when enrollment doesn't return an `agent_token`, `task_worker.rs` falls back to inheriting the daemon's own token (`task_worker.rs:367`) — a reasonable graceful-degradation choice under the *old* architecture. Under EP-1's two-client identity model, that fallback would silently defeat the whole point of agent-scoped task lifecycle calls (the "claim identity" bug this spec exists to fix). Treat a missing `agent_token` as fatal: abort the lifecycle before claiming.
 - **In-flight-set cleanup, corrected.** The first draft proposed a "drop-guard"; that doesn't work — a `Drop` impl can't `.await` a `tokio::Mutex` lock (second Codex pass caught this). Use `futures::FutureExt::catch_unwind` around the `run_task_lifecycle` call (`AssertUnwindSafe`), so the in-flight removal runs unconditionally afterward regardless of panic.
 - **AgentRun accounting.** The failure path currently POSTs `{"status":"failed"}` to `/runs/{id}/complete`, which unconditionally marks the run `completed` (`runs.rs:159`) — every failed subagent run is silently logged as a success today, independent of this migration. Switch failure/lease-loss paths to `/runs/{id}/fail`.
 
@@ -132,7 +157,15 @@ On `LeaseMismatch`, the caller does **not** call complete/fail afterward — the
 - `task_worker::run` has a legitimate clean-exit path (`task_worker_enabled = false` → returns immediately). The wrapper must distinguish "exited because it's disabled" from "crashed" — restarting a deliberately-disabled worker in a loop is its own bug.
 - Backoff-forever with no circuit breaker can mask a genuinely fatal misconfiguration (bad DB connection string, poisoned state) behind an endless, silent restart loop. Add a crash-count-within-window threshold that, once exceeded, stops restarting and surfaces a clearly-logged terminal state rather than restart-forever.
 
-**Drain.** Corrected from the first draft, which conflated this with EP-2's tower-side graceful HTTP shutdown (`edgeplane-tower/src/main.rs:91`) — a completely separate process. `edgeplaned` has Ctrl-C handling for other cleanup today but **no SIGTERM handler at all**, and `task_worker.rs`'s own doc comment already says graceful shutdown isn't implemented. This is genuinely net-new plumbing: a Unix SIGTERM handler in `edgeplaned`, a shared cancellation flag (e.g. `tokio_util::sync::CancellationToken`) threaded into both loops and checked at the top of each poll iteration to stop claiming new work. In-flight tasks are allowed to finish or lapse — the lease TTL plus the now-independent background sweep already reclaims abandoned work, so drain doesn't need bespoke wait-for-completion logic. The daemon's actual termination grace period (systemd/k8s `TimeoutStopSec`/`terminationGracePeriodSeconds`) should be confirmed/set explicitly as part of implementation, not assumed.
+**Drain.** Corrected from the first draft, which conflated this with EP-2's tower-side graceful HTTP shutdown (`edgeplane-tower/src/main.rs:91`) — a completely separate process. `edgeplaned` has Ctrl-C handling for other cleanup today but **no SIGTERM handler at all**, and `task_worker.rs`'s own doc comment already says graceful shutdown isn't implemented. This is genuinely net-new plumbing: a Unix SIGTERM handler in `edgeplaned`, a shared cancellation flag (`tokio_util::sync::CancellationToken`) threaded into both loops. In-flight tasks are allowed to finish or lapse — the lease TTL plus the now-independent background sweep already reclaims abandoned work, so drain doesn't need bespoke wait-for-completion logic.
+
+Third review pass found the drain design as first written was underspecified in three ways:
+
+1. **"Check a flag at the top of each poll iteration" isn't responsive enough.** The `sleep`/`select!` wait points inside each loop's idle path also need to observe the cancellation token directly (race the token against the sleep/select, not just check-before-looping), or a loop mid-sleep won't notice shutdown until its next full poll interval.
+2. **Restarting `task_loop::run_for_agent` needs to account for what it spawns internally.** The function isn't self-contained — it detaches its own message-relay loop and notify-WebSocket listener (`task_loop.rs:60`, `task_loop.rs:78`) as separate `tokio::spawn` calls tied to the *call*, not the logical agent-loop lifetime. A supervisor that restarts the outer function on crash, without explicitly cancelling those inner spawns first, leaves the old relay/listener tasks running forever while a new restart spawns fresh ones — an accumulating leak on every crash-restart cycle. The supervisor needs to own and cancel those inner tasks as part of what "restart" means, not just re-call the outer function.
+3. **In-flight `task_worker` subprocesses need an explicit disposition during the drain window**, not just "let it lapse." Since these are real child processes (`claude -p`), the design should state whether drain waits for them up to the grace period, or kills them via the same `kill_on_drop` mechanism used for lease-loss. This spec proposes: wait up to the configured grace period, then kill — consistent with treating drain as "stop claiming new work, then behave like a lease-loss event for anything still running when time's up."
+
+The daemon's actual termination grace period (systemd/k8s `TimeoutStopSec`/`terminationGracePeriodSeconds`) must be an explicit configured value, not an assumed default — set it as part of implementation and reference it from the drain logic above rather than hardcoding a duration.
 
 ## Testing
 
@@ -141,8 +174,11 @@ On `LeaseMismatch`, the caller does **not** call complete/fail afterward — the
 - Daemon: unit test for `stream_and_heartbeat`'s new `LeaseLost` outcome skipping complete/fail; unit test for the `catch_unwind`-wrapped in-flight cleanup (inject a panic, assert the set is clean afterward); test for the two-client split (assert agent-scoped calls carry the ephemeral agent's token, not the daemon's); test for the supervision wrapper's clean-exit-vs-crash distinction and circuit breaker.
 - End-to-end: a harness that deliberately starves a lease past TTL while a `task_worker` subprocess is still running, confirming the original reclaim-then-original-completes-anyway bug is actually closed.
 
+## Resolved during the third review pass (were open items in earlier drafts)
+
+- **`fail_task`'s current precondition**, confirmed against source (`work.rs:1544`): `claimed`/`running`/`waiting_review` for `kind='claimable'`, any non-terminal status for `kind='assigned'` — identical to `complete_task`'s set, as this spec had guessed but not verified. The fenced predicate table above can be taken as confirmed for `fail_task`.
+- **`unblock_task`'s current precondition**, confirmed against source: there isn't one today — no source-status guard at all, it writes `status='ready'` unconditionally (`work.rs:1745`). The only "blocked" status literal in source is `'blocked'` (`work.rs:1623`), confirming the table entry above.
+
 ## Open items for implementation time (not blocking spec approval, but not yet resolved here)
 
-- `fail_task`'s and `unblock_task`'s exact current status preconditions weren't fully read during this design pass — verify against source before writing the fenced predicate, per this repo's own CodeGraph-first / verify-before-building discipline.
-- The daemon's systemd/k8s termination grace period isn't yet confirmed — needs an explicit value, not an assumption, before the drain design is complete.
-- Whether `unblock_task`'s legal source state is literally `'blocked'` or something else depends on the current status vocabulary, which should be re-checked at implementation time rather than assumed from this spec.
+- The daemon's systemd/k8s termination grace period isn't yet confirmed — needs an explicit configured value before the drain design (§4) is implemented; not blocking the tower-fencing work (§1), which has no dependency on it.
