@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::error::Result;
 use crate::manifest::{CapabilityManifest, RiskLevel};
+use std::collections::HashMap;
 
 /// Summary view of a single capability for listing.
 #[derive(Debug, Clone)]
@@ -38,7 +38,12 @@ impl PackRegistry {
     ///
     /// `pack_name` is the directory/pack name (e.g. `"kubectl-observe"`).
     /// `cap` has its `name` field set to the cap's own name (e.g. `"kubectl.get-pods"`).
-    pub(crate) fn insert(&mut self, pack_name: &str, mut cap: CapabilityManifest, tags: Vec<String>) {
+    pub(crate) fn insert(
+        &mut self,
+        pack_name: &str,
+        mut cap: CapabilityManifest,
+        tags: Vec<String>,
+    ) {
         cap.tags = tags;
         let full_name = format!("{}.{}", pack_name, cap.name);
         self.packs

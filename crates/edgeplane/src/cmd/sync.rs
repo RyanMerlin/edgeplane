@@ -95,7 +95,11 @@ pub fn run(cmd: Option<SyncCmd>) -> Result<()> {
             );
             println!(
                 "node dirty:   {}",
-                if status.node_branch_dirty { "yes" } else { "no" }
+                if status.node_branch_dirty {
+                    "yes"
+                } else {
+                    "no"
+                }
             );
             println!("fleet ahead:  {} commits", status.fleet_branch_ahead);
         }

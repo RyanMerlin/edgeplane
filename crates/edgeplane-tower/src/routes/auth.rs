@@ -1,16 +1,16 @@
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post},
-    Json, Router,
 };
 use chrono::{Duration, Utc};
 use sqlx::Row;
 use std::sync::Arc;
 
 use crate::{
-    auth::{hash_token, make_token, Principal},
+    auth::{Principal, hash_token, make_token},
     models::auth::{
         MeResponse, RevokeTokenRequest, ServiceAccountCreateRequest, ServiceAccountCreatedResponse,
         SessionCreateRequest, SessionResponse, TokenRequest, TokenResponse,
@@ -43,7 +43,10 @@ pub fn router() -> Router<Arc<AppState>> {
             "/auth/service-accounts",
             get(list_service_accounts).post(create_service_account),
         )
-        .route("/auth/service-accounts/{id}", delete(revoke_service_account))
+        .route(
+            "/auth/service-accounts/{id}",
+            delete(revoke_service_account),
+        )
         .route("/auth/token", post(client_credentials_grant))
         .route("/auth/token/revoke", post(revoke_sa_token))
 }
@@ -141,10 +144,10 @@ async fn revoke_session(
             .bind(id)
             .execute(&state.db)
             .await
-        {
-            tracing::error!("revoke_session: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    {
+        tracing::error!("revoke_session: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -286,12 +289,10 @@ async fn revoke_service_account(
             .into_response();
     }
 
-    match sqlx::query(
-        "UPDATE serviceaccount SET revoked=true WHERE id=$1 AND revoked=false",
-    )
-    .bind(id)
-    .execute(&state.db)
-    .await
+    match sqlx::query("UPDATE serviceaccount SET revoked=true WHERE id=$1 AND revoked=false")
+        .bind(id)
+        .execute(&state.db)
+        .await
     {
         Ok(r) if r.rows_affected() == 0 => (
             StatusCode::NOT_FOUND,
@@ -313,13 +314,14 @@ async fn client_credentials_grant(
     Json(payload): Json<TokenRequest>,
 ) -> impl IntoResponse {
     if let Some(ref gt) = payload.grant_type
-        && gt != "client_credentials" {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"detail": "unsupported grant_type, use client_credentials"})),
-            )
-                .into_response();
-        }
+        && gt != "client_credentials"
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"detail": "unsupported grant_type, use client_credentials"})),
+        )
+            .into_response();
+    }
 
     let secret_hash = hash_token(&payload.client_secret);
     let sa_row = sqlx::query(
@@ -336,7 +338,7 @@ async fn client_credentials_grant(
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({"detail": "invalid client_id or client_secret"})),
             )
-                .into_response()
+                .into_response();
         }
         Err(e) => {
             tracing::error!("token grant SA lookup: {e}");
@@ -404,12 +406,10 @@ async fn revoke_sa_token(
         .execute(&state.db)
         .await
     } else if let Some(id) = payload.token_id {
-        sqlx::query(
-            "UPDATE serviceaccounttoken SET revoked=true WHERE id=$1 AND revoked=false",
-        )
-        .bind(id)
-        .execute(&state.db)
-        .await
+        sqlx::query("UPDATE serviceaccounttoken SET revoked=true WHERE id=$1 AND revoked=false")
+            .bind(id)
+            .execute(&state.db)
+            .await
     } else {
         return (
             StatusCode::BAD_REQUEST,

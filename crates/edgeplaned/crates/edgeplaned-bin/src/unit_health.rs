@@ -176,10 +176,7 @@ impl UnitHealthLoop {
                 continue;
             }
 
-            if let Err(e) = self
-                .eval_agent(&ctx, &service, nightly_active)
-                .await
-            {
+            if let Err(e) = self.eval_agent(&ctx, &service, nightly_active).await {
                 tracing::warn!(
                     "unit_health: eval for {}/{}: {e:#}. Skipping.",
                     ctx.source,
@@ -355,7 +352,15 @@ impl UnitHealthLoop {
         let ts = Utc::now().to_rfc3339();
         tokio::task::spawn_blocking(move || -> anyhow::Result<i64> {
             let reg = LocalRegistry::open(&registry_path)?;
-            reg.log_unit_restart(&agent_id, &source, &ts, &reason, &result, exit_code, notes.as_deref())
+            reg.log_unit_restart(
+                &agent_id,
+                &source,
+                &ts,
+                &reason,
+                &result,
+                exit_code,
+                notes.as_deref(),
+            )
         })
         .await
         .map_err(|e| anyhow::anyhow!("spawn_blocking panicked: {e}"))??;
@@ -406,8 +411,7 @@ async fn systemctl_is_active(service: &str) -> bool {
     {
         Ok(out) => {
             // is-active prints the state and exits 0 only for "active".
-            out.status.success()
-                && String::from_utf8_lossy(&out.stdout).trim() == "active"
+            out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "active"
         }
         Err(_) => false,
     }

@@ -181,8 +181,16 @@ pub fn zellij_binary() -> &'static str {
 pub fn zellij_candidates() -> Vec<String> {
     let mut out = vec!["zellij".to_string()];
     if let Some(home) = dirs::home_dir() {
-        out.push(home.join(".cargo/bin/zellij").to_string_lossy().into_owned());
-        out.push(home.join(".local/bin/zellij").to_string_lossy().into_owned());
+        out.push(
+            home.join(".cargo/bin/zellij")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        out.push(
+            home.join(".local/bin/zellij")
+                .to_string_lossy()
+                .into_owned(),
+        );
     }
     out.push("/usr/local/bin/zellij".into());
     out.push("/usr/bin/zellij".into());
@@ -313,7 +321,10 @@ mod tests {
 
     #[test]
     fn idle_returns_false_for_normal_output() {
-        assert!(!is_idle_screen(&["thinking...", "Running tool: web_search"]));
+        assert!(!is_idle_screen(&[
+            "thinking...",
+            "Running tool: web_search"
+        ]));
     }
 
     #[test]

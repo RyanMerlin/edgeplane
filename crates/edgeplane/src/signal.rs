@@ -108,7 +108,13 @@ fn default_sender_name() -> String {
     // policy and the public_id format reader.
     let cleaned: String = host
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect();
     format!("{cleaned}-edgeplane-signal")
 }

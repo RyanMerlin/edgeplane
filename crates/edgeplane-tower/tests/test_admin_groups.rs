@@ -19,10 +19,7 @@ fn server_with_admin_groups(pool: sqlx::PgPool, groups: &[&str]) -> TestServer {
 async fn whoami_is_admin(server: &TestServer, token: &str) -> bool {
     let res = server
         .get("/api/auth/me")
-        .add_header(
-            axum::http::header::AUTHORIZATION,
-            format!("Bearer {token}"),
-        )
+        .add_header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
         .await;
     assert_eq!(res.status_code(), 200, "auth/me should succeed");
     res.json::<serde_json::Value>()["is_admin"]
@@ -35,9 +32,13 @@ async fn group_member_resolves_admin() {
     let Some((pool, _ctx)) = setup().await else {
         return;
     };
-    let token =
-        mint_session_with_groups(&pool, "sub-admin", "admin@example.com", &["EdgePlane Admins"])
-            .await;
+    let token = mint_session_with_groups(
+        &pool,
+        "sub-admin",
+        "admin@example.com",
+        &["EdgePlane Admins"],
+    )
+    .await;
     let s = server_with_admin_groups(pool, &["EdgePlane Admins"]);
     assert!(
         whoami_is_admin(&s, &token).await,
@@ -50,8 +51,7 @@ async fn non_member_is_not_admin() {
     let Some((pool, _ctx)) = setup().await else {
         return;
     };
-    let token =
-        mint_session_with_groups(&pool, "sub-user", "user@example.com", &["Users"]).await;
+    let token = mint_session_with_groups(&pool, "sub-user", "user@example.com", &["Users"]).await;
     let s = server_with_admin_groups(pool, &["EdgePlane Admins"]);
     assert!(
         !whoami_is_admin(&s, &token).await,
@@ -92,18 +92,27 @@ async fn exchange_threads_display_name_and_group_admin() {
         .await;
     assert_eq!(res.status_code(), 200, "exchange should succeed");
     let body: serde_json::Value = res.json();
-    assert_eq!(body["name"], "merlin", "exchange response carries display_name");
-    let token = body["access_token"].as_str().expect("access_token").to_string();
+    assert_eq!(
+        body["name"], "merlin",
+        "exchange response carries display_name"
+    );
+    let token = body["access_token"]
+        .as_str()
+        .expect("access_token")
+        .to_string();
 
     let me = s
         .get("/api/auth/me")
-        .add_header(
-            axum::http::header::AUTHORIZATION,
-            format!("Bearer {token}"),
-        )
+        .add_header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
         .await;
     assert_eq!(me.status_code(), 200);
     let me_body: serde_json::Value = me.json();
-    assert_eq!(me_body["name"], "merlin", "whoami reflects the persisted display name");
-    assert_eq!(me_body["is_admin"], true, "group membership grants admin via exchange");
+    assert_eq!(
+        me_body["name"], "merlin",
+        "whoami reflects the persisted display name"
+    );
+    assert_eq!(
+        me_body["is_admin"], true,
+        "group membership grants admin via exchange"
+    );
 }

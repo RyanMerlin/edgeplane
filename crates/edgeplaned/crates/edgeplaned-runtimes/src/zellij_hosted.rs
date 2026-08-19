@@ -23,13 +23,13 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
-use futures::stream::BoxStream;
 use edgeplaned_core::agent_runtime::AgentRuntime;
 use edgeplaned_core::progress::ProgressEvent;
 use edgeplaned_core::types::{
     AgentHandle, AgentSignal, Capability, LaunchContext, PtySession, RuntimeKind, TaskResult,
     TaskSpec,
 };
+use futures::stream::BoxStream;
 use tokio::sync::Mutex;
 
 use crate::shared::merge_capabilities;
@@ -129,18 +129,15 @@ impl AgentRuntime for ZellijHostedRuntime {
     /// anything — the session lifecycle is owned by systemd + the supervisor
     /// (Phase 5 absorbs watchdog into edgeplaned).
     async fn launch(&self, ctx: LaunchContext) -> Result<AgentHandle> {
-        let zellij_session = ctx
-            .zellij_session
-            .clone()
-            .ok_or_else(|| {
-                anyhow!(
-                    "ZellijHostedRuntime::launch: agent {} has no zellij_session in \
+        let zellij_session = ctx.zellij_session.clone().ok_or_else(|| {
+            anyhow!(
+                "ZellijHostedRuntime::launch: agent {} has no zellij_session in \
                      LaunchContext. This means the daemon did not resolve \
                      AgentLaunchContext.zellij_session before calling launch — \
                      check that the agent has an `agent_launch_context` row in the registry.",
-                    ctx.agent_id
-                )
-            })?;
+                ctx.agent_id
+            )
+        })?;
 
         let session = ZellijSession::new(&zellij_session);
         if !session.is_alive() {
@@ -218,14 +215,17 @@ impl AgentRuntime for ZellijHostedRuntime {
                 self.deliver_prompt(&zellij_session, &session, text).await
             }
             AgentSignal::PeerMessage {
-                from_agent_id, body, ..
+                from_agent_id,
+                body,
+                ..
             } => {
                 let body_text = match &body {
                     serde_json::Value::String(s) => s.clone(),
                     other => other.to_string(),
                 };
                 let formatted = format!("[from {from_agent_id}]: {body_text}");
-                self.deliver_prompt(&zellij_session, &session, formatted).await
+                self.deliver_prompt(&zellij_session, &session, formatted)
+                    .await
             }
             AgentSignal::Cancel => {
                 if self.routing.enabled_for(&zellij_session) {
@@ -290,10 +290,11 @@ impl AgentRuntime for ZellijHostedRuntime {
                 .output()
                 .await;
             if let Ok(out) = probe
-                && out.status.success() {
-                    tracing::debug!("ZellijHostedRuntime: found zellij at {}", candidate);
-                    return Ok(());
-                }
+                && out.status.success()
+            {
+                tracing::debug!("ZellijHostedRuntime: found zellij at {}", candidate);
+                return Ok(());
+            }
         }
         bail!(
             "zellij binary not found in any of the candidate locations \

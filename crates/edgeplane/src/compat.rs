@@ -183,16 +183,14 @@ fn run_provider_checks(provider: String, mode: CompatMode) -> ProviderResult {
     checks.push(CheckResult {
         name: "contract_payload_shape".into(),
         status: "skipped".into(),
-        detail: "not implemented: contract payload shape is not validated by this build"
-            .into(),
+        detail: "not implemented: contract payload shape is not validated by this build".into(),
     });
 
     if mode == CompatMode::Full {
         checks.push(CheckResult {
             name: "approval_flow_contract".into(),
             status: "skipped".into(),
-            detail: "not implemented: approval flow contract is not validated by this build"
-                .into(),
+            detail: "not implemented: approval flow contract is not validated by this build".into(),
         });
     }
 

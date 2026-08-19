@@ -26,11 +26,17 @@ pub fn heal_legacy_cli_paths() {
     let home = ep_home_dir();
 
     // config/ bucket
-    move_if_dest_absent(&home.join("contexts.yaml"), &config_dir().join("contexts.yaml"));
+    move_if_dest_absent(
+        &home.join("contexts.yaml"),
+        &config_dir().join("contexts.yaml"),
+    );
     move_if_dest_absent(&home.join("config.json"), &config_dir().join("config.json"));
 
     // state/ bucket
-    move_if_dest_absent(&home.join("session.json"), &state_dir().join("session.json"));
+    move_if_dest_absent(
+        &home.join("session.json"),
+        &state_dir().join("session.json"),
+    );
     merge_dir_into(&home.join("sessions"), &sessions_dir());
 }
 
@@ -95,7 +101,9 @@ fn merge_dir_into(src_dir: &Path, dst_dir: &Path) {
     };
     for entry in entries.flatten() {
         let from = entry.path();
-        let Some(name) = from.file_name() else { continue };
+        let Some(name) = from.file_name() else {
+            continue;
+        };
         move_if_dest_absent(&from, &dst_dir.join(name));
     }
     // Best-effort: drop the now-empty legacy dir (no-op if non-empty).

@@ -1,8 +1,8 @@
 use crossterm::event::KeyCode;
 use ratatui::{prelude::*, widgets::*};
 
-use crate::tui::widgets::secrets_tree::{SecretsTree, SecretsTreeAction, TreeMode};
 use crate::tui::theme;
+use crate::tui::widgets::secrets_tree::{SecretsTree, SecretsTreeAction, TreeMode};
 use crate::tui::work::{JobId, WorkRequest, next_job_id};
 
 // ── state ─────────────────────────────────────────────────────────────────────
@@ -35,11 +35,7 @@ impl Default for SecretsState {
 impl SecretsState {
     /// Initialize (or re-initialize) the tree for a given project/environment.
     /// Returns the initial (folders_job, names_job) pair so the caller can dispatch.
-    pub fn init_tree(
-        &mut self,
-        project_id: String,
-        environment: String,
-    ) -> Option<(JobId, JobId)> {
+    pub fn init_tree(&mut self, project_id: String, environment: String) -> Option<(JobId, JobId)> {
         self.project_id = Some(project_id.clone());
         self.environment = environment.clone();
 
@@ -53,7 +49,9 @@ impl SecretsState {
 
     /// Handle a key event. Returns pending work requests that should be dispatched.
     pub fn handle_key(&mut self, code: KeyCode) -> Vec<WorkRequest> {
-        let Some(tree) = &mut self.tree else { return vec![]; };
+        let Some(tree) = &mut self.tree else {
+            return vec![];
+        };
         let cfg = match &self.cfg {
             Some(c) => c.clone(),
             None => return vec![],
@@ -65,7 +63,11 @@ impl SecretsState {
         let action = tree.handle_key(code, &mut id_gen);
 
         match action {
-            SecretsTreeAction::NeedsLoad { path, folders_job, names_job } => {
+            SecretsTreeAction::NeedsLoad {
+                path,
+                folders_job,
+                names_job,
+            } => {
                 vec![
                     WorkRequest::LoadSecretFolders {
                         job_id: folders_job,
@@ -119,7 +121,8 @@ impl Widget for SecretsScreen<'_> {
                 Constraint::Fill(1),
                 Constraint::Length(5),
                 Constraint::Fill(1),
-            ]).split(inner);
+            ])
+            .split(inner);
             let lines = vec![
                 Line::from(Span::styled(err.as_str(), theme::err())),
                 Line::from(""),
@@ -144,7 +147,8 @@ impl Widget for SecretsScreen<'_> {
                 Constraint::Fill(1),
                 Constraint::Length(1),
                 Constraint::Fill(1),
-            ]).split(inner);
+            ])
+            .split(inner);
             Paragraph::new(Span::styled("  Loading profile…", theme::muted()))
                 .alignment(Alignment::Center)
                 .render(chunks[1], buf);

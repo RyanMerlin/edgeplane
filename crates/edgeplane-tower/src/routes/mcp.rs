@@ -295,7 +295,9 @@ async fn mcp_authz_domain(state: &AppState, p: &Principal, domain_id: &str) -> R
         Err(resp) if resp.status() == axum::http::StatusCode::INTERNAL_SERVER_ERROR => {
             Err(json!({ "ok": false, "error": "database_error" }))
         }
-        Err(_) => Err(json!({ "ok": false, "error": "forbidden", "detail": "not authorized for domain" })),
+        Err(_) => {
+            Err(json!({ "ok": false, "error": "forbidden", "detail": "not authorized for domain" }))
+        }
     }
 }
 
@@ -317,14 +319,16 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                 "SELECT m.domain_id FROM overlapsuggestion o \
                  JOIN task t ON t.id = o.task_id \
                  JOIN mission m ON m.id = t.mission_id \
-                 WHERE o.task_id = $1 LIMIT 1"
+                 WHERE o.task_id = $1 LIMIT 1",
             )
             .bind(&task_id)
             .fetch_optional(&state.db)
             .await;
             let domain_id = match domain_id_result {
                 Err(e) => {
-                    tracing::error!("mcp get_overlap_suggestions domain resolve (task_id={task_id}): {e}");
+                    tracing::error!(
+                        "mcp get_overlap_suggestions domain resolve (task_id={task_id}): {e}"
+                    );
                     return err_result("task not found");
                 }
                 Ok(row) => match row.flatten() {
@@ -362,10 +366,11 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                 return err_result("mission_id and title are required");
             }
             // Resolve the canonical domain from the mission (closes client-supplied-domain mismatch).
-            let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
-                Ok(d) => d,
-                Err(_) => return err_result("mission not found"),
-            };
+            let domain_id =
+                match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
+                    Ok(d) => d,
+                    Err(_) => return err_result("mission not found"),
+                };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
@@ -425,14 +430,22 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let depends_on: Vec<String> = args
                 .get("depends_on")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             let produces = args.get("produces").cloned().unwrap_or(json!({}));
             let consumes = args.get("consumes").cloned().unwrap_or(json!({}));
             let required_capabilities: Vec<String> = args
                 .get("required_capabilities")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
 
             // Column-population unification (migration 0014): this REST path
@@ -458,7 +471,9 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let id = uuid::Uuid::new_v4().to_string();
 
             if !depends_on.is_empty() {
-                match crate::routes::work::detect_cycle(&state.db, &mission_id, &id, &depends_on).await {
+                match crate::routes::work::detect_cycle(&state.db, &mission_id, &id, &depends_on)
+                    .await
+                {
                     Ok(true) => return err_result("dependency cycle detected"),
                     Ok(false) => {}
                     Err(e) => {
@@ -482,7 +497,8 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             };
 
             let public_id = crate::routes::work::new_public_id();
-            let depends_on_json = serde_json::to_string(&depends_on).unwrap_or_else(|_| "[]".to_string());
+            let depends_on_json =
+                serde_json::to_string(&depends_on).unwrap_or_else(|_| "[]".to_string());
             let required_capabilities_json =
                 serde_json::to_string(&required_capabilities).unwrap_or_else(|_| "[]".to_string());
 
@@ -536,10 +552,11 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if mission_id.is_empty() {
                 return err_result("mission_id is required");
             }
-            let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
-                Ok(d) => d,
-                Err(_) => return err_result("mission not found"),
-            };
+            let domain_id =
+                match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
+                    Ok(d) => d,
+                    Err(_) => return err_result("mission not found"),
+                };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
@@ -579,10 +596,11 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                 return err_result("task_id is required");
             }
             // Change 6: resolve domain and authz before the SELECT.
-            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
-                Ok(d) => d,
-                Err(_) => return err_result("mesh_task_not_found"),
-            };
+            let domain_id =
+                match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+                    Ok(d) => d,
+                    Err(_) => return err_result("mesh_task_not_found"),
+                };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
@@ -599,7 +617,10 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                     // Drop claim_lease_id for non-owners to avoid live-lease exposure.
                     let claimed_by: Option<String> = r.get("claimed_by_agent_id");
                     let lease_id: Option<String> = r.get("claim_lease_id");
-                    let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+                    let self_id = principal
+                        .subject
+                        .strip_prefix("agent:")
+                        .unwrap_or(&principal.subject);
                     let is_owner = crate::auth::is_full_trust(principal)
                         || principal.is_admin
                         || claimed_by.as_deref() == Some(self_id);
@@ -634,7 +655,10 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             }
             // Full-trust callers may supply an explicit agent_id; restricted
             // callers (agents, SA) are always attributed to themselves.
-            let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+            let self_id = principal
+                .subject
+                .strip_prefix("agent:")
+                .unwrap_or(&principal.subject);
             let agent_id = if crate::auth::is_full_trust(principal) || principal.is_admin {
                 str_arg(args, "agent_id")
             } else {
@@ -644,10 +668,11 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                 return err_result("agent_id is required (or authenticate as an agent)");
             }
             // resolve domain + kind and guard
-            let (domain_id, kind) = match crate::routes::authz::domain_and_kind_for_task(&state.db, &task_id).await {
-                Ok(v) => v,
-                Err(_) => return err_result("task not found"),
-            };
+            let (domain_id, kind) =
+                match crate::routes::authz::domain_and_kind_for_task(&state.db, &task_id).await {
+                    Ok(v) => v,
+                    Err(_) => return err_result("task not found"),
+                };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
@@ -658,7 +683,9 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             // Clamped to the same bounds as load_mission_workspace's
             // equivalent lease_seconds input — was unbounded (an i64 straight
             // into chrono::Duration::seconds).
-            let lease_seconds = int_arg(args, "lease_seconds").unwrap_or(300).clamp(60, 3600);
+            let lease_seconds = int_arg(args, "lease_seconds")
+                .unwrap_or(300)
+                .clamp(60, 3600);
             let lease_id = uuid::Uuid::new_v4().to_string();
             let expires_at = now + chrono::Duration::seconds(lease_seconds);
             match sqlx::query(
@@ -692,10 +719,11 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() || claim_lease_id.is_empty() {
                 return err_result("task_id and claim_lease_id are required");
             }
-            let (domain_id, kind) = match crate::routes::authz::domain_and_kind_for_task(&state.db, &task_id).await {
-                Ok(v) => v,
-                Err(_) => return err_result("task not found"),
-            };
+            let (domain_id, kind) =
+                match crate::routes::authz::domain_and_kind_for_task(&state.db, &task_id).await {
+                    Ok(v) => v,
+                    Err(_) => return err_result("task not found"),
+                };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
@@ -703,8 +731,15 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if kind != "claimable" {
                 return err_result("task is not claimable (kind='assigned')");
             }
-            let lease_opt = if claim_lease_id.is_empty() { None } else { Some(claim_lease_id.as_str()) };
-            if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, lease_opt).await.is_err() {
+            let lease_opt = if claim_lease_id.is_empty() {
+                None
+            } else {
+                Some(claim_lease_id.as_str())
+            };
+            if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, lease_opt)
+                .await
+                .is_err()
+            {
                 return err_result("not the task's claimer");
             }
             let expires_at = now + chrono::Duration::seconds(300);
@@ -734,7 +769,10 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let event_type = str_arg(args, "event_type");
             // Full-trust callers may supply an explicit agent_id; restricted
             // callers (agents, SA) are always attributed to themselves.
-            let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+            let self_id = principal
+                .subject
+                .strip_prefix("agent:")
+                .unwrap_or(&principal.subject);
             let agent_id = if crate::auth::is_full_trust(principal) || principal.is_admin {
                 str_arg(args, "agent_id")
             } else {
@@ -743,10 +781,11 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() || event_type.is_empty() {
                 return err_result("task_id and event_type are required");
             }
-            let (domain_id, kind) = match crate::routes::authz::domain_and_kind_for_task(&state.db, &task_id).await {
-                Ok(v) => v,
-                Err(_) => return err_result("task not found"),
-            };
+            let (domain_id, kind) =
+                match crate::routes::authz::domain_and_kind_for_task(&state.db, &task_id).await {
+                    Ok(v) => v,
+                    Err(_) => return err_result("task not found"),
+                };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
@@ -757,8 +796,20 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             }
             // Change 7: ownership check (mirrors heartbeat_mesh_task); use caller-presented lease.
             let claim_lease_str = str_arg(args, "claim_lease_id");
-            let claim_lease_opt = if claim_lease_str.is_empty() { None } else { Some(claim_lease_str.as_str()) };
-            if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, claim_lease_opt).await.is_err() {
+            let claim_lease_opt = if claim_lease_str.is_empty() {
+                None
+            } else {
+                Some(claim_lease_str.as_str())
+            };
+            if crate::routes::authz::authz_task_owner(
+                &state.db,
+                principal,
+                &task_id,
+                claim_lease_opt,
+            )
+            .await
+            .is_err()
+            {
                 return err_result("not the task's claimer");
             }
             let payload_json = args.get("payload_json").cloned().unwrap_or(json!({}));
@@ -820,8 +871,15 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             // claimable, owner/lease for assigned) — call it unconditionally
             // rather than rejecting kind='assigned' up front.
             let lease_str = str_arg(args, "claim_lease_id");
-            let lease_opt = if lease_str.is_empty() { None } else { Some(lease_str.as_str()) };
-            if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, lease_opt).await.is_err() {
+            let lease_opt = if lease_str.is_empty() {
+                None
+            } else {
+                Some(lease_str.as_str())
+            };
+            if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, lease_opt)
+                .await
+                .is_err()
+            {
                 return err_result("not the task's claimer");
             }
             let new_status = match tool {
@@ -841,10 +899,14 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if tool != "block_mesh_task" {
                 if kind == "claimable" {
                     if status != "claimed" && status != "running" && status != "waiting_review" {
-                        return err_result(&format!("task cannot be {new_status} from status: {status}"));
+                        return err_result(&format!(
+                            "task cannot be {new_status} from status: {status}"
+                        ));
                     }
                 } else if crate::routes::tasks::is_terminal_status(&status) {
-                    return err_result(&format!("task cannot be {new_status} from status: {status}"));
+                    return err_result(&format!(
+                        "task cannot be {new_status} from status: {status}"
+                    ));
                 }
             }
             let now_tz = Utc::now();
@@ -879,12 +941,20 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             let from_agent_id = if crate::auth::is_full_trust(principal) || principal.is_admin {
                 let supplied = str_arg(args, "sender_agent_id");
                 if supplied.is_empty() {
-                    principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject).to_string()
+                    principal
+                        .subject
+                        .strip_prefix("agent:")
+                        .unwrap_or(&principal.subject)
+                        .to_string()
                 } else {
                     supplied
                 }
             } else {
-                principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject).to_string()
+                principal
+                    .subject
+                    .strip_prefix("agent:")
+                    .unwrap_or(&principal.subject)
+                    .to_string()
             };
             if from_agent_id.is_empty() {
                 return err_result("sender_agent_id is required (or authenticate as an agent)");
@@ -918,16 +988,20 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             }
             // Change 1: resolve the agent's domain, authz the caller for it, and
             // restrict direct-message reads to the agent's own identity.
-            let domain_id = match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
-                Ok(d) => d,
-                Err(_) => return err_result("agent not found"),
-            };
+            let domain_id =
+                match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
+                    Ok(d) => d,
+                    Err(_) => return err_result("agent not found"),
+                };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
             // Non-full-trust callers may only read their own agent's messages.
             if !crate::auth::is_full_trust(principal) && !principal.is_admin {
-                let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+                let self_id = principal
+                    .subject
+                    .strip_prefix("agent:")
+                    .unwrap_or(&principal.subject);
                 if self_id != agent_id.as_str() {
                     return json!({ "ok": false, "error": "forbidden", "detail": "may only read own agent's messages" });
                 }
@@ -1514,10 +1588,12 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             };
             // ── Domain authz: resolve mission → domain, then check membership ──
             let art_mission_id: String = artifact.try_get("mission_id").unwrap_or_default();
-            let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &art_mission_id).await {
-                Ok(d) => d,
-                Err(_) => return err_result("Artifact mission not found"),
-            };
+            let domain_id =
+                match crate::routes::authz::domain_id_for_mission(&state.db, &art_mission_id).await
+                {
+                    Ok(d) => d,
+                    Err(_) => return err_result("Artifact mission not found"),
+                };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }

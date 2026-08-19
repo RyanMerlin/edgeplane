@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -147,12 +147,10 @@ async fn deactivate_trigger(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     // Verify ownership first
-    let existing = sqlx::query(
-        "SELECT owner_subject FROM eventtrigger WHERE id=$1",
-    )
-    .bind(&id)
-    .fetch_optional(&state.db)
-    .await;
+    let existing = sqlx::query("SELECT owner_subject FROM eventtrigger WHERE id=$1")
+        .bind(&id)
+        .fetch_optional(&state.db)
+        .await;
 
     match existing {
         Ok(Some(row)) => {
@@ -169,13 +167,11 @@ async fn deactivate_trigger(
     }
 
     let now = Utc::now().naive_utc();
-    match sqlx::query(
-        "UPDATE eventtrigger SET active=false, updated_at=$2 WHERE id=$1",
-    )
-    .bind(&id)
-    .bind(now)
-    .execute(&state.db)
-    .await
+    match sqlx::query("UPDATE eventtrigger SET active=false, updated_at=$2 WHERE id=$1")
+        .bind(&id)
+        .bind(now)
+        .execute(&state.db)
+        .await
     {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {

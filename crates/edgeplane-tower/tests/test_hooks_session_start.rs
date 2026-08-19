@@ -20,8 +20,13 @@ async fn session_start_creates_agent_with_public_id() {
     let Some(url) = std::env::var("TEST_DATABASE_URL").ok() else {
         return;
     };
-    let pool = PgPool::connect(&url).await.expect("connect TEST_DATABASE_URL");
-    sqlx::migrate!("./migrations").run(&pool).await.expect("migrate");
+    let pool = PgPool::connect(&url)
+        .await
+        .expect("connect TEST_DATABASE_URL");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("migrate");
 
     let subject = format!("hook-subject-{}", Uuid::new_v4().simple());
     let token = mint_session(&pool, &subject, &format!("{subject}@example.com")).await;

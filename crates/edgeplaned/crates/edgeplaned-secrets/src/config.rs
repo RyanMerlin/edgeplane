@@ -28,7 +28,9 @@ pub struct InfisicalConfig {
     pub default_environment: String,
 }
 
-fn default_environment() -> String { "prod".to_string() }
+fn default_environment() -> String {
+    "prod".to_string()
+}
 
 impl Default for InfisicalConfig {
     fn default() -> Self {
@@ -46,8 +48,14 @@ impl Default for InfisicalConfig {
 impl InfisicalConfig {
     /// Returns true if at least one auth credential is present.
     pub fn is_configured(&self) -> bool {
-        let has_st = self.service_token.as_deref().is_some_and(|t| !t.trim().is_empty());
-        let has_ua = self.client_id.as_deref().is_some_and(|id| !id.trim().is_empty());
+        let has_st = self
+            .service_token
+            .as_deref()
+            .is_some_and(|t| !t.trim().is_empty());
+        let has_ua = self
+            .client_id
+            .as_deref()
+            .is_some_and(|id| !id.trim().is_empty());
         has_st || has_ua
     }
 
@@ -94,7 +102,9 @@ pub struct InfisicalProfileMap {
 impl InfisicalProfileMap {
     /// Return the active profile, or `None` if none is set or selected.
     pub fn active_profile(&self) -> Option<&InfisicalConfig> {
-        self.active.as_deref().and_then(|name| self.profiles.get(name))
+        self.active
+            .as_deref()
+            .and_then(|name| self.profiles.get(name))
     }
 
     /// Set the active profile by name.  Returns `Err` if the name is unknown.

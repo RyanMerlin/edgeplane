@@ -63,4 +63,6 @@ pub struct BriefUpdate {
     pub content: String,
 }
 
-fn default_active() -> String { "active".into() }
+fn default_active() -> String {
+    "active".into()
+}

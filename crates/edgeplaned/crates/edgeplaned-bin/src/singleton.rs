@@ -258,7 +258,10 @@ mod tests {
         let _first = SingletonLock::acquire(&path, false).expect("first acquire");
         let err = SingletonLock::acquire(&path, false).expect_err("second must fail");
         let msg = format!("{err}");
-        assert!(msg.contains("another edgeplaned is already running"), "msg: {msg}");
+        assert!(
+            msg.contains("another edgeplaned is already running"),
+            "msg: {msg}"
+        );
         assert!(msg.contains(&format!("holder PID:     {}", std::process::id())));
         assert!(msg.contains("edgeplaned run --kill-existing"));
     }
@@ -278,8 +281,11 @@ mod tests {
     fn read_holder_parses_kv_lines() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("edgeplaned.lock");
-        std::fs::write(&path, "pid=12345\nbinary=/usr/bin/edgeplaned\nstarted=2026-05-17T12:00:00\n")
-            .unwrap();
+        std::fs::write(
+            &path,
+            "pid=12345\nbinary=/usr/bin/edgeplaned\nstarted=2026-05-17T12:00:00\n",
+        )
+        .unwrap();
         let info = read_holder(&path);
         assert_eq!(info.pid, Some(12345));
         assert_eq!(info.binary.as_deref(), Some("/usr/bin/edgeplaned"));

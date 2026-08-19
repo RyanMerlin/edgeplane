@@ -64,7 +64,10 @@ fn apply_migrations(conn: &Connection) -> Result<()> {
     // (e.g. from earlier `INSERT OR IGNORE VALUES (1)` callers) collapse
     // to one row.
     conn.execute("DELETE FROM schema_version", [])?;
-    conn.execute("INSERT INTO schema_version VALUES (?1)", params![CURRENT_SCHEMA_VERSION])?;
+    conn.execute(
+        "INSERT INTO schema_version VALUES (?1)",
+        params![CURRENT_SCHEMA_VERSION],
+    )?;
     Ok(())
 }
 
@@ -135,12 +138,7 @@ fn migrate_to_v2(conn: &Connection) -> Result<()> {
     // ALTER TABLE ADD COLUMN is not idempotent in SQLite — running twice
     // returns "duplicate column" error. Guard each ADD by checking
     // PRAGMA table_info first.
-    add_column_if_missing(
-        conn,
-        "agent_launch_context",
-        "systemd_service",
-        "TEXT",
-    )?;
+    add_column_if_missing(conn, "agent_launch_context", "systemd_service", "TEXT")?;
     add_column_if_missing(
         conn,
         "agent_launch_context",
@@ -366,10 +364,7 @@ impl LocalRegistry {
     /// List all launch contexts for a given source. Used by the importer
     /// (to skip already-imported rows) and by diagnostic CLIs.
     #[allow(dead_code)]
-    pub fn list_launch_contexts_by_source(
-        &self,
-        source: &str,
-    ) -> Result<Vec<AgentLaunchContext>> {
+    pub fn list_launch_contexts_by_source(&self, source: &str) -> Result<Vec<AgentLaunchContext>> {
         let mut stmt = self.conn.prepare(
             "SELECT source, agent_id, vault_folder, state_dir_spec, zellij_session,
                     systemd_service, supervise_paused
@@ -385,12 +380,7 @@ impl LocalRegistry {
     /// Set the `supervise_paused` flag for one agent. Used by
     /// `edgeplane agent supervise pause/resume`. Returns true if a row was
     /// updated.
-    pub fn set_supervise_paused(
-        &self,
-        source: &str,
-        agent_id: &str,
-        paused: bool,
-    ) -> Result<bool> {
+    pub fn set_supervise_paused(&self, source: &str, agent_id: &str, paused: bool) -> Result<bool> {
         let n = self.conn.execute(
             "UPDATE agent_launch_context SET supervise_paused = ?1
              WHERE source = ?2 AND agent_id = ?3",
@@ -410,7 +400,9 @@ impl LocalRegistry {
              WHERE source NOT LIKE 'controlplane:%' \
              ORDER BY enrolled_at ASC",
         )?;
-        let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("reading local runtime overrides from registry")
     }
@@ -574,11 +566,7 @@ fn row_to_launch_context(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentLaunc
     let state_dir_json: Option<String> = row.get(3)?;
     let state_dir_spec = match state_dir_json {
         Some(s) => Some(serde_json::from_str(&s).map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(
-                3,
-                rusqlite::types::Type::Text,
-                Box::new(e),
-            )
+            rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
         })?),
         None => None,
     };
@@ -717,7 +705,8 @@ impl LocalRegistry {
             "SELECT id, job_name, fired_at, status, duration_ms, error_message
              FROM agent_cron_fire_log
              WHERE job_name = ?1
-             ORDER BY fired_at DESC".to_string()
+             ORDER BY fired_at DESC"
+                .to_string()
         } else {
             format!(
                 "SELECT id, job_name, fired_at, status, duration_ms, error_message
@@ -737,7 +726,8 @@ impl LocalRegistry {
         let sql = if limit == 0 {
             "SELECT id, job_name, fired_at, status, duration_ms, error_message
              FROM agent_cron_fire_log
-             ORDER BY fired_at DESC".to_string()
+             ORDER BY fired_at DESC"
+                .to_string()
         } else {
             format!(
                 "SELECT id, job_name, fired_at, status, duration_ms, error_message
@@ -770,9 +760,9 @@ impl LocalRegistry {
         // Pass 2: per-job cap. For each job_name with > max_rows_per_job
         // remaining, delete the oldest rows.
         if max_rows_per_job > 0 {
-            let mut stmt = self.conn.prepare(
-                "SELECT job_name FROM agent_cron_fire_log GROUP BY job_name",
-            )?;
+            let mut stmt = self
+                .conn
+                .prepare("SELECT job_name FROM agent_cron_fire_log GROUP BY job_name")?;
             let jobs: Vec<String> = stmt
                 .query_map([], |r| r.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -845,7 +835,15 @@ impl LocalRegistry {
             "INSERT INTO unit_restart_log
                 (agent_id, source, triggered_at, reason, result, systemctl_exit, notes)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![agent_id, source, triggered_at, reason, result, systemctl_exit, notes],
+            params![
+                agent_id,
+                source,
+                triggered_at,
+                reason,
+                result,
+                systemctl_exit,
+                notes
+            ],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -862,7 +860,8 @@ impl LocalRegistry {
             "SELECT id, agent_id, source, triggered_at, reason, result, systemctl_exit, notes
              FROM unit_restart_log
              WHERE source = ?1 AND agent_id = ?2
-             ORDER BY triggered_at DESC".to_string()
+             ORDER BY triggered_at DESC"
+                .to_string()
         } else {
             format!(
                 "SELECT id, agent_id, source, triggered_at, reason, result, systemctl_exit, notes
@@ -882,7 +881,8 @@ impl LocalRegistry {
         let sql = if limit == 0 {
             "SELECT id, agent_id, source, triggered_at, reason, result, systemctl_exit, notes
              FROM unit_restart_log
-             ORDER BY triggered_at DESC".to_string()
+             ORDER BY triggered_at DESC"
+                .to_string()
         } else {
             format!(
                 "SELECT id, agent_id, source, triggered_at, reason, result, systemctl_exit, notes
@@ -899,11 +899,7 @@ impl LocalRegistry {
     /// GC sweep for `unit_restart_log`. Same shape as `cron_gc`: drop
     /// rows older than `history_days`, then per-(source, agent) cap at
     /// `max_rows_per_agent`. Returns total rows deleted.
-    pub fn unit_restart_gc(
-        &self,
-        history_days: u32,
-        max_rows_per_agent: u32,
-    ) -> Result<u64> {
+    pub fn unit_restart_gc(&self, history_days: u32, max_rows_per_agent: u32) -> Result<u64> {
         let mut deleted: u64 = 0;
         if history_days > 0 {
             let n = self.conn.execute(
@@ -914,9 +910,9 @@ impl LocalRegistry {
             deleted += n as u64;
         }
         if max_rows_per_agent > 0 {
-            let mut stmt = self.conn.prepare(
-                "SELECT DISTINCT source, agent_id FROM unit_restart_log",
-            )?;
+            let mut stmt = self
+                .conn
+                .prepare("SELECT DISTINCT source, agent_id FROM unit_restart_log")?;
             let pairs: Vec<(String, String)> = stmt
                 .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -999,8 +995,11 @@ mod tests {
     #[test]
     fn upsert_and_list() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Task),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         let specs = reg.list_specs_by_source(SOURCE_LOCAL).unwrap();
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].agent_id, "a-1");
@@ -1011,18 +1010,27 @@ mod tests {
         let (_dir, reg) = tmp_reg();
         let rec = AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL);
         reg.upsert(&rec).unwrap();
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Task),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         assert_eq!(reg.list_by_source(SOURCE_LOCAL).unwrap().len(), 1);
     }
 
     #[test]
     fn upsert_updates_domain() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
-            .unwrap();
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-2", SessionMode::Task), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Task),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-2", SessionMode::Task),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         let specs = reg.list_specs_by_source(SOURCE_LOCAL).unwrap();
         assert_eq!(specs[0].domain_id, "m-2");
     }
@@ -1030,8 +1038,11 @@ mod tests {
     #[test]
     fn reassign_changes_domain() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Task),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         let changed = reg.reassign(SOURCE_LOCAL, "a-1", "m-2").unwrap();
         assert!(changed);
         let specs = reg.list_specs_by_source(SOURCE_LOCAL).unwrap();
@@ -1048,8 +1059,11 @@ mod tests {
     #[test]
     fn delete_removes_agent() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Task),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         let removed = reg.delete(SOURCE_LOCAL, "a-1").unwrap();
         assert!(removed);
         assert!(reg.list_specs_by_source(SOURCE_LOCAL).unwrap().is_empty());
@@ -1065,8 +1079,11 @@ mod tests {
     #[test]
     fn source_isolation() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Task),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         reg.upsert(&AgentRecord::from_spec(
             &spec("a-1", "m-1", SessionMode::Task),
             &source_cp("work"),
@@ -1082,8 +1099,11 @@ mod tests {
         let path = dir.path().join("registry.db");
         let r1 = LocalRegistry::open(&path).unwrap();
         let r2 = LocalRegistry::open(&path).unwrap();
-        r1.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
-            .unwrap();
+        r1.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Task),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         let specs = r2.list_specs_by_source(SOURCE_LOCAL).unwrap();
         assert_eq!(specs.len(), 1);
     }
@@ -1107,10 +1127,14 @@ mod tests {
         let src = source_cp("homelab");
 
         // Seed two agents.
-        LocalRegistry::replace_source(&path, &src, &[
-            spec("a-1", "m-1", SessionMode::Task),
-            spec("a-2", "m-1", SessionMode::Task),
-        ])
+        LocalRegistry::replace_source(
+            &path,
+            &src,
+            &[
+                spec("a-1", "m-1", SessionMode::Task),
+                spec("a-2", "m-1", SessionMode::Task),
+            ],
+        )
         .unwrap();
 
         let reg = LocalRegistry::open(&path).unwrap();
@@ -1128,8 +1152,11 @@ mod tests {
     fn launch_context_round_trips_persistent() {
         let (_dir, reg) = tmp_reg();
         // FK requires the agent row to exist first.
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Persistent), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Persistent),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         let ctx = AgentLaunchContext {
             source: SOURCE_LOCAL.into(),
             agent_id: "a-1".into(),
@@ -1142,35 +1169,53 @@ mod tests {
             supervise_paused: false,
         };
         reg.upsert_launch_context(&ctx).unwrap();
-        let got = reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().unwrap();
+        let got = reg
+            .get_launch_context(SOURCE_LOCAL, "a-1")
+            .unwrap()
+            .unwrap();
         assert_eq!(got, ctx);
     }
 
     #[test]
     fn launch_context_round_trips_ephemeral() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Task),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         let ctx = AgentLaunchContext {
             source: SOURCE_LOCAL.into(),
             agent_id: "a-1".into(),
             vault_folder: None,
-            state_dir_spec: Some(StateDirSpec::Ephemeral { ttl_minutes: Some(30) }),
+            state_dir_spec: Some(StateDirSpec::Ephemeral {
+                ttl_minutes: Some(30),
+            }),
             zellij_session: None,
             systemd_service: None,
             supervise_paused: false,
         };
         reg.upsert_launch_context(&ctx).unwrap();
-        let got = reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().unwrap();
+        let got = reg
+            .get_launch_context(SOURCE_LOCAL, "a-1")
+            .unwrap()
+            .unwrap();
         assert_eq!(got, ctx);
     }
 
     #[test]
     fn launch_context_missing_returns_none() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Task), SOURCE_LOCAL))
-            .unwrap();
-        assert!(reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().is_none());
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Task),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
+        assert!(
+            reg.get_launch_context(SOURCE_LOCAL, "a-1")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -1192,8 +1237,11 @@ mod tests {
     #[test]
     fn launch_context_cascades_on_agent_delete() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Persistent), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Persistent),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         reg.upsert_launch_context(&AgentLaunchContext {
             source: SOURCE_LOCAL.into(),
             agent_id: "a-1".into(),
@@ -1206,14 +1254,21 @@ mod tests {
         .unwrap();
         assert!(reg.delete(SOURCE_LOCAL, "a-1").unwrap());
         // Deleting the agent cascades — the launch_context row is gone too.
-        assert!(reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().is_none());
+        assert!(
+            reg.get_launch_context(SOURCE_LOCAL, "a-1")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
     fn launch_context_upsert_overwrites() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("a-1", "m-1", SessionMode::Persistent), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a-1", "m-1", SessionMode::Persistent),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         reg.upsert_launch_context(&AgentLaunchContext {
             source: SOURCE_LOCAL.into(),
             agent_id: "a-1".into(),
@@ -1234,7 +1289,10 @@ mod tests {
             supervise_paused: false,
         })
         .unwrap();
-        let got = reg.get_launch_context(SOURCE_LOCAL, "a-1").unwrap().unwrap();
+        let got = reg
+            .get_launch_context(SOURCE_LOCAL, "a-1")
+            .unwrap()
+            .unwrap();
         assert_eq!(got.vault_folder.as_deref(), Some("research"));
         assert_eq!(got.zellij_session.as_deref(), Some("research"));
     }
@@ -1263,14 +1321,8 @@ mod tests {
     #[test]
     fn cron_record_fire_writes_state_and_log() {
         let (_dir, reg) = tmp_reg();
-        reg.cron_record_fire(
-            "briefing",
-            "2026-05-20T05:30:00Z",
-            "ok",
-            Some(120),
-            None,
-        )
-        .unwrap();
+        reg.cron_record_fire("briefing", "2026-05-20T05:30:00Z", "ok", Some(120), None)
+            .unwrap();
 
         let state = reg.cron_get_state("briefing").unwrap().unwrap();
         assert_eq!(state.job_name, "briefing");
@@ -1310,8 +1362,14 @@ mod tests {
         reg.cron_record_fire("briefing", "2026-05-19T05:30:00Z", "ok", Some(100), None)
             .unwrap();
         // Second fire: state overwrites, history appends
-        reg.cron_record_fire("briefing", "2026-05-20T05:30:00Z", "error", Some(200), Some("x"))
-            .unwrap();
+        reg.cron_record_fire(
+            "briefing",
+            "2026-05-20T05:30:00Z",
+            "error",
+            Some(200),
+            Some("x"),
+        )
+        .unwrap();
 
         let state = reg.cron_get_state("briefing").unwrap().unwrap();
         assert_eq!(state.last_fired_at.as_deref(), Some("2026-05-20T05:30:00Z"));
@@ -1333,9 +1391,12 @@ mod tests {
     #[test]
     fn cron_history_all_across_jobs() {
         let (_dir, reg) = tmp_reg();
-        reg.cron_record_fire("a", "2026-05-20T01:00:00Z", "ok", None, None).unwrap();
-        reg.cron_record_fire("b", "2026-05-20T02:00:00Z", "ok", None, None).unwrap();
-        reg.cron_record_fire("a", "2026-05-20T03:00:00Z", "ok", None, None).unwrap();
+        reg.cron_record_fire("a", "2026-05-20T01:00:00Z", "ok", None, None)
+            .unwrap();
+        reg.cron_record_fire("b", "2026-05-20T02:00:00Z", "ok", None, None)
+            .unwrap();
+        reg.cron_record_fire("a", "2026-05-20T03:00:00Z", "ok", None, None)
+            .unwrap();
 
         let all = reg.cron_history_all(10).unwrap();
         assert_eq!(all.len(), 3);
@@ -1346,8 +1407,10 @@ mod tests {
     #[test]
     fn cron_list_state_returns_all() {
         let (_dir, reg) = tmp_reg();
-        reg.cron_record_fire("a", "2026-05-20T01:00:00Z", "ok", None, None).unwrap();
-        reg.cron_record_fire("b", "2026-05-20T02:00:00Z", "ok", None, None).unwrap();
+        reg.cron_record_fire("a", "2026-05-20T01:00:00Z", "ok", None, None)
+            .unwrap();
+        reg.cron_record_fire("b", "2026-05-20T02:00:00Z", "ok", None, None)
+            .unwrap();
 
         let all = reg.cron_list_state().unwrap();
         assert_eq!(all.len(), 2);
@@ -1398,22 +1461,10 @@ mod tests {
         // Insert a row that's clearly outside the retention window (older
         // than 30 days from "now"). SQLite's datetime('now', '-30 days')
         // is wall-clock time, so we need a row dated long in the past.
-        reg.cron_record_fire(
-            "job-a",
-            "2020-01-01T00:00:00",
-            "ok",
-            None,
-            None,
-        )
-        .unwrap();
-        reg.cron_record_fire(
-            "job-a",
-            &chrono::Utc::now().to_rfc3339(),
-            "ok",
-            None,
-            None,
-        )
-        .unwrap();
+        reg.cron_record_fire("job-a", "2020-01-01T00:00:00", "ok", None, None)
+            .unwrap();
+        reg.cron_record_fire("job-a", &chrono::Utc::now().to_rfc3339(), "ok", None, None)
+            .unwrap();
 
         // GC with 30 days retention should drop the 2020 row, keep the recent.
         let deleted = reg.cron_gc(30, 0).unwrap();
@@ -1424,8 +1475,10 @@ mod tests {
     #[test]
     fn cron_gc_zero_history_days_keeps_all() {
         let (_dir, reg) = tmp_reg();
-        reg.cron_record_fire("a", "2020-01-01T00:00:00", "ok", None, None).unwrap();
-        reg.cron_record_fire("a", "2026-05-20T00:00:00Z", "ok", None, None).unwrap();
+        reg.cron_record_fire("a", "2020-01-01T00:00:00", "ok", None, None)
+            .unwrap();
+        reg.cron_record_fire("a", "2026-05-20T00:00:00Z", "ok", None, None)
+            .unwrap();
 
         // 0 history_days = keep forever (no age sweep). 0 max_rows_per_job = no cap.
         let deleted = reg.cron_gc(0, 0).unwrap();
@@ -1494,14 +1547,22 @@ mod tests {
 
         // Confirm the new columns exist on agent_launch_context.
         let conn = Connection::open(&path).unwrap();
-        let mut stmt = conn.prepare("PRAGMA table_info(agent_launch_context)").unwrap();
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(agent_launch_context)")
+            .unwrap();
         let cols: Vec<String> = stmt
             .query_map([], |r| r.get::<_, String>(1))
             .unwrap()
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap();
-        assert!(cols.contains(&"systemd_service".to_string()), "cols: {cols:?}");
-        assert!(cols.contains(&"supervise_paused".to_string()), "cols: {cols:?}");
+        assert!(
+            cols.contains(&"systemd_service".to_string()),
+            "cols: {cols:?}"
+        );
+        assert!(
+            cols.contains(&"supervise_paused".to_string()),
+            "cols: {cols:?}"
+        );
 
         // unit_restart_log must exist.
         let count: i64 = conn
@@ -1514,8 +1575,11 @@ mod tests {
     #[test]
     fn launch_context_with_systemd_service_round_trips() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("work", "", SessionMode::Persistent), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("work", "", SessionMode::Persistent),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         let ctx = AgentLaunchContext {
             source: SOURCE_LOCAL.into(),
             agent_id: "work".into(),
@@ -1526,16 +1590,25 @@ mod tests {
             supervise_paused: false,
         };
         reg.upsert_launch_context(&ctx).unwrap();
-        let got = reg.get_launch_context(SOURCE_LOCAL, "work").unwrap().unwrap();
-        assert_eq!(got.systemd_service.as_deref(), Some("my-agent-work.service"));
+        let got = reg
+            .get_launch_context(SOURCE_LOCAL, "work")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            got.systemd_service.as_deref(),
+            Some("my-agent-work.service")
+        );
         assert!(!got.supervise_paused);
     }
 
     #[test]
     fn set_supervise_paused_toggles() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("work", "", SessionMode::Persistent), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("work", "", SessionMode::Persistent),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         reg.upsert_launch_context(&AgentLaunchContext {
             source: SOURCE_LOCAL.into(),
             agent_id: "work".into(),
@@ -1547,14 +1620,24 @@ mod tests {
         })
         .unwrap();
 
-        let changed = reg.set_supervise_paused(SOURCE_LOCAL, "work", true).unwrap();
+        let changed = reg
+            .set_supervise_paused(SOURCE_LOCAL, "work", true)
+            .unwrap();
         assert!(changed);
-        let got = reg.get_launch_context(SOURCE_LOCAL, "work").unwrap().unwrap();
+        let got = reg
+            .get_launch_context(SOURCE_LOCAL, "work")
+            .unwrap()
+            .unwrap();
         assert!(got.supervise_paused);
 
-        let changed = reg.set_supervise_paused(SOURCE_LOCAL, "work", false).unwrap();
+        let changed = reg
+            .set_supervise_paused(SOURCE_LOCAL, "work", false)
+            .unwrap();
         assert!(changed);
-        let got = reg.get_launch_context(SOURCE_LOCAL, "work").unwrap().unwrap();
+        let got = reg
+            .get_launch_context(SOURCE_LOCAL, "work")
+            .unwrap()
+            .unwrap();
         assert!(!got.supervise_paused);
     }
 
@@ -1562,8 +1645,11 @@ mod tests {
     fn upsert_launch_context_preserves_supervise_paused() {
         // Operator's pause must not be clobbered by a re-import.
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("work", "", SessionMode::Persistent), SOURCE_LOCAL))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("work", "", SessionMode::Persistent),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
         reg.upsert_launch_context(&AgentLaunchContext {
             source: SOURCE_LOCAL.into(),
             agent_id: "work".into(),
@@ -1574,7 +1660,8 @@ mod tests {
             supervise_paused: false,
         })
         .unwrap();
-        reg.set_supervise_paused(SOURCE_LOCAL, "work", true).unwrap();
+        reg.set_supervise_paused(SOURCE_LOCAL, "work", true)
+            .unwrap();
 
         // Re-import: paused must stay true.
         reg.upsert_launch_context(&AgentLaunchContext {
@@ -1587,18 +1674,30 @@ mod tests {
             supervise_paused: false, // importer doesn't know about pause
         })
         .unwrap();
-        let got = reg.get_launch_context(SOURCE_LOCAL, "work").unwrap().unwrap();
-        assert!(got.supervise_paused, "operator pause must survive re-import");
+        let got = reg
+            .get_launch_context(SOURCE_LOCAL, "work")
+            .unwrap()
+            .unwrap();
+        assert!(
+            got.supervise_paused,
+            "operator pause must survive re-import"
+        );
         assert_eq!(got.vault_folder.as_deref(), Some("work-vault")); // other fields update
     }
 
     #[test]
     fn list_all_launch_contexts_across_sources() {
         let (_dir, reg) = tmp_reg();
-        reg.upsert(&AgentRecord::from_spec(&spec("a", "", SessionMode::Persistent), SOURCE_LOCAL))
-            .unwrap();
-        reg.upsert(&AgentRecord::from_spec(&spec("b", "", SessionMode::Persistent), &source_cp("work")))
-            .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("a", "", SessionMode::Persistent),
+            SOURCE_LOCAL,
+        ))
+        .unwrap();
+        reg.upsert(&AgentRecord::from_spec(
+            &spec("b", "", SessionMode::Persistent),
+            &source_cp("work"),
+        ))
+        .unwrap();
         reg.upsert_launch_context(&AgentLaunchContext {
             source: SOURCE_LOCAL.into(),
             agent_id: "a".into(),
@@ -1648,12 +1747,36 @@ mod tests {
     #[test]
     fn unit_restart_history_all_across_agents() {
         let (_dir, reg) = tmp_reg();
-        reg.log_unit_restart("a", SOURCE_LOCAL, "2026-05-20T01:00:00Z", "dead", "started", Some(0), None)
-            .unwrap();
-        reg.log_unit_restart("b", SOURCE_LOCAL, "2026-05-20T02:00:00Z", "nightly", "started", Some(0), None)
-            .unwrap();
-        reg.log_unit_restart("a", SOURCE_LOCAL, "2026-05-20T03:00:00Z", "manual", "started", Some(0), None)
-            .unwrap();
+        reg.log_unit_restart(
+            "a",
+            SOURCE_LOCAL,
+            "2026-05-20T01:00:00Z",
+            "dead",
+            "started",
+            Some(0),
+            None,
+        )
+        .unwrap();
+        reg.log_unit_restart(
+            "b",
+            SOURCE_LOCAL,
+            "2026-05-20T02:00:00Z",
+            "nightly",
+            "started",
+            Some(0),
+            None,
+        )
+        .unwrap();
+        reg.log_unit_restart(
+            "a",
+            SOURCE_LOCAL,
+            "2026-05-20T03:00:00Z",
+            "manual",
+            "started",
+            Some(0),
+            None,
+        )
+        .unwrap();
         let all = reg.unit_restart_history_all(10).unwrap();
         assert_eq!(all.len(), 3);
         // Newest first
@@ -1677,6 +1800,11 @@ mod tests {
         }
         let deleted = reg.unit_restart_gc(0, 5).unwrap();
         assert_eq!(deleted, 10);
-        assert_eq!(reg.unit_restart_history(SOURCE_LOCAL, "work", 0).unwrap().len(), 5);
+        assert_eq!(
+            reg.unit_restart_history(SOURCE_LOCAL, "work", 0)
+                .unwrap()
+                .len(),
+            5
+        );
     }
 }

@@ -1,5 +1,7 @@
 use crate::manifest::{Backend, RiskLevel};
-use crate::policy::{Decision, ExecutionContext, PolicyAction, PolicyBundle, PolicyRule, evaluate_policy};
+use crate::policy::{
+    evaluate_policy, Decision, ExecutionContext, PolicyAction, PolicyBundle, PolicyRule,
+};
 use crate::registry::PackRegistry;
 
 fn ctx() -> ExecutionContext {
@@ -19,7 +21,11 @@ fn load_builtin_succeeds() {
 fn total_capability_count_nonzero() {
     let registry = PackRegistry::load_builtin().unwrap();
     let all = registry.capabilities(None);
-    assert_eq!(all.len(), 71, "expected exactly 71 builtin capabilities; update this if packs change");
+    assert_eq!(
+        all.len(),
+        71,
+        "expected exactly 71 builtin capabilities; update this if packs change"
+    );
 }
 
 #[test]
@@ -52,7 +58,10 @@ fn get_by_pack_and_cap_name() {
 fn capabilities_kubernetes_tag_filter() {
     let registry = PackRegistry::load_builtin().unwrap();
     let k8s_caps = registry.capabilities(Some("kubernetes"));
-    assert!(!k8s_caps.is_empty(), "should find kubernetes-tagged capabilities");
+    assert!(
+        !k8s_caps.is_empty(),
+        "should find kubernetes-tagged capabilities"
+    );
     // kubectl-observe, helm-observe, argocd-observe are all tagged kubernetes
     for summary in &k8s_caps {
         assert!(
@@ -74,7 +83,10 @@ fn capabilities_none_returns_all() {
 fn capabilities_readonly_tag_filter() {
     let registry = PackRegistry::load_builtin().unwrap();
     let readonly_caps = registry.capabilities(Some("readonly"));
-    assert!(!readonly_caps.is_empty(), "should find readonly-tagged capabilities");
+    assert!(
+        !readonly_caps.is_empty(),
+        "should find readonly-tagged capabilities"
+    );
     for summary in &readonly_caps {
         assert!(summary.tags.contains(&"readonly".to_string()));
     }
@@ -111,7 +123,9 @@ fn evaluate_deny_rule_for_high_risk() {
         name: "test.dangerous-op".to_string(),
         version: 1,
         description: Some("synthetic high-risk cap for policy test".to_string()),
-        backend: Backend::Builtin { name: "noop".to_string() },
+        backend: Backend::Builtin {
+            name: "noop".to_string(),
+        },
         risk: RiskLevel::Critical,
         side_effect_class: SideEffectClass::Mutating,
         sandbox_profile: None,
@@ -168,8 +182,14 @@ fn builtin_packs_have_expected_tags() {
     let registry = PackRegistry::load_builtin().unwrap();
 
     let cloud_caps = registry.capabilities(Some("cloud"));
-    assert!(!cloud_caps.is_empty(), "cloud tag should match aws/gcloud/az/terraform packs");
+    assert!(
+        !cloud_caps.is_empty(),
+        "cloud tag should match aws/gcloud/az/terraform packs"
+    );
 
     let container_caps = registry.capabilities(Some("container"));
-    assert!(!container_caps.is_empty(), "container tag should match docker/podman/incus packs");
+    assert!(
+        !container_caps.is_empty(),
+        "container tag should match docker/podman/incus packs"
+    );
 }

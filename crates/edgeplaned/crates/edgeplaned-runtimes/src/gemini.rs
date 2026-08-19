@@ -6,9 +6,8 @@
 /// The Gemini CLI runs non-interactively via `gemini -p "<prompt>"`.
 /// Output is plain text streamed to stdout. We classify lines heuristically
 /// into typed ProgressEvents; exit code determines success/failure.
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
-use futures::stream::BoxStream;
 use edgeplaned_core::agent_runtime::AgentRuntime;
 use edgeplaned_core::paths;
 use edgeplaned_core::progress::{ProgressEvent, ProgressEventType};
@@ -16,6 +15,7 @@ use edgeplaned_core::types::{
     AgentHandle, AgentSignal, Capability, LaunchContext, PtySession, RuntimeKind, TaskResult,
     TaskSpec,
 };
+use futures::stream::BoxStream;
 
 use crate::shared::merge_capabilities;
 use std::sync::OnceLock;
@@ -50,8 +50,7 @@ impl GeminiRuntime {
     }
 
     fn render_harness(&self) -> Result<()> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow!("cannot determine HOME directory"))?;
+        let home = dirs::home_dir().ok_or_else(|| anyhow!("cannot determine HOME directory"))?;
         let target = home.join(".gemini").join("GEMINI.md");
         crate::harness::write_capabilities_block(&target)
             .with_context(|| format!("rendering gemini harness to {}", target.display()))?;
@@ -132,8 +131,7 @@ fn classify_line(line: &str) -> Option<ProgressEvent> {
     }
 
     // Explicit error markers
-    if trimmed.to_lowercase().starts_with("error:")
-        || trimmed.to_lowercase().starts_with("fatal:")
+    if trimmed.to_lowercase().starts_with("error:") || trimmed.to_lowercase().starts_with("fatal:")
     {
         return Some(ProgressEvent::error(
             truncate(trimmed, 200),
@@ -174,11 +172,7 @@ impl AgentRuntime for GeminiRuntime {
         let output = std::process::Command::new("gemini")
             .arg("--version")
             .output()
-            .or_else(|_| {
-                std::process::Command::new("gemini")
-                    .arg("version")
-                    .output()
-            });
+            .or_else(|_| std::process::Command::new("gemini").arg("version").output());
         if output.is_err() {
             return Err(anyhow!(
                 "gemini CLI not found in PATH. Run `edgeplane daemon runtime install gemini`."
@@ -235,7 +229,10 @@ impl AgentRuntime for GeminiRuntime {
         // Inject edgeplane binary dir so agents can invoke `edgeplane` without an absolute path.
         let ep_dir = crate::shared::ep_bin_dir();
         if !ep_dir.is_empty() {
-            cmd.env("PATH", crate::shared::prepend_to_path(&ep_dir, &std::env::var("PATH").unwrap_or_default()));
+            cmd.env(
+                "PATH",
+                crate::shared::prepend_to_path(&ep_dir, &std::env::var("PATH").unwrap_or_default()),
+            );
         }
 
         let mut child = cmd.spawn()?;
@@ -366,10 +363,12 @@ impl AgentRuntime for GeminiRuntime {
                 .arg("--version")
                 .output()
                 .await
-                .map_err(|e| anyhow!(
-                    "gemini CLI not found and npm check failed ({e}). \
+                .map_err(|e| {
+                    anyhow!(
+                        "gemini CLI not found and npm check failed ({e}). \
                      Install Node.js (https://nodejs.org) first."
-                ))?;
+                    )
+                })?;
 
             tracing::info!("gemini not found — installing via npm…");
             let out = tokio::process::Command::new("npm")

@@ -1,6 +1,4 @@
-use crate::{
-    booster::AgentBooster, client::EdgeplaneClient, mcp_tools, schema_pack::SchemaPack,
-};
+use crate::{booster::AgentBooster, client::EdgeplaneClient, mcp_tools, schema_pack::SchemaPack};
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
 use serde_json::{Value, json};

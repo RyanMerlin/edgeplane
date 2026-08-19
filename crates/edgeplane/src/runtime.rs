@@ -3,10 +3,7 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
-use std::{
-    fs,
-    path::PathBuf,
-};
+use std::{fs, path::PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
@@ -223,10 +220,7 @@ pub async fn run(
     }
 }
 
-pub async fn run_node_agent(
-    command: NodeAgentCommand,
-    client: &EdgeplaneClient,
-) -> Result<()> {
+pub async fn run_node_agent(command: NodeAgentCommand, client: &EdgeplaneClient) -> Result<()> {
     match command {
         NodeAgentCommand::Register(args) => run_node_register(args, client).await,
         NodeAgentCommand::Run(args) => run_node_run(args, client).await,
@@ -491,10 +485,7 @@ fn load_node_config() -> Result<Option<NodeRuntimeConfig>> {
     Ok(Some(config))
 }
 
-async fn run_node_register(
-    args: NodeAgentRegisterArgs,
-    client: &EdgeplaneClient,
-) -> Result<()> {
+async fn run_node_register(args: NodeAgentRegisterArgs, client: &EdgeplaneClient) -> Result<()> {
     let config = load_node_config()?.unwrap_or_else(|| NodeRuntimeConfig {
         node_name: args.hostname.clone(),
         hostname: args.hostname.clone(),
@@ -601,7 +592,10 @@ async fn run_node_ls(args: NodeLsArgs, client: &EdgeplaneClient) -> Result<()> {
         return Ok(());
     }
     // Print a concise table: id | name | status | last_heartbeat_at
-    println!("{:<40}  {:<24}  {:<12}  LAST_HEARTBEAT", "ID", "NAME", "STATUS");
+    println!(
+        "{:<40}  {:<24}  {:<12}  LAST_HEARTBEAT",
+        "ID", "NAME", "STATUS"
+    );
     println!("{}", "-".repeat(100));
     for node in &arr {
         let id = node["id"].as_str().unwrap_or("-");
@@ -613,10 +607,7 @@ async fn run_node_ls(args: NodeLsArgs, client: &EdgeplaneClient) -> Result<()> {
     Ok(())
 }
 
-async fn attach_session(
-    args: RuntimeSessionAttachArgs,
-    client: &EdgeplaneClient,
-) -> Result<()> {
+async fn attach_session(args: RuntimeSessionAttachArgs, client: &EdgeplaneClient) -> Result<()> {
     let mut url = client.ws_url(&format!(
         "/runtime/execution-sessions/{}/pty",
         args.session_id
@@ -650,10 +641,11 @@ async fn attach_session(
         match msg? {
             Message::Text(text) => {
                 if let Ok(value) = serde_json::from_str::<Value>(&text)
-                    && let Some(content) = value.get("content").and_then(Value::as_str) {
-                        stdout.write_all(content.as_bytes()).await?;
-                        stdout.flush().await?;
-                    }
+                    && let Some(content) = value.get("content").and_then(Value::as_str)
+                {
+                    stdout.write_all(content.as_bytes()).await?;
+                    stdout.flush().await?;
+                }
             }
             Message::Binary(bytes) => {
                 stdout.write_all(&bytes).await?;
@@ -702,8 +694,7 @@ mod tests {
 
     #[test]
     fn node_delete_parses_force_flag() {
-        let cli =
-            TestCli::try_parse_from(["test", "delete", "node-xyz", "--force"]).unwrap();
+        let cli = TestCli::try_parse_from(["test", "delete", "node-xyz", "--force"]).unwrap();
         let NodeAgentCommand::Delete(args) = cli.cmd else {
             panic!("expected Delete");
         };
@@ -728,8 +719,7 @@ mod tests {
 
     #[test]
     fn node_ls_parses_status_filter() {
-        let cli =
-            TestCli::try_parse_from(["test", "ls", "--status", "online"]).unwrap();
+        let cli = TestCli::try_parse_from(["test", "ls", "--status", "online"]).unwrap();
         let NodeAgentCommand::Ls(args) = cli.cmd else {
             panic!("expected Ls");
         };

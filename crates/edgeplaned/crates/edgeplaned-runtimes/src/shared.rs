@@ -179,19 +179,20 @@ pub fn build_prompt(task: &TaskSpec) -> String {
             }
         }
         if let Some(constraints) = profile.get("constraints").and_then(|v| v.as_array())
-            && !constraints.is_empty() {
-                ctx.push("Constraints:".to_string());
-                for c in constraints {
-                    let line = if let Some(s) = c.as_str() {
-                        format!("  - {s}")
-                    } else if let Some(desc) = c.get("description").and_then(|v| v.as_str()) {
-                        format!("  - {desc}")
-                    } else {
-                        continue;
-                    };
-                    ctx.push(line);
-                }
+            && !constraints.is_empty()
+        {
+            ctx.push("Constraints:".to_string());
+            for c in constraints {
+                let line = if let Some(s) = c.as_str() {
+                    format!("  - {s}")
+                } else if let Some(desc) = c.get("description").and_then(|v| v.as_str()) {
+                    format!("  - {desc}")
+                } else {
+                    continue;
+                };
+                ctx.push(line);
             }
+        }
 
         parts.push(ctx.join("\n"));
     }
@@ -239,7 +240,10 @@ pub fn build_prompt(task: &TaskSpec) -> String {
                     .unwrap_or("unknown"),
             );
             let role = agent.get("role").and_then(|v| v.as_str());
-            let status = agent.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let status = agent
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             let caps: Vec<&str> = agent
                 .get("capabilities")
                 .and_then(|v| v.as_array())
@@ -322,7 +326,7 @@ pub fn build_prompt(task: &TaskSpec) -> String {
 
 /// Gracefully kill a child, then force-kill if it doesn't exit within timeout.
 pub async fn shutdown_child(mut child: Child, timeout_secs: u64) -> Result<()> {
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{Duration, sleep};
     // SIGTERM
     let _ = child.kill().await;
     tokio::select! {
@@ -527,9 +531,9 @@ mod tests {
         };
         let prompt = build_prompt(&task);
         assert!(prompt.contains("[PENDING MESSAGES]"));
-        assert!(prompt.contains(
-            "- from research-1 on coordination (received 2026-05-10T13:00:00Z):"
-        ));
+        assert!(
+            prompt.contains("- from research-1 on coordination (received 2026-05-10T13:00:00Z):")
+        );
         assert!(prompt.contains("  Heads up: schema changed."));
         assert!(prompt.contains("- from ops-1 on alerts:"));
         let msg_pos = prompt.find("[PENDING MESSAGES]").unwrap();
@@ -539,10 +543,7 @@ mod tests {
 
     #[test]
     fn merge_capabilities_dedupes_and_preserves_order() {
-        let builtins = vec![
-            Capability::new("claude_code"),
-            Capability::new("code.read"),
-        ];
+        let builtins = vec![Capability::new("claude_code"), Capability::new("code.read")];
         let extra = vec![
             Capability::new("research"),
             Capability::new("code.read"), // duplicate of a built-in
@@ -550,7 +551,10 @@ mod tests {
         ];
         let merged = merge_capabilities(builtins, extra);
         let names: Vec<&str> = merged.iter().map(|c| c.0.as_str()).collect();
-        assert_eq!(names, vec!["claude_code", "code.read", "research", "orchestration"]);
+        assert_eq!(
+            names,
+            vec!["claude_code", "code.read", "research", "orchestration"]
+        );
     }
 
     #[test]

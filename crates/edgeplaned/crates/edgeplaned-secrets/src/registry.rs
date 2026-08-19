@@ -10,7 +10,9 @@ pub struct BackendRegistry {
 }
 
 impl BackendRegistry {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn register(&mut self, backend: Arc<dyn SecretsBackend>) {
         self.backends.insert(backend.scheme().to_string(), backend);
@@ -20,10 +22,17 @@ impl BackendRegistry {
         self.backends.get(scheme)
     }
 
-    pub async fn resolve(&self, r: &SecretRef, ctx: &ResolveCtx) -> Result<SecretValue, BackendError> {
+    pub async fn resolve(
+        &self,
+        r: &SecretRef,
+        ctx: &ResolveCtx,
+    ) -> Result<SecretValue, BackendError> {
         match self.backends.get(&r.scheme) {
             Some(b) => b.resolve(r, ctx).await,
-            None => Err(BackendError::Unavailable(format!("no backend for scheme '{}'", r.scheme))),
+            None => Err(BackendError::Unavailable(format!(
+                "no backend for scheme '{}'",
+                r.scheme
+            ))),
         }
     }
 }
@@ -31,8 +40,8 @@ impl BackendRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{EnvBackend, ResolveCtx, SecretRef};
     use std::sync::Arc;
-    use crate::{EnvBackend, SecretRef, ResolveCtx};
 
     #[tokio::test]
     async fn routes_by_scheme() {
@@ -40,7 +49,13 @@ mod tests {
         let mut reg = BackendRegistry::new();
         reg.register(Arc::new(EnvBackend::new()));
         let r = SecretRef::parse("secret://env/EP_SECRETS_T5").unwrap();
-        assert_eq!(reg.resolve(&r, &ResolveCtx::default()).await.unwrap().expose(), "reg-val");
+        assert_eq!(
+            reg.resolve(&r, &ResolveCtx::default())
+                .await
+                .unwrap()
+                .expose(),
+            "reg-val"
+        );
         std::env::remove_var("EP_SECRETS_T5");
     }
 
@@ -48,7 +63,9 @@ mod tests {
     async fn unknown_scheme_errors() {
         let reg = BackendRegistry::new();
         let r = SecretRef::parse("secret://nope/x").unwrap();
-        assert!(matches!(reg.resolve(&r, &ResolveCtx::default()).await,
-            Err(crate::BackendError::Unavailable(_))));
+        assert!(matches!(
+            reg.resolve(&r, &ResolveCtx::default()).await,
+            Err(crate::BackendError::Unavailable(_))
+        ));
     }
 }

@@ -157,11 +157,8 @@ pub fn load_saved_session(base_url: &str) -> Option<SavedSession> {
     let parsed = chrono::DateTime::parse_from_rfc3339(&session.expires_at)
         .map(|d| d.with_timezone(&chrono::Utc))
         .or_else(|_| {
-            chrono::NaiveDateTime::parse_from_str(
-                &session.expires_at,
-                "%Y-%m-%dT%H:%M:%S%.f",
-            )
-            .map(|n| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(n, chrono::Utc))
+            chrono::NaiveDateTime::parse_from_str(&session.expires_at, "%Y-%m-%dT%H:%M:%S%.f")
+                .map(|n| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(n, chrono::Utc))
         });
     match parsed {
         Ok(expires) if expires > chrono::Utc::now() => Some(session),
@@ -250,10 +247,11 @@ fn resolve_base_url(env_base_url: Option<&str>) -> Result<String> {
     // 2. Saved config
     let cfg = load_saved_config();
     if let Some(url) = cfg.base_url.as_deref()
-        && !url.is_empty() {
-            eprintln!("edgeplane auth login: using saved server URL: {}", url);
-            return Ok(url.trim_end_matches('/').to_string());
-        }
+        && !url.is_empty()
+    {
+        eprintln!("edgeplane auth login: using saved server URL: {}", url);
+        return Ok(url.trim_end_matches('/').to_string());
+    }
 
     // 3. Interactive prompt — no localhost default; blank input is an error
     let input = prompt("  Edgeplane server URL: ")?;
@@ -269,7 +267,10 @@ fn resolve_base_url(env_base_url: Option<&str>) -> Result<String> {
     let mut new_cfg = load_saved_config();
     new_cfg.base_url = Some(url.clone());
     if let Err(e) = save_config(&new_cfg) {
-        eprintln!("edgeplane auth login: warning: could not save config: {}", e);
+        eprintln!(
+            "edgeplane auth login: warning: could not save config: {}",
+            e
+        );
     }
 
     Ok(url)
@@ -285,8 +286,8 @@ pub async fn login(
 ) -> Result<()> {
     if args.non_interactive {
         // Non-interactive: use EP_AGENT_TOKEN env directly with the resolved URL
-        let token =
-            std::env::var("EP_AGENT_TOKEN").context("--non-interactive requires EP_AGENT_TOKEN to be set")?;
+        let token = std::env::var("EP_AGENT_TOKEN")
+            .context("--non-interactive requires EP_AGENT_TOKEN to be set")?;
         let client = EdgeplaneClient::new_with_token(current_base_url, &token)
             .context("could not build client")?;
         let ttl = resolve_login_ttl_hours(args.ttl_hours);
@@ -391,20 +392,44 @@ fn resolve_base_url_with_context_prompt(
 
     // Multiple contexts — list and prompt.
     eprintln!();
-    eprintln!("  {}Available contexts:{}  (active: {}{}{})", ui::BOLD, ui::RESET, ui::CYAN, active_name, ui::RESET);
+    eprintln!(
+        "  {}Available contexts:{}  (active: {}{}{})",
+        ui::BOLD,
+        ui::RESET,
+        ui::CYAN,
+        active_name,
+        ui::RESET
+    );
     eprintln!();
     for (i, (name, entry)) in entries.iter().enumerate() {
         let desc = entry.description.as_deref().unwrap_or("");
-        let desc_part = if desc.is_empty() { String::new() } else { format!("  # {}", desc) };
-        let active_marker = if *name == active_name { format!("{}*{} ", ui::GREEN, ui::RESET) } else { "  ".to_string() };
+        let desc_part = if desc.is_empty() {
+            String::new()
+        } else {
+            format!("  # {}", desc)
+        };
+        let active_marker = if *name == active_name {
+            format!("{}*{} ", ui::GREEN, ui::RESET)
+        } else {
+            "  ".to_string()
+        };
         eprintln!(
             "  {}{}{}{} {}  {}{}",
-            active_marker, ui::BOLD, i + 1, ui::RESET, name, entry.base_url, desc_part
+            active_marker,
+            ui::BOLD,
+            i + 1,
+            ui::RESET,
+            name,
+            entry.base_url,
+            desc_part
         );
     }
     eprintln!();
 
-    let active_idx = entries.iter().position(|(n, _)| *n == active_name).unwrap_or(0);
+    let active_idx = entries
+        .iter()
+        .position(|(n, _)| *n == active_name)
+        .unwrap_or(0);
     let raw = prompt(&format!(
         "  Select context [1-{}] (or Enter for active '{}'): ",
         entries.len(),
@@ -611,8 +636,11 @@ fn finish_session_login(resp: serde_json::Value, base_url: &str, print_token: bo
     } else {
         ui_section("Login Complete");
         // sanitize: name/email are IdP-controlled — neuter any terminal escapes.
-        let display_identity =
-            sanitize_label(pick_display_identity(name.as_deref(), email.as_deref(), &subject));
+        let display_identity = sanitize_label(pick_display_identity(
+            name.as_deref(),
+            email.as_deref(),
+            &subject,
+        ));
         ui_kv("Logged in as", &display_identity, ui::GREEN);
         ui_kv("Token expires", &expires_at, ui::CYAN);
         ui_kv(
@@ -644,7 +672,11 @@ pub async fn acquire_oidc_token(base_url: &str, ttl_hours: u64) -> Result<String
         EdgeplaneClient::new_with_token(base_url, "").context("could not build client")?;
 
     eprintln!();
-    eprintln!("  {}Starting OIDC login for daemon profile…{}", crate::ui::CYAN, crate::ui::RESET);
+    eprintln!(
+        "  {}Starting OIDC login for daemon profile…{}",
+        crate::ui::CYAN,
+        crate::ui::RESET
+    );
 
     let init: serde_json::Value = anon_client
         .get_json("/auth/oidc/cli-initiate")
@@ -661,12 +693,21 @@ pub async fn acquire_oidc_token(base_url: &str, ttl_hours: u64) -> Result<String
         .to_string();
 
     eprintln!("  Opening browser for authentication…");
-    eprintln!("  URL: {}{}{}", crate::ui::CYAN, authorize_url, crate::ui::RESET);
+    eprintln!(
+        "  URL: {}{}{}",
+        crate::ui::CYAN,
+        authorize_url,
+        crate::ui::RESET
+    );
     if let Err(e) = open::that(&authorize_url) {
         eprintln!("  (could not open browser: {})", e);
     }
 
-    eprintln!("  {}Waiting for browser authentication…{}", crate::ui::DIM, crate::ui::RESET);
+    eprintln!(
+        "  {}Waiting for browser authentication…{}",
+        crate::ui::DIM,
+        crate::ui::RESET
+    );
     let poll_url = format!("/auth/oidc/cli-poll/{}", cli_nonce);
     let poll_deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
 
@@ -707,7 +748,11 @@ pub async fn acquire_oidc_token(base_url: &str, ttl_hours: u64) -> Result<String
         .ok_or_else(|| anyhow!("server response missing 'token' field"))?
         .to_string();
 
-    eprintln!("  {}OIDC login complete.{}", crate::ui::GREEN, crate::ui::RESET);
+    eprintln!(
+        "  {}OIDC login complete.{}",
+        crate::ui::GREEN,
+        crate::ui::RESET
+    );
     Ok(token)
 }
 
@@ -723,7 +768,10 @@ pub async fn logout(args: LogoutArgs, client: &EdgeplaneClient) -> Result<()> {
         }
     }
     clear_session()?;
-    eprintln!("edgeplane auth logout: cleared {}", session_file_path().display());
+    eprintln!(
+        "edgeplane auth logout: cleared {}",
+        session_file_path().display()
+    );
     Ok(())
 }
 
@@ -732,14 +780,15 @@ pub async fn whoami(client: &EdgeplaneClient) -> Result<()> {
     let session_path = session_file_path();
     if session_path.exists()
         && let Ok(content) = std::fs::read_to_string(&session_path)
-            && let Ok(session) = serde_json::from_str::<SavedSession>(&content) {
-                ui_section("Local Session");
-                ui_kv("Subject", &session.subject, ui::CYAN);
-                if let Some(email) = session.email.as_deref().filter(|e| !e.is_empty()) {
-                    ui_kv("Email", email, ui::GREEN);
-                }
-                ui_kv("Expires", &session.expires_at, ui::DIM);
-            }
+        && let Ok(session) = serde_json::from_str::<SavedSession>(&content)
+    {
+        ui_section("Local Session");
+        ui_kv("Subject", &session.subject, ui::CYAN);
+        if let Some(email) = session.email.as_deref().filter(|e| !e.is_empty()) {
+            ui_kv("Email", email, ui::GREEN);
+        }
+        ui_kv("Expires", &session.expires_at, ui::DIM);
+    }
 
     // Fetch live identity from server
     let resp = client
@@ -794,9 +843,10 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>) -> Option<String> {
     // 3. Legacy config.json
     let cfg = load_saved_config();
     if let Some(url) = cfg.base_url.as_deref()
-        && !url.is_empty() {
-            return Some(url.trim_end_matches('/').to_string());
-        }
+        && !url.is_empty()
+    {
+        return Some(url.trim_end_matches('/').to_string());
+    }
 
     None
 }
@@ -807,9 +857,7 @@ pub fn resolve_startup_base_url(flag_or_env: Option<String>) -> Option<String> {
 mod tests {
     use super::pick_context_base_url;
     use super::pick_display_identity;
-    use super::{
-        DEFAULT_SESSION_TTL_HOURS, MAX_SESSION_TTL_HOURS, resolve_ttl_hours,
-    };
+    use super::{DEFAULT_SESSION_TTL_HOURS, MAX_SESSION_TTL_HOURS, resolve_ttl_hours};
 
     #[test]
     fn display_identity_prefers_name() {
@@ -862,7 +910,10 @@ mod tests {
     fn sanitize_label_strips_control_and_ansi() {
         // IdP-controlled name: a forged ANSI sequence + newline must be neutered
         // so it can't rewrite the terminal. The ESC and newline are removed.
-        assert_eq!(super::sanitize_label("ev\x1b[31mil\nadmin"), "ev[31miladmin");
+        assert_eq!(
+            super::sanitize_label("ev\x1b[31mil\nadmin"),
+            "ev[31miladmin"
+        );
         assert_eq!(super::sanitize_label("a\r\n\tb"), "ab");
     }
 
@@ -892,7 +943,10 @@ mod tests {
         // Zero is bumped to the 1-hour floor (never an instantly-dead token).
         assert_eq!(resolve_ttl_hours(Some(0), None), 1);
         // Above the 10-year ceiling is capped.
-        assert_eq!(resolve_ttl_hours(Some(u64::MAX), None), MAX_SESSION_TTL_HOURS);
+        assert_eq!(
+            resolve_ttl_hours(Some(u64::MAX), None),
+            MAX_SESSION_TTL_HOURS
+        );
         // A multi-year config value below the ceiling is honoured (configurable beyond 365d).
         assert_eq!(resolve_ttl_hours(None, Some(3 * 8760)), 3 * 8760);
     }
@@ -933,7 +987,10 @@ mod tests {
 
     #[test]
     fn pick_out_of_range_falls_back_to_active() {
-        let e = entries(&[("prod", "http://prod:8008"), ("staging", "http://staging:8008")]);
+        let e = entries(&[
+            ("prod", "http://prod:8008"),
+            ("staging", "http://staging:8008"),
+        ]);
         // "5" is out of range [1,2]; should fall back to active_idx=0 (prod)
         assert_eq!(pick_context_base_url("5", &e, 0), "http://prod:8008");
         // "0" is also out of range; active_idx=1 → staging
@@ -942,7 +999,10 @@ mod tests {
 
     #[test]
     fn pick_non_numeric_falls_back_to_active() {
-        let e = entries(&[("prod", "http://prod:8008"), ("staging", "http://staging:8008")]);
+        let e = entries(&[
+            ("prod", "http://prod:8008"),
+            ("staging", "http://staging:8008"),
+        ]);
         // "abc" is not numeric; active_idx=1 → staging
         assert_eq!(pick_context_base_url("abc", &e, 1), "http://staging:8008");
         // empty-after-trim variant

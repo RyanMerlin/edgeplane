@@ -461,9 +461,7 @@ async fn handle_up(args: DaemonUpArgs, config: &EdgeplaneConfig) -> Result<()> {
         if install {
             build_and_install_mcd()?;
         } else {
-            println!(
-                "Skipped. Run `cargo install` from crates/edgeplaned/ to install manually."
-            );
+            println!("Skipped. Run `cargo install` from crates/edgeplaned/ to install manually.");
             return Ok(());
         }
     }
@@ -552,7 +550,9 @@ async fn auto_register_node(config: &EdgeplaneConfig) {
     let client = match crate::client::EdgeplaneClient::new(config) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("edgeplane daemon up: warning: could not build client for node registration: {e}");
+            eprintln!(
+                "edgeplane daemon up: warning: could not build client for node registration: {e}"
+            );
             return;
         }
     };
@@ -629,15 +629,16 @@ fn install_systemd_unit(unit_path: &std::path::Path) -> Result<()> {
 fn handle_down() -> Result<()> {
     let pid_path = pid_file_path();
     if let Ok(pid_str) = std::fs::read_to_string(&pid_path)
-        && let Ok(pid) = pid_str.trim().parse::<u32>() {
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGTERM);
-            }
-            let _ = std::fs::remove_file(&pid_path);
-            println!("Sent SIGTERM to edgeplaned daemon (pid {pid}).");
-            return Ok(());
+        && let Ok(pid) = pid_str.trim().parse::<u32>()
+    {
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(pid as libc::pid_t, libc::SIGTERM);
         }
+        let _ = std::fs::remove_file(&pid_path);
+        println!("Sent SIGTERM to edgeplaned daemon (pid {pid}).");
+        return Ok(());
+    }
     println!("edgeplaned daemon does not appear to be running.");
     Ok(())
 }
@@ -681,9 +682,7 @@ fn handle_uninstall() -> Result<()> {
     }
 
     if removed_binary {
-        println!(
-            "edgeplaned uninstalled. Config and work dirs are preserved at ~/.ep/edgeplaned*"
-        );
+        println!("edgeplaned uninstalled. Config and work dirs are preserved at ~/.ep/edgeplaned*");
     } else {
         println!("edgeplaned binary not found; nothing to remove.");
     }
@@ -725,10 +724,9 @@ async fn handle_status(client: &EdgeplaneClient) -> Result<()> {
         }
     );
 
-    if daemon_ok
-        && let Ok(pid) = std::fs::read_to_string(pid_file_path()) {
-            println!("pid:             {}", pid.trim());
-        }
+    if daemon_ok && let Ok(pid) = std::fs::read_to_string(pid_file_path()) {
+        println!("pid:             {}", pid.trim());
+    }
 
     // Phase 6: show what mode the daemon is in and what agents it manages.
     let state = read_state_v2();
@@ -738,11 +736,12 @@ async fn handle_status(client: &EdgeplaneClient) -> Result<()> {
         println!("active profile:  {profile_name}");
         if let Some(entry) = state["profiles"].get(profile_name)
             && let Some(node) = entry["node_id"].as_str()
-                && !node.is_empty() {
-                    let short = if node.len() > 12 { &node[..12] } else { node };
-                    println!("node_id:         {short}");
-                    node_id_for_query = Some(node.to_string());
-                }
+            && !node.is_empty()
+        {
+            let short = if node.len() > 12 { &node[..12] } else { node };
+            println!("node_id:         {short}");
+            node_id_for_query = Some(node.to_string());
+        }
     } else {
         println!("mode:            standalone");
     }
@@ -909,8 +908,8 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &EdgeplaneClient) -> Resu
                 print_agents(&agents);
             } else {
                 // Standalone: read local registry.
-                let agents = crate::local_db::list(a.domain.as_deref())
-                    .context("reading local registry")?;
+                let agents =
+                    crate::local_db::list(a.domain.as_deref()).context("reading local registry")?;
                 if agents.is_empty() {
                     println!("No agents enrolled. Use `edgeplane daemon agent enroll` to add one.");
                 } else {
@@ -942,12 +941,12 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &EdgeplaneClient) -> Resu
                     Some(path) => {
                         let raw = std::fs::read_to_string(path)
                             .with_context(|| format!("reading profile file {}", path.display()))?;
-                        let v: Value =
-                            if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                                serde_json::from_str(&raw)?
-                            } else {
-                                serde_yaml::from_str(&raw).context("parsing profile as YAML")?
-                            };
+                        let v: Value = if path.extension().and_then(|e| e.to_str()) == Some("json")
+                        {
+                            serde_json::from_str(&raw)?
+                        } else {
+                            serde_yaml::from_str(&raw).context("parsing profile as YAML")?
+                        };
                         Some(v)
                     }
                     None => None,
@@ -999,7 +998,10 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &EdgeplaneClient) -> Resu
                     profile_str.as_deref(),
                 )
                 .context("enrolling agent in local registry")?;
-                println!("Enrolled agent {agent_id} ({} in domain {}) [standalone]", a.runtime, a.domain);
+                println!(
+                    "Enrolled agent {agent_id} ({} in domain {}) [standalone]",
+                    a.runtime, a.domain
+                );
                 println!("The edgeplaned daemon will pick this up on its next reconcile tick.");
             }
             Ok(())
@@ -1014,10 +1016,17 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &EdgeplaneClient) -> Resu
                 return Ok(());
             }
             // Pick hostname: explicit > Tailscale FQDN leaf > system hostname.
-            let hostname_raw = a.hostname.clone()
-                .or_else(|| detect_tailscale_fqdn().and_then(|f| {
-                    f.split('.').next().filter(|s| !s.is_empty()).map(str::to_string)
-                }))
+            let hostname_raw = a
+                .hostname
+                .clone()
+                .or_else(|| {
+                    detect_tailscale_fqdn().and_then(|f| {
+                        f.split('.')
+                            .next()
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string)
+                    })
+                })
                 .or_else(|| {
                     std::process::Command::new("hostname")
                         .output()
@@ -1026,9 +1035,8 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &EdgeplaneClient) -> Resu
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                 });
-            let hostname = hostname_raw.ok_or_else(|| {
-                anyhow::anyhow!("could not determine hostname; pass --hostname")
-            })?;
+            let hostname = hostname_raw
+                .ok_or_else(|| anyhow::anyhow!("could not determine hostname; pass --hostname"))?;
             let slug = slug_hostname(&hostname);
             if slug.is_empty() {
                 anyhow::bail!("hostname {hostname:?} produced an empty slug");
@@ -1049,24 +1057,13 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &EdgeplaneClient) -> Resu
 
             // Persistent supervision so the home agent stays attached for live
             // messages and routing decisions.
-            let caps: Vec<String> = [
-                "routing",
-                "triage",
-                "dispatch",
-                "overlap_check",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect();
+            let caps: Vec<String> = ["routing", "triage", "dispatch", "overlap_check"]
+                .into_iter()
+                .map(String::from)
+                .collect();
 
-            let agent_id = crate::local_db::enroll(
-                &domain_id,
-                &runtime,
-                "persistent",
-                &caps,
-                None,
-            )
-            .context("enrolling home agent in local registry")?;
+            let agent_id = crate::local_db::enroll(&domain_id, &runtime, "persistent", &caps, None)
+                .context("enrolling home agent in local registry")?;
 
             println!("Provisioned home domain {} [standalone]", domain_id);
             println!("  agent: {agent_id} ({runtime}, persistent)");
@@ -1094,7 +1091,9 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &EdgeplaneClient) -> Resu
                 // Federated: PATCH on controlplane.
                 let path = format!("/work/agents/{}/reassign", a.agent_id);
                 let body = json!({ "domain_id": a.domain });
-                client.post_json(&path, &body).await
+                client
+                    .post_json(&path, &body)
+                    .await
                     .with_context(|| format!("reassigning {} to {}", a.agent_id, a.domain))?;
                 println!("Reassigned {} → {}", a.agent_id, a.domain);
             } else {
@@ -1115,7 +1114,9 @@ async fn handle_agent(cmd: DaemonAgentCommand, client: &EdgeplaneClient) -> Resu
             if crate::local_db::is_federated() {
                 // Federated: DELETE on controlplane.
                 let path = format!("/work/agents/{}", a.agent_id);
-                client.delete(&path).await
+                client
+                    .delete(&path)
+                    .await
                     .with_context(|| format!("unenrolling {}", a.agent_id))?;
                 println!("Unenrolled {}", a.agent_id);
             } else {
@@ -1327,9 +1328,7 @@ async fn handle_mission(cmd: DaemonMissionCommand, client: &EdgeplaneClient) -> 
             if domain_id.is_empty() {
                 anyhow::bail!("--domain is required");
             }
-            let missions = client
-                .get_json(&format!("/domains/{domain_id}/m"))
-                .await?;
+            let missions = client.get_json(&format!("/domains/{domain_id}/m")).await?;
             if let Some(arr) = missions.as_array() {
                 println!("{:<38} NAME", "ID");
                 println!("{}", "-".repeat(60));
@@ -1362,16 +1361,17 @@ async fn handle_mission(cmd: DaemonMissionCommand, client: &EdgeplaneClient) -> 
                 }
             }
             if let Some(edges) = graph["edges"].as_array()
-                && !edges.is_empty() {
-                    println!("\nDependencies:");
-                    for e in edges {
-                        println!(
-                            "  {} → {}",
-                            e["from"].as_str().unwrap_or("?"),
-                            e["to"].as_str().unwrap_or("?")
-                        );
-                    }
+                && !edges.is_empty()
+            {
+                println!("\nDependencies:");
+                for e in edges {
+                    println!(
+                        "  {} → {}",
+                        e["from"].as_str().unwrap_or("?"),
+                        e["to"].as_str().unwrap_or("?")
+                    );
                 }
+            }
             Ok(())
         }
         DaemonMissionCommand::Watch(a) => watch_mission(&a.mission_id, client).await,
@@ -1452,10 +1452,11 @@ async fn handle_task(cmd: DaemonTaskCommand, client: &EdgeplaneClient) -> Result
                 .get_json(&format!("/work/tasks/{}/progress", a.task_id))
                 .await?;
             if let Some(arr) = progress.as_array()
-                && !arr.is_empty() {
-                    println!("\n-- Progress events ({}) --", arr.len());
-                    print_progress_events(arr);
-                }
+                && !arr.is_empty()
+            {
+                println!("\n-- Progress events ({}) --", arr.len());
+                print_progress_events(arr);
+            }
             Ok(())
         }
         DaemonTaskCommand::Watch(a) => watch_task(&a.task_id, a.interval_secs, client).await,
@@ -1529,11 +1530,7 @@ fn print_progress_events(events: &[Value]) {
 }
 
 /// Poll /work/tasks/{id}/progress until task is finished/failed/cancelled.
-async fn watch_task(
-    task_id: &str,
-    interval_secs: u64,
-    client: &EdgeplaneClient,
-) -> Result<()> {
+async fn watch_task(task_id: &str, interval_secs: u64, client: &EdgeplaneClient) -> Result<()> {
     println!("Watching task {task_id} (Ctrl-C to stop)…\n");
     let mut last_seq: i64 = -1;
     let interval = Duration::from_secs(interval_secs);
@@ -1579,11 +1576,7 @@ async fn watch_task(
 /// Stream /work/missions/{id}/stream via WebSocket with exponential-backoff reconnect.
 async fn watch_mission(mission_id: &str, client: &EdgeplaneClient) -> Result<()> {
     println!("Watching mission {mission_id} (Ctrl-C to stop)…\n");
-    watch_ws_stream(
-        &format!("/work/missions/{mission_id}/stream"),
-        client,
-    )
-    .await
+    watch_ws_stream(&format!("/work/missions/{mission_id}/stream"), client).await
 }
 
 /// Connect to a WebSocket event stream path and print events until Ctrl-C.
@@ -1618,10 +1611,16 @@ async fn watch_ws_stream(path: &str, client: &EdgeplaneClient) -> Result<()> {
                         _ => {}
                     }
                 }
-                eprintln!("[watch] disconnected — reconnecting in {}s…", backoff.as_secs());
+                eprintln!(
+                    "[watch] disconnected — reconnecting in {}s…",
+                    backoff.as_secs()
+                );
             }
             Err(e) => {
-                eprintln!("[watch] connect failed: {e} — retrying in {}s…", backoff.as_secs());
+                eprintln!(
+                    "[watch] connect failed: {e} — retrying in {}s…",
+                    backoff.as_secs()
+                );
             }
         }
 
@@ -1866,10 +1865,11 @@ async fn handle_attach(_args: DaemonAttachArgs, _client: &EdgeplaneClient) -> Re
 /// Tries `/work/tasks/{target}` first.  If it 404s, assumes it's an agent ID.
 async fn resolve_attach_target(target: &str, client: &EdgeplaneClient) -> Result<String> {
     if let Ok(task) = client.get_json(&format!("/work/tasks/{target}")).await
-        && let Some(agent_id) = task["claimed_by_agent_id"].as_str() {
-            return Ok(agent_id.to_string());
-        }
-        // Task exists but isn't running — fall through to treat target as agent ID.
+        && let Some(agent_id) = task["claimed_by_agent_id"].as_str()
+    {
+        return Ok(agent_id.to_string());
+    }
+    // Task exists but isn't running — fall through to treat target as agent ID.
     Ok(target.to_string())
 }
 
@@ -1981,24 +1981,24 @@ fn pid_file_path() -> std::path::PathBuf {
     std::env::temp_dir().join("edgeplaned.pid")
 }
 
-
 fn is_daemon_running() -> bool {
     // 1. Try the PID file written by `edgeplane daemon start` (foreground / detached
     //    launch from the CLI).
     let pid_path = pid_file_path();
     if let Ok(pid_str) = std::fs::read_to_string(&pid_path)
-        && let Ok(pid) = pid_str.trim().parse::<u32>() {
-            #[cfg(unix)]
-            {
-                if unsafe { libc::kill(pid as libc::pid_t, 0) == 0 } {
-                    return true;
-                }
-            }
-            #[cfg(not(unix))]
-            {
+        && let Ok(pid) = pid_str.trim().parse::<u32>()
+    {
+        #[cfg(unix)]
+        {
+            if unsafe { libc::kill(pid as libc::pid_t, 0) == 0 } {
                 return true;
             }
         }
+        #[cfg(not(unix))]
+        {
+            return true;
+        }
+    }
     // 2. Fall back to probing the mgmt socket. The systemd-managed daemon
     //    (edgeplaned.service) doesn't touch /tmp/edgeplaned.pid, so a responsive
     //    socket is the authoritative liveness signal.
@@ -2085,7 +2085,10 @@ fn read_state_v2() -> serde_json::Value {
         Ok(v) => v,
         Err(_) => return json!({ "schema_version": 2, "profiles": {} }),
     };
-    let version = v.get("schema_version").and_then(|s| s.as_u64()).unwrap_or(0) as u32;
+    let version = v
+        .get("schema_version")
+        .and_then(|s| s.as_u64())
+        .unwrap_or(0) as u32;
     if version >= 2 {
         return v;
     }
@@ -2096,7 +2099,10 @@ fn read_state_v2() -> serde_json::Value {
         v.get("attach_secret").and_then(|s| s.as_str()),
         v.get("controlplane_url").and_then(|s| s.as_str()),
     ) {
-        let reg = v.get("registered_at").and_then(|s| s.as_str()).unwrap_or("");
+        let reg = v
+            .get("registered_at")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
         profiles.insert(
             "default".into(),
             json!({
@@ -2158,7 +2164,8 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &EdgeplaneClient) -> Res
     // Obtain a session token via OIDC browser flow. The resulting ep_* token is
     // stored in the profile so edgeplaned can authenticate without user interaction.
     let ttl_hours = a.ttl_hours.unwrap_or(8760); // default to 1y max for daemon use
-    let session_token = crate::auth::acquire_oidc_token(&a.url, ttl_hours).await
+    let session_token = crate::auth::acquire_oidc_token(&a.url, ttl_hours)
+        .await
         .context("OIDC login failed — run `edgeplane auth login` to verify connectivity")?;
 
     // If a bootstrap token is provided, register this node with the controlplane.
@@ -2176,10 +2183,7 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &EdgeplaneClient) -> Res
         // Auto-detect Tailscale FQDN if the user didn't supply one. The home
         // domain slug is derived from this (FQDN leaf > hostname > node_name)
         // on the server side, so a real FQDN gives the nicest naming.
-        let tailscale_fqdn = a
-            .tailscale_fqdn
-            .clone()
-            .or_else(detect_tailscale_fqdn);
+        let tailscale_fqdn = a.tailscale_fqdn.clone().or_else(detect_tailscale_fqdn);
 
         let body = json!({
             "node_name": node_name,
@@ -2249,13 +2253,20 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &EdgeplaneClient) -> Res
     write_state(&state)?;
 
     if !node_id.is_empty() {
-        println!("Registered node {} and saved as profile '{}'.", node_id, a.name);
+        println!(
+            "Registered node {} and saved as profile '{}'.",
+            node_id, a.name
+        );
         if let Some(fqdn) = &resolved_fqdn
-            && a.tailscale_fqdn.is_none() {
-                println!("  detected Tailscale FQDN: {fqdn}");
-            }
+            && a.tailscale_fqdn.is_none()
+        {
+            println!("  detected Tailscale FQDN: {fqdn}");
+        }
         if let Some(home) = &home_info {
-            let mid = home.get("domain_id").and_then(|v| v.as_str()).unwrap_or("?");
+            let mid = home
+                .get("domain_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
             println!("  home domain: {mid}");
         }
     } else {
@@ -2264,7 +2275,10 @@ async fn handle_profile_add(a: ProfileAddArgs, _client: &EdgeplaneClient) -> Res
     if state["active_profile"].as_str() == Some(&a.name) {
         println!("Active profile: '{}'.", a.name);
     } else {
-        println!("Run `edgeplane daemon use {}` to activate this profile.", a.name);
+        println!(
+            "Run `edgeplane daemon use {}` to activate this profile.",
+            a.name
+        );
     }
     Ok(())
 }
@@ -2311,7 +2325,11 @@ fn detect_tailscale_fqdn() -> Option<String> {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
     let dns_name = v.get("Self")?.get("DNSName")?.as_str()?;
     let trimmed = dns_name.trim_end_matches('.');
-    if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn handle_profile_list() -> Result<()> {
@@ -2325,7 +2343,9 @@ fn handle_profile_list() -> Result<()> {
         }
     };
     if profiles.is_empty() {
-        println!("No profiles saved. Add one: edgeplane daemon profile add <name> --url <url>  (add --join-token <tok> to also enroll this node)");
+        println!(
+            "No profiles saved. Add one: edgeplane daemon profile add <name> --url <url>  (add --join-token <tok> to also enroll this node)"
+        );
         return Ok(());
     }
     println!("{:<4} {:<20} {:<40} NODE_ID", "  ", "NAME", "URL");
@@ -2392,11 +2412,24 @@ fn handle_profile_show(a: ProfileShowArgs) -> Result<()> {
         .get(&a.name)
         .ok_or_else(|| anyhow::anyhow!("profile '{}' not found", a.name))?;
     let active = state["active_profile"].as_str().unwrap_or("");
-    println!("Profile: {} {}", a.name, if a.name == active { "(active)" } else { "" });
+    println!(
+        "Profile: {} {}",
+        a.name,
+        if a.name == active { "(active)" } else { "" }
+    );
     println!("  url:           {}", entry["url"].as_str().unwrap_or("-"));
-    println!("  node_id:       {}", entry["node_id"].as_str().unwrap_or("-"));
-    println!("  registered_at: {}", entry["registered_at"].as_str().unwrap_or("-"));
-    println!("  auth.kind:     {}", entry["auth"]["kind"].as_str().unwrap_or("-"));
+    println!(
+        "  node_id:       {}",
+        entry["node_id"].as_str().unwrap_or("-")
+    );
+    println!(
+        "  registered_at: {}",
+        entry["registered_at"].as_str().unwrap_or("-")
+    );
+    println!(
+        "  auth.kind:     {}",
+        entry["auth"]["kind"].as_str().unwrap_or("-")
+    );
     println!("  auth.token:    <redacted>");
     if let Some(fqdn) = entry["tailscale_fqdn"].as_str() {
         println!("  tailscale_fqdn: {fqdn}");
@@ -2452,7 +2485,14 @@ async fn handle_use(a: DaemonUseArgs, config: &EdgeplaneConfig) -> Result<()> {
                 let _ = handle_down();
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 println!("Starting edgeplaned with profile '{name}'...");
-                handle_up(DaemonUpArgs { backend_url: None, yes: true }, config).await?;
+                handle_up(
+                    DaemonUpArgs {
+                        backend_url: None,
+                        yes: true,
+                    },
+                    config,
+                )
+                .await?;
             } else {
                 println!(
                     "Skipping restart. edgeplaned is still attached to '{previous}'. \

@@ -2,7 +2,7 @@ mod common;
 
 use axum_test::TestServer;
 use common::{mint_session_with_groups, seed_null_domain_mission, setup};
-use edgeplane_tower::{build_app, AppConfig};
+use edgeplane_tower::{AppConfig, build_app};
 
 fn server(pool: sqlx::PgPool) -> TestServer {
     TestServer::new(build_app(pool, AppConfig::default()))
@@ -56,9 +56,13 @@ async fn create_artifact_null_domain_allowed_for_admin() {
         return;
     };
     let null_mission = seed_null_domain_mission(&pool).await;
-    let token =
-        mint_session_with_groups(&pool, "sub-admin", "admin@example.com", &["EdgePlane Admins"])
-            .await;
+    let token = mint_session_with_groups(
+        &pool,
+        "sub-admin",
+        "admin@example.com",
+        &["EdgePlane Admins"],
+    )
+    .await;
     let (h, v) = bearer(&token);
     let res = server_with_admin_groups(pool, &["EdgePlane Admins"])
         .post("/api/artifacts")

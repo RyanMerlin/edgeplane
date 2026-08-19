@@ -1,5 +1,5 @@
-use std::sync::OnceLock;
 use crate::error::Result;
+use std::sync::OnceLock;
 
 static WARNED: OnceLock<()> = OnceLock::new();
 
@@ -11,4 +11,6 @@ pub fn apply_sandbox(_allowed: &[String]) -> Result<()> {
     Ok(())
 }
 
-pub fn sandbox_enforced() -> bool { false }
+pub fn sandbox_enforced() -> bool {
+    false
+}

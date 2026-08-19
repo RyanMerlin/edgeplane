@@ -147,9 +147,12 @@ async fn main() -> anyhow::Result<()> {
             .await
         }
         Commands::Doctor => doctor::run().await,
-        Commands::Register { join_token, endpoint, node_name, trust_tier } => {
-            register::run(join_token, endpoint, node_name, trust_tier).await
-        }
+        Commands::Register {
+            join_token,
+            endpoint,
+            node_name,
+            trust_tier,
+        } => register::run(join_token, endpoint, node_name, trust_tier).await,
         Commands::GetSecret { name } => get_secret(&name),
         Commands::Version => {
             println!("edgeplaned {}", env!("CARGO_PKG_VERSION"));
@@ -165,10 +168,14 @@ fn get_secret(name: &str) -> anyhow::Result<()> {
     use std::os::unix::net::UnixStream;
 
     let socket = std::env::var("EP_SECRETS_SOCKET").map_err(|_| {
-        anyhow::anyhow!("EP_SECRETS_SOCKET not set — are you running inside an edgeplaned agent subprocess?")
+        anyhow::anyhow!(
+            "EP_SECRETS_SOCKET not set — are you running inside an edgeplaned agent subprocess?"
+        )
     })?;
     let session = std::env::var("EP_SECRETS_SESSION").map_err(|_| {
-        anyhow::anyhow!("EP_SECRETS_SESSION not set — are you running inside an edgeplaned agent subprocess?")
+        anyhow::anyhow!(
+            "EP_SECRETS_SESSION not set — are you running inside an edgeplaned agent subprocess?"
+        )
     })?;
 
     let mut stream = UnixStream::connect(&socket)

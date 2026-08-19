@@ -1,8 +1,8 @@
 use axum::{
+    Json, Router,
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::post,
-    Json, Router,
 };
 use std::sync::Arc;
 
@@ -168,10 +168,7 @@ impl TailscaleEvent {
 // Handler
 // ---------------------------------------------------------------------------
 
-async fn tailscale_webhook(
-    headers: HeaderMap,
-    body: axum::body::Bytes,
-) -> impl IntoResponse {
+async fn tailscale_webhook(headers: HeaderMap, body: axum::body::Bytes) -> impl IntoResponse {
     if let Err((status, detail)) = verify_tailscale(&headers, &body) {
         tracing::warn!(
             code = detail["code"].as_str().unwrap_or(""),
@@ -204,10 +201,7 @@ async fn tailscale_webhook(
             .get("type")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        let tailnet = event
-            .get("tailnet")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let tailnet = event.get("tailnet").and_then(|v| v.as_str()).unwrap_or("");
         let timestamp = event
             .get("timestamp")
             .and_then(|v| v.as_str())

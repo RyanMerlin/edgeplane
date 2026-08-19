@@ -24,7 +24,10 @@ pub struct SecretsGateway {
 
 impl SecretsGateway {
     pub fn new(sessions: Arc<SessionStore>, socket_path: PathBuf) -> Self {
-        Self { sessions, socket_path }
+        Self {
+            sessions,
+            socket_path,
+        }
     }
 
     pub async fn run(self) -> Result<()> {
@@ -39,10 +42,7 @@ impl SecretsGateway {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(
-                &self.socket_path,
-                std::fs::Permissions::from_mode(0o600),
-            )?;
+            std::fs::set_permissions(&self.socket_path, std::fs::Permissions::from_mode(0o600))?;
         }
 
         tracing::info!(
@@ -91,9 +91,7 @@ async fn handle_connection(
             },
         };
 
-        write_half
-            .write_all(format!("{resp}\n").as_bytes())
-            .await?;
+        write_half.write_all(format!("{resp}\n").as_bytes()).await?;
     }
 
     Ok(())

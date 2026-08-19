@@ -52,7 +52,7 @@ fn store_infisical_token_if_set(profile_name: &str) {
         Ok(token) => {
             #[cfg(target_os = "linux")]
             {
-                use edgeplaned_secrets::keyring::{store_service_token, KeyringResult};
+                use edgeplaned_secrets::keyring::{KeyringResult, store_service_token};
                 match store_service_token(profile_name, &token) {
                     KeyringResult::Ok => {
                         println!("✓ INFISICAL_TOKEN stored in keyring");
@@ -69,7 +69,9 @@ fn store_infisical_token_if_set(profile_name: &str) {
                 let _ = (profile_name, token);
                 // TODO(edgeplane-init): store INFISICAL_TOKEN in keyring via edgeplaned-secrets
                 // Keyring support is Linux-only (libsecret / D-Bus secret-service).
-                eprintln!("⚠ keyring storage not supported on this platform — INFISICAL_TOKEN not persisted");
+                eprintln!(
+                    "⚠ keyring storage not supported on this platform — INFISICAL_TOKEN not persisted"
+                );
             }
         }
         Err(_) => {

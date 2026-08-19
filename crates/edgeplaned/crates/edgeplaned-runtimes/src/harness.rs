@@ -32,8 +32,8 @@ pub fn write_capabilities_block(path: &Path) -> Result<()> {
     let block = capabilities_block();
 
     if path.exists() {
-        let existing = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let existing =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
 
         let start_pos = existing.find(MARKER_START);
         let end_pos = existing.find(MARKER_END);
@@ -57,8 +57,7 @@ pub fn write_capabilities_block(path: &Path) -> Result<()> {
             ),
         };
 
-        std::fs::write(path, new_content)
-            .with_context(|| format!("writing {}", path.display()))?;
+        std::fs::write(path, new_content).with_context(|| format!("writing {}", path.display()))?;
     } else {
         std::fs::write(path, format!("{}\n", block))
             .with_context(|| format!("writing {}", path.display()))?;
@@ -80,7 +79,10 @@ mod tests {
         write_capabilities_block(&path).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("edgeplane exec"), "expected 'edgeplane exec' in output:\n{content}");
+        assert!(
+            content.contains("edgeplane exec"),
+            "expected 'edgeplane exec' in output:\n{content}"
+        );
         assert!(content.contains(MARKER_START));
         assert!(content.contains(MARKER_END));
     }
@@ -95,7 +97,10 @@ mod tests {
 
         let content = std::fs::read_to_string(&path).unwrap();
         let count = content.matches(MARKER_START).count();
-        assert_eq!(count, 1, "marker appeared {count} times; expected exactly 1");
+        assert_eq!(
+            count, 1,
+            "marker appeared {count} times; expected exactly 1"
+        );
     }
 
     #[test]
@@ -116,7 +121,10 @@ mod tests {
         write_capabilities_block(&path).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("edgeplane exec"), "new block not written:\n{content}");
+        assert!(
+            content.contains("edgeplane exec"),
+            "new block not written:\n{content}"
+        );
         assert!(content.contains("# Preamble"), "preamble lost");
         assert!(content.contains("# Postamble"), "postamble lost");
         assert!(!content.contains("Old Content"), "old content not removed");

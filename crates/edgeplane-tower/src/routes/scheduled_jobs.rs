@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -15,9 +15,10 @@ use crate::{auth::Principal, state::AppState};
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/scheduled-jobs", get(list_jobs).post(create_job))
-        .route("/scheduled-jobs/{id}", get(get_job)
-            .put(update_job)
-            .delete(delete_job))
+        .route(
+            "/scheduled-jobs/{id}",
+            get(get_job).put(update_job).delete(delete_job),
+        )
         .route("/scheduled-jobs/{id}/run", post(trigger_job))
 }
 
@@ -42,7 +43,9 @@ struct CreateJob {
     enabled: bool,
 }
 
-fn default_enabled() -> bool { true }
+fn default_enabled() -> bool {
+    true
+}
 
 #[derive(Deserialize)]
 struct UpdateJob {
@@ -58,7 +61,8 @@ struct UpdateJob {
 
 fn row_to_job(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     let policy_json: String = row.get("policy_json");
-    let policy: serde_json::Value = serde_json::from_str(&policy_json).unwrap_or(serde_json::json!({}));
+    let policy: serde_json::Value =
+        serde_json::from_str(&policy_json).unwrap_or(serde_json::json!({}));
     let last_run_at: Option<chrono::NaiveDateTime> = row.get("last_run_at");
     serde_json::json!({
         "id": row.get::<i32, _>("id"),
@@ -79,7 +83,11 @@ fn row_to_job(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 async fn list_jobs(
@@ -149,13 +157,11 @@ async fn get_job(
     principal: Principal,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
-    match sqlx::query(
-        "SELECT * FROM scheduledagentjob WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
+    match sqlx::query("SELECT * FROM scheduledagentjob WHERE id=$1 AND owner_subject=$2")
+        .bind(id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(row)) => Json(row_to_job(&row)).into_response(),
         Ok(None) => not_found("scheduled job not found"),
@@ -173,13 +179,11 @@ async fn update_job(
     Json(body): Json<UpdateJob>,
 ) -> impl IntoResponse {
     // Load existing
-    let existing = sqlx::query(
-        "SELECT * FROM scheduledagentjob WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await;
+    let existing = sqlx::query("SELECT * FROM scheduledagentjob WHERE id=$1 AND owner_subject=$2")
+        .bind(id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await;
 
     let row = match existing {
         Ok(Some(r)) => r,
@@ -194,10 +198,13 @@ async fn update_job(
     let description = body.description.unwrap_or_else(|| row.get("description"));
     let cron_expr = body.cron_expr.unwrap_or_else(|| row.get("cron_expr"));
     let runtime_kind = body.runtime_kind.unwrap_or_else(|| row.get("runtime_kind"));
-    let initial_prompt = body.initial_prompt.unwrap_or_else(|| row.get("initial_prompt"));
+    let initial_prompt = body
+        .initial_prompt
+        .unwrap_or_else(|| row.get("initial_prompt"));
     let system_context: Option<String> = body.system_context.or_else(|| row.get("system_context"));
     let enabled = body.enabled.unwrap_or_else(|| row.get("enabled"));
-    let policy_json = body.policy
+    let policy_json = body
+        .policy
         .as_ref()
         .and_then(|p| serde_json::to_string(p).ok())
         .unwrap_or_else(|| row.get("policy_json"));
@@ -235,13 +242,11 @@ async fn delete_job(
     principal: Principal,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
-    match sqlx::query(
-        "DELETE FROM scheduledagentjob WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(id)
-    .bind(&principal.subject)
-    .execute(&state.db)
-    .await
+    match sqlx::query("DELETE FROM scheduledagentjob WHERE id=$1 AND owner_subject=$2")
+        .bind(id)
+        .bind(&principal.subject)
+        .execute(&state.db)
+        .await
     {
         Ok(r) if r.rows_affected() == 0 => not_found("scheduled job not found"),
         Ok(_) => Json(serde_json::json!({"deleted": true, "id": id})).into_response(),
@@ -258,15 +263,14 @@ async fn trigger_job(
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
     // Verify ownership only; actual execution stays Python-side for now
-    let exists: Option<i32> = sqlx::query_scalar(
-        "SELECT id FROM scheduledagentjob WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+    let exists: Option<i32> =
+        sqlx::query_scalar("SELECT id FROM scheduledagentjob WHERE id=$1 AND owner_subject=$2")
+            .bind(id)
+            .bind(&principal.subject)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
 
     match exists {
         Some(_) => Json(serde_json::json!({"triggered": true, "id": id})).into_response(),

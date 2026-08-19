@@ -9,7 +9,7 @@
 //! returns exactly the 23 expected tools.
 
 use axum_test::TestServer;
-use edgeplane_tower::{build_app, routes::mcp, AppConfig};
+use edgeplane_tower::{AppConfig, build_app, routes::mcp};
 use sqlx::PgPool;
 
 fn test_pool() -> PgPool {
@@ -23,7 +23,8 @@ fn server() -> TestServer {
 /// Every name in `advertised_tool_names()` must appear in `dispatch_handled_names()`.
 #[test]
 fn advertised_tools_all_have_dispatch_arm() {
-    let advertised: std::collections::HashSet<_> = mcp::advertised_tool_names().into_iter().collect();
+    let advertised: std::collections::HashSet<_> =
+        mcp::advertised_tool_names().into_iter().collect();
     let handled: std::collections::HashSet<_> = mcp::dispatch_handled_names().into_iter().collect();
 
     let missing_dispatch: Vec<_> = advertised.difference(&handled).copied().collect();
@@ -37,7 +38,8 @@ fn advertised_tools_all_have_dispatch_arm() {
 /// Every name in `dispatch_handled_names()` must appear in `advertised_tool_names()`.
 #[test]
 fn dispatch_arms_all_have_catalogue_entry() {
-    let advertised: std::collections::HashSet<_> = mcp::advertised_tool_names().into_iter().collect();
+    let advertised: std::collections::HashSet<_> =
+        mcp::advertised_tool_names().into_iter().collect();
     let handled: std::collections::HashSet<_> = mcp::dispatch_handled_names().into_iter().collect();
 
     let extra_dispatch: Vec<_> = handled.difference(&advertised).copied().collect();
@@ -77,7 +79,8 @@ async fn http_catalogue_matches_advertised_names() {
         .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
         .collect();
 
-    let expected: std::collections::HashSet<&str> = mcp::advertised_tool_names().into_iter().collect();
+    let expected: std::collections::HashSet<&str> =
+        mcp::advertised_tool_names().into_iter().collect();
 
     let missing: Vec<_> = expected.difference(&http_names).copied().collect();
     assert!(

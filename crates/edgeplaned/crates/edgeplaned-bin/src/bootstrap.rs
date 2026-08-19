@@ -192,9 +192,7 @@ async fn resolve_or_create_intake_mission(
         }
     }
 
-    tracing::info!(
-        "bootstrap: creating intake mission under domain '{domain_name}' ({domain_id})"
-    );
+    tracing::info!("bootstrap: creating intake mission under domain '{domain_name}' ({domain_id})");
     // NB: `workstream_md` is sent but `MissionCreate` currently doesn't accept it
     // (silently dropped by serde). Track and fix as a separate controlplane API
     // patch; the mission still gets created correctly.
@@ -215,14 +213,10 @@ async fn resolve_or_create_intake_mission(
     let id = created
         .get("id")
         .and_then(|i| i.as_str())
-        .ok_or_else(|| {
-            anyhow::anyhow!("POST {path} response missing 'id' field: {created}")
-        })?
+        .ok_or_else(|| anyhow::anyhow!("POST {path} response missing 'id' field: {created}"))?
         .to_string();
 
-    tracing::info!(
-        "bootstrap: intake mission created under '{domain_name}' (id={id})"
-    );
+    tracing::info!("bootstrap: intake mission created under '{domain_name}' (id={id})");
     Ok((id, true))
 }
 
@@ -236,18 +230,26 @@ mod tests {
     #[test]
     fn resolve_home_domain_name_env_override() {
         // SAFETY: single-threaded test runner; no concurrent env access.
-        unsafe { std::env::set_var("EP_HOME_DOMAIN_NAME", "fleet-ops-test"); }
+        unsafe {
+            std::env::set_var("EP_HOME_DOMAIN_NAME", "fleet-ops-test");
+        }
         let name = resolve_home_domain_name();
-        unsafe { std::env::remove_var("EP_HOME_DOMAIN_NAME"); }
+        unsafe {
+            std::env::remove_var("EP_HOME_DOMAIN_NAME");
+        }
         assert_eq!(name, "fleet-ops-test");
     }
 
     /// Verify that whitespace-only env values fall through to the default.
     #[test]
     fn resolve_home_domain_name_whitespace_falls_through() {
-        unsafe { std::env::set_var("EP_HOME_DOMAIN_NAME", "   "); }
+        unsafe {
+            std::env::set_var("EP_HOME_DOMAIN_NAME", "   ");
+        }
         let name = resolve_home_domain_name();
-        unsafe { std::env::remove_var("EP_HOME_DOMAIN_NAME"); }
+        unsafe {
+            std::env::remove_var("EP_HOME_DOMAIN_NAME");
+        }
         assert_eq!(name, DEFAULT_HOME_DOMAIN_NAME);
     }
 

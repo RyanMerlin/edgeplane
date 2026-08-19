@@ -107,8 +107,8 @@ pub fn resolve_zellij_cache_dir() -> Result<PathBuf> {
     // printing the cache-dir line) and surface a distinct error message.
     // `zellij setup --check` exits 1 if checks fail but still prints the
     // report; any other non-zero exit is genuinely unexpected.
-    let combined = String::from_utf8_lossy(&out.stdout).to_string()
-        + &String::from_utf8_lossy(&out.stderr);
+    let combined =
+        String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
 
     for line in combined.lines() {
         // Format: "[CACHE DIR]:        /workspace/cache/zellij"
@@ -237,7 +237,9 @@ fn ensure_plugins_entry(doc: &mut kdl::KdlDocument, wasm_path: &str) {
         // No plugins block — build and append one.
         let mut plugins_node = kdl::KdlNode::new("plugins");
         let mut children = kdl::KdlDocument::new();
-        children.nodes_mut().push(build_plugin_alias_node(wasm_path));
+        children
+            .nodes_mut()
+            .push(build_plugin_alias_node(wasm_path));
         plugins_node.set_children(children);
         doc.nodes_mut().push(plugins_node);
     }
@@ -403,10 +405,7 @@ mod tests {
     fn config_idempotent_when_both_blocks_present() {
         let initial = apply_config_kdl_merges("", WASM).unwrap();
         let second = apply_config_kdl_merges(&initial, WASM).unwrap();
-        assert_eq!(
-            initial, second,
-            "second application should be a no-op"
-        );
+        assert_eq!(initial, second, "second application should be a no-op");
     }
 
     #[test]
@@ -437,7 +436,8 @@ mod tests {
         // Build full, strip load_plugins.
         let full = apply_config_kdl_merges("", WASM).unwrap();
         let mut doc: kdl::KdlDocument = full.parse().unwrap();
-        doc.nodes_mut().retain(|n| n.name().value() != "load_plugins");
+        doc.nodes_mut()
+            .retain(|n| n.name().value() != "load_plugins");
         let partial = doc.to_string();
 
         let out = apply_config_kdl_merges(&partial, WASM).unwrap();
@@ -461,10 +461,7 @@ mod tests {
         let old_wasm = "/old/path/edgeplane_zrpc.wasm";
         let initial = apply_config_kdl_merges("", old_wasm).unwrap();
         let updated = apply_config_kdl_merges(&initial, WASM).unwrap();
-        assert!(
-            updated.contains(WASM),
-            "new path missing: {updated}"
-        );
+        assert!(updated.contains(WASM), "new path missing: {updated}");
         assert!(
             !updated.contains(old_wasm),
             "old path still present: {updated}"
@@ -489,9 +486,7 @@ mod tests {
         // Parse the merged output to verify structural correctness — this is
         // the key check: the KDL parser must not have been confused by braces
         // inside string values or by comments.
-        let doc: kdl::KdlDocument = out
-            .parse()
-            .expect("merged config must be valid KDL");
+        let doc: kdl::KdlDocument = out.parse().expect("merged config must be valid KDL");
 
         // keybinds, plugins, load_plugins must all be present.
         let top_names: Vec<_> = doc.nodes().iter().map(|n| n.name().value()).collect();
@@ -510,10 +505,7 @@ mod tests {
 
         // Comment must be preserved through the round-trip (kdl crate is
         // format-preserving for comments).
-        assert!(
-            out.contains("// This is a comment"),
-            "comment lost: {out}"
-        );
+        assert!(out.contains("// This is a comment"), "comment lost: {out}");
 
         // The keybind nodes with brace-bearing string values must survive
         // structurally — check by inspecting the parsed nodes, not the raw
@@ -550,14 +542,21 @@ mod tests {
 "#;
         let merged = apply_config_kdl_merges(config, WASM).unwrap();
         // Must re-parse without error.
-        let doc: kdl::KdlDocument = merged
-            .parse()
-            .expect("merged config must be valid KDL");
+        let doc: kdl::KdlDocument = merged.parse().expect("merged config must be valid KDL");
         // Must have keybinds, plugins, and load_plugins top-level nodes.
         let names: Vec<_> = doc.nodes().iter().map(|n| n.name().value()).collect();
-        assert!(names.contains(&"keybinds"), "keybinds node missing: {names:?}");
-        assert!(names.contains(&"plugins"), "plugins node missing: {names:?}");
-        assert!(names.contains(&"load_plugins"), "load_plugins node missing: {names:?}");
+        assert!(
+            names.contains(&"keybinds"),
+            "keybinds node missing: {names:?}"
+        );
+        assert!(
+            names.contains(&"plugins"),
+            "plugins node missing: {names:?}"
+        );
+        assert!(
+            names.contains(&"load_plugins"),
+            "load_plugins node missing: {names:?}"
+        );
         // Comment must survive the round-trip (kdl is format-preserving for comments).
         assert!(
             merged.contains("// comment with { brace }"),
@@ -639,9 +638,7 @@ mod tests {
         //     We verify this structurally by re-parsing and checking the node
         //     list, not just by string-searching (the string "pane_frames"
         //     could appear inside a comment and still fool a grep).
-        let doc: kdl::KdlDocument = out
-            .parse()
-            .expect("merged output must be valid KDL");
+        let doc: kdl::KdlDocument = out.parse().expect("merged output must be valid KDL");
         let top_names: Vec<_> = doc.nodes().iter().map(|n| n.name().value()).collect();
         assert!(
             top_names.contains(&"pane_frames"),
@@ -713,7 +710,10 @@ mod tests {
             "wasm path duplicated on second call: {second}"
         );
         for perm in REQUIRED_PERMS {
-            assert!(second.contains(perm), "perm {perm} missing on second call: {second}");
+            assert!(
+                second.contains(perm),
+                "perm {perm} missing on second call: {second}"
+            );
         }
     }
 
@@ -723,29 +723,23 @@ mod tests {
         // Build an initial doc with another plugin's grant.
         let initial = apply_permissions_kdl_merge("", other_plugin).unwrap();
         let out = apply_permissions_kdl_merge(&initial, WASM).unwrap();
-        assert!(
-            out.contains(other_plugin),
-            "other plugin lost: {out}"
-        );
+        assert!(out.contains(other_plugin), "other plugin lost: {out}");
         assert!(out.contains(WASM), "our plugin missing: {out}");
     }
 
     #[test]
     fn permissions_replaces_stale_block_for_same_plugin() {
         // Start with a block that has only one perm (simulating an older install).
-        let old = format!(
-            "\"{WASM}\" {{\n    ReadApplicationState\n}}\n"
-        );
+        let old = format!("\"{WASM}\" {{\n    ReadApplicationState\n}}\n");
         let out = apply_permissions_kdl_merge(&old, WASM).unwrap();
         for perm in REQUIRED_PERMS {
-            assert!(out.contains(perm), "perm {perm} missing after update: {out}");
+            assert!(
+                out.contains(perm),
+                "perm {perm} missing after update: {out}"
+            );
         }
         // Must not duplicate the key.
-        assert_eq!(
-            out.matches(WASM).count(),
-            1,
-            "plugin key duplicated: {out}"
-        );
+        assert_eq!(out.matches(WASM).count(), 1, "plugin key duplicated: {out}");
     }
 
     // ── install_zrpc_plugin (integration: tempfile) ──────────────────────
@@ -774,9 +768,15 @@ mod tests {
         );
 
         let perms = std::fs::read_to_string(cache_dir.join("permissions.kdl")).unwrap();
-        assert!(perms.contains(wasm_str), "permissions.kdl missing key: {perms}");
+        assert!(
+            perms.contains(wasm_str),
+            "permissions.kdl missing key: {perms}"
+        );
         for perm in REQUIRED_PERMS {
-            assert!(perms.contains(perm), "permissions.kdl missing {perm}: {perms}");
+            assert!(
+                perms.contains(perm),
+                "permissions.kdl missing {perm}: {perms}"
+            );
         }
     }
 

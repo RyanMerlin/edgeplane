@@ -77,20 +77,29 @@ pub struct ProfileAuth {
 impl ProfileAuth {
     /// OIDC session token — issued by `edgeplane auth login`, TTL up to 720h.
     pub fn oidc(token: impl Into<String>) -> Self {
-        Self { kind: "oidc".into(), token: token.into() }
+        Self {
+            kind: "oidc".into(),
+            token: token.into(),
+        }
     }
 
     /// Long-lived machine credential — issued by edgeplane-tower at node
     /// registration. Renewed daemon-to-controlplane without user interaction.
     #[allow(dead_code)]
     pub fn service(token: impl Into<String>) -> Self {
-        Self { kind: "service".into(), token: token.into() }
+        Self {
+            kind: "service".into(),
+            token: token.into(),
+        }
     }
 
     #[allow(dead_code)]
     #[deprecated(note = "use ProfileAuth::oidc or ProfileAuth::service")]
     pub fn token(token: impl Into<String>) -> Self {
-        Self { kind: "token".into(), token: token.into() }
+        Self {
+            kind: "token".into(),
+            token: token.into(),
+        }
     }
 }
 
@@ -126,14 +135,16 @@ impl DaemonState {
         let raw = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(anyhow::Error::from(e)
-                .context(format!("reading {}", path.display()))),
+            Err(e) => {
+                return Err(anyhow::Error::from(e).context(format!("reading {}", path.display())));
+            }
         };
 
         // Peek at schema_version without full parse.
-        let probe: serde_json::Value = serde_json::from_str(&raw)
-            .with_context(|| format!("parsing {}", path.display()))?;
-        let version = probe.get("schema_version")
+        let probe: serde_json::Value =
+            serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
+        let version = probe
+            .get("schema_version")
             .and_then(|v| v.as_u64())
             .unwrap_or(1) as u32;
 
@@ -157,8 +168,8 @@ impl DaemonState {
 
     /// v1 → v2 migration: wrap flat fields as profile named "default".
     fn migrate_v1(raw: &str, path: &Path) -> Result<Self> {
-        let v1: NodeStateV1 = serde_json::from_str(raw)
-            .with_context(|| "parsing v1 state file for migration")?;
+        let v1: NodeStateV1 =
+            serde_json::from_str(raw).with_context(|| "parsing v1 state file for migration")?;
         tracing::warn!(
             "State file at {} is schema v1. Migrating to v2: existing identity becomes \
              profile named \"default\". Rename it with `edgeplane daemon profile rename default <name>`.",
@@ -167,14 +178,17 @@ impl DaemonState {
         let url = v1.controlplane_url.clone();
         let token = String::new(); // v1 didn't store a token — will fall back to session.json
         let mut profiles = HashMap::new();
-        profiles.insert("default".into(), ProfileEntry {
-            url,
-            auth: ProfileAuth::oidc(token),
-            node_id: Some(v1.node_id),
-            attach_secret: v1.attach_secret,
-            registered_at: v1.registered_at,
-            tailscale_fqdn: None,
-        });
+        profiles.insert(
+            "default".into(),
+            ProfileEntry {
+                url,
+                auth: ProfileAuth::oidc(token),
+                node_id: Some(v1.node_id),
+                attach_secret: v1.attach_secret,
+                registered_at: v1.registered_at,
+                tailscale_fqdn: None,
+            },
+        );
         let state = DaemonState {
             schema_version: STATE_SCHEMA_VERSION,
             active_profile: Some("default".into()),
@@ -182,7 +196,9 @@ impl DaemonState {
         };
         // Write back atomically so next start loads v2 directly.
         if let Err(e) = state.write_atomic(path) {
-            tracing::warn!("Could not write migrated state file: {e:#}. Will re-migrate next start.");
+            tracing::warn!(
+                "Could not write migrated state file: {e:#}. Will re-migrate next start."
+            );
         }
         Ok(state)
     }
@@ -243,15 +259,22 @@ mod tests {
 
     fn v2_state() -> DaemonState {
         let mut profiles = HashMap::new();
-        profiles.insert("work".into(), ProfileEntry {
-            url: "http://localhost:8008".into(),
-            auth: ProfileAuth::service("tok-abc"),
-            node_id: Some("n-1".into()),
-            attach_secret: "deadbeef".into(),
-            registered_at: "2026-05-10T00:00:00Z".into(),
-            tailscale_fqdn: None,
-        });
-        DaemonState { schema_version: 2, active_profile: Some("work".into()), profiles }
+        profiles.insert(
+            "work".into(),
+            ProfileEntry {
+                url: "http://localhost:8008".into(),
+                auth: ProfileAuth::service("tok-abc"),
+                node_id: Some("n-1".into()),
+                attach_secret: "deadbeef".into(),
+                registered_at: "2026-05-10T00:00:00Z".into(),
+                tailscale_fqdn: None,
+            },
+        );
+        DaemonState {
+            schema_version: 2,
+            active_profile: Some("work".into()),
+            profiles,
+        }
     }
 
     #[test]
@@ -292,7 +315,11 @@ mod tests {
 
     #[test]
     fn active_returns_none_for_standalone() {
-        let s = DaemonState { schema_version: 2, active_profile: None, ..Default::default() };
+        let s = DaemonState {
+            schema_version: 2,
+            active_profile: None,
+            ..Default::default()
+        };
         assert!(s.active().is_none());
     }
 

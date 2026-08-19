@@ -51,12 +51,23 @@ impl ConfirmModal {
         let height: u16 = 5;
         let x = area.x + area.width.saturating_sub(width) / 2;
         let y = area.y + area.height.saturating_sub(height) / 2;
-        let dialog = Rect { x, y, width, height };
+        let dialog = Rect {
+            x,
+            y,
+            width,
+            height,
+        };
 
         Clear.render(dialog, buf);
 
-        let border_color = if self.danger { theme::ERR } else { theme::ACCENT };
-        let title_style = Style::default().fg(border_color).add_modifier(Modifier::BOLD);
+        let border_color = if self.danger {
+            theme::ERR
+        } else {
+            theme::ACCENT
+        };
+        let title_style = Style::default()
+            .fg(border_color)
+            .add_modifier(Modifier::BOLD);
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
@@ -66,7 +77,11 @@ impl ConfirmModal {
         let inner = block.inner(dialog);
         block.render(dialog, buf);
 
-        let confirm_style = if self.danger { theme::err() } else { theme::accent() };
+        let confirm_style = if self.danger {
+            theme::err()
+        } else {
+            theme::accent()
+        };
         let lines = vec![
             Line::from(Span::styled(self.message.clone(), theme::normal())),
             Line::from(""),
@@ -112,12 +127,19 @@ impl InfoModal {
         let height: u16 = (self.lines.len() as u16) + 4;
         let x = area.x + area.width.saturating_sub(width) / 2;
         let y = area.y + area.height.saturating_sub(height) / 2;
-        let dialog = Rect { x, y, width, height };
+        let dialog = Rect {
+            x,
+            y,
+            width,
+            height,
+        };
 
         Clear.render(dialog, buf);
 
         let border_color = theme::ACCENT;
-        let title_style = Style::default().fg(border_color).add_modifier(Modifier::BOLD);
+        let title_style = Style::default()
+            .fg(border_color)
+            .add_modifier(Modifier::BOLD);
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
@@ -149,7 +171,10 @@ pub enum OidcLoginState {
     /// Contacting the server to obtain an authorization URL.
     Initiating,
     /// URL is ready; waiting for the user to complete sign-in in their browser.
-    AwaitingBrowser { authorize_url: String, started: std::time::Instant },
+    AwaitingBrowser {
+        authorize_url: String,
+        started: std::time::Instant,
+    },
     /// Poll timed out before the browser flow completed.
     TimedOut,
     /// Flow failed with an error message.
@@ -180,11 +205,18 @@ impl OidcLoginModal {
         };
         let x = area.x + area.width.saturating_sub(width) / 2;
         let y = area.y + area.height.saturating_sub(height) / 2;
-        let dialog = Rect { x, y, width, height };
+        let dialog = Rect {
+            x,
+            y,
+            width,
+            height,
+        };
 
         Clear.render(dialog, buf);
 
-        let title_style = Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD);
+        let title_style = Style::default()
+            .fg(theme::ACCENT)
+            .add_modifier(Modifier::BOLD);
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
@@ -200,7 +232,10 @@ impl OidcLoginModal {
                 Line::from(Span::styled("Connecting to server...", theme::muted())),
                 Line::from(""),
             ],
-            OidcLoginState::AwaitingBrowser { authorize_url, started } => {
+            OidcLoginState::AwaitingBrowser {
+                authorize_url,
+                started,
+            } => {
                 let elapsed = started.elapsed().as_secs();
                 // Truncate URL to fit inside the dialog border (inner width = width - 2)
                 let max_url = (width.saturating_sub(2)) as usize;
@@ -212,7 +247,10 @@ impl OidcLoginModal {
                 vec![
                     Line::from(""),
                     Line::from(Span::styled("Open this URL in your browser:", theme::dim())),
-                    Line::from(Span::styled(url_display, Style::default().fg(ratatui::style::Color::Cyan))),
+                    Line::from(Span::styled(
+                        url_display,
+                        Style::default().fg(ratatui::style::Color::Cyan),
+                    )),
                     Line::from(""),
                     Line::from(Span::styled(
                         format!("Waiting for authentication... ({elapsed}s)"),
@@ -272,17 +310,35 @@ mod tests {
     use super::*;
 
     fn modal() -> ConfirmModal {
-        ConfirmModal { title: "T".into(), message: "M".into(), danger: true }
+        ConfirmModal {
+            title: "T".into(),
+            message: "M".into(),
+            danger: true,
+        }
     }
 
     #[test]
-    fn y_confirms() { assert_eq!(modal().handle_key(KeyCode::Char('y')), ModalAction::Confirmed); }
+    fn y_confirms() {
+        assert_eq!(
+            modal().handle_key(KeyCode::Char('y')),
+            ModalAction::Confirmed
+        );
+    }
     #[test]
-    fn enter_confirms() { assert_eq!(modal().handle_key(KeyCode::Enter), ModalAction::Confirmed); }
+    fn enter_confirms() {
+        assert_eq!(modal().handle_key(KeyCode::Enter), ModalAction::Confirmed);
+    }
     #[test]
-    fn n_cancels() { assert_eq!(modal().handle_key(KeyCode::Char('n')), ModalAction::Cancelled); }
+    fn n_cancels() {
+        assert_eq!(
+            modal().handle_key(KeyCode::Char('n')),
+            ModalAction::Cancelled
+        );
+    }
     #[test]
-    fn esc_cancels() { assert_eq!(modal().handle_key(KeyCode::Esc), ModalAction::Cancelled); }
+    fn esc_cancels() {
+        assert_eq!(modal().handle_key(KeyCode::Esc), ModalAction::Cancelled);
+    }
     #[test]
     fn other_keys_swallowed_not_passed_through() {
         assert_eq!(modal().handle_key(KeyCode::Down), ModalAction::Handled);

@@ -145,7 +145,11 @@ fn render_signal(sig: AgentSignal) -> Option<String> {
             t.push('\r');
             Some(t)
         }
-        AgentSignal::PeerMessage { from_agent_id, channel, body } => {
+        AgentSignal::PeerMessage {
+            from_agent_id,
+            channel,
+            body,
+        } => {
             let body_str = match &body {
                 serde_json::Value::String(s) => s.clone(),
                 v => v.to_string(),
@@ -169,7 +173,10 @@ mod tests {
 
     #[test]
     fn render_user_input_appends_cr() {
-        let s = render_signal(AgentSignal::UserInput { text: "hello".into() }).unwrap();
+        let s = render_signal(AgentSignal::UserInput {
+            text: "hello".into(),
+        })
+        .unwrap();
         assert_eq!(s, "hello\r");
     }
 

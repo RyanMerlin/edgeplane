@@ -64,11 +64,21 @@ impl MgmtGateway {
         let session_token = edgeplaned_core::paths::state_file_path()
             .parent()
             .and_then(|_| {
-                let content = std::fs::read_to_string(edgeplaned_core::paths::state_file_path()).ok()?;
+                let content =
+                    std::fs::read_to_string(edgeplaned_core::paths::state_file_path()).ok()?;
                 let v: serde_json::Value = serde_json::from_str(&content).ok()?;
                 let active = v.get("active_profile")?.as_str()?;
-                let token = v.get("profiles")?.get(active)?.get("auth")?.get("token")?.as_str()?;
-                if token.is_empty() { None } else { Some(token.to_string()) }
+                let token = v
+                    .get("profiles")?
+                    .get(active)?
+                    .get("auth")?
+                    .get("token")?
+                    .as_str()?;
+                if token.is_empty() {
+                    None
+                } else {
+                    Some(token.to_string())
+                }
             });
         let tcp_port = std::env::var("EP_MESH_MGMT_PORT")
             .ok()
@@ -283,17 +293,19 @@ where
         // newline-delimited event frames until the client disconnects.
         // No further JSON-RPC requests are processed on this connection.
         if let Ok(req) = serde_json::from_str::<Value>(trimmed)
-            && req.get("method").and_then(|v| v.as_str()) == Some("events.subscribe") {
-                let id = req.get("id").cloned().unwrap_or(Value::Null);
-                let sender = agent_ops.and_then(|ops| ops.supervisor_events.as_ref());
-                stream_supervisor_events(sender, id, &mut writer).await?;
-                // Connection is done after a stream ends (always EOF or fatal lag).
-                break;
-            }
+            && req.get("method").and_then(|v| v.as_str()) == Some("events.subscribe")
+        {
+            let id = req.get("id").cloned().unwrap_or(Value::Null);
+            let sender = agent_ops.and_then(|ops| ops.supervisor_events.as_ref());
+            stream_supervisor_events(sender, id, &mut writer).await?;
+            // Connection is done after a stream ends (always EOF or fatal lag).
+            break;
+        }
 
         let response = dispatch_jsonrpc(dispatcher, registry, agent_ops, trimmed).await;
-        let mut response_bytes = serde_json::to_vec(&response)
-            .unwrap_or_else(|_| br#"{"jsonrpc":"2.0","error":{"code":-32700,"message":"serialization error"}}"#.to_vec());
+        let mut response_bytes = serde_json::to_vec(&response).unwrap_or_else(|_| {
+            br#"{"jsonrpc":"2.0","error":{"code":-32700,"message":"serialization error"}}"#.to_vec()
+        });
         response_bytes.push(b'\n');
         writer.write_all(&response_bytes).await?;
     }
@@ -318,7 +330,11 @@ where
     // or the unit-health loop isn't running. Either way: return JSON-RPC
     // error and close the connection.
     let Some(sender) = sender else {
-        let err = jsonrpc_error(id, -32603, "supervisor events not wired (unit-health loop not running)");
+        let err = jsonrpc_error(
+            id,
+            -32603,
+            "supervisor events not wired (unit-health loop not running)",
+        );
         let mut bytes = serde_json::to_vec(&err)?;
         bytes.push(b'\n');
         writer.write_all(&bytes).await?;
@@ -386,7 +402,10 @@ async fn dispatch_jsonrpc(
         Some(m) => m,
         None => return jsonrpc_error(id, -32600, "invalid request: missing method"),
     };
-    let params = req.get("params").cloned().unwrap_or(Value::Object(Default::default()));
+    let params = req
+        .get("params")
+        .cloned()
+        .unwrap_or(Value::Object(Default::default()));
 
     match method {
         "dispatch" => handle_dispatch(dispatcher, id, &params).await,
@@ -459,16 +478,27 @@ async fn handle_dispatch(dispatcher: &CapabilityDispatcher, id: Value, params: &
     };
 
     let args = params.get("args").cloned().unwrap_or(serde_json::json!({}));
-    let dry_run = params.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
+    let dry_run = params
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let timeout_secs = params.get("timeout_secs").and_then(|v| v.as_u64());
-    let domain_id = params.get("domain_id").and_then(|v| v.as_str()).map(String::from);
-    let agent_id = params.get("agent_id").and_then(|v| v.as_str()).map(String::from);
+    let domain_id = params
+        .get("domain_id")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let agent_id = params
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
-    let profile = params.get("profile")
+    let profile = params
+        .get("profile")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let env_str = params.get("env")
+    let env_str = params
+        .get("env")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
@@ -486,15 +516,18 @@ async fn handle_dispatch(dispatcher: &CapabilityDispatcher, id: Value, params: &
 
     let result = dispatcher.dispatch(req).await;
 
-    jsonrpc_result(id, serde_json::json!({
-        "ok": result.ok,
-        "data": result.data,
-        "receipt_id": result.receipt_id,
-        "execution_time_ms": result.execution_time_ms,
-        "exit_code": result.exit_code,
-        "hint": result.hint,
-        "example": result.example,
-    }))
+    jsonrpc_result(
+        id,
+        serde_json::json!({
+            "ok": result.ok,
+            "data": result.data,
+            "receipt_id": result.receipt_id,
+            "execution_time_ms": result.execution_time_ms,
+            "exit_code": result.exit_code,
+            "hint": result.hint,
+            "example": result.example,
+        }),
+    )
 }
 
 fn handle_capabilities_list(registry: &PackRegistry, id: Value, params: &Value) -> Value {
@@ -537,22 +570,27 @@ fn handle_capabilities_describe(registry: &PackRegistry, id: Value, params: &Val
 ///     text?, from_agent_id?, channel?, body? }
 ///
 /// Returns `{ "ok": true }` on success; structured error otherwise.
-async fn handle_agent_local_signal(
-    ops: &Arc<AgentOpsHandle>,
-    id: Value,
-    params: &Value,
-) -> Value {
+async fn handle_agent_local_signal(ops: &Arc<AgentOpsHandle>, id: Value, params: &Value) -> Value {
     let agent_id = match params.get("agent_id").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
         None => return jsonrpc_error(id, -32602, "missing param: agent_id"),
     };
-    let kind = params.get("kind").and_then(|v| v.as_str()).unwrap_or("user_input");
+    let kind = params
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("user_input");
 
     let signal = match kind {
         "user_input" => {
             let text = match params.get("text").and_then(|v| v.as_str()) {
                 Some(s) => s.to_string(),
-                None => return jsonrpc_error(id, -32602, "missing param: text (required for user_input)"),
+                None => {
+                    return jsonrpc_error(
+                        id,
+                        -32602,
+                        "missing param: text (required for user_input)",
+                    );
+                }
             };
             AgentSignal::UserInput { text }
         }
@@ -569,7 +607,11 @@ async fn handle_agent_local_signal(
                 .unwrap_or("signal")
                 .to_string();
             let body = params.get("body").cloned().unwrap_or(Value::Null);
-            AgentSignal::PeerMessage { from_agent_id, channel, body }
+            AgentSignal::PeerMessage {
+                from_agent_id,
+                channel,
+                body,
+            }
         }
         other => {
             return jsonrpc_error(
@@ -619,7 +661,8 @@ async fn handle_agent_local_signal(
 /// Used by `edgeplane agent list` to show the local set.
 async fn handle_agent_local_list(ops: &Arc<AgentOpsHandle>, id: Value) -> Value {
     let registry_path = ops.registry_path.clone();
-    let agents = match tokio::task::spawn_blocking(move || list_local_agents(&registry_path)).await {
+    let agents = match tokio::task::spawn_blocking(move || list_local_agents(&registry_path)).await
+    {
         Ok(Ok(v)) => v,
         Ok(Err(e)) => return jsonrpc_error(id, -32001, &format!("registry read failed: {e:#}")),
         Err(e) => return jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
@@ -643,15 +686,16 @@ async fn handle_agent_describe_local(
 
     let registry_path = ops.registry_path.clone();
     let lookup_id = agent_id.clone();
-    let entry = match tokio::task::spawn_blocking(move || {
-        describe_local_agent(&registry_path, &lookup_id)
-    })
-    .await
-    {
-        Ok(Ok(opt)) => opt,
-        Ok(Err(e)) => return jsonrpc_error(id, -32001, &format!("registry read failed: {e:#}")),
-        Err(e) => return jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
-    };
+    let entry =
+        match tokio::task::spawn_blocking(move || describe_local_agent(&registry_path, &lookup_id))
+            .await
+        {
+            Ok(Ok(opt)) => opt,
+            Ok(Err(e)) => {
+                return jsonrpc_error(id, -32001, &format!("registry read failed: {e:#}"));
+            }
+            Err(e) => return jsonrpc_error(id, -32603, &format!("blocking task panicked: {e}")),
+        };
 
     match entry {
         Some(mut info) => {
@@ -772,8 +816,10 @@ async fn handle_agent_cron_list(ops: &Arc<AgentOpsHandle>, id: Value) -> Value {
         let reg = LocalRegistry::open(&registry_path)?;
         let states = reg.cron_list_state()?;
 
-        let state_by_name: std::collections::HashMap<String, _> =
-            states.into_iter().map(|s| (s.job_name.clone(), s)).collect();
+        let state_by_name: std::collections::HashMap<String, _> = states
+            .into_iter()
+            .map(|s| (s.job_name.clone(), s))
+            .collect();
 
         let jobs: Vec<Value> = cfg
             .jobs
@@ -812,19 +858,12 @@ async fn handle_agent_cron_list(ops: &Arc<AgentOpsHandle>, id: Value) -> Value {
 
 /// `agent.cron.describe` — return one job plus recent fire history.
 /// Params: `{ "name": "<job-name>", "limit"?: <int, default 5> }`
-async fn handle_agent_cron_describe(
-    ops: &Arc<AgentOpsHandle>,
-    id: Value,
-    params: &Value,
-) -> Value {
+async fn handle_agent_cron_describe(ops: &Arc<AgentOpsHandle>, id: Value, params: &Value) -> Value {
     let name = match params.get("name").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
         None => return jsonrpc_error(id, -32602, "missing param: name"),
     };
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(5) as u32;
+    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as u32;
 
     let config_path = match &ops.cron_config_path {
         Some(p) => p.clone(),
@@ -834,11 +873,9 @@ async fn handle_agent_cron_describe(
 
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
         let cfg = crate::cron_config::load(&config_path)?;
-        let job = cfg
-            .jobs
-            .iter()
-            .find(|j| j.name == name)
-            .ok_or_else(|| anyhow::anyhow!("no job named {:?} in {}", name, config_path.display()))?;
+        let job = cfg.jobs.iter().find(|j| j.name == name).ok_or_else(|| {
+            anyhow::anyhow!("no job named {:?} in {}", name, config_path.display())
+        })?;
 
         let reg = LocalRegistry::open(&registry_path)?;
         let state = reg.cron_get_state(&name)?;
@@ -888,16 +925,12 @@ fn handle_agent_cron_reload(ops: &Arc<AgentOpsHandle>, id: Value) -> Value {
 /// `agent.cron.history` — recent fires across all jobs (or one job
 /// when `name` is set). Params:
 ///   `{ "name"?: "<job-name>", "limit"?: <int, default 20> }`
-async fn handle_agent_cron_history(
-    ops: &Arc<AgentOpsHandle>,
-    id: Value,
-    params: &Value,
-) -> Value {
-    let name = params.get("name").and_then(|v| v.as_str()).map(String::from);
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20) as u32;
+async fn handle_agent_cron_history(ops: &Arc<AgentOpsHandle>, id: Value, params: &Value) -> Value {
+    let name = params
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
     let registry_path = ops.registry_path.clone();
 
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
@@ -928,17 +961,16 @@ async fn handle_agent_cron_history(
 /// `agent.cron.gc_now` — force a retention sweep right now (in addition
 /// to the periodic GC task). Params (all optional, default from cron.toml):
 ///   `{ "history_days"?: <int>, "max_rows_per_job"?: <int> }`
-async fn handle_agent_cron_gc_now(
-    ops: &Arc<AgentOpsHandle>,
-    id: Value,
-    params: &Value,
-) -> Value {
+async fn handle_agent_cron_gc_now(ops: &Arc<AgentOpsHandle>, id: Value, params: &Value) -> Value {
     let config_path = match &ops.cron_config_path {
         Some(p) => p.clone(),
         None => return jsonrpc_error(id, -32603, "cron is not wired"),
     };
     let registry_path = ops.registry_path.clone();
-    let override_days = params.get("history_days").and_then(|v| v.as_u64()).map(|n| n as u32);
+    let override_days = params
+        .get("history_days")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32);
     let override_rows = params
         .get("max_rows_per_job")
         .and_then(|v| v.as_u64())
@@ -996,11 +1028,7 @@ async fn handle_supervise_list(ops: &Arc<AgentOpsHandle>, id: Value) -> Value {
 
 /// `agent.supervise.status` — one agent's launch context + recent restart
 /// history. Params: `{ "agent_id": "<id>", "limit"?: <int, default 5> }`.
-async fn handle_supervise_status(
-    ops: &Arc<AgentOpsHandle>,
-    id: Value,
-    params: &Value,
-) -> Value {
+async fn handle_supervise_status(ops: &Arc<AgentOpsHandle>, id: Value, params: &Value) -> Value {
     let agent_id = match params.get("agent_id").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
         None => return jsonrpc_error(id, -32602, "missing param: agent_id"),
@@ -1060,11 +1088,7 @@ async fn handle_supervise_status(
 
 /// `agent.supervise.restart` — manual restart trigger. Params:
 ///   `{ "agent_id": "<id>" }`. Logged as reason="manual".
-async fn handle_supervise_restart(
-    ops: &Arc<AgentOpsHandle>,
-    id: Value,
-    params: &Value,
-) -> Value {
+async fn handle_supervise_restart(ops: &Arc<AgentOpsHandle>, id: Value, params: &Value) -> Value {
     let agent_id = match params.get("agent_id").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
         None => return jsonrpc_error(id, -32602, "missing param: agent_id"),
@@ -1074,34 +1098,35 @@ async fn handle_supervise_restart(
     let lookup_id = agent_id.clone();
 
     // Look up + restart on a blocking thread (subprocess + SQLite).
-    let outcome = tokio::task::spawn_blocking(move || -> anyhow::Result<(String, String, String, i32)> {
-        let reg = LocalRegistry::open(&registry_path)?;
-        let ctx = reg
-            .list_all_launch_contexts()?
-            .into_iter()
-            .find(|c| c.agent_id == lookup_id)
-            .ok_or_else(|| anyhow::anyhow!("agent {lookup_id:?} not found"))?;
-        let service = ctx
-            .systemd_service
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("agent {lookup_id:?} has no systemd_service"))?;
-        let exit = std::process::Command::new("systemctl")
-            .args(["--user", "restart", &service])
-            .output()?;
-        let code = exit.status.code().unwrap_or(-1);
-        let result = if code == 0 { "started" } else { "failed" };
-        reg.log_unit_restart(
-            &ctx.agent_id,
-            &ctx.source,
-            &chrono::Utc::now().to_rfc3339(),
-            "manual",
-            result,
-            Some(code as i64),
-            None,
-        )?;
-        Ok((ctx.agent_id, ctx.source, service, code))
-    })
-    .await;
+    let outcome =
+        tokio::task::spawn_blocking(move || -> anyhow::Result<(String, String, String, i32)> {
+            let reg = LocalRegistry::open(&registry_path)?;
+            let ctx = reg
+                .list_all_launch_contexts()?
+                .into_iter()
+                .find(|c| c.agent_id == lookup_id)
+                .ok_or_else(|| anyhow::anyhow!("agent {lookup_id:?} not found"))?;
+            let service = ctx
+                .systemd_service
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("agent {lookup_id:?} has no systemd_service"))?;
+            let exit = std::process::Command::new("systemctl")
+                .args(["--user", "restart", &service])
+                .output()?;
+            let code = exit.status.code().unwrap_or(-1);
+            let result = if code == 0 { "started" } else { "failed" };
+            reg.log_unit_restart(
+                &ctx.agent_id,
+                &ctx.source,
+                &chrono::Utc::now().to_rfc3339(),
+                "manual",
+                result,
+                Some(code as i64),
+                None,
+            )?;
+            Ok((ctx.agent_id, ctx.source, service, code))
+        })
+        .await;
 
     match outcome {
         Ok(Ok((agent_id, source, systemd_service, exit))) => {
@@ -1112,7 +1137,11 @@ async fn handle_supervise_restart(
                     source: source.clone(),
                     systemd_service: systemd_service.clone(),
                     reason: "manual".into(),
-                    result: if exit == 0 { "started".into() } else { "failed".into() },
+                    result: if exit == 0 {
+                        "started".into()
+                    } else {
+                        "failed".into()
+                    },
                     exit_code: Some(exit as i64),
                     at: chrono::Utc::now().to_rfc3339(),
                 });
@@ -1141,7 +1170,10 @@ async fn handle_supervise_pause_or_resume(
     paused: bool,
 ) -> Value {
     let all = params.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
-    let agent_id = params.get("agent_id").and_then(|v| v.as_str()).map(String::from);
+    let agent_id = params
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     if !all && agent_id.is_none() {
         return jsonrpc_error(id, -32602, "must specify agent_id or all=true");
     }
@@ -1157,12 +1189,18 @@ async fn handle_supervise_pause_or_resume(
         let mut affected = Vec::new();
         if all {
             for ctx in reg.list_all_launch_contexts()? {
-                if ctx.systemd_service.is_some() && reg.set_supervise_paused(&ctx.source, &ctx.agent_id, paused)? {
+                if ctx.systemd_service.is_some()
+                    && reg.set_supervise_paused(&ctx.source, &ctx.agent_id, paused)?
+                {
                     affected.push((ctx.source, ctx.agent_id));
                 }
             }
         } else if let Some(name) = agent_id {
-            for ctx in reg.list_all_launch_contexts()?.into_iter().filter(|c| c.agent_id == name) {
+            for ctx in reg
+                .list_all_launch_contexts()?
+                .into_iter()
+                .filter(|c| c.agent_id == name)
+            {
                 if reg.set_supervise_paused(&ctx.source, &ctx.agent_id, paused)? {
                     affected.push((ctx.source, ctx.agent_id));
                 }
@@ -1210,12 +1248,11 @@ async fn handle_supervise_pause_or_resume(
 /// `agent.supervise.history` — recent restart events across all agents
 /// (or filtered to one). Params:
 ///   `{ "agent_id"?: "<id>", "limit"?: <int, default 20> }`
-async fn handle_supervise_history(
-    ops: &Arc<AgentOpsHandle>,
-    id: Value,
-    params: &Value,
-) -> Value {
-    let agent_id = params.get("agent_id").and_then(|v| v.as_str()).map(String::from);
+async fn handle_supervise_history(ops: &Arc<AgentOpsHandle>, id: Value, params: &Value) -> Value {
+    let agent_id = params
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
     let registry_path = ops.registry_path.clone();
 
@@ -1278,7 +1315,7 @@ fn jsonrpc_error(id: Value, code: i32, message: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use edgeplaned_packs::{PolicyBundle, PackRegistry};
+    use edgeplaned_packs::{PackRegistry, PolicyBundle};
     use std::sync::Arc;
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
@@ -1343,22 +1380,32 @@ mod tests {
             .expect("connect to unix socket");
 
         // Send capabilities.list request.
-        let request = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"capabilities.list\",\"params\":{}}\n";
-        stream.write_all(request.as_bytes()).await.expect("write request");
+        let request =
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"capabilities.list\",\"params\":{}}\n";
+        stream
+            .write_all(request.as_bytes())
+            .await
+            .expect("write request");
 
         // Read response line (may be large — use line-based reader).
         let mut reader = BufReader::new(stream);
         let mut response_str = String::new();
-        reader.read_line(&mut response_str).await.expect("read response line");
+        reader
+            .read_line(&mut response_str)
+            .await
+            .expect("read response line");
 
         // Must be valid JSON containing "result".
-        let response: Value = serde_json::from_str(response_str.trim())
-            .expect("valid JSON response");
+        let response: Value =
+            serde_json::from_str(response_str.trim()).expect("valid JSON response");
         assert!(
             response.get("result").is_some(),
             "response should contain 'result', got: {response_str}"
         );
-        assert_eq!(response.get("jsonrpc").and_then(|v| v.as_str()), Some("2.0"));
+        assert_eq!(
+            response.get("jsonrpc").and_then(|v| v.as_str()),
+            Some("2.0")
+        );
     }
 
     #[tokio::test]
@@ -1379,7 +1426,10 @@ mod tests {
         let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
             .await
             .expect("connect tcp");
-        stream.write_all(b"AUTH badtoken\n").await.expect("write auth");
+        stream
+            .write_all(b"AUTH badtoken\n")
+            .await
+            .expect("write auth");
 
         // Read response — must be "ERR unauthorized\n".
         let mut buf = vec![0u8; 64];
@@ -1412,7 +1462,10 @@ mod tests {
         let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
             .await
             .expect("connect tcp");
-        stream.write_all(b"AUTH correcttoken\n").await.expect("write auth");
+        stream
+            .write_all(b"AUTH correcttoken\n")
+            .await
+            .expect("write auth");
 
         let mut buf = vec![0u8; 64];
         let n = stream.read(&mut buf).await.expect("read ok");
@@ -1441,7 +1494,10 @@ mod tests {
             None,
         )
         .await;
-        let code = resp.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_i64());
+        let code = resp
+            .get("error")
+            .and_then(|e| e.get("code"))
+            .and_then(|c| c.as_i64());
         assert_eq!(code, Some(-32603), "resp: {resp}");
     }
 
@@ -1453,7 +1509,9 @@ mod tests {
         )
         .await;
         assert_eq!(
-            resp.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_i64()),
+            resp.get("error")
+                .and_then(|e| e.get("code"))
+                .and_then(|c| c.as_i64()),
             Some(-32603)
         );
     }
@@ -1466,7 +1524,9 @@ mod tests {
         )
         .await;
         assert_eq!(
-            resp.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_i64()),
+            resp.get("error")
+                .and_then(|e| e.get("code"))
+                .and_then(|c| c.as_i64()),
             Some(-32603)
         );
     }
@@ -1533,7 +1593,10 @@ mod tests {
         )
         .await;
 
-        let found = resp.get("result").and_then(|r| r.get("found")).and_then(|f| f.as_bool());
+        let found = resp
+            .get("result")
+            .and_then(|r| r.get("found"))
+            .and_then(|f| f.as_bool());
         assert_eq!(found, Some(false), "resp: {resp}");
     }
 
@@ -1563,7 +1626,9 @@ mod tests {
         .await;
 
         assert_eq!(
-            resp.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_i64()),
+            resp.get("error")
+                .and_then(|e| e.get("code"))
+                .and_then(|c| c.as_i64()),
             Some(-32004),
             "resp: {resp}"
         );
@@ -1635,15 +1700,20 @@ mod tests {
 
         // Client: send events.subscribe.
         client_side
-            .write_all(br#"{"jsonrpc":"2.0","id":42,"method":"events.subscribe","params":{}}
-"#)
+            .write_all(
+                br#"{"jsonrpc":"2.0","id":42,"method":"events.subscribe","params":{}}
+"#,
+            )
             .await
             .expect("write subscribe");
 
         // Read ack frame.
         let mut client_reader = BufReader::new(client_side);
         let mut ack_line = String::new();
-        client_reader.read_line(&mut ack_line).await.expect("read ack");
+        client_reader
+            .read_line(&mut ack_line)
+            .await
+            .expect("read ack");
         let ack: Value = serde_json::from_str(ack_line.trim()).expect("ack json");
         assert_eq!(ack["id"], 42);
         assert_eq!(ack["result"]["subscribed"], true);
@@ -1663,7 +1733,10 @@ mod tests {
 
         // Read event frame.
         let mut event_line = String::new();
-        client_reader.read_line(&mut event_line).await.expect("read event");
+        client_reader
+            .read_line(&mut event_line)
+            .await
+            .expect("read event");
         let event: Value = serde_json::from_str(event_line.trim()).expect("event json");
         assert_eq!(event["kind"], "unit_restarted");
         assert_eq!(event["agent_id"], "work");
@@ -1688,12 +1761,18 @@ mod tests {
 
         let mut client_reader = BufReader::new(&mut client_side);
         let mut err_line = String::new();
-        client_reader.read_line(&mut err_line).await.expect("read err");
+        client_reader
+            .read_line(&mut err_line)
+            .await
+            .expect("read err");
         let err: Value = serde_json::from_str(err_line.trim()).expect("err json");
         assert_eq!(err["id"], 7);
         assert_eq!(err["error"]["code"], -32603);
         assert!(
-            err["error"]["message"].as_str().unwrap_or("").contains("supervisor events not wired"),
+            err["error"]["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains("supervisor events not wired"),
             "got: {err}"
         );
 
@@ -1720,11 +1799,8 @@ mod tests {
         let gw = Arc::new(make_gateway_on(sock, port));
 
         // run_tcp must return Ok(()) promptly — no blocking accept loop.
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(500),
-            gw.run_tcp(),
-        )
-        .await;
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(500), gw.run_tcp()).await;
 
         assert!(
             result.is_ok(),

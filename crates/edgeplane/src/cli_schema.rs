@@ -81,11 +81,11 @@ pub struct DiscoverArgs {
 /// recurse into subcommands.  Pass `usize::MAX` for unlimited depth.
 pub fn build_node(cmd: &clap::Command, remaining_depth: usize) -> CapabilityNode {
     let name = cmd.get_name().to_string();
-    let about = cmd.get_about().map(|s| s.to_string()).filter(|s| !s.is_empty());
-    let aliases: Vec<String> = cmd
-        .get_all_aliases()
-        .map(|a| a.to_string())
-        .collect();
+    let about = cmd
+        .get_about()
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty());
+    let aliases: Vec<String> = cmd.get_all_aliases().map(|a| a.to_string()).collect();
 
     let hidden = if cmd.is_hide_set() { Some(true) } else { None };
 
@@ -184,9 +184,8 @@ pub fn discover_to_value(path: &[String], deep: bool) -> serde_json::Value {
         }
     }
 
-    serde_json::to_value(build_node(current, depth)).unwrap_or_else(|e| {
-        serde_json::json!({ "error": format!("serialization failed: {}", e) })
-    })
+    serde_json::to_value(build_node(current, depth))
+        .unwrap_or_else(|e| serde_json::json!({ "error": format!("serialization failed: {}", e) }))
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +307,10 @@ mod tests {
     #[test]
     fn discover_to_value_top_level_returns_subcommands() {
         let v = discover_to_value(&[], false);
-        assert!(v.get("subcommands").is_some(), "top-level should have subcommands");
+        assert!(
+            v.get("subcommands").is_some(),
+            "top-level should have subcommands"
+        );
         let subs = v.get("subcommands").unwrap().as_array().unwrap();
         assert!(!subs.is_empty());
     }
@@ -323,6 +325,9 @@ mod tests {
     #[test]
     fn discover_to_value_unknown_path_returns_error() {
         let v = discover_to_value(&["no-such-command".to_string()], false);
-        assert!(v.get("error").is_some(), "unknown path should return error object");
+        assert!(
+            v.get("error").is_some(),
+            "unknown path should return error object"
+        );
     }
 }

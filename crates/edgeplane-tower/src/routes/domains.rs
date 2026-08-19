@@ -37,14 +37,20 @@ fn new_hash_id() -> String {
 }
 
 fn can_read(domain: &Domain, p: &Principal) -> bool {
-    if domain.visibility.to_lowercase() == "public" { return true; }
+    if domain.visibility.to_lowercase() == "public" {
+        return true;
+    }
     authorized_for_domain(domain, p)
 }
 
-fn can_write(domain: &Domain, p: &Principal) -> bool { authorized_for_domain(domain, p) }
+fn can_write(domain: &Domain, p: &Principal) -> bool {
+    authorized_for_domain(domain, p)
+}
 
 fn can_own(domain: &Domain, p: &Principal) -> bool {
-    if p.is_admin { return true; }
+    if p.is_admin {
+        return true;
+    }
     split_csv(&domain.owners).contains(&p.subject.to_lowercase())
 }
 

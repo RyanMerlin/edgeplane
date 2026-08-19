@@ -1,4 +1,4 @@
-use axum::{extract::Query, http::HeaderMap, response::IntoResponse, routing::get, Json, Router};
+use axum::{Json, Router, extract::Query, http::HeaderMap, response::IntoResponse, routing::get};
 use std::sync::Arc;
 
 use crate::state::AppState;

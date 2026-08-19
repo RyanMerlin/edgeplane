@@ -213,7 +213,11 @@ fn validate(cfg: &CronConfig, path_for_errors: &Path) -> Result<()> {
     // schedule parse.
     let mut seen_names = std::collections::HashSet::new();
     for (idx, job) in cfg.jobs.iter().enumerate() {
-        let where_ = format!("{} [[job]] #{idx} ({:?})", path_for_errors.display(), job.name);
+        let where_ = format!(
+            "{} [[job]] #{idx} ({:?})",
+            path_for_errors.display(),
+            job.name
+        );
 
         if job.name.is_empty() {
             bail!("{where_}: name is empty");
@@ -248,12 +252,16 @@ fn validate(cfg: &CronConfig, path_for_errors: &Path) -> Result<()> {
                 // and obviously malformed, surface a hint rather than silently dropping.
                 // (Empty string is fine — operators may omit it.)
             }
-            other => bail!("{where_}: unknown kind = {other:?} (expected \"cron\" or \"heartbeat\")"),
+            other => {
+                bail!("{where_}: unknown kind = {other:?} (expected \"cron\" or \"heartbeat\")")
+            }
         }
 
         match job.dispatch.as_str() {
             "signal" | "bash" => {}
-            other => bail!("{where_}: unknown dispatch = {other:?} (expected \"signal\" or \"bash\")"),
+            other => {
+                bail!("{where_}: unknown dispatch = {other:?} (expected \"signal\" or \"bash\")")
+            }
         }
     }
 
@@ -275,12 +283,16 @@ pub fn parse_duration(raw: &str) -> Result<std::time::Duration> {
     let mut num: Option<u64> = None;
     for c in raw.chars() {
         if let Some(d) = c.to_digit(10) {
-            num = Some(num.unwrap_or(0).checked_mul(10).and_then(|n| n.checked_add(d as u64))
-                .ok_or_else(|| anyhow!("number overflow in {raw:?}"))?);
+            num = Some(
+                num.unwrap_or(0)
+                    .checked_mul(10)
+                    .and_then(|n| n.checked_add(d as u64))
+                    .ok_or_else(|| anyhow!("number overflow in {raw:?}"))?,
+            );
         } else {
-            let n = num.take().ok_or_else(|| {
-                anyhow!("unit {c:?} with no preceding number in {raw:?}")
-            })?;
+            let n = num
+                .take()
+                .ok_or_else(|| anyhow!("unit {c:?} with no preceding number in {raw:?}"))?;
             let mult: u64 = match c {
                 's' => 1,
                 'm' => 60,
@@ -289,7 +301,10 @@ pub fn parse_duration(raw: &str) -> Result<std::time::Duration> {
                 other => bail!("unknown unit {other:?} in {raw:?} (expected s/m/h/d)"),
             };
             total_secs = total_secs
-                .checked_add(n.checked_mul(mult).ok_or_else(|| anyhow!("overflow in {raw:?}"))?)
+                .checked_add(
+                    n.checked_mul(mult)
+                        .ok_or_else(|| anyhow!("overflow in {raw:?}"))?,
+                )
                 .ok_or_else(|| anyhow!("overflow in {raw:?}"))?;
         }
     }
@@ -427,7 +442,10 @@ prompt = "x"
 "#;
         let err = parse(raw, &p()).unwrap_err();
         let msg = format!("{err:#}");
-        assert!(msg.contains("requires a non-empty `schedule`"), "msg: {msg}");
+        assert!(
+            msg.contains("requires a non-empty `schedule`"),
+            "msg: {msg}"
+        );
     }
 
     #[test]
@@ -556,8 +574,14 @@ dispatch = "k8s-job"
         use std::time::Duration;
         assert_eq!(parse_duration("30s").unwrap(), Duration::from_secs(30));
         assert_eq!(parse_duration("15m").unwrap(), Duration::from_secs(15 * 60));
-        assert_eq!(parse_duration("2h").unwrap(), Duration::from_secs(2 * 60 * 60));
-        assert_eq!(parse_duration("1d").unwrap(), Duration::from_secs(24 * 60 * 60));
+        assert_eq!(
+            parse_duration("2h").unwrap(),
+            Duration::from_secs(2 * 60 * 60)
+        );
+        assert_eq!(
+            parse_duration("1d").unwrap(),
+            Duration::from_secs(24 * 60 * 60)
+        );
         assert_eq!(
             parse_duration("2h30m").unwrap(),
             Duration::from_secs(2 * 60 * 60 + 30 * 60)

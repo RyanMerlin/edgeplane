@@ -54,7 +54,6 @@ pub struct DaemonConfig {
     #[serde(default)]
     pub home_domain_id: Option<String>,
     // ── Unit health (nightly restart) ─────────────────────────────────────
-
     /// Hour (local time, 0–23) at which edgeplaned issues a nightly restart
     /// for all supervised systemd units. Set to `null` / `~` to disable.
     /// Default: 3 (3 AM local time).
@@ -66,7 +65,6 @@ pub struct DaemonConfig {
     // Controls the `task_worker` module that polls for claimable MeshTasks,
     // enrolls ephemeral subagents, spawns `claude -p`, and cleans up on exit.
     // All fields have defaults so existing configs need no changes.
-
     /// Whether the task worker polling loop is active. Set to `false` to
     /// disable ephemeral subagent spawning on this node (useful during
     /// rollout or debugging). Default: `true`.
@@ -116,7 +114,6 @@ pub struct DaemonConfig {
     //
     // Controls how `required_capabilities` on a MeshTask are translated into
     // `--allowed-tools` restrictions on the spawned `claude -p` subprocess.
-
     /// When `true` (strict mode): tasks that declare no `required_capabilities`
     /// are immediately failed with an error — the dispatcher must declare blast
     /// radius. When `false` (default, lenient mode): tasks with no capabilities
@@ -221,8 +218,17 @@ fn read_state_profile_token() -> Option<String> {
     let content = std::fs::read_to_string(paths::state_file_path()).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
     let active = v.get("active_profile")?.as_str()?;
-    let token = v.get("profiles")?.get(active)?.get("auth")?.get("token")?.as_str()?;
-    if token.is_empty() { None } else { Some(token.to_string()) }
+    let token = v
+        .get("profiles")?
+        .get(active)?
+        .get("auth")?
+        .get("token")?
+        .as_str()?;
+    if token.is_empty() {
+        None
+    } else {
+        Some(token.to_string())
+    }
 }
 
 /// Parsed fields from node.json (`$EP_HOME/config/node.json`), written by
@@ -241,7 +247,9 @@ pub struct NodeCredentialFields {
 pub fn read_node_credential() -> Option<NodeCredentialFields> {
     let content = std::fs::read_to_string(edgeplaned_paths::node_credential_path()).ok()?;
     let cred: crate::register::NodeCredential = serde_json::from_str(&content).ok()?;
-    if cred.node_jwt.is_empty() { return None; }
+    if cred.node_jwt.is_empty() {
+        return None;
+    }
     Some(NodeCredentialFields {
         node_id: cred.node_id,
         node_jwt: cred.node_jwt,
@@ -271,8 +279,8 @@ pub(crate) fn write_node_credential_token_at_path(
 ) -> anyhow::Result<()> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("reading node credential at {}", path.display()))?;
-    let mut cred: crate::register::NodeCredential = serde_json::from_str(&content)
-        .with_context(|| "parsing node credential JSON")?;
+    let mut cred: crate::register::NodeCredential =
+        serde_json::from_str(&content).with_context(|| "parsing node credential JSON")?;
     cred.node_jwt = new_token.to_string();
     crate::register::write_node_credential_file(&cred, path)
 }
@@ -366,18 +374,18 @@ impl DaemonConfig {
         ];
         for path in &candidates {
             if path.exists()
-                && let Ok(cfg) = Self::from_path(path) {
-                    return Some(cfg);
-                }
+                && let Ok(cfg) = Self::from_path(path)
+            {
+                return Some(cfg);
+            }
         }
         None
     }
 
     pub fn from_path(path: &Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        serde_yaml::from_str(&text)
-            .with_context(|| format!("parsing {}", path.display()))
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        serde_yaml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
     }
 
     #[allow(dead_code)]
@@ -428,8 +436,14 @@ mod credential_token_tests {
         let updated: NodeCredential = serde_json::from_str(&content).unwrap();
         assert_eq!(updated.node_jwt, "new-jwt-value", "token should be updated");
         assert_eq!(updated.node_id, "node-abc", "node_id must not change");
-        assert_eq!(updated.tower_url, "http://edgeplane:8008", "tower_url must not change");
-        assert_eq!(updated.issued_at, "2026-01-01T00:00:00Z", "issued_at must not change");
+        assert_eq!(
+            updated.tower_url, "http://edgeplane:8008",
+            "tower_url must not change"
+        );
+        assert_eq!(
+            updated.issued_at, "2026-01-01T00:00:00Z",
+            "issued_at must not change"
+        );
     }
 
     #[test]

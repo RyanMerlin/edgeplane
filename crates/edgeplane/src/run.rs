@@ -1,5 +1,5 @@
-use crate::{claude, codex, config::EdgeplaneConfig};
 use crate::client::EdgeplaneClient;
+use crate::{claude, codex, config::EdgeplaneConfig};
 use anyhow::{Result, bail};
 use clap::{Args, ValueEnum};
 
@@ -106,7 +106,15 @@ pub async fn run(args: RunArgs, client: &EdgeplaneClient, config: &EdgeplaneConf
             .await
         }
         RunAction::Doctor => {
-            dispatch_doctor(args.runtime, profile, args.fix, args.json, args.headless, config).await
+            dispatch_doctor(
+                args.runtime,
+                profile,
+                args.fix,
+                args.json,
+                args.headless,
+                config,
+            )
+            .await
         }
         RunAction::Exec => dispatch_exec(args.runtime, profile, args.passthrough, config).await,
         RunAction::Status => dispatch_status(args.runtime, profile, args.json, config).await,
@@ -205,7 +213,9 @@ async fn dispatch_launch(
                 crate::ep_warn!("--new has no effect for {runtime} (no session resume)");
             }
             if with_rtk {
-                crate::ep_warn!("--with-rtk has no effect for {runtime} (RTK hooks are claude-only)");
+                crate::ep_warn!(
+                    "--with-rtk has no effect for {runtime} (RTK hooks are claude-only)"
+                );
             }
             crate::agent_harness::run_driver_agent(
                 runtime.as_str(),
@@ -236,7 +246,10 @@ async fn dispatch_doctor(
         "claude" => claude::run_doctor(profile, fix, json, headless, config).await,
         "codex" => codex::run_doctor(profile, fix, json, headless, config).await,
         "gemini" | "openclaw" | "custom" => {
-            bail!("`{}` is a driver-managed runtime and has no doctor command", runtime)
+            bail!(
+                "`{}` is a driver-managed runtime and has no doctor command",
+                runtime
+            )
         }
         other => bail!("unknown runtime '{}'", other),
     }
@@ -252,7 +265,10 @@ async fn dispatch_exec(
         "claude" => claude::run_exec(profile, passthrough, config).await,
         "codex" => codex::run_exec(profile, passthrough, config).await,
         "gemini" | "openclaw" | "custom" => {
-            bail!("`{}` is a driver-managed runtime and has no exec command", runtime)
+            bail!(
+                "`{}` is a driver-managed runtime and has no exec command",
+                runtime
+            )
         }
         other => bail!("unknown runtime '{}'", other),
     }
@@ -270,7 +286,10 @@ async fn dispatch_status(
         ),
         "codex" => codex::run_status(profile, json, config).await,
         "gemini" | "openclaw" | "custom" => {
-            bail!("`{}` is a driver-managed runtime and has no status command", runtime)
+            bail!(
+                "`{}` is a driver-managed runtime and has no status command",
+                runtime
+            )
         }
         other => bail!("unknown runtime '{}'", other),
     }
@@ -279,6 +298,9 @@ async fn dispatch_status(
 async fn dispatch_hook(runtime: String, event: String, config: &EdgeplaneConfig) -> Result<()> {
     match runtime.as_str() {
         "claude" => claude::run_hook(event, config).await,
-        other => bail!("hook is only supported for the claude runtime, got '{}'", other),
+        other => bail!(
+            "hook is only supported for the claude runtime, got '{}'",
+            other
+        ),
     }
 }

@@ -58,7 +58,12 @@ pub fn run(cmd: ReceiptsCmd) -> Result<()> {
             Some(r) => print_receipt(&r, json)?,
             None => anyhow::bail!("receipt '{}' not found", id),
         },
-        ReceiptsCmd::Ls { limit, domain, agent, json } => {
+        ReceiptsCmd::Ls {
+            limit,
+            domain,
+            agent,
+            json,
+        } => {
             let filter = ReceiptFilter {
                 domain_id: domain,
                 agent_id: agent,

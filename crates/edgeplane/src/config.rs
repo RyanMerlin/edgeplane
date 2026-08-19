@@ -179,16 +179,17 @@ pub fn load_server_list() -> Vec<String> {
     }
     let path = servers_file_path();
     if path.exists()
-        && let Ok(contents) = fs::read_to_string(&path) {
-            let servers: Vec<String> = contents
-                .lines()
-                .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                .collect();
-            if !servers.is_empty() {
-                return servers;
-            }
+        && let Ok(contents) = fs::read_to_string(&path)
+    {
+        let servers: Vec<String> = contents
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+        if !servers.is_empty() {
+            return servers;
         }
+    }
     if let Ok(val) = env::var("EP_BASE_URL") {
         return vec![val];
     }
@@ -244,4 +245,3 @@ pub fn persist_agent_id(agent_id: &str) -> std::io::Result<()> {
     }
     fs::write(path, format!("{}\n", agent_id))
 }
-

@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Widget},
 };
 
-use crate::tui::data::{MissionSummary, DomainSummary, TaskSummary};
+use crate::tui::data::{DomainSummary, MissionSummary, TaskSummary};
 use crate::tui::theme;
 
 /// Which filter is currently being typed.
@@ -19,8 +19,7 @@ pub enum FilterActive {
 }
 
 /// Which pane has keyboard focus.
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Focus {
     #[default]
     Domains,
@@ -33,8 +32,13 @@ pub enum Focus {
 /// Kept for backwards compatibility with app.rs matrix_enter logic.
 #[derive(Debug, Clone)]
 pub enum TreeNode {
-    Domain { idx: usize },
-    Mission { domain_idx: usize, mission_idx: usize },
+    Domain {
+        idx: usize,
+    },
+    Mission {
+        domain_idx: usize,
+        mission_idx: usize,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -60,7 +64,6 @@ pub struct MissionMatrixState {
     pub error: Option<String>,
 }
 
-
 impl MissionMatrixState {
     /// Handle a keypress in this screen.  Returns true if the event was consumed.
     pub fn handle_key(&mut self, key: crossterm::event::KeyCode) -> bool {
@@ -70,20 +73,20 @@ impl MissionMatrixState {
         // so Tab/←/→ can't leak into global nav while typing
         if self.filter_active != FilterActive::None {
             match key {
-                Char(c) => {
-                    match self.filter_active {
-                        FilterActive::Domain => self.domain_filter.push(c),
-                        FilterActive::Mission => self.mission_filter.push(c),
-                        FilterActive::None => {}
+                Char(c) => match self.filter_active {
+                    FilterActive::Domain => self.domain_filter.push(c),
+                    FilterActive::Mission => self.mission_filter.push(c),
+                    FilterActive::None => {}
+                },
+                Backspace => match self.filter_active {
+                    FilterActive::Domain => {
+                        self.domain_filter.pop();
                     }
-                }
-                Backspace => {
-                    match self.filter_active {
-                        FilterActive::Domain => { self.domain_filter.pop(); }
-                        FilterActive::Mission => { self.mission_filter.pop(); }
-                        FilterActive::None => {}
+                    FilterActive::Mission => {
+                        self.mission_filter.pop();
                     }
-                }
+                    FilterActive::None => {}
+                },
                 Esc => {
                     match self.filter_active {
                         FilterActive::Domain => self.domain_filter.clear(),
@@ -117,8 +120,12 @@ impl MissionMatrixState {
             }
             Char('/') => {
                 match self.focus {
-                    Focus::Domains => { self.filter_active = FilterActive::Domain; }
-                    Focus::Missions => { self.filter_active = FilterActive::Mission; }
+                    Focus::Domains => {
+                        self.filter_active = FilterActive::Domain;
+                    }
+                    Focus::Missions => {
+                        self.filter_active = FilterActive::Mission;
+                    }
                     _ => {}
                 }
                 true
@@ -135,10 +142,9 @@ impl MissionMatrixState {
                             self.mission_selection -= 1;
                         }
                     }
-                    Focus::Tasks
-                        if self.task_selection > 0 => {
-                            self.task_selection -= 1;
-                        }
+                    Focus::Tasks if self.task_selection > 0 => {
+                        self.task_selection -= 1;
+                    }
                     _ => {}
                 }
                 true
@@ -157,10 +163,9 @@ impl MissionMatrixState {
                             self.mission_selection += 1;
                         }
                     }
-                    Focus::Tasks
-                        if self.task_selection + 1 < self.tasks.len() => {
-                            self.task_selection += 1;
-                        }
+                    Focus::Tasks if self.task_selection + 1 < self.tasks.len() => {
+                        self.task_selection += 1;
+                    }
                     _ => {}
                 }
                 true
@@ -175,7 +180,10 @@ impl MissionMatrixState {
             return self.domains.iter().collect();
         }
         let q = self.domain_filter.to_lowercase();
-        self.domains.iter().filter(|m| m.name.to_lowercase().contains(&q)).collect()
+        self.domains
+            .iter()
+            .filter(|m| m.name.to_lowercase().contains(&q))
+            .collect()
     }
 
     /// Visible missions after applying mission_filter.
@@ -184,7 +192,10 @@ impl MissionMatrixState {
             return self.missions.iter().collect();
         }
         let q = self.mission_filter.to_lowercase();
-        self.missions.iter().filter(|k| k.name.to_lowercase().contains(&q)).collect()
+        self.missions
+            .iter()
+            .filter(|k| k.name.to_lowercase().contains(&q))
+            .collect()
     }
 
     /// Flattened list of tree nodes in display order (kept for app.rs compat).
@@ -194,7 +205,10 @@ impl MissionMatrixState {
             nodes.push(TreeNode::Domain { idx: mi });
             if Some(mi) == self.selected_domain_idx() {
                 for (ki, _) in self.missions.iter().enumerate() {
-                    nodes.push(TreeNode::Mission { domain_idx: mi, mission_idx: ki });
+                    nodes.push(TreeNode::Mission {
+                        domain_idx: mi,
+                        mission_idx: ki,
+                    });
                 }
             }
         }
@@ -285,7 +299,9 @@ fn render_domains_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState)
             Span::styled(state.domain_filter.clone(), theme::normal()),
             Span::styled("_", theme::accent()),
         ]);
-        Paragraph::new(filter_line).style(theme::normal()).render(fa, buf);
+        Paragraph::new(filter_line)
+            .style(theme::normal())
+            .render(fa, buf);
     }
 
     let visible = state.visible_domains();
@@ -296,19 +312,33 @@ fn render_domains_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState)
         return;
     }
 
-    let items: Vec<ListItem> = visible.iter().enumerate().map(|(i, m)| {
-        let selected = i == state.domain_selection;
-        let style = if selected && focused { theme::selected() } else if selected { Style::default().fg(theme::ACCENT) } else { theme::normal() };
-        let dot = status_dot(&m.status);
-        let prefix = if selected { "▶ " } else { "  " };
-        ListItem::new(Line::from(vec![
-            Span::styled(prefix, style),
-            Span::styled(dot, status_style(&m.status)),
-            Span::styled(format!(" {}", m.name), style),
-        ]))
-    }).collect();
+    let items: Vec<ListItem> = visible
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let selected = i == state.domain_selection;
+            let style = if selected && focused {
+                theme::selected()
+            } else if selected {
+                Style::default().fg(theme::ACCENT)
+            } else {
+                theme::normal()
+            };
+            let dot = status_dot(&m.status);
+            let prefix = if selected { "▶ " } else { "  " };
+            ListItem::new(Line::from(vec![
+                Span::styled(prefix, style),
+                Span::styled(dot, status_style(&m.status)),
+                Span::styled(format!(" {}", m.name), style),
+            ]))
+        })
+        .collect();
 
-    let sel = if focused { Some(state.domain_selection) } else { None };
+    let sel = if focused {
+        Some(state.domain_selection)
+    } else {
+        None
+    };
     let mut ls = ListState::default().with_selected(sel);
     ratatui::widgets::StatefulWidget::render(
         List::new(items).style(theme::normal()),
@@ -369,7 +399,9 @@ fn render_missions_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState
             Span::styled(state.mission_filter.clone(), theme::normal()),
             Span::styled("_", theme::accent()),
         ]);
-        Paragraph::new(filter_line).style(theme::normal()).render(fa, buf);
+        Paragraph::new(filter_line)
+            .style(theme::normal())
+            .render(fa, buf);
     }
 
     let visible = state.visible_missions();
@@ -380,19 +412,33 @@ fn render_missions_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState
         return;
     }
 
-    let items: Vec<ListItem> = visible.iter().enumerate().map(|(i, k)| {
-        let selected = i == state.mission_selection;
-        let style = if selected && focused { theme::selected() } else if selected { Style::default().fg(theme::ACCENT) } else { theme::normal() };
-        let dot = status_dot(&k.status);
-        let prefix = if selected { "▶ " } else { "  " };
-        ListItem::new(Line::from(vec![
-            Span::styled(prefix, style),
-            Span::styled(dot, status_style(&k.status)),
-            Span::styled(format!(" {}", k.name), style),
-        ]))
-    }).collect();
+    let items: Vec<ListItem> = visible
+        .iter()
+        .enumerate()
+        .map(|(i, k)| {
+            let selected = i == state.mission_selection;
+            let style = if selected && focused {
+                theme::selected()
+            } else if selected {
+                Style::default().fg(theme::ACCENT)
+            } else {
+                theme::normal()
+            };
+            let dot = status_dot(&k.status);
+            let prefix = if selected { "▶ " } else { "  " };
+            ListItem::new(Line::from(vec![
+                Span::styled(prefix, style),
+                Span::styled(dot, status_style(&k.status)),
+                Span::styled(format!(" {}", k.name), style),
+            ]))
+        })
+        .collect();
 
-    let sel = if focused { Some(state.mission_selection) } else { None };
+    let sel = if focused {
+        Some(state.mission_selection)
+    } else {
+        None
+    };
     let mut ls = ListState::default().with_selected(sel);
     ratatui::widgets::StatefulWidget::render(
         List::new(items).style(theme::normal()),
@@ -422,7 +468,11 @@ fn render_tasks_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState) {
 
     if state.tasks.is_empty() {
         Paragraph::new(Span::styled(
-            if state.selected_mission_id.is_some() { "no tasks" } else { "select a mission" },
+            if state.selected_mission_id.is_some() {
+                "no tasks"
+            } else {
+                "select a mission"
+            },
             theme::muted(),
         ))
         .style(theme::normal())
@@ -444,22 +494,37 @@ fn render_tasks_pane(buf: &mut Buffer, area: Rect, state: &MissionMatrixState) {
         Span::styled(format!("{:<14} ", "Status"), theme::muted()),
         Span::styled("Owner", theme::muted()),
     ]);
-    Paragraph::new(header).style(theme::normal()).render(header_area, buf);
+    Paragraph::new(header)
+        .style(theme::normal())
+        .render(header_area, buf);
 
-    let items: Vec<ListItem> = state.tasks.iter().enumerate().map(|(i, t)| {
-        let selected = i == state.task_selection && focused;
-        let style = if selected { theme::selected() } else { theme::normal() };
-        let dot = status_dot(&t.status);
-        ListItem::new(Line::from(vec![
-            Span::styled(format!("{:<4} ", i + 1), style),
-            Span::styled(format!("{:<30} ", truncate(&t.title, 28)), style),
-            Span::styled(dot, status_style(&t.status)),
-            Span::styled(format!(" {:<12} ", truncate(&t.status, 10)), style),
-            Span::styled(truncate(&t.owner, 12), theme::dim()),
-        ]))
-    }).collect();
+    let items: Vec<ListItem> = state
+        .tasks
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let selected = i == state.task_selection && focused;
+            let style = if selected {
+                theme::selected()
+            } else {
+                theme::normal()
+            };
+            let dot = status_dot(&t.status);
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{:<4} ", i + 1), style),
+                Span::styled(format!("{:<30} ", truncate(&t.title, 28)), style),
+                Span::styled(dot, status_style(&t.status)),
+                Span::styled(format!(" {:<12} ", truncate(&t.status, 10)), style),
+                Span::styled(truncate(&t.owner, 12), theme::dim()),
+            ]))
+        })
+        .collect();
 
-    let mut list_state = ListState::default().with_selected(if focused { Some(state.task_selection) } else { None });
+    let mut list_state = ListState::default().with_selected(if focused {
+        Some(state.task_selection)
+    } else {
+        None
+    });
     ratatui::widgets::StatefulWidget::render(
         List::new(items).style(theme::normal()),
         content_area,

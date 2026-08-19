@@ -30,7 +30,10 @@ pub fn migrate_once() {
 fn migrate_legacy_v1() {
     let edgeplaned = mcd_dir();
     if let Err(e) = std::fs::create_dir_all(&edgeplaned) {
-        warn!("migrate: could not create edgeplaned dir {}: {e}", edgeplaned.display());
+        warn!(
+            "migrate: could not create edgeplaned dir {}: {e}",
+            edgeplaned.display()
+        );
         return;
     }
 
@@ -46,8 +49,16 @@ fn migrate_legacy_v1() {
 
     // ── Daemon state files (scattered ~/.ep/edgeplane-mesh.* → ~/.ep/edgeplaned/) ────────
 
-    move_file(edgeplane.join("edgeplane-mesh.yaml"), edgeplaned.join("config.yaml"), "config");
-    move_file(edgeplane.join("edgeplane-mesh.state.json"), edgeplaned.join("state.json"), "state");
+    move_file(
+        edgeplane.join("edgeplane-mesh.yaml"),
+        edgeplaned.join("config.yaml"),
+        "config",
+    );
+    move_file(
+        edgeplane.join("edgeplane-mesh.state.json"),
+        edgeplaned.join("state.json"),
+        "state",
+    );
     move_db(
         edgeplane.join("edgeplane-mesh.db"),
         edgeplane.join("edgeplane-mesh.db-shm"),
@@ -55,7 +66,11 @@ fn migrate_legacy_v1() {
         edgeplaned.join("registry.db"),
         "registry",
     );
-    move_dir(edgeplane.join("edgeplane-mesh"), edgeplaned.join("work_legacy"), "work dir");
+    move_dir(
+        edgeplane.join("edgeplane-mesh"),
+        edgeplaned.join("work_legacy"),
+        "work dir",
+    );
 
     // ── legacy CLI config cleanup ─────────────────────────────────────────────────────
     // NOTE: ep_ctrl == ep_home_dir() after the MC→Edgeplane rename; the move_file
@@ -64,9 +79,21 @@ fn migrate_legacy_v1() {
 
     let ep_ctrl = home.join(".edgeplane");
     if ep_ctrl.exists() {
-        move_file(ep_ctrl.join("config.json"), edgeplane.join("config.json"), "edgeplane config");
-        move_file(ep_ctrl.join("session.json"), edgeplane.join("session.json"), "edgeplane session");
-        move_dir(ep_ctrl.join("sync"), edgeplane.join("sync"), "edgeplane sync");
+        move_file(
+            ep_ctrl.join("config.json"),
+            edgeplane.join("config.json"),
+            "edgeplane config",
+        );
+        move_file(
+            ep_ctrl.join("session.json"),
+            edgeplane.join("session.json"),
+            "edgeplane session",
+        );
+        move_dir(
+            ep_ctrl.join("sync"),
+            edgeplane.join("sync"),
+            "edgeplane sync",
+        );
 
         // Remove stale legacy edgeplaned artifacts left by old installs.
         let _ = std::fs::remove_file(ep_ctrl.join("edgeplane-mesh.sock"));
@@ -81,9 +108,7 @@ fn migrate_legacy_v1() {
                 info!("migrate: removed {}", ep_ctrl.display());
             }
         } else {
-            warn!(
-                "migrate: ~/.edgeplane still has entries after migration — leaving in place"
-            );
+            warn!("migrate: ~/.edgeplane still has entries after migration — leaving in place");
         }
     }
 
@@ -92,7 +117,10 @@ fn migrate_legacy_v1() {
 
     // ── Write sentinel ───────────────────────────────────────────────────────
     if let Err(e) = std::fs::write(&sentinel, b"") {
-        warn!("migrate: could not write sentinel {}: {e}", sentinel.display());
+        warn!(
+            "migrate: could not write sentinel {}: {e}",
+            sentinel.display()
+        );
     } else {
         info!("edgeplaned: path migration complete");
     }
@@ -117,11 +145,31 @@ fn migrate_to_buckets_v2() {
     }
 
     // config/
-    move_file(edgeplaned.join("cron.toml"), config_dir().join("cron.toml"), "cron.toml");
-    move_file(edgeplaned.join("config.yaml"), config_dir().join("config.yaml"), "config.yaml");
-    move_file(home.join("config.json"), config_dir().join("config.json"), "cli config.json");
-    move_file(home.join("contexts.yaml"), config_dir().join("contexts.yaml"), "contexts.yaml");
-    move_file(home.join("servers"), config_dir().join("servers"), "servers");
+    move_file(
+        edgeplaned.join("cron.toml"),
+        config_dir().join("cron.toml"),
+        "cron.toml",
+    );
+    move_file(
+        edgeplaned.join("config.yaml"),
+        config_dir().join("config.yaml"),
+        "config.yaml",
+    );
+    move_file(
+        home.join("config.json"),
+        config_dir().join("config.json"),
+        "cli config.json",
+    );
+    move_file(
+        home.join("contexts.yaml"),
+        config_dir().join("contexts.yaml"),
+        "contexts.yaml",
+    );
+    move_file(
+        home.join("servers"),
+        config_dir().join("servers"),
+        "servers",
+    );
 
     // state/
     move_db(
@@ -138,22 +186,46 @@ fn migrate_to_buckets_v2() {
         state_dir().join("receipts.db"),
         "receipts",
     );
-    move_file(edgeplaned.join("state.json"), state_dir().join("state.json"), "state.json");
+    move_file(
+        edgeplaned.join("state.json"),
+        state_dir().join("state.json"),
+        "state.json",
+    );
     move_file(
         edgeplaned.join("state.json.bak"),
         state_dir().join("state.json.bak"),
         "state.json.bak",
     );
-    move_file(home.join("session.json"), state_dir().join("session.json"), "session.json");
-    move_file(home.join("agent_id"), state_dir().join("agent_id"), "agent_id");
+    move_file(
+        home.join("session.json"),
+        state_dir().join("session.json"),
+        "session.json",
+    );
+    move_file(
+        home.join("agent_id"),
+        state_dir().join("agent_id"),
+        "agent_id",
+    );
     move_file(
         home.join("infisical_profiles.json"),
         state_dir().join("infisical_profiles.json"),
         "infisical_profiles.json",
     );
-    move_dir(home.join("instances"), state_dir().join("instances"), "instances");
-    move_dir(home.join("sessions"), state_dir().join("sessions"), "sessions");
-    move_dir(home.join("profiles"), state_dir().join("profiles"), "profiles");
+    move_dir(
+        home.join("instances"),
+        state_dir().join("instances"),
+        "instances",
+    );
+    move_dir(
+        home.join("sessions"),
+        state_dir().join("sessions"),
+        "sessions",
+    );
+    move_dir(
+        home.join("profiles"),
+        state_dir().join("profiles"),
+        "profiles",
+    );
     move_dir(home.join("skills"), state_dir().join("skills"), "skills");
     move_dir(home.join("sync"), state_dir().join("sync"), "sync");
 
@@ -211,12 +283,19 @@ fn move_file(src: PathBuf, dst: PathBuf, label: &str) {
     if let Err(e) = std::fs::rename(&src, &dst) {
         // rename fails across filesystems — fall back to copy + remove.
         if let Err(e2) = std::fs::copy(&src, &dst).and_then(|_| std::fs::remove_file(&src)) {
-            warn!("migrate: could not move {label} ({} → {}): rename={e} copy={e2}",
-                src.display(), dst.display());
+            warn!(
+                "migrate: could not move {label} ({} → {}): rename={e} copy={e2}",
+                src.display(),
+                dst.display()
+            );
             return;
         }
     }
-    info!("migrate: moved {label}: {} → {}", src.display(), dst.display());
+    info!(
+        "migrate: moved {label}: {} → {}",
+        src.display(),
+        dst.display()
+    );
 }
 
 fn move_db(src: PathBuf, src_shm: PathBuf, src_wal: PathBuf, dst: PathBuf, label: &str) {
@@ -244,10 +323,17 @@ fn move_dir(src: PathBuf, dst: PathBuf, label: &str) {
         return;
     }
     if let Err(e) = std::fs::rename(&src, &dst) {
-        warn!("migrate: could not rename {label} dir ({} → {}): {e}",
-            src.display(), dst.display());
+        warn!(
+            "migrate: could not rename {label} dir ({} → {}): {e}",
+            src.display(),
+            dst.display()
+        );
     } else {
-        info!("migrate: moved {label} dir: {} → {}", src.display(), dst.display());
+        info!(
+            "migrate: moved {label} dir: {} → {}",
+            src.display(),
+            dst.display()
+        );
     }
 }
 
@@ -275,11 +361,18 @@ fn merge_dir(src: PathBuf, dst: PathBuf) {
         let from = entry.path();
         let to = dst.join(entry.file_name());
         if to.exists() {
-            info!("migrate v2: work item already at destination, skipping {}", to.display());
+            info!(
+                "migrate v2: work item already at destination, skipping {}",
+                to.display()
+            );
             continue;
         }
         if let Err(e) = std::fs::rename(&from, &to) {
-            warn!("migrate v2: could not move work item {} -> {}: {e}", from.display(), to.display());
+            warn!(
+                "migrate v2: could not move work item {} -> {}: {e}",
+                from.display(),
+                to.display()
+            );
         }
     }
     // Remove the now-(hopefully)-empty source dir; ignore failure if not empty.
@@ -314,12 +407,20 @@ mod tests {
         fs::write(edgeplaned.join(SENTINEL), b"").unwrap();
 
         // Write a file that migration would otherwise move.
-        fs::write(edgeplane.join("edgeplane-mesh.yaml"), b"backend_url: http://test").unwrap();
+        fs::write(
+            edgeplane.join("edgeplane-mesh.yaml"),
+            b"backend_url: http://test",
+        )
+        .unwrap();
 
         // With HOME pointing at tmp, sentinel is already present — nothing moves.
         // (migrate_once uses dirs::home_dir() so we can't easily override in a unit test;
         //  test the helpers directly instead.)
-        move_file(edgeplane.join("edgeplane-mesh.yaml"), edgeplaned.join("config.yaml"), "config");
+        move_file(
+            edgeplane.join("edgeplane-mesh.yaml"),
+            edgeplaned.join("config.yaml"),
+            "config",
+        );
         assert!(edgeplaned.join("config.yaml").exists());
         assert!(!edgeplane.join("edgeplane-mesh.yaml").exists());
     }
@@ -347,9 +448,17 @@ mod tests {
         let new_dir = tmp.path().join("edgeplane");
         fs::create_dir_all(&legacy_dir).unwrap();
         fs::create_dir_all(&new_dir).unwrap();
-        fs::write(legacy_dir.join("config.json"), b"{\"server\":\"http://edgeplane\"}").unwrap();
+        fs::write(
+            legacy_dir.join("config.json"),
+            b"{\"server\":\"http://edgeplane\"}",
+        )
+        .unwrap();
 
-        move_file(legacy_dir.join("config.json"), new_dir.join("config.json"), "edgeplane config");
+        move_file(
+            legacy_dir.join("config.json"),
+            new_dir.join("config.json"),
+            "edgeplane config",
+        );
 
         assert!(new_dir.join("config.json").exists());
         assert!(!legacy_dir.join("config.json").exists());
@@ -396,31 +505,85 @@ mod tests {
 
         migrate_once();
 
-        assert!(home.join("config/cron.toml").exists(), "cron.toml -> config/");
-        assert!(home.join("config/config.yaml").exists(), "config.yaml -> config/");
-        assert!(home.join("config/contexts.yaml").exists(), "contexts.yaml -> config/");
-        assert!(home.join("state/state.json").exists(), "state.json -> state/");
-        assert!(home.join("state/registry.db").exists(), "registry.db -> state/");
-        assert!(home.join("state/registry.db-wal").exists(), "wal sibling moved");
-        assert!(home.join("state/receipts.db").exists(), "receipts.db -> state/");
-        assert!(home.join("state/session.json").exists(), "session.json -> state/");
+        assert!(
+            home.join("config/cron.toml").exists(),
+            "cron.toml -> config/"
+        );
+        assert!(
+            home.join("config/config.yaml").exists(),
+            "config.yaml -> config/"
+        );
+        assert!(
+            home.join("config/contexts.yaml").exists(),
+            "contexts.yaml -> config/"
+        );
+        assert!(
+            home.join("state/state.json").exists(),
+            "state.json -> state/"
+        );
+        assert!(
+            home.join("state/registry.db").exists(),
+            "registry.db -> state/"
+        );
+        assert!(
+            home.join("state/registry.db-wal").exists(),
+            "wal sibling moved"
+        );
+        assert!(
+            home.join("state/receipts.db").exists(),
+            "receipts.db -> state/"
+        );
+        assert!(
+            home.join("state/session.json").exists(),
+            "session.json -> state/"
+        );
         // Additional bucket assertions.
         assert!(home.join("state/agent_id").exists(), "agent_id -> state/");
-        assert_eq!(fs::read_to_string(home.join("state/agent_id")).unwrap(), "agt-abc123");
-        assert!(home.join("state/infisical_profiles.json").exists(), "infisical_profiles.json -> state/");
-        assert!(home.join("state/instances/inst-1/state.json").exists(), "instances/ -> state/instances/");
-        assert!(home.join("state/profiles/operator/ctx.json").exists(), "profiles/ -> state/profiles/");
-        assert!(home.join("state/skills/my-skill.toml").exists(), "skills/ -> state/skills/");
-        assert!(home.join("state/sync/data.json").exists(), "sync/ -> state/sync/");
-        assert!(home.join("config/servers").is_file(), "servers (file) -> config/servers");
+        assert_eq!(
+            fs::read_to_string(home.join("state/agent_id")).unwrap(),
+            "agt-abc123"
+        );
+        assert!(
+            home.join("state/infisical_profiles.json").exists(),
+            "infisical_profiles.json -> state/"
+        );
+        assert!(
+            home.join("state/instances/inst-1/state.json").exists(),
+            "instances/ -> state/instances/"
+        );
+        assert!(
+            home.join("state/profiles/operator/ctx.json").exists(),
+            "profiles/ -> state/profiles/"
+        );
+        assert!(
+            home.join("state/skills/my-skill.toml").exists(),
+            "skills/ -> state/skills/"
+        );
+        assert!(
+            home.join("state/sync/data.json").exists(),
+            "sync/ -> state/sync/"
+        );
+        assert!(
+            home.join("config/servers").is_file(),
+            "servers (file) -> config/servers"
+        );
         assert!(!edgeplaned.join("hn.html").exists(), "hn.html junk deleted");
         // cron compat symlink resolves to the moved file.
         let link = edgeplaned.join("cron.toml");
         assert!(link.exists(), "cron.toml compat symlink present");
         assert_eq!(fs::read_to_string(&link).unwrap(), "schema_version = 1\n");
-        assert!(home.join("edgeplaned/.migrated-v2").exists(), "v2 sentinel written");
-        assert!(home.join("work/agentA/ws.txt").exists(), "agent workspace moved to work/");
-        assert_eq!(fs::read_to_string(home.join("work/agentA/ws.txt")).unwrap(), "workspace");
+        assert!(
+            home.join("edgeplaned/.migrated-v2").exists(),
+            "v2 sentinel written"
+        );
+        assert!(
+            home.join("work/agentA/ws.txt").exists(),
+            "agent workspace moved to work/"
+        );
+        assert_eq!(
+            fs::read_to_string(home.join("work/agentA/ws.txt")).unwrap(),
+            "workspace"
+        );
 
         unsafe { std::env::remove_var("EP_HOME") };
     }
@@ -467,7 +630,10 @@ mod tests {
         );
 
         // v2 sentinel written.
-        assert!(home.join("edgeplaned/.migrated-v2").exists(), "v2 sentinel written");
+        assert!(
+            home.join("edgeplaned/.migrated-v2").exists(),
+            "v2 sentinel written"
+        );
 
         unsafe { std::env::remove_var("EP_HOME") };
     }
@@ -489,9 +655,18 @@ mod tests {
 
         // First run — migrates files.
         migrate_once();
-        assert!(home.join("config/cron.toml").exists(), "first run: cron moved");
-        assert!(home.join("state/state.json").exists(), "first run: state moved");
-        assert!(home.join("edgeplaned/.migrated-v2").exists(), "sentinel written");
+        assert!(
+            home.join("config/cron.toml").exists(),
+            "first run: cron moved"
+        );
+        assert!(
+            home.join("state/state.json").exists(),
+            "first run: state moved"
+        );
+        assert!(
+            home.join("edgeplaned/.migrated-v2").exists(),
+            "sentinel written"
+        );
 
         // Seed a new file at the OLD location after the first run.
         fs::write(edgeplaned.join("state.json"), b"NEW").unwrap();

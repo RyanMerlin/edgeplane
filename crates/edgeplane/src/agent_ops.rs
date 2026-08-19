@@ -153,9 +153,12 @@ pub async fn run_describe(args: DescribeArgs, client: &EdgeplaneClient) -> Resul
     let (source, body) = if args.remote {
         ("remote", describe_remote(&args.agent_id, client).await?)
     } else if args.local {
-        ("local", describe_local(&args.agent_id).await?.ok_or_else(|| {
-            anyhow!("no local agent named '{}'", args.agent_id)
-        })?)
+        (
+            "local",
+            describe_local(&args.agent_id)
+                .await?
+                .ok_or_else(|| anyhow!("no local agent named '{}'", args.agent_id))?,
+        )
     } else {
         match describe_local(&args.agent_id).await? {
             Some(v) => ("local", v),
@@ -224,9 +227,15 @@ pub async fn run_register(args: RegisterArgs, client: &EdgeplaneClient) -> Resul
     if args.json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        let id = result.get("id").or_else(|| result.get("public_id"))
-            .and_then(|v| v.as_str()).unwrap_or("?");
-        let name = result.get("name").and_then(|v| v.as_str()).unwrap_or(&args.name);
+        let id = result
+            .get("id")
+            .or_else(|| result.get("public_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let name = result
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&args.name);
         println!("registered agent '{name}' id={id}");
     }
     Ok(())
@@ -234,11 +243,16 @@ pub async fn run_register(args: RegisterArgs, client: &EdgeplaneClient) -> Resul
 
 pub async fn run_set_status(args: SetStatusArgs, client: &EdgeplaneClient) -> Result<()> {
     let body = json!({ "status": args.status });
-    let result: Value = client.patch_json(&format!("/agents/{}", args.id), &body).await?;
+    let result: Value = client
+        .patch_json(&format!("/agents/{}", args.id), &body)
+        .await?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        let status = result.get("status").and_then(|v| v.as_str()).unwrap_or(&args.status);
+        let status = result
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&args.status);
         println!("agent {} status -> {status}", args.id);
     }
     Ok(())
@@ -280,7 +294,7 @@ pub async fn run_delete(args: DeleteArgs, client: &EdgeplaneClient) -> Result<()
             "Delete agent {} ({})? This cannot be undone. [y/N]: ",
             name, display_id
         );
-        use std::io::{Write, BufRead};
+        use std::io::{BufRead, Write};
         std::io::stderr().flush()?;
         let mut answer = String::new();
         std::io::BufReader::new(std::io::stdin()).read_line(&mut answer)?;
@@ -290,19 +304,22 @@ pub async fn run_delete(args: DeleteArgs, client: &EdgeplaneClient) -> Result<()
         }
     }
 
-    client.delete(&format!("/agents/{}", args.agent_id)).await.map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("HTTP 404") {
-            anyhow!("agent '{}' not found on the controlplane", args.agent_id)
-        } else if msg.contains("HTTP 403") {
-            anyhow!(
-                "forbidden: insufficient permissions to delete agent '{}'",
-                args.agent_id
-            )
-        } else {
-            e
-        }
-    })?;
+    client
+        .delete(&format!("/agents/{}", args.agent_id))
+        .await
+        .map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("HTTP 404") {
+                anyhow!("agent '{}' not found on the controlplane", args.agent_id)
+            } else if msg.contains("HTTP 403") {
+                anyhow!(
+                    "forbidden: insufficient permissions to delete agent '{}'",
+                    args.agent_id
+                )
+            } else {
+                e
+            }
+        })?;
 
     if args.json {
         println!(
@@ -435,10 +452,7 @@ async fn describe_remote(agent_id: &str, client: &EdgeplaneClient) -> Result<Val
 }
 
 async fn list_remote(client: &EdgeplaneClient) -> Result<Vec<Value>> {
-    let v: Value = client
-        .get_json("/agents")
-        .await
-        .context("GET /agents")?;
+    let v: Value = client.get_json("/agents").await.context("GET /agents")?;
     Ok(v.as_array().cloned().unwrap_or_default())
 }
 
@@ -451,12 +465,14 @@ fn mgmt_socket_path() -> std::path::PathBuf {
 
 async fn call_mgmt(method: &str, params: Value) -> Result<Value> {
     let path = mgmt_socket_path();
-    let stream = tokio::net::UnixStream::connect(&path).await.with_context(|| {
-        format!(
-            "connect to edgeplaned mgmt socket {} (is edgeplaned running?)",
-            path.display()
-        )
-    })?;
+    let stream = tokio::net::UnixStream::connect(&path)
+        .await
+        .with_context(|| {
+            format!(
+                "connect to edgeplaned mgmt socket {} (is edgeplaned running?)",
+                path.display()
+            )
+        })?;
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
 
@@ -468,14 +484,16 @@ async fn call_mgmt(method: &str, params: Value) -> Result<Value> {
     });
     let mut bytes = serde_json::to_vec(&request).context("serialize request")?;
     bytes.push(b'\n');
-    write_half.write_all(&bytes).await.context("write request")?;
+    write_half
+        .write_all(&bytes)
+        .await
+        .context("write request")?;
 
     let mut line = String::new();
     reader.read_line(&mut line).await.context("read response")?;
 
-    let parsed: Value = serde_json::from_str(line.trim()).with_context(|| {
-        format!("parse response from mgmt socket: {}", line.trim())
-    })?;
+    let parsed: Value = serde_json::from_str(line.trim())
+        .with_context(|| format!("parse response from mgmt socket: {}", line.trim()))?;
 
     if let Some(err) = parsed.get("error") {
         let code = err.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
@@ -492,7 +510,10 @@ async fn call_mgmt(method: &str, params: Value) -> Result<Value> {
 // ─── Pretty printers ─────────────────────────────────────────────────────
 
 fn print_describe_human(envelope: &Value) {
-    let source = envelope.get("source").and_then(|v| v.as_str()).unwrap_or("?");
+    let source = envelope
+        .get("source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
     let agent = envelope.get("agent").cloned().unwrap_or(Value::Null);
     println!("source:        {source}");
     if let Some(id) = agent.get("agent_id").and_then(|v| v.as_str()) {
@@ -505,9 +526,10 @@ fn print_describe_human(envelope: &Value) {
         println!("source_tag:    {s}");
     }
     if let Some(m) = agent.get("domain_id").and_then(|v| v.as_str())
-        && !m.is_empty() {
-            println!("domain_id:    {m}");
-        }
+        && !m.is_empty()
+    {
+        println!("domain_id:    {m}");
+    }
     if let Some(zs) = agent.get("zellij_session").and_then(|v| v.as_str()) {
         println!("zellij_session:{zs}");
     }
@@ -528,7 +550,10 @@ fn print_list_human(local: &[Value], remote: &[Value]) {
         println!("LOCAL ({}):", local.len());
         for a in local {
             let id = a.get("agent_id").and_then(|v| v.as_str()).unwrap_or("?");
-            let rk = a.get("runtime_kind").and_then(|v| v.as_str()).unwrap_or("?");
+            let rk = a
+                .get("runtime_kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
             let zs = a
                 .get("zellij_session")
                 .and_then(|v| v.as_str())
@@ -552,7 +577,10 @@ fn print_list_human(local: &[Value], remote: &[Value]) {
                 .or_else(|| a.get("id"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
-            let rk = a.get("runtime_kind").and_then(|v| v.as_str()).unwrap_or("?");
+            let rk = a
+                .get("runtime_kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
             let status = a.get("status").and_then(|v| v.as_str()).unwrap_or("");
             println!("  {id:<32} {rk:<18}  {status}");
         }

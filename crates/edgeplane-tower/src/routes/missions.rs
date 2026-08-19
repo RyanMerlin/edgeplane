@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Json, Router,
 };
 use chrono::Utc;
 use rand::random;
@@ -19,10 +19,15 @@ use crate::{
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/domains/{domain_id}/m", get(list_missions).post(create_mission))
+        .route(
+            "/domains/{domain_id}/m",
+            get(list_missions).post(create_mission),
+        )
         .route(
             "/domains/{domain_id}/m/{mission_id}",
-            get(get_mission).patch(update_mission).delete(delete_mission),
+            get(get_mission)
+                .patch(update_mission)
+                .delete(delete_mission),
         )
         .route(
             "/domains/{domain_id}/m/{mission_id}/brief",
@@ -40,33 +45,55 @@ fn new_hash_id() -> String {
 }
 
 fn split_csv(s: &str) -> Vec<String> {
-    s.split(',').map(|x| x.trim().to_lowercase()).filter(|x| !x.is_empty()).collect()
+    s.split(',')
+        .map(|x| x.trim().to_lowercase())
+        .filter(|x| !x.is_empty())
+        .collect()
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
-fn domain_readable(domain_visibility: &str, principal: &Principal, domain_owners: &str, domain_contributors: &str) -> bool {
-    if principal.is_admin { return true; }
-    if domain_visibility.to_lowercase() == "public" { return true; }
+fn domain_readable(
+    domain_visibility: &str,
+    principal: &Principal,
+    domain_owners: &str,
+    domain_contributors: &str,
+) -> bool {
+    if principal.is_admin {
+        return true;
+    }
+    if domain_visibility.to_lowercase() == "public" {
+        return true;
+    }
     let id = principal.subject.to_lowercase();
     split_csv(domain_owners).contains(&id) || split_csv(domain_contributors).contains(&id)
 }
 
 fn domain_writable(principal: &Principal, domain_owners: &str, domain_contributors: &str) -> bool {
-    if principal.is_admin { return true; }
+    if principal.is_admin {
+        return true;
+    }
     let id = principal.subject.to_lowercase();
     split_csv(domain_owners).contains(&id) || split_csv(domain_contributors).contains(&id)
 }
 
 fn domain_ownable(principal: &Principal, domain_owners: &str) -> bool {
-    if principal.is_admin { return true; }
+    if principal.is_admin {
+        return true;
+    }
     split_csv(domain_owners).contains(&principal.subject.to_lowercase())
 }
 
 #[derive(Deserialize)]
-struct ListQuery { limit: Option<i64> }
+struct ListQuery {
+    limit: Option<i64>,
+}
 
 async fn list_missions(
     State(state): State<Arc<AppState>>,
@@ -76,7 +103,9 @@ async fn list_missions(
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(100).min(500);
     let m = sqlx::query("SELECT * FROM domain WHERE id=$1")
-        .bind(&domain_id).fetch_optional(&state.db).await;
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await;
     let (vis, owners, contribs) = match m {
         Ok(Some(r)) => (
             r.try_get::<String, _>("visibility").unwrap_or_default(),
@@ -84,16 +113,28 @@ async fn list_missions(
             r.try_get::<String, _>("contributors").unwrap_or_default(),
         ),
         Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("list_missions fetch domain: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("list_missions fetch domain: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
-    if !domain_readable(&vis, &principal, &owners, &contribs) { return StatusCode::FORBIDDEN.into_response(); }
+    if !domain_readable(&vis, &principal, &owners, &contribs) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
 
     match sqlx::query_as::<_, Mission>(
-        "SELECT * FROM mission WHERE domain_id=$1 ORDER BY updated_at DESC LIMIT $2"
+        "SELECT * FROM mission WHERE domain_id=$1 ORDER BY updated_at DESC LIMIT $2",
     )
-    .bind(&domain_id).bind(limit).fetch_all(&state.db).await {
+    .bind(&domain_id)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    {
         Ok(rows) => Json(rows).into_response(),
-        Err(e) => { tracing::error!("list_missions: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("list_missions: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -104,16 +145,23 @@ async fn create_mission(
     Json(payload): Json<MissionCreate>,
 ) -> impl IntoResponse {
     let m = sqlx::query("SELECT * FROM domain WHERE id=$1")
-        .bind(&domain_id).fetch_optional(&state.db).await;
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await;
     let (owners, contribs) = match m {
         Ok(Some(r)) => (
             r.try_get::<String, _>("owners").unwrap_or_default(),
             r.try_get::<String, _>("contributors").unwrap_or_default(),
         ),
         Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("create_mission fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("create_mission fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
-    if !domain_writable(&principal, &owners, &contribs) { return StatusCode::FORBIDDEN.into_response(); }
+    if !domain_writable(&principal, &owners, &contribs) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     // Mirror the domain handler: an empty owners defaults to the authenticated
     // caller's subject (the Principal extractor guarantees one). Lets a service
     // account (e.g. edgeplaned's intake-mission bootstrap) omit owners without a
@@ -124,14 +172,23 @@ async fn create_mission(
         payload.owners.clone()
     };
     if split_csv(&mission_owners).is_empty() {
-        return (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({"detail": "owners must include at least one owner"}))).into_response();
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({"detail": "owners must include at least one owner"})),
+        )
+            .into_response();
     }
 
     let mut id = new_hash_id();
     for _ in 0..5 {
         let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1")
-            .bind(&id).fetch_optional(&state.db).await.unwrap_or(None);
-        if exists.is_none() { break; }
+            .bind(&id)
+            .fetch_optional(&state.db)
+            .await
+            .unwrap_or(None);
+        if exists.is_none() {
+            break;
+        }
         id = new_hash_id();
     }
 
@@ -139,24 +196,43 @@ async fn create_mission(
     // If workstream_md is provided, stamp the created_by/at metadata too so
     // it's not orphaned. If it's empty (the historic default), leave the
     // workstream metadata empty as before.
-    let ws_created_by: &str = if payload.workstream_md.is_empty() { "" } else { principal.subject.as_str() };
-    let ws_created_at: Option<chrono::NaiveDateTime> = if payload.workstream_md.is_empty() { None } else { Some(now) };
+    let ws_created_by: &str = if payload.workstream_md.is_empty() {
+        ""
+    } else {
+        principal.subject.as_str()
+    };
+    let ws_created_at: Option<chrono::NaiveDateTime> = if payload.workstream_md.is_empty() {
+        None
+    } else {
+        Some(now)
+    };
     match sqlx::query_as::<_, Mission>(
         r#"INSERT INTO mission
             (id, domain_id, name, description, owners, contributors, tags, status,
              workstream_md, workstream_version, workstream_created_by, workstream_modified_by,
              workstream_created_at, workstream_modified_at, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10,$10,$11,$11,$12,$12) RETURNING *"#
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10,$10,$11,$11,$12,$12) RETURNING *"#,
     )
-    .bind(&id).bind(&domain_id).bind(&payload.name).bind(&payload.description)
-    .bind(&mission_owners).bind(&payload.contributors).bind(&payload.tags).bind(&payload.status)
+    .bind(&id)
+    .bind(&domain_id)
+    .bind(&payload.name)
+    .bind(&payload.description)
+    .bind(&mission_owners)
+    .bind(&payload.contributors)
+    .bind(&payload.tags)
+    .bind(&payload.status)
     .bind(&payload.workstream_md)
     .bind(ws_created_by)
     .bind(ws_created_at)
     .bind(now)
-    .fetch_one(&state.db).await {
+    .fetch_one(&state.db)
+    .await
+    {
         Ok(k) => (StatusCode::OK, Json(k)).into_response(),
-        Err(e) => { tracing::error!("create_mission insert: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("create_mission insert: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -166,7 +242,9 @@ async fn get_mission(
     Path((domain_id, mission_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let m = sqlx::query("SELECT * FROM domain WHERE id=$1")
-        .bind(&domain_id).fetch_optional(&state.db).await;
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await;
     let (vis, owners, contribs) = match m {
         Ok(Some(r)) => (
             r.try_get::<String, _>("visibility").unwrap_or_default(),
@@ -174,15 +252,27 @@ async fn get_mission(
             r.try_get::<String, _>("contributors").unwrap_or_default(),
         ),
         Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("get_mission domain: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("get_mission domain: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
-    if !domain_readable(&vis, &principal, &owners, &contribs) { return StatusCode::FORBIDDEN.into_response(); }
+    if !domain_readable(&vis, &principal, &owners, &contribs) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
 
     match sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1 AND domain_id=$2")
-        .bind(&mission_id).bind(&domain_id).fetch_optional(&state.db).await {
+        .bind(&mission_id)
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await
+    {
         Ok(Some(k)) => Json(k).into_response(),
         Ok(None) => not_found("Mission not found"),
-        Err(e) => { tracing::error!("get_mission: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("get_mission: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -193,46 +283,74 @@ async fn update_mission(
     Json(payload): Json<MissionUpdate>,
 ) -> impl IntoResponse {
     let m = sqlx::query("SELECT * FROM domain WHERE id=$1")
-        .bind(&domain_id).fetch_optional(&state.db).await;
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await;
     let (owners, contribs) = match m {
         Ok(Some(r)) => (
             r.try_get::<String, _>("owners").unwrap_or_default(),
             r.try_get::<String, _>("contributors").unwrap_or_default(),
         ),
         Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("update_mission domain: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("update_mission domain: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
-    if !domain_writable(&principal, &owners, &contribs) { return StatusCode::FORBIDDEN.into_response(); }
+    if !domain_writable(&principal, &owners, &contribs) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
 
     let k = sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1 AND domain_id=$2")
-        .bind(&mission_id).bind(&domain_id).fetch_optional(&state.db).await;
+        .bind(&mission_id)
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await;
     let mission = match k {
         Ok(Some(k)) => k,
         Ok(None) => return not_found("Mission not found"),
-        Err(e) => { tracing::error!("update_mission fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("update_mission fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
-    let name         = payload.name.unwrap_or(mission.name);
-    let description  = payload.description.unwrap_or(mission.description);
-    let new_owners   = payload.owners.unwrap_or(mission.owners);
+    let name = payload.name.unwrap_or(mission.name);
+    let description = payload.description.unwrap_or(mission.description);
+    let new_owners = payload.owners.unwrap_or(mission.owners);
     let contributors = payload.contributors.unwrap_or(mission.contributors);
-    let tags         = payload.tags.unwrap_or(mission.tags);
-    let status       = payload.status.unwrap_or(mission.status);
+    let tags = payload.tags.unwrap_or(mission.tags);
+    let status = payload.status.unwrap_or(mission.status);
 
     if split_csv(&new_owners).is_empty() {
-        return (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({"detail": "owners must include at least one owner"}))).into_response();
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({"detail": "owners must include at least one owner"})),
+        )
+            .into_response();
     }
 
     let now = Utc::now().naive_utc();
     match sqlx::query_as::<_, Mission>(
         "UPDATE mission SET name=$2, description=$3, owners=$4, contributors=$5, tags=$6, \
-         status=$7, updated_at=$8 WHERE id=$1 RETURNING *"
+         status=$7, updated_at=$8 WHERE id=$1 RETURNING *",
     )
-    .bind(&mission_id).bind(&name).bind(&description).bind(&new_owners)
-    .bind(&contributors).bind(&tags).bind(&status).bind(now)
-    .fetch_one(&state.db).await {
+    .bind(&mission_id)
+    .bind(&name)
+    .bind(&description)
+    .bind(&new_owners)
+    .bind(&contributors)
+    .bind(&tags)
+    .bind(&status)
+    .bind(now)
+    .fetch_one(&state.db)
+    .await
+    {
         Ok(k) => Json(k).into_response(),
-        Err(e) => { tracing::error!("update_mission: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("update_mission: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -242,26 +360,45 @@ async fn delete_mission(
     Path((domain_id, mission_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let m = sqlx::query("SELECT * FROM domain WHERE id=$1")
-        .bind(&domain_id).fetch_optional(&state.db).await;
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await;
     let domain_owners = match m {
         Ok(Some(r)) => r.try_get::<String, _>("owners").unwrap_or_default(),
         Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("delete_mission domain: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("delete_mission domain: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
-    if !domain_ownable(&principal, &domain_owners) { return StatusCode::FORBIDDEN.into_response(); }
+    if !domain_ownable(&principal, &domain_owners) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
 
     let k: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1 AND domain_id=$2")
-        .bind(&mission_id).bind(&domain_id).fetch_optional(&state.db).await.unwrap_or(None);
-    if k.is_none() { return not_found("Mission not found"); }
+        .bind(&mission_id)
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+    if k.is_none() {
+        return not_found("Mission not found");
+    }
 
     // Block if child entities exist
     let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task WHERE mission_id=$1")
-        .bind(&mission_id).fetch_one(&state.db).await.unwrap_or(0);
+        .bind(&mission_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
     if task_count > 0 {
         return (StatusCode::CONFLICT, Json(serde_json::json!({"detail": format!("Mission has linked entities: {{tasks: {}}}", task_count)}))).into_response();
     }
 
-    let _ = sqlx::query("DELETE FROM mission WHERE id=$1").bind(&mission_id).execute(&state.db).await;
+    let _ = sqlx::query("DELETE FROM mission WHERE id=$1")
+        .bind(&mission_id)
+        .execute(&state.db)
+        .await;
     Json(serde_json::json!({"ok": true, "deleted_id": mission_id})).into_response()
 }
 
@@ -274,7 +411,9 @@ async fn get_mission_brief_handler(
 ) -> impl IntoResponse {
     // Check domain read access first
     let m = sqlx::query("SELECT * FROM domain WHERE id=$1")
-        .bind(&domain_id).fetch_optional(&state.db).await;
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await;
     let (vis, owners, contribs) = match m {
         Ok(Some(r)) => (
             r.try_get::<String, _>("visibility").unwrap_or_default(),
@@ -282,21 +421,33 @@ async fn get_mission_brief_handler(
             r.try_get::<String, _>("contributors").unwrap_or_default(),
         ),
         Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("get_mission_brief domain: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("get_mission_brief domain: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
-    if !domain_readable(&vis, &principal, &owners, &contribs) { return StatusCode::FORBIDDEN.into_response(); }
+    if !domain_readable(&vis, &principal, &owners, &contribs) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
 
     match sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1 AND domain_id=$2")
-        .bind(&mission_id).bind(&domain_id).fetch_optional(&state.db).await
+        .bind(&mission_id)
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(k)) => Json(serde_json::json!({
             "content": k.brief_md,
             "version": k.brief_version,
             "modified_by": k.brief_modified_by,
             "modified_at": k.brief_modified_at,
-        })).into_response(),
+        }))
+        .into_response(),
         Ok(None) => not_found("Mission not found"),
-        Err(e) => { tracing::error!("get_mission_brief: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("get_mission_brief: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -308,16 +459,23 @@ async fn put_mission_brief_handler(
 ) -> impl IntoResponse {
     // Check domain write access
     let m = sqlx::query("SELECT * FROM domain WHERE id=$1")
-        .bind(&domain_id).fetch_optional(&state.db).await;
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await;
     let (owners, contribs) = match m {
         Ok(Some(r)) => (
             r.try_get::<String, _>("owners").unwrap_or_default(),
             r.try_get::<String, _>("contributors").unwrap_or_default(),
         ),
         Ok(None) => return not_found("Domain not found"),
-        Err(e) => { tracing::error!("put_mission_brief domain: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("put_mission_brief domain: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
-    if !domain_writable(&principal, &owners, &contribs) { return StatusCode::FORBIDDEN.into_response(); }
+    if !domain_writable(&principal, &owners, &contribs) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
 
     let result = sqlx::query(
         "UPDATE mission \
@@ -327,7 +485,7 @@ async fn put_mission_brief_handler(
              brief_modified_at = NOW(), \
              updated_at = NOW() \
          WHERE id = $3 AND domain_id = $4 \
-         RETURNING brief_md, brief_version, brief_modified_by, brief_modified_at"
+         RETURNING brief_md, brief_version, brief_modified_by, brief_modified_at",
     )
     .bind(&payload.content)
     .bind(&principal.subject)
@@ -337,16 +495,18 @@ async fn put_mission_brief_handler(
     .await;
 
     match result {
-        Ok(Some(r)) => {
-            Json(serde_json::json!({
-                "content": r.get::<String, _>("brief_md"),
-                "version": r.get::<i32, _>("brief_version"),
-                "modified_by": r.get::<String, _>("brief_modified_by"),
-                "modified_at": r.get::<Option<chrono::NaiveDateTime>, _>("brief_modified_at"),
-            })).into_response()
-        }
+        Ok(Some(r)) => Json(serde_json::json!({
+            "content": r.get::<String, _>("brief_md"),
+            "version": r.get::<i32, _>("brief_version"),
+            "modified_by": r.get::<String, _>("brief_modified_by"),
+            "modified_at": r.get::<Option<chrono::NaiveDateTime>, _>("brief_modified_at"),
+        }))
+        .into_response(),
         Ok(None) => not_found("Mission not found"),
-        Err(e) => { tracing::error!("put_mission_brief update: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("put_mission_brief update: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -365,16 +525,22 @@ async fn get_mission_brief_flat(
         return r;
     }
     match sqlx::query_as::<_, Mission>("SELECT * FROM mission WHERE id=$1")
-        .bind(&mission_id).fetch_optional(&state.db).await
+        .bind(&mission_id)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(k)) => Json(serde_json::json!({
             "content": k.brief_md,
             "version": k.brief_version,
             "modified_by": k.brief_modified_by,
             "modified_at": k.brief_modified_at,
-        })).into_response(),
+        }))
+        .into_response(),
         Ok(None) => not_found("Mission not found"),
-        Err(e) => { tracing::error!("get_mission_brief_flat: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("get_mission_brief_flat: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -399,7 +565,7 @@ async fn put_mission_brief_flat(
              brief_modified_at = NOW(), \
              updated_at = NOW() \
          WHERE id = $3 \
-         RETURNING brief_md, brief_version, brief_modified_by, brief_modified_at"
+         RETURNING brief_md, brief_version, brief_modified_by, brief_modified_at",
     )
     .bind(&payload.content)
     .bind(&principal.subject)
@@ -413,8 +579,12 @@ async fn put_mission_brief_flat(
             "version": r.get::<i32, _>("brief_version"),
             "modified_by": r.get::<String, _>("brief_modified_by"),
             "modified_at": r.get::<Option<chrono::NaiveDateTime>, _>("brief_modified_at"),
-        })).into_response(),
+        }))
+        .into_response(),
         Ok(None) => not_found("Mission not found"),
-        Err(e) => { tracing::error!("put_mission_brief_flat update: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("put_mission_brief_flat update: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }

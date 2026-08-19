@@ -103,7 +103,11 @@ impl AttachRegistry {
 
     /// Register the endpoints for `agent_id`. Replaces any prior entry.
     pub async fn register(&self, agent_id: String, endpoints: AttachEndpoints) {
-        self.inner.lock().await.endpoints.insert(agent_id, endpoints);
+        self.inner
+            .lock()
+            .await
+            .endpoints
+            .insert(agent_id, endpoints);
     }
 
     /// Remove the endpoint entry for `agent_id` and any aliases that
@@ -112,7 +116,9 @@ impl AttachRegistry {
         let mut guard = self.inner.lock().await;
         guard.endpoints.remove(agent_id);
         // Drop any alias whose target was this agent_id.
-        guard.aliases.retain(|_alias, target| target.as_str() != agent_id);
+        guard
+            .aliases
+            .retain(|_alias, target| target.as_str() != agent_id);
     }
 
     /// Register `alias_id` as an alternate lookup key that resolves to
@@ -168,9 +174,14 @@ mod tests {
     #[tokio::test]
     async fn alias_resolves_to_registered_endpoints() {
         let registry = AttachRegistry::new();
-        registry.register("engineer".to_string(), make_pty_endpoints()).await;
         registry
-            .register_alias("my-agent-engineer-708650f1".to_string(), "engineer".to_string())
+            .register("engineer".to_string(), make_pty_endpoints())
+            .await;
+        registry
+            .register_alias(
+                "my-agent-engineer-708650f1".to_string(),
+                "engineer".to_string(),
+            )
             .await;
 
         // Direct lookup still works.
@@ -191,7 +202,9 @@ mod tests {
     #[tokio::test]
     async fn unregister_canonical_prunes_alias() {
         let registry = AttachRegistry::new();
-        registry.register("engineer".to_string(), make_pty_endpoints()).await;
+        registry
+            .register("engineer".to_string(), make_pty_endpoints())
+            .await;
         registry
             .register_alias("my-agent-engineer-hash".to_string(), "engineer".to_string())
             .await;
@@ -214,11 +227,17 @@ mod tests {
     async fn direct_registration_wins_over_alias() {
         let registry = AttachRegistry::new();
         // Register "a" pointing as alias to "b".
-        registry.register("b".to_string(), make_pty_endpoints()).await;
-        registry.register_alias("a".to_string(), "b".to_string()).await;
+        registry
+            .register("b".to_string(), make_pty_endpoints())
+            .await;
+        registry
+            .register_alias("a".to_string(), "b".to_string())
+            .await;
 
         // Now also register "a" directly — it should shadow the alias.
-        registry.register("a".to_string(), make_pty_endpoints()).await;
+        registry
+            .register("a".to_string(), make_pty_endpoints())
+            .await;
 
         // Both are reachable; "a" direct entry is returned (same codepath).
         assert!(registry.get("a").await.is_some());

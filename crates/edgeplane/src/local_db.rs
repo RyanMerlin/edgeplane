@@ -29,8 +29,12 @@ pub fn is_federated() -> bool {
         return false;
     };
     // v1 state: has node_id. v2 (Phase 5b): has active_profile.
-    v.get("node_id").and_then(|s| s.as_str()).is_some_and(|s| !s.is_empty())
-        || v.get("active_profile").and_then(|s| s.as_str()).is_some_and(|s| !s.is_empty())
+    v.get("node_id")
+        .and_then(|s| s.as_str())
+        .is_some_and(|s| !s.is_empty())
+        || v.get("active_profile")
+            .and_then(|s| s.as_str())
+            .is_some_and(|s| !s.is_empty())
 }
 
 // ---------- DB access ----------
@@ -165,11 +169,9 @@ pub fn list(domain_filter: Option<&str>) -> Result<Vec<LocalAgent>> {
 
     let mut stmt = conn.prepare(sql)?;
     let rows: rusqlite::Result<Vec<LocalAgent>> = if let Some(p) = param {
-        stmt.query_map(params![p], row_to_agent)?
-            .collect()
+        stmt.query_map(params![p], row_to_agent)?.collect()
     } else {
-        stmt.query_map([], row_to_agent)?
-            .collect()
+        stmt.query_map([], row_to_agent)?.collect()
     };
     rows.context("reading local agents")
 }
@@ -192,10 +194,7 @@ fn row_to_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalAgent> {
 /// Remove agents by source tag. Returns the number of rows deleted.
 pub fn unenroll_by_source(source: &str) -> Result<usize> {
     let conn = open()?;
-    let n = conn.execute(
-        "DELETE FROM agent WHERE source = ?1",
-        params![source],
-    )?;
+    let n = conn.execute("DELETE FROM agent WHERE source = ?1", params![source])?;
     let _ = conn.execute(
         "DELETE FROM agent_launch_context WHERE source = ?1",
         params![source],
@@ -240,20 +239,20 @@ pub struct ImportSummary {
 pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("reading manifest: {}", path.display()))?;
-    let parsed: ManifestFile = toml::from_str(&raw)
-        .with_context(|| format!("parsing manifest: {}", path.display()))?;
+    let parsed: ManifestFile =
+        toml::from_str(&raw).with_context(|| format!("parsing manifest: {}", path.display()))?;
 
     let conn = open()?;
     let enrolled_at = chrono::Utc::now().to_rfc3339();
 
     // Snapshot existing agents under this source tag to distinguish create vs update.
     let existing: std::collections::HashSet<String> = {
-        let mut stmt = conn.prepare(
-            "SELECT id FROM agent WHERE source = ?1",
-        )?;
+        let mut stmt = conn.prepare("SELECT id FROM agent WHERE source = ?1")?;
         let rows: rusqlite::Result<Vec<String>> =
             stmt.query_map(params![source], |row| row.get(0))?.collect();
-        rows.context("reading existing agents")?.into_iter().collect()
+        rows.context("reading existing agents")?
+            .into_iter()
+            .collect()
     };
 
     let mut summary = ImportSummary {
@@ -266,8 +265,11 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
         let is_acp = runtime_kind == "claude_agent_acp";
 
         // ACP supervisor uses profile_path as cwd so claude loads the right CLAUDE.md.
-        let profile_path: Option<&str> =
-            if is_acp { Some(&profile.state_dir) } else { None };
+        let profile_path: Option<&str> = if is_acp {
+            Some(&profile.state_dir)
+        } else {
+            None
+        };
 
         // Upsert agent row.
         conn.execute(
@@ -279,7 +281,13 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
                 runtime_kind     = excluded.runtime_kind,
                 supervision_mode = excluded.supervision_mode,
                 profile_path     = excluded.profile_path",
-            params![profile.name, source, runtime_kind, profile_path, enrolled_at],
+            params![
+                profile.name,
+                source,
+                runtime_kind,
+                profile_path,
+                enrolled_at
+            ],
         )?;
 
         // Upsert launch context row.
@@ -291,8 +299,11 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
         .to_string();
 
         // ACP profiles don't use a zellij_session in their launch context.
-        let zellij_session: Option<&str> =
-            if is_acp { None } else { profile.zellij_session.as_deref() };
+        let zellij_session: Option<&str> = if is_acp {
+            None
+        } else {
+            profile.zellij_session.as_deref()
+        };
 
         conn.execute(
             "INSERT INTO agent_launch_context
@@ -427,7 +438,10 @@ state_dir      = "/tmp/test-profiles/work"
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(count, 2, "idempotent re-import should not create duplicates");
+        assert_eq!(
+            count, 2,
+            "idempotent re-import should not create duplicates"
+        );
 
         teardown();
     }
@@ -466,7 +480,10 @@ state_dir = "{}"
             )
             .unwrap();
         assert_eq!(runtime_kind, "claude_agent_acp");
-        assert_eq!(profile_path.as_deref(), Some(state_dir.to_string_lossy().as_ref()));
+        assert_eq!(
+            profile_path.as_deref(),
+            Some(state_dir.to_string_lossy().as_ref())
+        );
 
         let zellij_session: Option<String> = conn
             .query_row(
@@ -475,7 +492,10 @@ state_dir = "{}"
                 |r| r.get(0),
             )
             .unwrap();
-        assert!(zellij_session.is_none(), "ACP profile should have no zellij_session");
+        assert!(
+            zellij_session.is_none(),
+            "ACP profile should have no zellij_session"
+        );
 
         teardown();
     }

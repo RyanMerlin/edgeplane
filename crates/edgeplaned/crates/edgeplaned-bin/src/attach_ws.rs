@@ -31,13 +31,13 @@ use futures::{SinkExt, StreamExt};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::tungstenite::handshake::server::{
-    ErrorResponse, Request, Response,
-};
-use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
+use tokio_tungstenite::tungstenite::http::StatusCode;
 
-use crate::attach_registry::{AcpAttachEndpoints, AttachEndpoints, AttachRegistry, PtyAttachEndpoints};
+use crate::attach_registry::{
+    AcpAttachEndpoints, AttachEndpoints, AttachRegistry, PtyAttachEndpoints,
+};
 use edgeplaned_core::types::AgentSignal;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -181,8 +181,7 @@ fn validate_request(req: &Request, secret: Option<&str>) -> Result<ParsedRequest
 /// Used by tests today; the controlplane proxy will use the same scheme
 /// out-of-band in Phase 2b.
 pub fn sign_attach(secret: &str, agent_id: &str, exp: i64) -> String {
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .expect("hmac key length");
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("hmac key length");
     mac.update(format!("attach:{agent_id}:{exp}").as_bytes());
     hex::encode(mac.finalize().into_bytes())
 }
@@ -400,9 +399,7 @@ async fn pump_acp(
                 }
             },
             Message::Binary(_) => {
-                tracing::debug!(
-                    "attach_ws acp: ignored binary frame (use text/JSON envelopes)"
-                );
+                tracing::debug!("attach_ws acp: ignored binary frame (use text/JSON envelopes)");
             }
             Message::Close(_) => break,
             // Ping/Pong handled by tungstenite; nothing to do here.
@@ -443,8 +440,7 @@ mod tests {
 
     #[test]
     fn envelope_cancel_parses() {
-        let env: ViewerEnvelope =
-            serde_json::from_str(r#"{"kind":"cancel"}"#).unwrap();
+        let env: ViewerEnvelope = serde_json::from_str(r#"{"kind":"cancel"}"#).unwrap();
         assert!(matches!(env, ViewerEnvelope::Cancel));
     }
 
@@ -452,15 +448,13 @@ mod tests {
     fn envelope_unknown_kind_rejected() {
         // Unknown `kind` must NOT silently parse as one of the known variants;
         // the pump logs + ignores at the call site. The parse itself errors.
-        let res: Result<ViewerEnvelope, _> =
-            serde_json::from_str(r#"{"kind":"future","data":42}"#);
+        let res: Result<ViewerEnvelope, _> = serde_json::from_str(r#"{"kind":"future","data":42}"#);
         assert!(res.is_err());
     }
 
     #[test]
     fn envelope_prompt_missing_text_rejected() {
-        let res: Result<ViewerEnvelope, _> =
-            serde_json::from_str(r#"{"kind":"prompt"}"#);
+        let res: Result<ViewerEnvelope, _> = serde_json::from_str(r#"{"kind":"prompt"}"#);
         assert!(res.is_err());
     }
 }

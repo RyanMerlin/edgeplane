@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -46,12 +46,11 @@ async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &s
     if principal.is_admin {
         return true;
     }
-    if let Ok(Some(row)) = sqlx::query(
-        "SELECT visibility, owners, contributors FROM domain WHERE id=$1",
-    )
-    .bind(domain_id)
-    .fetch_optional(db)
-    .await
+    if let Ok(Some(row)) =
+        sqlx::query("SELECT visibility, owners, contributors FROM domain WHERE id=$1")
+            .bind(domain_id)
+            .fetch_optional(db)
+            .await
     {
         let visibility: String = row.get("visibility");
         if visibility.to_lowercase() == "public" {
@@ -60,8 +59,11 @@ async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &s
         let owners: String = row.get("owners");
         let contributors: String = row.get("contributors");
         let sub = principal.subject.to_lowercase();
-        let in_list =
-            |s: &str| s.split(',').map(|x| x.trim().to_lowercase()).any(|x| x == sub);
+        let in_list = |s: &str| {
+            s.split(',')
+                .map(|x| x.trim().to_lowercase())
+                .any(|x| x == sub)
+        };
         return in_list(&owners) || in_list(&contributors);
     }
     false
@@ -71,17 +73,19 @@ async fn can_write_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &
     if principal.is_admin {
         return true;
     }
-    if let Ok(Some(row)) =
-        sqlx::query("SELECT owners, contributors FROM domain WHERE id=$1")
-            .bind(domain_id)
-            .fetch_optional(db)
-            .await
+    if let Ok(Some(row)) = sqlx::query("SELECT owners, contributors FROM domain WHERE id=$1")
+        .bind(domain_id)
+        .fetch_optional(db)
+        .await
     {
         let owners: String = row.get("owners");
         let contributors: String = row.get("contributors");
         let sub = principal.subject.to_lowercase();
-        let in_list =
-            |s: &str| s.split(',').map(|x| x.trim().to_lowercase()).any(|x| x == sub);
+        let in_list = |s: &str| {
+            s.split(',')
+                .map(|x| x.trim().to_lowercase())
+                .any(|x| x == sub)
+        };
         return in_list(&owners) || in_list(&contributors);
     }
     false
@@ -105,7 +109,7 @@ async fn create_doc(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 Json(json!({"detail": "mission_id is required"})),
             )
-                .into_response()
+                .into_response();
         }
     };
     let title = payload
@@ -135,12 +139,10 @@ async fn create_doc(
         .to_string();
 
     // Check mission exists
-    let mission_row = match sqlx::query(
-        "SELECT id, domain_id FROM mission WHERE id=$1",
-    )
-    .bind(&mission_id)
-    .fetch_optional(&state.db)
-    .await
+    let mission_row = match sqlx::query("SELECT id, domain_id FROM mission WHERE id=$1")
+        .bind(&mission_id)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(r)) => r,
         Ok(None) => return not_found("Mission not found"),
@@ -150,7 +152,10 @@ async fn create_doc(
         }
     };
 
-    let domain_id: Option<String> = mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = mission_row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     match domain_id {
         Some(ref mid) => {
             if !can_write_domain(&state.db, &principal, mid).await {
@@ -328,7 +333,10 @@ async fn get_doc(
         }
     };
 
-    let domain_id: Option<String> = mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = mission_row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     match domain_id {
         Some(ref mid) => {
             if !can_read_domain(&state.db, &principal, mid).await {
@@ -378,7 +386,10 @@ async fn update_doc(
         }
     };
 
-    let domain_id: Option<String> = mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = mission_row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     match domain_id {
         Some(ref mid) => {
             if !can_write_domain(&state.db, &principal, mid).await {
@@ -477,7 +488,10 @@ async fn publish_doc(
         }
     };
 
-    let domain_id: Option<String> = mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = mission_row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     match domain_id {
         Some(ref mid) => {
             if !can_write_domain(&state.db, &principal, mid).await {
@@ -543,7 +557,10 @@ async fn delete_doc(
         }
     };
 
-    let domain_id: Option<String> = mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = mission_row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     match domain_id {
         Some(ref mid) => {
             if !can_write_domain(&state.db, &principal, mid).await {

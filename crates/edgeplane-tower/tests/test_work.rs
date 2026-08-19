@@ -1,7 +1,7 @@
 /// Tests for the work module's task-available broadcast registry and
 /// the adaptive backoff constants used by the edgeplaned daemon.
 use axum_test::TestServer;
-use edgeplane_tower::{build_app, AppConfig};
+use edgeplane_tower::{AppConfig, build_app};
 use sqlx::PgPool;
 
 fn test_pool() -> PgPool {
@@ -60,11 +60,16 @@ async fn test_broadcast_multiple_domains_isolated() {
     // Broadcast to domain-b only — rx_a should not receive anything.
     broadcast_task_available("iso-domain-b", "k-1", "t-1").await;
 
-    assert!(rx_a.try_recv().is_err(), "domain-a should not receive domain-b's notification");
+    assert!(
+        rx_a.try_recv().is_err(),
+        "domain-a should not receive domain-b's notification"
+    );
 
     // Broadcast to domain-a — rx_a should now receive.
     broadcast_task_available("iso-domain-a", "k-2", "t-2").await;
-    let msg = rx_a.try_recv().expect("domain-a should receive its own notification");
+    let msg = rx_a
+        .try_recv()
+        .expect("domain-a should receive its own notification");
     let v: serde_json::Value = serde_json::from_str(&msg).unwrap();
     assert_eq!(v["type"], "task_available");
 }
@@ -73,14 +78,15 @@ async fn test_broadcast_multiple_domains_isolated() {
 
 #[tokio::test]
 async fn test_agent_notify_route_requires_auth() {
-    let res = server()
-        .get("/api/work/agents/test-agent-id/notify")
-        .await;
+    let res = server().get("/api/work/agents/test-agent-id/notify").await;
     // Without a valid token the auth middleware rejects before WS upgrade.
     // Acceptable: 401 (explicit auth failure) or 400 (WS handshake rejected).
     // Not acceptable: 404 (route not registered) or 200.
     let status = res.status_code().as_u16();
-    assert_ne!(status, 404, "/work/agents/{{id}}/notify route should be registered");
+    assert_ne!(
+        status, 404,
+        "/work/agents/{{id}}/notify route should be registered"
+    );
     assert_ne!(status, 200, "unauthenticated request must not succeed");
 }
 
@@ -90,7 +96,10 @@ async fn test_agent_notify_route_requires_auth() {
 async fn test_mission_graph_route_requires_auth() {
     let res = server().get("/api/work/missions/k-123/graph").await;
     let status = res.status_code().as_u16();
-    assert_ne!(status, 404, "/work/missions/{{id}}/graph should be registered");
+    assert_ne!(
+        status, 404,
+        "/work/missions/{{id}}/graph should be registered"
+    );
     assert_ne!(status, 200);
 }
 
@@ -123,7 +132,9 @@ async fn test_assignment_changed_delivers_to_node_subscriber() {
     )
     .await;
 
-    let msg = rx.try_recv().expect("subscriber should receive notification");
+    let msg = rx
+        .try_recv()
+        .expect("subscriber should receive notification");
     let v: serde_json::Value = serde_json::from_str(&msg).expect("valid JSON");
     assert_eq!(v["type"], "agent.assigned");
     assert_eq!(v["agent_id"], "a-1");
@@ -159,7 +170,10 @@ async fn test_assignment_changed_isolates_per_node() {
         serde_json::json!({"type": "agent.assigned", "agent_id": "a-b1"}),
     )
     .await;
-    assert!(rx_a.try_recv().is_err(), "node-a must not receive node-b's event");
+    assert!(
+        rx_a.try_recv().is_err(),
+        "node-a must not receive node-b's event"
+    );
 
     // Publish to node-a — must arrive.
     broadcast_assignment_changed(
@@ -167,7 +181,9 @@ async fn test_assignment_changed_isolates_per_node() {
         serde_json::json!({"type": "agent.reassigned", "agent_id": "a-a1"}),
     )
     .await;
-    let msg = rx_a.try_recv().expect("node-a should receive its own event");
+    let msg = rx_a
+        .try_recv()
+        .expect("node-a should receive its own event");
     let v: serde_json::Value = serde_json::from_str(&msg).unwrap();
     assert_eq!(v["type"], "agent.reassigned");
     assert_eq!(v["agent_id"], "a-a1");
@@ -183,7 +199,10 @@ async fn test_assignment_changed_isolates_per_node() {
 async fn test_list_node_agents_route_registered() {
     let res = server().get("/api/runtime/nodes/test-node-id/agents").await;
     let status = res.status_code().as_u16();
-    assert_ne!(status, 404, "/runtime/nodes/{{id}}/agents should be registered");
+    assert_ne!(
+        status, 404,
+        "/runtime/nodes/{{id}}/agents should be registered"
+    );
     assert_ne!(status, 200, "unauthenticated request must not succeed");
 }
 
@@ -197,14 +216,20 @@ async fn test_attach_secret_route_registered() {
         status, 404,
         "/runtime/nodes/{{id}}/attach-secret should be registered"
     );
-    assert_ne!(status, 200, "unauthenticated request must not leak the secret");
+    assert_ne!(
+        status, 200,
+        "unauthenticated request must not leak the secret"
+    );
 }
 
 #[tokio::test]
 async fn test_node_notify_route_registered() {
     let res = server().get("/api/runtime/nodes/test-node-id/notify").await;
     let status = res.status_code().as_u16();
-    assert_ne!(status, 404, "/runtime/nodes/{{id}}/notify should be registered");
+    assert_ne!(
+        status, 404,
+        "/runtime/nodes/{{id}}/notify should be registered"
+    );
     assert_ne!(status, 200, "unauthenticated request must not succeed");
 }
 
@@ -227,9 +252,14 @@ async fn test_agent_attach_route_registered() {
 // for the triage routing path (replaces the 4-call temp-agent dance).
 #[tokio::test]
 async fn test_dispatch_task_route_registered() {
-    let res = server().post("/api/work/tasks/test-task-id/dispatched").await;
+    let res = server()
+        .post("/api/work/tasks/test-task-id/dispatched")
+        .await;
     let status = res.status_code().as_u16();
-    assert_ne!(status, 404, "POST /work/tasks/{{id}}/dispatched should be registered");
+    assert_ne!(
+        status, 404,
+        "POST /work/tasks/{{id}}/dispatched should be registered"
+    );
     assert_ne!(status, 200, "unauthenticated request must not succeed");
     assert_ne!(status, 204, "unauthenticated request must not succeed");
 }
@@ -240,7 +270,10 @@ async fn test_dispatch_task_route_registered() {
 async fn test_delete_agent_route_registered() {
     let res = server().delete("/api/work/agents/test-agent-id").await;
     let status = res.status_code().as_u16();
-    assert_ne!(status, 404, "DELETE /work/agents/{{id}} should be registered");
+    assert_ne!(
+        status, 404,
+        "DELETE /work/agents/{{id}} should be registered"
+    );
     assert_ne!(status, 200, "unauthenticated request must not succeed");
     assert_ne!(status, 204, "unauthenticated request must not succeed");
 }

@@ -179,11 +179,7 @@ async fn run_acp_attach(args: AttachArgs, client: &EdgeplaneClient) -> Result<()
                 continue;
             }
             let env = serde_json::json!({ "kind": "prompt", "text": trimmed });
-            if stdin_tx
-                .send(Message::Text(env.to_string()))
-                .await
-                .is_err()
-            {
+            if stdin_tx.send(Message::Text(env.to_string())).await.is_err() {
                 break;
             }
         }
@@ -194,9 +190,7 @@ async fn run_acp_attach(args: AttachArgs, client: &EdgeplaneClient) -> Result<()
     tokio::spawn(async move {
         let _ = tokio::signal::ctrl_c().await;
         let env = serde_json::json!({ "kind": "cancel" });
-        let _ = cancel_tx
-            .send(Message::Text(env.to_string()))
-            .await;
+        let _ = cancel_tx.send(Message::Text(env.to_string())).await;
         // Give the cancel frame a moment to flush, then exit hard.
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         std::process::exit(0);
@@ -325,7 +319,10 @@ fn render_inbound(txt: &str, json_mode: bool) {
 
     // The hello frame from pump_acp ({"kind":"hello","protocol":"acp/1"}).
     if v.get("kind").and_then(|k| k.as_str()) == Some("hello") {
-        eprintln!("[acp] connected (protocol {})", v.get("protocol").and_then(|p| p.as_str()).unwrap_or("?"));
+        eprintln!(
+            "[acp] connected (protocol {})",
+            v.get("protocol").and_then(|p| p.as_str()).unwrap_or("?")
+        );
         return;
     }
 
@@ -367,10 +364,7 @@ fn render_inbound(txt: &str, json_mode: bool) {
             eprintln!("[tool] {title}");
         }
         "tool_call_update" => {
-            let status = update
-                .get("status")
-                .and_then(|s| s.as_str())
-                .unwrap_or("");
+            let status = update.get("status").and_then(|s| s.as_str()).unwrap_or("");
             let title = update
                 .get("title")
                 .and_then(|t| t.as_str())

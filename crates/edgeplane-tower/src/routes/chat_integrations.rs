@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, post},
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -14,8 +14,14 @@ use crate::{auth::Principal, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/integrations/chat/bindings", post(create_binding).get(list_bindings))
-        .route("/integrations/chat/bindings/{binding_id}", delete(delete_binding))
+        .route(
+            "/integrations/chat/bindings",
+            post(create_binding).get(list_bindings),
+        )
+        .route(
+            "/integrations/chat/bindings/{binding_id}",
+            delete(delete_binding),
+        )
 }
 
 #[derive(Deserialize)]
@@ -40,7 +46,11 @@ struct ListQuery {
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 fn row_to_binding(row: &sqlx::postgres::PgRow) -> serde_json::Value {
@@ -66,7 +76,11 @@ async fn create_binding(
     principal: Principal,
     Json(body): Json<CreateBindingBody>,
 ) -> impl IntoResponse {
-    let provider = if body.provider.is_empty() { "slack".to_string() } else { body.provider };
+    let provider = if body.provider.is_empty() {
+        "slack".to_string()
+    } else {
+        body.provider
+    };
     let metadata_json = body
         .channel_metadata
         .as_ref()
@@ -124,7 +138,11 @@ async fn list_bindings(
     _principal: Principal,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
-    let provider = if q.provider.is_empty() { "slack".to_string() } else { q.provider };
+    let provider = if q.provider.is_empty() {
+        "slack".to_string()
+    } else {
+        q.provider
+    };
     let limit = q.limit.unwrap_or(100).min(500);
 
     let rows = sqlx::query(

@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use chrono::Utc;
 use rand::RngCore;
@@ -33,13 +33,22 @@ pub fn router() -> Router<Arc<AppState>> {
             get(get_target).patch(update_target).delete(delete_target),
         )
         // Launches
-        .route("/remotectl/launches", post(create_launch).get(list_launches))
+        .route(
+            "/remotectl/launches",
+            post(create_launch).get(list_launches),
+        )
         .route(
             "/remotectl/launches/{launch_id}",
             get(get_launch).delete(delete_launch),
         )
-        .route("/remotectl/launches/{launch_id}/heartbeat", post(heartbeat_launch))
-        .route("/remotectl/launches/{launch_id}/complete", post(complete_launch))
+        .route(
+            "/remotectl/launches/{launch_id}/heartbeat",
+            post(heartbeat_launch),
+        )
+        .route(
+            "/remotectl/launches/{launch_id}/complete",
+            post(complete_launch),
+        )
 }
 
 // ── Request body types ─────────────────────────────────────────────────────────
@@ -113,7 +122,11 @@ struct CompleteUpdate {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 fn row_to_target(row: &sqlx::postgres::PgRow) -> serde_json::Value {
@@ -167,8 +180,7 @@ async fn issue_session_token(
     let raw_token = format!("ep_{}", hex::encode(raw_bytes));
     let token_hash = hex::encode(Sha256::new().chain_update(raw_token.as_bytes()).finalize());
     let token_prefix = &raw_token[..8.min(raw_token.len())];
-    let expires_at =
-        chrono::Utc::now().naive_utc() + chrono::Duration::hours(ttl_hours);
+    let expires_at = chrono::Utc::now().naive_utc() + chrono::Duration::hours(ttl_hours);
     let now = chrono::Utc::now().naive_utc();
 
     let session_id: i32 = sqlx::query_scalar(
@@ -197,14 +209,13 @@ async fn create_target(
     Json(body): Json<TargetCreate>,
 ) -> impl IntoResponse {
     // Check uniqueness: same owner + name
-    let exists: Option<String> = sqlx::query_scalar(
-        "SELECT id FROM remotetarget WHERE owner_subject=$1 AND name=$2",
-    )
-    .bind(&principal.subject)
-    .bind(&body.name)
-    .fetch_optional(&state.db)
-    .await
-    .unwrap_or(None);
+    let exists: Option<String> =
+        sqlx::query_scalar("SELECT id FROM remotetarget WHERE owner_subject=$1 AND name=$2")
+            .bind(&principal.subject)
+            .bind(&body.name)
+            .fetch_optional(&state.db)
+            .await
+            .unwrap_or(None);
 
     if exists.is_some() {
         return (
@@ -250,12 +261,11 @@ async fn list_targets(
     State(state): State<Arc<AppState>>,
     principal: Principal,
 ) -> impl IntoResponse {
-    let rows = sqlx::query(
-        "SELECT * FROM remotetarget WHERE owner_subject=$1 ORDER BY created_at DESC",
-    )
-    .bind(&principal.subject)
-    .fetch_all(&state.db)
-    .await;
+    let rows =
+        sqlx::query("SELECT * FROM remotetarget WHERE owner_subject=$1 ORDER BY created_at DESC")
+            .bind(&principal.subject)
+            .fetch_all(&state.db)
+            .await;
 
     match rows {
         Ok(rows) => Json(rows.iter().map(row_to_target).collect::<Vec<_>>()).into_response(),
@@ -271,13 +281,11 @@ async fn get_target(
     principal: Principal,
     Path(target_id): Path<String>,
 ) -> impl IntoResponse {
-    let row = sqlx::query(
-        "SELECT * FROM remotetarget WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&target_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await;
+    let row = sqlx::query("SELECT * FROM remotetarget WHERE id=$1 AND owner_subject=$2")
+        .bind(&target_id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await;
 
     match row {
         Ok(Some(r)) => Json(row_to_target(&r)).into_response(),
@@ -296,14 +304,13 @@ async fn update_target(
     Json(body): Json<TargetUpdate>,
 ) -> impl IntoResponse {
     // Verify ownership
-    let exists: Option<String> = sqlx::query_scalar(
-        "SELECT id FROM remotetarget WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&target_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
-    .unwrap_or(None);
+    let exists: Option<String> =
+        sqlx::query_scalar("SELECT id FROM remotetarget WHERE id=$1 AND owner_subject=$2")
+            .bind(&target_id)
+            .bind(&principal.subject)
+            .fetch_optional(&state.db)
+            .await
+            .unwrap_or(None);
 
     if exists.is_none() {
         return not_found("Target not found");
@@ -343,12 +350,11 @@ async fn delete_target(
     principal: Principal,
     Path(target_id): Path<String>,
 ) -> impl IntoResponse {
-    let result =
-        sqlx::query("DELETE FROM remotetarget WHERE id=$1 AND owner_subject=$2")
-            .bind(&target_id)
-            .bind(&principal.subject)
-            .execute(&state.db)
-            .await;
+    let result = sqlx::query("DELETE FROM remotetarget WHERE id=$1 AND owner_subject=$2")
+        .bind(&target_id)
+        .bind(&principal.subject)
+        .execute(&state.db)
+        .await;
 
     match result {
         Ok(r) if r.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
@@ -373,7 +379,9 @@ async fn create_launch(
     if matches!(principal.auth_type.as_str(), "node" | "agent") {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"detail": "node and agent credentials cannot create launches"})),
+            Json(
+                serde_json::json!({"detail": "node and agent credentials cannot create launches"}),
+            ),
         )
             .into_response();
     }
@@ -399,16 +407,20 @@ async fn create_launch(
         joined
     };
 
-    let (session_id, raw_token) =
-        match issue_session_token(&state.db, &principal.subject, ttl_hours, &capability_scope)
-            .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!("create_launch issue_session_token: {e}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
+    let (session_id, raw_token) = match issue_session_token(
+        &state.db,
+        &principal.subject,
+        ttl_hours,
+        &capability_scope,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("create_launch issue_session_token: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().naive_utc();
@@ -477,24 +489,22 @@ async fn get_launch(
     principal: Principal,
     Path(launch_id): Path<String>,
 ) -> impl IntoResponse {
-    let row = sqlx::query(
-        "SELECT * FROM remotelaunchrecord WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&launch_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await;
+    let row = sqlx::query("SELECT * FROM remotelaunchrecord WHERE id=$1 AND owner_subject=$2")
+        .bind(&launch_id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await;
 
     match row {
         Ok(Some(r)) => {
             let mut launch = row_to_launch(&r);
             // Compute heartbeat_age_seconds
-            let heartbeat_age =
-                r.get::<Option<chrono::NaiveDateTime>, _>("last_heartbeat_at")
-                    .map(|hb| {
-                        let now = Utc::now().naive_utc();
-                        (now - hb).num_seconds()
-                    });
+            let heartbeat_age = r
+                .get::<Option<chrono::NaiveDateTime>, _>("last_heartbeat_at")
+                .map(|hb| {
+                    let now = Utc::now().naive_utc();
+                    (now - hb).num_seconds()
+                });
             launch["heartbeat_age_seconds"] = match heartbeat_age {
                 Some(age) => serde_json::Value::Number(age.into()),
                 None => serde_json::Value::Null,
@@ -525,10 +535,7 @@ async fn heartbeat_launch(
     .await;
 
     let (current_status, current_log) = match current {
-        Ok(Some(r)) => (
-            r.get::<String, _>("status"),
-            r.get::<String, _>("log_tail"),
-        ),
+        Ok(Some(r)) => (r.get::<String, _>("status"), r.get::<String, _>("log_tail")),
         Ok(None) => return not_found("Launch not found"),
         Err(e) => {
             tracing::error!("heartbeat_launch fetch: {e}");
@@ -606,7 +613,11 @@ async fn complete_launch(
     };
 
     let now = Utc::now().naive_utc();
-    let status = if body.exit_code == 0 { "completed" } else { "failed" };
+    let status = if body.exit_code == 0 {
+        "completed"
+    } else {
+        "failed"
+    };
 
     let result = sqlx::query(
         "UPDATE remotelaunchrecord \

@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
-    Json, Router,
 };
 use base64::Engine;
 use chrono::Utc;
@@ -20,7 +20,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/artifacts", get(list_artifacts).post(create_artifact))
         .route(
             "/artifacts/{artifact_id}",
-            get(get_artifact).patch(update_artifact).delete(delete_artifact),
+            get(get_artifact)
+                .patch(update_artifact)
+                .delete(delete_artifact),
         )
         .route(
             "/artifacts/{artifact_id}/content",
@@ -67,12 +69,11 @@ async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &s
     if principal.is_admin {
         return true;
     }
-    if let Ok(Some(row)) = sqlx::query(
-        "SELECT visibility, owners, contributors FROM domain WHERE id=$1",
-    )
-    .bind(domain_id)
-    .fetch_optional(db)
-    .await
+    if let Ok(Some(row)) =
+        sqlx::query("SELECT visibility, owners, contributors FROM domain WHERE id=$1")
+            .bind(domain_id)
+            .fetch_optional(db)
+            .await
     {
         let visibility: String = row.get("visibility");
         if visibility.to_lowercase() == "public" {
@@ -81,8 +82,11 @@ async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &s
         let owners: String = row.get("owners");
         let contributors: String = row.get("contributors");
         let sub = principal.subject.to_lowercase();
-        let in_list =
-            |s: &str| s.split(',').map(|x| x.trim().to_lowercase()).any(|x| x == sub);
+        let in_list = |s: &str| {
+            s.split(',')
+                .map(|x| x.trim().to_lowercase())
+                .any(|x| x == sub)
+        };
         return in_list(&owners) || in_list(&contributors);
     }
     false
@@ -92,17 +96,19 @@ async fn can_write_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &
     if principal.is_admin {
         return true;
     }
-    if let Ok(Some(row)) =
-        sqlx::query("SELECT owners, contributors FROM domain WHERE id=$1")
-            .bind(domain_id)
-            .fetch_optional(db)
-            .await
+    if let Ok(Some(row)) = sqlx::query("SELECT owners, contributors FROM domain WHERE id=$1")
+        .bind(domain_id)
+        .fetch_optional(db)
+        .await
     {
         let owners: String = row.get("owners");
         let contributors: String = row.get("contributors");
         let sub = principal.subject.to_lowercase();
-        let in_list =
-            |s: &str| s.split(',').map(|x| x.trim().to_lowercase()).any(|x| x == sub);
+        let in_list = |s: &str| {
+            s.split(',')
+                .map(|x| x.trim().to_lowercase())
+                .any(|x| x == sub)
+        };
         return in_list(&owners) || in_list(&contributors);
     }
     false
@@ -126,7 +132,7 @@ async fn create_artifact(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 Json(json!({"detail": "mission_id is required"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -210,8 +216,10 @@ async fn create_artifact(
         }
     };
 
-    let domain_id: Option<String> =
-        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = mission_row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     match domain_id {
         Some(ref mid) => {
             if !can_write_domain(&state.db, &principal, mid).await {
@@ -237,17 +245,16 @@ async fn create_artifact(
         final_size_bytes,
     ) = if !content_b64_raw.is_empty() {
         // Decode and store inline (no S3 in Rust)
-        let body =
-            match base64::engine::general_purpose::STANDARD.decode(&content_b64_raw) {
-                Ok(b) => b,
-                Err(e) => {
-                    return (
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        Json(json!({"detail": format!("Invalid content_b64: {}", e)})),
-                    )
-                        .into_response()
-                }
-            };
+        let body = match base64::engine::general_purpose::STANDARD.decode(&content_b64_raw) {
+            Ok(b) => b,
+            Err(e) => {
+                return (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(json!({"detail": format!("Invalid content_b64: {}", e)})),
+                )
+                    .into_response();
+            }
+        };
         let sha256 = hex::encode(Sha256::digest(&body));
         let size = body.len() as i32;
         let uri = if uri_raw.is_empty() {
@@ -361,13 +368,11 @@ async fn list_artifacts(
     let limit = q.limit.unwrap_or(100).min(500);
 
     let rows = if let Some(ref kid) = q.mission_id {
-        sqlx::query(
-            "SELECT * FROM artifact WHERE mission_id=$1 ORDER BY updated_at DESC LIMIT $2",
-        )
-        .bind(kid)
-        .bind(limit)
-        .fetch_all(&state.db)
-        .await
+        sqlx::query("SELECT * FROM artifact WHERE mission_id=$1 ORDER BY updated_at DESC LIMIT $2")
+            .bind(kid)
+            .bind(limit)
+            .fetch_all(&state.db)
+            .await
     } else {
         sqlx::query("SELECT * FROM artifact ORDER BY updated_at DESC LIMIT $1")
             .bind(limit)
@@ -437,8 +442,7 @@ async fn list_artifacts(
         .into_iter()
         .collect();
 
-    let mut readable_domains: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut readable_domains: std::collections::HashSet<String> = std::collections::HashSet::new();
     for mid in &domain_ids {
         if can_read_domain(&state.db, &principal, mid).await {
             readable_domains.insert(mid.clone());
@@ -493,8 +497,10 @@ async fn get_artifact(
         }
     };
 
-    let domain_id: Option<String> =
-        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = mission_row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     match domain_id {
         Some(ref mid) => {
             if !can_read_domain(&state.db, &principal, mid).await {
@@ -543,8 +549,10 @@ async fn get_artifact_content(
         }
     };
 
-    let domain_id: Option<String> =
-        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = mission_row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     match domain_id {
         Some(ref mid) => {
             if !can_read_domain(&state.db, &principal, mid).await {
@@ -582,8 +590,9 @@ async fn get_artifact_content(
                 // a newline or other control character). Never trust it enough to
                 // unwrap header/response construction on user input — fall back to
                 // a safe default instead of panicking the handler.
-                let content_type = header::HeaderValue::from_str(&mime_val)
-                    .unwrap_or_else(|_| header::HeaderValue::from_static("application/octet-stream"));
+                let content_type = header::HeaderValue::from_str(&mime_val).unwrap_or_else(|_| {
+                    header::HeaderValue::from_static("application/octet-stream")
+                });
                 return match Response::builder()
                     .header(header::CONTENT_TYPE, content_type)
                     .body(axum::body::Body::from(body_bytes))
@@ -600,7 +609,7 @@ async fn get_artifact_content(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     Json(json!({"detail": format!("Invalid inline artifact content: {}", e)})),
                 )
-                    .into_response()
+                    .into_response();
             }
         }
     }
@@ -619,35 +628,66 @@ async fn get_artifact_download_url(
     Query(q): Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     let row = sqlx::query("SELECT * FROM artifact WHERE id=$1")
-        .bind(artifact_id).fetch_optional(&state.db).await;
+        .bind(artifact_id)
+        .fetch_optional(&state.db)
+        .await;
     let row = match row {
         Ok(Some(r)) => r,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": "Artifact not found"}))).into_response(),
-        Err(e) => { tracing::error!("get_artifact_download_url: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"detail": "Artifact not found"})),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("get_artifact_download_url: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
     let mission_id: String = row.get("mission_id");
     let domain_id: Option<String> = sqlx::query_scalar("SELECT domain_id FROM mission WHERE id=$1")
-        .bind(&mission_id).fetch_optional(&state.db).await.unwrap_or(None).flatten();
+        .bind(&mission_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None)
+        .flatten();
     if let Some(ref mid) = domain_id {
         if !can_read_domain(&state.db, &principal, mid).await {
-            return (StatusCode::FORBIDDEN, Json(serde_json::json!({"detail": "Forbidden"}))).into_response();
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"detail": "Forbidden"})),
+            )
+                .into_response();
         }
     } else if !principal.is_admin {
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"detail": "Forbidden"}))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "Forbidden"})),
+        )
+            .into_response();
     }
 
     let storage_backend: String = row.try_get("storage_backend").unwrap_or_default();
     let uri: String = row.try_get("uri").unwrap_or_default();
-    let expires_seconds: i64 = q.get("expires_seconds").and_then(|v| v.parse().ok()).unwrap_or(60).clamp(1, 3600);
+    let expires_seconds: i64 = q
+        .get("expires_seconds")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60)
+        .clamp(1, 3600);
 
     if storage_backend == "s3" {
         // S3 presigning requires AWS SDK — not available in edgeplane-tower; return 409 with the URI
-        return (StatusCode::CONFLICT, Json(serde_json::json!({
-            "detail": "S3 presigning requires the Python API",
-            "artifact_id": artifact_id,
-            "uri": uri,
-        }))).into_response();
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "detail": "S3 presigning requires the Python API",
+                "artifact_id": artifact_id,
+                "uri": uri,
+            })),
+        )
+            .into_response();
     }
 
     Json(serde_json::json!({
@@ -655,7 +695,8 @@ async fn get_artifact_download_url(
         "uri": uri,
         "expires_seconds": expires_seconds,
         "download_url": uri,
-    })).into_response()
+    }))
+    .into_response()
 }
 
 async fn update_artifact(
@@ -691,8 +732,10 @@ async fn update_artifact(
         }
     };
 
-    let domain_id: Option<String> =
-        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = mission_row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     match domain_id {
         Some(ref mid) => {
             if !can_write_domain(&state.db, &principal, mid).await {
@@ -795,7 +838,7 @@ async fn update_artifact(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     Json(json!({"detail": format!("Invalid content_b64: {}", e)})),
                 )
-                    .into_response()
+                    .into_response();
             }
         }
     } else {
@@ -810,7 +853,14 @@ async fn update_artifact(
             .map(|v| v as i32)
             .unwrap_or_else(|| artifact_row.get::<i32, _>("size_bytes"));
         let existing_b64: Option<String> = artifact_row.get("content_b64");
-        (uri, storage_backend, storage_class, existing_b64, sha256, size)
+        (
+            uri,
+            storage_backend,
+            storage_class,
+            existing_b64,
+            sha256,
+            size,
+        )
     };
 
     let current_version: i32 = artifact_row.get("version");
@@ -881,8 +931,10 @@ async fn publish_artifact(
         }
     };
 
-    let domain_id: Option<String> =
-        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = mission_row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     match domain_id {
         Some(ref mid) => {
             if !can_write_domain(&state.db, &principal, mid).await {
@@ -948,8 +1000,10 @@ async fn delete_artifact(
         }
     };
 
-    let domain_id: Option<String> =
-        mission_row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = mission_row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     match domain_id {
         Some(ref mid) => {
             if !can_write_domain(&state.db, &principal, mid).await {

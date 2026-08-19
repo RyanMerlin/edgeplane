@@ -1,5 +1,8 @@
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use rsa::{RsaPrivateKey, pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding}};
+use rsa::{
+    RsaPrivateKey,
+    pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding},
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -104,8 +107,8 @@ pub fn verify_agent_jwt(token: &str, decoding_key: &DecodingKey) -> anyhow::Resu
 /// Generate a new RSA-2048 keypair. Returns `(private_pkcs8_pem, public_pem)`.
 pub fn generate_rsa_keypair() -> anyhow::Result<(String, String)> {
     let mut rng = rand::thread_rng();
-    let private_key = RsaPrivateKey::new(&mut rng, 2048)
-        .map_err(|e| anyhow::anyhow!("RSA keygen error: {e}"))?;
+    let private_key =
+        RsaPrivateKey::new(&mut rng, 2048).map_err(|e| anyhow::anyhow!("RSA keygen error: {e}"))?;
     let private_pem = private_key
         .to_pkcs8_pem(LineEnding::LF)
         .map_err(|e| anyhow::anyhow!("PKCS8 PEM error: {e}"))?
@@ -119,14 +122,12 @@ pub fn generate_rsa_keypair() -> anyhow::Result<(String, String)> {
 
 /// Build an `EncodingKey` from a PKCS#8 PEM string.
 pub fn encoding_key_from_pem(pem: &str) -> anyhow::Result<EncodingKey> {
-    EncodingKey::from_rsa_pem(pem.as_bytes())
-        .map_err(|e| anyhow::anyhow!("EncodingKey error: {e}"))
+    EncodingKey::from_rsa_pem(pem.as_bytes()).map_err(|e| anyhow::anyhow!("EncodingKey error: {e}"))
 }
 
 /// Build a `DecodingKey` from an RSA public key PEM string.
 pub fn decoding_key_from_pem(pem: &str) -> anyhow::Result<DecodingKey> {
-    DecodingKey::from_rsa_pem(pem.as_bytes())
-        .map_err(|e| anyhow::anyhow!("DecodingKey error: {e}"))
+    DecodingKey::from_rsa_pem(pem.as_bytes()).map_err(|e| anyhow::anyhow!("DecodingKey error: {e}"))
 }
 
 #[cfg(test)]
@@ -135,7 +136,10 @@ mod agent_jwt_tests {
 
     fn keys() -> (EncodingKey, DecodingKey) {
         let (pr, pu) = generate_rsa_keypair().unwrap();
-        (encoding_key_from_pem(&pr).unwrap(), decoding_key_from_pem(&pu).unwrap())
+        (
+            encoding_key_from_pem(&pr).unwrap(),
+            decoding_key_from_pem(&pu).unwrap(),
+        )
     }
 
     #[test]
@@ -191,8 +195,16 @@ mod tests {
             "expected 1-day TTL (~86400 s), got {delta} s"
         );
         // exp must be in the future.
-        assert!(claims.exp > before, "exp {0} <= before {before}", claims.exp);
-        assert!(claims.exp <= after + 86402, "exp {0} too far in the future", claims.exp);
+        assert!(
+            claims.exp > before,
+            "exp {0} <= before {before}",
+            claims.exp
+        );
+        assert!(
+            claims.exp <= after + 86402,
+            "exp {0} too far in the future",
+            claims.exp
+        );
     }
 
     #[test]

@@ -74,7 +74,13 @@ async fn zrpc_roundtrip_inject_returns_without_hang() {
 
     // 2. Start a headless session that preloads the plugin from our config.
     let create = zellij_cmd(&cache)
-        .args(["--config", config.to_str().unwrap(), "attach", "--create-background", &session])
+        .args([
+            "--config",
+            config.to_str().unwrap(),
+            "attach",
+            "--create-background",
+            &session,
+        ])
         .output()
         .expect("spawn zellij create");
     assert!(

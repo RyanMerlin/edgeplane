@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::manifest::{CapabilityManifest, RiskLevel};
+use serde::{Deserialize, Serialize};
 
 // ─── Policy bundle ────────────────────────────────────────────────────────────
 
@@ -107,10 +107,7 @@ pub fn evaluate_policy(
         PolicyAction::Allow => match cap.risk {
             RiskLevel::Low | RiskLevel::Medium => Decision::Allow,
             RiskLevel::High | RiskLevel::Critical => Decision::RequireApproval {
-                reason: format!(
-                    "{} risk capability requires approval",
-                    cap.risk
-                ),
+                reason: format!("{} risk capability requires approval", cap.risk),
             },
         },
         PolicyAction::Deny => Decision::Deny {

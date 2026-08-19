@@ -79,14 +79,11 @@ impl SyncClient {
 
         if !self.cache_dir.exists() {
             // Clone
-            self.git(&[
-                "clone",
-                &self.repo_url,
-                &self.cache_dir.to_string_lossy(),
-            ])?;
+            self.git(&["clone", &self.repo_url, &self.cache_dir.to_string_lossy()])?;
         } else {
             // Record HEAD before fetch so we can count new commits
-            let pre_fetch_head = self.git_in_cache(&["rev-parse", "HEAD"])
+            let pre_fetch_head = self
+                .git_in_cache(&["rev-parse", "HEAD"])
                 .unwrap_or_default();
             let pre_fetch_head = pre_fetch_head.trim().to_string();
 
@@ -99,11 +96,7 @@ impl SyncClient {
                 0
             } else {
                 let count_str = self
-                    .git_in_cache(&[
-                        "rev-list",
-                        &format!("{pre_fetch_head}..HEAD"),
-                        "--count",
-                    ])
+                    .git_in_cache(&["rev-list", &format!("{pre_fetch_head}..HEAD"), "--count"])
                     .unwrap_or_default();
                 count_str.trim().parse::<u32>().unwrap_or(0)
             };
@@ -279,8 +272,7 @@ mod tests {
     fn new_does_not_clone() {
         let dir = tempdir().unwrap();
         let cache = dir.path().join("sync");
-        let client =
-            SyncClient::new("https://example.com/fake.git", &cache, "testhost").unwrap();
+        let client = SyncClient::new("https://example.com/fake.git", &cache, "testhost").unwrap();
         assert!(!cache.exists());
         drop(client);
     }
@@ -320,13 +312,7 @@ mod tests {
             .output()
             .unwrap();
         Command::new("git")
-            .args([
-                "-C",
-                cache.to_str().unwrap(),
-                "config",
-                "user.name",
-                "Test",
-            ])
+            .args(["-C", cache.to_str().unwrap(), "config", "user.name", "Test"])
             .output()
             .unwrap();
 

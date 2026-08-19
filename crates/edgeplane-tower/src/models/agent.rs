@@ -149,9 +149,15 @@ pub struct MessageSend {
     pub task_id: Option<String>,
 }
 
-fn default_offline() -> String { "offline".into() }
-fn default_available() -> String { "available".into() }
-fn default_info() -> String { "info".into() }
+fn default_offline() -> String {
+    "offline".into()
+}
+fn default_available() -> String {
+    "available".into()
+}
+fn default_info() -> String {
+    "info".into()
+}
 
 // ── AgentIdent ────────────────────────────────────────────────────────────────
 
@@ -208,10 +214,14 @@ impl<'de> serde::Deserialize<'de> for AgentIdent {
 
             // JSON numeric body
             fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
-                i32::try_from(v).map(AgentIdent::Id).map_err(|_| E::custom("agent id out of range for i32"))
+                i32::try_from(v)
+                    .map(AgentIdent::Id)
+                    .map_err(|_| E::custom("agent id out of range for i32"))
             }
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
-                i32::try_from(v).map(AgentIdent::Id).map_err(|_| E::custom("agent id out of range for i32"))
+                i32::try_from(v)
+                    .map(AgentIdent::Id)
+                    .map_err(|_| E::custom("agent id out of range for i32"))
             }
 
             // Path segments arrive as strings; JSON string bodies hit here too.
@@ -256,7 +266,8 @@ mod agent_ident_tests {
     }
     #[test]
     fn from_public_id_string() {
-        let v: AgentIdent = serde_json::from_value(serde_json::json!("my-agent-work-qwn5eb33")).unwrap();
+        let v: AgentIdent =
+            serde_json::from_value(serde_json::json!("my-agent-work-qwn5eb33")).unwrap();
         match v {
             AgentIdent::PublicId(s) => assert_eq!(s, "my-agent-work-qwn5eb33"),
             other => panic!("expected PublicId, got {other:?}"),

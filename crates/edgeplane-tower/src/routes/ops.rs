@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::State,
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -69,7 +69,9 @@ fn backup_file() -> String {
 
 async fn read_backup_records() -> Vec<serde_json::Value> {
     match tokio::fs::read_to_string(backup_file()).await {
-        Ok(contents) => serde_json::from_str::<Vec<serde_json::Value>>(&contents).unwrap_or_default(),
+        Ok(contents) => {
+            serde_json::from_str::<Vec<serde_json::Value>>(&contents).unwrap_or_default()
+        }
         Err(_) => vec![],
     }
 }
@@ -97,7 +99,10 @@ fn load_profile_data(path: &std::path::Path) -> serde_json::Value {
     }
 }
 
-async fn save_profile_data(path: &std::path::Path, data: &serde_json::Value) -> std::io::Result<()> {
+async fn save_profile_data(
+    path: &std::path::Path,
+    data: &serde_json::Value,
+) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -114,10 +119,20 @@ fn build_secret_ref(
 ) -> String {
     if provider == "infisical" {
         let mut parts = Vec::new();
-        if let Some(p) = project_id { parts.push(format!("projectId={p}")); }
-        if let Some(e) = env { parts.push(format!("env={e}")); }
-        if let Some(p) = path { parts.push(format!("path={p}")); }
-        let query = if parts.is_empty() { String::new() } else { format!("?{}", parts.join("&")) };
+        if let Some(p) = project_id {
+            parts.push(format!("projectId={p}"));
+        }
+        if let Some(e) = env {
+            parts.push(format!("env={e}"));
+        }
+        if let Some(p) = path {
+            parts.push(format!("path={p}"));
+        }
+        let query = if parts.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", parts.join("&"))
+        };
         format!("secret://infisical/{name}{query}")
     } else {
         format!("secret://env/{name}")
@@ -169,7 +184,10 @@ async fn trigger_backup(
 
     let record = BackupRecord {
         id: backup_id.clone(),
-        target: payload.target.clone().unwrap_or_else(|| "default".to_string()),
+        target: payload
+            .target
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
         reason: payload.reason.clone(),
         triggered_by: principal.subject.clone(),
         status: "triggered".to_string(),
@@ -252,16 +270,31 @@ async fn get_secrets_status(
             p
         }
     };
-    let profile_name = if profile_name.trim().is_empty() { "default".to_string() } else { profile_name.trim().to_string() };
+    let profile_name = if profile_name.trim().is_empty() {
+        "default".to_string()
+    } else {
+        profile_name.trim().to_string()
+    };
     let path = edgeplaned_paths::profile_secrets_path(&profile_name);
     let provider_env = {
         let raw = std::env::var("EP_SECRETS_PROVIDER").unwrap_or_default();
-        if raw.trim().eq_ignore_ascii_case("infisical") { "infisical" } else { "env" }
+        if raw.trim().eq_ignore_ascii_case("infisical") {
+            "infisical"
+        } else {
+            "env"
+        }
     };
     let profile_exists = path.exists();
     let data = load_profile_data(&path);
-    let refs_count = data.get("refs").and_then(|v| v.as_object()).map(|m| m.len()).unwrap_or(0);
-    let provider_profile = data.get("provider").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let refs_count = data
+        .get("refs")
+        .and_then(|v| v.as_object())
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let provider_profile = data
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let infisical = serde_json::json!({
         "project_id": data.get("infisical_project_id"),
         "env": data.get("infisical_env"),
@@ -277,7 +310,8 @@ async fn get_secrets_status(
             "refs_count": refs_count,
             "infisical": infisical,
         }
-    })).into_response()
+    }))
+    .into_response()
 }
 
 async fn post_secrets_bootstrap(
@@ -288,15 +322,25 @@ async fn post_secrets_bootstrap(
     if let Some(r) = require_admin(&principal) {
         return r;
     }
-    let profile_name = payload.profile
+    let profile_name = payload
+        .profile
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "default".into());
-    let provider_raw = payload.provider
+    let provider_raw = payload
+        .provider
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "env".into());
-    let provider = if provider_raw.trim().eq_ignore_ascii_case("infisical") { "infisical" } else { "env" };
+    let provider = if provider_raw.trim().eq_ignore_ascii_case("infisical") {
+        "infisical"
+    } else {
+        "env"
+    };
     if provider != "env" && provider != "infisical" {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"ok": false, "error": "provider must be env or infisical"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": "provider must be env or infisical"})),
+        )
+            .into_response();
     }
     let keep_existing = payload.keep_existing.unwrap_or(true);
     let project_id = payload.infisical_project_id.filter(|s| !s.is_empty());
@@ -313,12 +357,22 @@ async fn post_secrets_bootstrap(
         .unwrap_or_default();
 
     const DEFAULT_NAMES: &[&str] = &[
-        "MQTT_PASSWORD", "POSTGRES_PASSWORD",
-        "EP_OBJECT_STORAGE_ACCESS_KEY", "EP_OBJECT_STORAGE_ACCESS_SECRET",
+        "MQTT_PASSWORD",
+        "POSTGRES_PASSWORD",
+        "EP_OBJECT_STORAGE_ACCESS_KEY",
+        "EP_OBJECT_STORAGE_ACCESS_SECRET",
     ];
     for &name in DEFAULT_NAMES {
-        if keep_existing && refs.contains_key(name) { continue; }
-        let ref_val = build_secret_ref(name, provider, project_id.as_deref(), infisical_env.as_deref(), infisical_path.as_deref());
+        if keep_existing && refs.contains_key(name) {
+            continue;
+        }
+        let ref_val = build_secret_ref(
+            name,
+            provider,
+            project_id.as_deref(),
+            infisical_env.as_deref(),
+            infisical_path.as_deref(),
+        );
         refs.insert(name.to_string(), serde_json::json!(ref_val));
     }
 
@@ -346,7 +400,8 @@ async fn post_secrets_bootstrap(
             "path": path.to_string_lossy(),
             "refs_count": refs_count,
         }
-    })).into_response()
+    }))
+    .into_response()
 }
 
 async fn post_secrets_rotate(
@@ -357,19 +412,30 @@ async fn post_secrets_rotate(
     if let Some(r) = require_admin(&principal) {
         return r;
     }
-    let profile_name = payload.profile
+    let profile_name = payload
+        .profile
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "default".into());
     let secret_name = match payload.name.filter(|s| !s.trim().is_empty()) {
         Some(n) => n,
-        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"ok": false, "error": "name is required"}))).into_response(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"ok": false, "error": "name is required"})),
+            )
+                .into_response();
+        }
     };
-    let generator = payload.generator.filter(|s| !s.is_empty()).unwrap_or_else(|| "token".into());
+    let generator = payload
+        .generator
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "token".into());
 
     let path = edgeplaned_paths::profile_secrets_path(&profile_name);
     let data = load_profile_data(&path);
 
-    let ref_val = data.get("refs")
+    let ref_val = data
+        .get("refs")
         .and_then(|v| v.as_object())
         .and_then(|r| r.get(&secret_name))
         .and_then(|v| v.as_str())
@@ -381,12 +447,21 @@ async fn post_secrets_rotate(
         None => return (StatusCode::CONFLICT, Json(serde_json::json!({"ok": false, "error": format!("Secret '{}' is not mapped in profile '{}'", secret_name, profile_name)}))).into_response(),
     };
 
-    let next_value = payload.value.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| generate_secret(&generator));
+    let next_value = payload
+        .value
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| generate_secret(&generator));
 
     let (provider, target_name) = if let Some(rest) = ref_val.strip_prefix("secret://infisical/") {
-        ("infisical", rest.split('?').next().unwrap_or(&secret_name).to_string())
+        (
+            "infisical",
+            rest.split('?').next().unwrap_or(&secret_name).to_string(),
+        )
     } else if let Some(rest) = ref_val.strip_prefix("secret://env/") {
-        ("env", rest.split('?').next().unwrap_or(&secret_name).to_string())
+        (
+            "env",
+            rest.split('?').next().unwrap_or(&secret_name).to_string(),
+        )
     } else {
         ("env", secret_name.clone())
     };
@@ -395,22 +470,51 @@ async fn post_secrets_rotate(
         // SAFETY: single-threaded context during startup config; best-effort env update
         unsafe { std::env::set_var(&target_name, &next_value) };
     } else {
-        let cli = std::env::var("EP_SECRETS_INFISICAL_CLI_BIN").unwrap_or_else(|_| "infisical".into());
-        let project_id = data.get("infisical_project_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let infisical_env = data.get("infisical_env").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let infisical_path_val = data.get("infisical_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let cli =
+            std::env::var("EP_SECRETS_INFISICAL_CLI_BIN").unwrap_or_else(|_| "infisical".into());
+        let project_id = data
+            .get("infisical_project_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let infisical_env = data
+            .get("infisical_env")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let infisical_path_val = data
+            .get("infisical_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let mut cmd = std::process::Command::new(&cli);
         cmd.args(["secrets", "set", &target_name, &next_value]);
-        if !project_id.is_empty() { cmd.args(["--projectId", &project_id]); }
-        if !infisical_env.is_empty() { cmd.args(["--env", &infisical_env]); }
-        if !infisical_path_val.is_empty() { cmd.args(["--path", &infisical_path_val]); }
+        if !project_id.is_empty() {
+            cmd.args(["--projectId", &project_id]);
+        }
+        if !infisical_env.is_empty() {
+            cmd.args(["--env", &infisical_env]);
+        }
+        if !infisical_path_val.is_empty() {
+            cmd.args(["--path", &infisical_path_val]);
+        }
         match cmd.output() {
             Ok(out) if out.status.success() => {}
             Ok(out) => {
                 let err = String::from_utf8_lossy(&out.stderr).to_string();
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"ok": false, "error": err}))).into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"ok": false, "error": err})),
+                )
+                    .into_response();
             }
-            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"ok": false, "error": e.to_string()}))).into_response(),
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"ok": false, "error": e.to_string()})),
+                )
+                    .into_response();
+            }
         }
     }
 
@@ -423,5 +527,6 @@ async fn post_secrets_rotate(
             "reference": ref_val,
             "updated": true,
         }
-    })).into_response()
+    }))
+    .into_response()
 }

@@ -17,7 +17,10 @@ pub struct InfisicalClient {
 
 enum Auth {
     ServiceToken(String),
-    UniversalAuth { client_id: String, client_secret: String },
+    UniversalAuth {
+        client_id: String,
+        client_secret: String,
+    },
 }
 
 impl InfisicalClient {
@@ -36,7 +39,9 @@ impl InfisicalClient {
             }
         } else if let (Some(id), Some(secret)) = (&cfg.client_id, &cfg.client_secret) {
             if id.trim().is_empty() || secret.trim().is_empty() {
-                return Err(SecretsError::Config("client_id or client_secret is empty".into()));
+                return Err(SecretsError::Config(
+                    "client_id or client_secret is empty".into(),
+                ));
             }
             Auth::UniversalAuth {
                 client_id: id.clone(),
@@ -44,7 +49,8 @@ impl InfisicalClient {
             }
         } else {
             return Err(SecretsError::Config(
-                "no auth credentials configured: set service_token or client_id+client_secret".into(),
+                "no auth credentials configured: set service_token or client_id+client_secret"
+                    .into(),
             ));
         };
 
@@ -60,7 +66,10 @@ impl InfisicalClient {
     async fn bearer_token(&self) -> Result<String> {
         match &self.auth {
             Auth::ServiceToken(t) => Ok(t.clone()),
-            Auth::UniversalAuth { client_id, client_secret } => {
+            Auth::UniversalAuth {
+                client_id,
+                client_secret,
+            } => {
                 if let Some(cached) = GLOBAL_TOKEN_CACHE.get(&self.site_url, client_id) {
                     return Ok(cached);
                 }
@@ -77,7 +86,8 @@ impl InfisicalClient {
             "clientSecret": client_secret,
         });
 
-        let resp = self.http
+        let resp = self
+            .http
             .post(&url)
             .json(&body)
             .send()
@@ -124,7 +134,8 @@ impl InfisicalClient {
             environment,
             urlencoding::encode(path),
         );
-        let resp = self.http
+        let resp = self
+            .http
             .get(&url)
             .bearer_auth(&token)
             .send()
@@ -163,7 +174,8 @@ impl InfisicalClient {
             environment,
             urlencoding::encode(path),
         );
-        let resp = self.http
+        let resp = self
+            .http
             .get(&url)
             .bearer_auth(&token)
             .send()
@@ -209,7 +221,8 @@ impl InfisicalClient {
             environment,
             urlencoding::encode(path),
         );
-        let resp = self.http
+        let resp = self
+            .http
             .get(&url)
             .bearer_auth(&token)
             .send()

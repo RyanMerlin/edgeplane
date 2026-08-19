@@ -8,11 +8,14 @@ use axum::{
 use base64::Engine;
 use sqlx::PgPool;
 use std::collections::HashMap;
-use std::{path::PathBuf, sync::Arc};
 use std::sync::RwLock;
+use std::{path::PathBuf, sync::Arc};
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::{auth, jwt, routes, state::{AppState, NodeInfo}};
+use crate::{
+    auth, jwt, routes,
+    state::{AppState, NodeInfo},
+};
 
 #[derive(Default, Clone)]
 pub struct AppConfig {
@@ -52,8 +55,10 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
     // layered on the routes before nesting, so handlers still see paths
     // without the /api prefix (e.g. `/agents`, `/health`). The
     // `auth::is_public_path` allowlist therefore does not need updating.
-    let authed = routes::build_router()
-        .layer(middleware::from_fn_with_state(state.clone(), auth::require_auth));
+    let authed = routes::build_router().layer(middleware::from_fn_with_state(
+        state.clone(),
+        auth::require_auth,
+    ));
 
     // Serve the React/Vite web SPA at root (/) if EP_WEB_DIR points to the
     // build. SPA fallback via fallback_service handles client-side routing.
@@ -64,8 +69,8 @@ pub fn build_app(db: PgPool, config: AppConfig) -> Router {
         .unwrap_or_else(|_| "/usr/local/share/edgeplane-web".to_string());
     let web_path = PathBuf::from(&web_dir);
     if web_path.is_dir() {
-        let serve = ServeDir::new(&web_path)
-            .not_found_service(ServeFile::new(web_path.join("index.html")));
+        let serve =
+            ServeDir::new(&web_path).not_found_service(ServeFile::new(web_path.join("index.html")));
         Router::new()
             .merge(routes::health::probe_router())
             .nest("/api", authed)
@@ -121,7 +126,10 @@ async fn web_cache_control(req: Request, next: Next) -> Response {
 }
 
 fn load_jwt_keys() -> (jsonwebtoken::EncodingKey, jsonwebtoken::DecodingKey) {
-    use rsa::{RsaPrivateKey, pkcs8::{DecodePrivateKey, EncodePublicKey, LineEnding}};
+    use rsa::{
+        RsaPrivateKey,
+        pkcs8::{DecodePrivateKey, EncodePublicKey, LineEnding},
+    };
 
     if let Ok(b64) = std::env::var("EP_JWT_SIGNING_KEY") {
         let pem_bytes = base64::engine::general_purpose::STANDARD
@@ -129,15 +137,15 @@ fn load_jwt_keys() -> (jsonwebtoken::EncodingKey, jsonwebtoken::DecodingKey) {
             .expect("EP_JWT_SIGNING_KEY must be base64-encoded");
         let pem = String::from_utf8(pem_bytes)
             .expect("EP_JWT_SIGNING_KEY decoded value is not valid UTF-8");
-        let enc = jwt::encoding_key_from_pem(&pem)
-            .expect("EP_JWT_SIGNING_KEY: invalid RSA PKCS#8 PEM");
+        let enc =
+            jwt::encoding_key_from_pem(&pem).expect("EP_JWT_SIGNING_KEY: invalid RSA PKCS#8 PEM");
         let pub_pem = RsaPrivateKey::from_pkcs8_pem(&pem)
             .expect("EP_JWT_SIGNING_KEY: cannot parse PKCS#8")
             .to_public_key()
             .to_public_key_pem(LineEnding::LF)
             .expect("public key PEM export failed");
-        let dec = jwt::decoding_key_from_pem(&pub_pem)
-            .expect("EP_JWT_SIGNING_KEY: public key error");
+        let dec =
+            jwt::decoding_key_from_pem(&pub_pem).expect("EP_JWT_SIGNING_KEY: public key error");
         (enc, dec)
     } else {
         tracing::warn!(
@@ -159,17 +167,22 @@ async fn proxy_fallback(
         return StatusCode::NOT_FOUND.into_response();
     };
 
-    let path_query = req.uri().path_and_query()
+    let path_query = req
+        .uri()
+        .path_and_query()
         .map(|pq| pq.as_str())
         .unwrap_or_else(|| req.uri().path());
     let target = format!("{}{}", base.trim_end_matches('/'), path_query);
 
     let method_str = req.method().as_str().to_owned();
-    let reqwest_method = reqwest::Method::from_bytes(method_str.as_bytes())
-        .unwrap_or(reqwest::Method::GET);
+    let reqwest_method =
+        reqwest::Method::from_bytes(method_str.as_bytes()).unwrap_or(reqwest::Method::GET);
 
     // Capture the Authorization header before consuming the body.
-    let auth_header = req.headers().get(axum::http::header::AUTHORIZATION).cloned();
+    let auth_header = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .cloned();
 
     let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
         Ok(b) => b,
@@ -185,13 +198,10 @@ async fn proxy_fallback(
         proxy_request = proxy_request.header(reqwest::header::AUTHORIZATION, auth_value.as_bytes());
     }
 
-    match proxy_request
-        .send()
-        .await
-    {
+    match proxy_request.send().await {
         Ok(r) => {
-            let status = StatusCode::from_u16(r.status().as_u16())
-                .unwrap_or(StatusCode::BAD_GATEWAY);
+            let status =
+                StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             match r.bytes().await {
                 Ok(b) => (status, b).into_response(),
                 Err(_) => StatusCode::BAD_GATEWAY.into_response(),

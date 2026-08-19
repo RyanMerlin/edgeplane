@@ -1,6 +1,6 @@
+use anyhow::Result;
 use edgeplaned_core::client::BackendClient;
 use edgeplaned_core::types::{Capability, MeshTaskRecord};
-use anyhow::Result;
 
 /// Result of a successful claim attempt.
 pub struct ClaimOutcome {
@@ -16,12 +16,16 @@ pub struct ClaimOutcome {
 /// rely on the backend's `unblock_dependents` to hold them in `pending` until
 /// their deps finish; by the time they appear as `ready` here, the gate is
 /// already satisfied.
-pub fn filter_eligible<'a>(tasks: &'a [MeshTaskRecord], caps: &[Capability]) -> Vec<&'a MeshTaskRecord> {
+pub fn filter_eligible<'a>(
+    tasks: &'a [MeshTaskRecord],
+    caps: &[Capability],
+) -> Vec<&'a MeshTaskRecord> {
     tasks
         .iter()
         .filter(|t| {
             // Capability gate.
-            if !t.required_capabilities
+            if !t
+                .required_capabilities
                 .iter()
                 .all(|req| caps.iter().any(|c| c.0 == *req))
             {
@@ -29,7 +33,8 @@ pub fn filter_eligible<'a>(tasks: &'a [MeshTaskRecord], caps: &[Capability]) -> 
             }
             // Consumes sanity gate: if a task declares consumes but has no
             // depends_on, its inputs can't exist yet — skip it.
-            let has_consumes = t.consumes
+            let has_consumes = t
+                .consumes
                 .as_object()
                 .map(|m| !m.is_empty())
                 .unwrap_or(false);
@@ -63,7 +68,10 @@ pub async fn try_claim_one(
         Ok(result) => {
             let mut task = result.task;
             task.status = "claimed".into();
-            Ok(Some(ClaimOutcome { task, claim_lease_id: result.claim_lease_id }))
+            Ok(Some(ClaimOutcome {
+                task,
+                claim_lease_id: result.claim_lease_id,
+            }))
         }
         Err(e) => {
             tracing::debug!("claim race lost for task {}: {e}", candidate.id);
@@ -166,7 +174,11 @@ mod tests {
     fn consumes_with_depends_on_is_eligible() {
         let tasks = vec![task_with_consumes("t1", vec!["dep-task".into()])];
         let eligible = filter_eligible(&tasks, &[]);
-        assert_eq!(eligible.len(), 1, "task with consumes + depends_on should be eligible");
+        assert_eq!(
+            eligible.len(),
+            1,
+            "task with consumes + depends_on should be eligible"
+        );
     }
 
     #[test]
@@ -174,13 +186,20 @@ mod tests {
         // Misconfigured: declares consumes but has no depends_on — inputs can't exist yet.
         let tasks = vec![task_with_consumes("t1", vec![])];
         let eligible = filter_eligible(&tasks, &[]);
-        assert!(eligible.is_empty(), "misconfigured task (consumes with no depends_on) should be skipped");
+        assert!(
+            eligible.is_empty(),
+            "misconfigured task (consumes with no depends_on) should be skipped"
+        );
     }
 
     #[test]
     fn empty_consumes_object_is_fine_without_depends_on() {
         let tasks = vec![task("t1", &[], "first_claim")]; // consumes: {}
         let eligible = filter_eligible(&tasks, &[]);
-        assert_eq!(eligible.len(), 1, "empty consumes should not trigger the gate");
+        assert_eq!(
+            eligible.len(),
+            1,
+            "empty consumes should not trigger the gate"
+        );
     }
 }

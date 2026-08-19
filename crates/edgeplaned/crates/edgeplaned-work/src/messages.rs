@@ -1,5 +1,5 @@
-use edgeplaned_core::client::BackendClient;
 use anyhow::Result;
+use edgeplaned_core::client::BackendClient;
 
 /// Send a message scoped to a mission.
 pub async fn send_mission_message(

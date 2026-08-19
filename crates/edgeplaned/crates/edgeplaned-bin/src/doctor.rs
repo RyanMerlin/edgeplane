@@ -164,15 +164,18 @@ async fn check_one_port(name: &str, addr: &str, daemon_running: bool) -> Finding
                 Finding {
                     severity: Severity::Warn,
                     title: format!("port {name} ({addr})"),
-                    detail: "port is free but a daemon appears to be running per the singleton lock.\n\
+                    detail:
+                        "port is free but a daemon appears to be running per the singleton lock.\n\
                          The daemon may have failed to bind this port. \
-                         Check `journalctl --user -u edgeplaned.service` for bind errors.".to_string(),
+                         Check `journalctl --user -u edgeplaned.service` for bind errors."
+                            .to_string(),
                 }
             } else {
                 Finding {
                     severity: Severity::Info,
                     title: format!("port {name} ({addr})"),
-                    detail: "port is free (no daemon listening — consistent with lock state)".into(),
+                    detail: "port is free (no daemon listening — consistent with lock state)"
+                        .into(),
                 }
             }
         }
@@ -233,10 +236,7 @@ fn check_registry() -> Finding {
     }
     // Try to open read-only via rusqlite — cheap, exclusive locking doesn't
     // apply with default sqlite settings, so this won't disrupt a running daemon.
-    match rusqlite::Connection::open_with_flags(
-        &path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    ) {
+    match rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
         Ok(conn) => {
             let count: rusqlite::Result<i64> = conn.query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table'",
@@ -300,18 +300,21 @@ fn check_binary(name: &str, args: &[&str]) -> Finding {
 
 fn check_acp_module() -> Finding {
     let pkg = "@agentclientprotocol/claude-agent-acp";
-    if let Ok(out) = std::process::Command::new("npm").args(["root", "-g"]).output()
-        && out.status.success() {
-            let root = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let p = std::path::PathBuf::from(&root).join(format!("{pkg}/dist/index.js"));
-            if p.exists() {
-                return Finding {
-                    severity: Severity::Ok,
-                    title: format!("runtime: {pkg}"),
-                    detail: p.display().to_string(),
-                };
-            }
+    if let Ok(out) = std::process::Command::new("npm")
+        .args(["root", "-g"])
+        .output()
+        && out.status.success()
+    {
+        let root = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let p = std::path::PathBuf::from(&root).join(format!("{pkg}/dist/index.js"));
+        if p.exists() {
+            return Finding {
+                severity: Severity::Ok,
+                title: format!("runtime: {pkg}"),
+                detail: p.display().to_string(),
+            };
         }
+    }
     Finding {
         severity: Severity::Warn,
         title: format!("runtime: {pkg}"),

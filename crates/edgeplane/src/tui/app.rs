@@ -3,22 +3,24 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
+    Frame, Terminal,
     backend::Backend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame, Terminal,
 };
 
-use super::data::{is_auth_error, DataClient, RemoteDataClient};
+use super::data::{DataClient, RemoteDataClient, is_auth_error};
 use super::screens::agent_feed::{AgentFeed, AgentFeedState};
 use super::screens::agents::{AgentOp, AgentScreen, AgentScreenState};
-use super::screens::config::{ConfigScreen, ConfigScreenState, DoctorCheckRow, DoctorStatus, OidcPanelState};
+use super::screens::config::{
+    ConfigScreen, ConfigScreenState, DoctorCheckRow, DoctorStatus, OidcPanelState,
+};
 use super::screens::mission_matrix::{Focus as MatrixFocus, MissionMatrix, MissionMatrixState};
 use super::screens::secrets::{SecretsScreen, SecretsState, render_tree_overlay};
 use super::theme;
-use super::widgets::help::{HelpEntry, HelpOverlay, GLOBAL_HELP};
+use super::widgets::help::{GLOBAL_HELP, HelpEntry, HelpOverlay};
 use super::widgets::modal::{ConfirmModal, InfoModal, ModalAction, OidcLoginModal, OidcLoginState};
 use super::work::{OidcFlowEvent, WorkPool, WorkRequest, WorkResult, next_job_id};
 
@@ -68,9 +70,16 @@ pub enum PendingAction {
 /// All currently-supported modal kinds. Extending this enum is the way to
 /// add new dialogs (task picker, etc.) without sprinkling overlays across screens.
 pub enum AppModal {
-    Confirm { modal: ConfirmModal, action: PendingAction },
-    Info { modal: InfoModal },
-    OidcLogin { modal: OidcLoginModal },
+    Confirm {
+        modal: ConfirmModal,
+        action: PendingAction,
+    },
+    Info {
+        modal: InfoModal,
+    },
+    OidcLogin {
+        modal: OidcLoginModal,
+    },
 }
 
 impl AppModal {
@@ -137,40 +146,106 @@ const AGENTS_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
 const DOMAINS_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 const AGENTS_HELP: &[HelpEntry] = &[
-    HelpEntry { keys: "↑↓",      desc: "navigate agents/nodes" },
-    HelpEntry { keys: "←→",      desc: "switch between Nodes and Agents pane" },
-    HelpEntry { keys: "r",       desc: "restart selected agent (confirm)" },
-    HelpEntry { keys: "x",       desc: "clear selected agent's context (confirm)" },
-    HelpEntry { keys: "d",       desc: "remove selected agent (confirm)" },
+    HelpEntry {
+        keys: "↑↓",
+        desc: "navigate agents/nodes",
+    },
+    HelpEntry {
+        keys: "←→",
+        desc: "switch between Nodes and Agents pane",
+    },
+    HelpEntry {
+        keys: "r",
+        desc: "restart selected agent (confirm)",
+    },
+    HelpEntry {
+        keys: "x",
+        desc: "clear selected agent's context (confirm)",
+    },
+    HelpEntry {
+        keys: "d",
+        desc: "remove selected agent (confirm)",
+    },
 ];
 
 const DOMAINS_HELP: &[HelpEntry] = &[
-    HelpEntry { keys: "↑↓",      desc: "navigate within the focused pane" },
-    HelpEntry { keys: "←→",      desc: "move focus between Domains / Missions / Tasks" },
-    HelpEntry { keys: "/",       desc: "filter domains or missions (Esc to clear)" },
-    HelpEntry { keys: "Enter",   desc: "drill into selected domain/mission" },
+    HelpEntry {
+        keys: "↑↓",
+        desc: "navigate within the focused pane",
+    },
+    HelpEntry {
+        keys: "←→",
+        desc: "move focus between Domains / Missions / Tasks",
+    },
+    HelpEntry {
+        keys: "/",
+        desc: "filter domains or missions (Esc to clear)",
+    },
+    HelpEntry {
+        keys: "Enter",
+        desc: "drill into selected domain/mission",
+    },
 ];
 
 const FEED_HELP: &[HelpEntry] = &[
-    HelpEntry { keys: "↑↓",      desc: "scroll feed" },
-    HelpEntry { keys: "p",       desc: "pause / resume" },
-    HelpEntry { keys: "c",       desc: "clear buffer" },
-    HelpEntry { keys: "/",       desc: "filter events" },
+    HelpEntry {
+        keys: "↑↓",
+        desc: "scroll feed",
+    },
+    HelpEntry {
+        keys: "p",
+        desc: "pause / resume",
+    },
+    HelpEntry {
+        keys: "c",
+        desc: "clear buffer",
+    },
+    HelpEntry {
+        keys: "/",
+        desc: "filter events",
+    },
 ];
 
 const SECRETS_HELP: &[HelpEntry] = &[
-    HelpEntry { keys: "↑↓",      desc: "navigate tree" },
-    HelpEntry { keys: "→/Enter", desc: "expand folder" },
-    HelpEntry { keys: "←",       desc: "collapse / go to parent" },
-    HelpEntry { keys: "r",       desc: "retry root load when an error is shown" },
-    HelpEntry { keys: "Esc",     desc: "leave the secrets browser" },
+    HelpEntry {
+        keys: "↑↓",
+        desc: "navigate tree",
+    },
+    HelpEntry {
+        keys: "→/Enter",
+        desc: "expand folder",
+    },
+    HelpEntry {
+        keys: "←",
+        desc: "collapse / go to parent",
+    },
+    HelpEntry {
+        keys: "r",
+        desc: "retry root load when an error is shown",
+    },
+    HelpEntry {
+        keys: "Esc",
+        desc: "leave the secrets browser",
+    },
 ];
 
 const CONFIG_HELP: &[HelpEntry] = &[
-    HelpEntry { keys: "↑↓",      desc: "navigate sections / panel content" },
-    HelpEntry { keys: "→/Enter", desc: "focus the panel for the selected section" },
-    HelpEntry { keys: "←/Esc",   desc: "return focus to the section list" },
-    HelpEntry { keys: "n e d",   desc: "(Infisical) add / edit / delete a profile" },
+    HelpEntry {
+        keys: "↑↓",
+        desc: "navigate sections / panel content",
+    },
+    HelpEntry {
+        keys: "→/Enter",
+        desc: "focus the panel for the selected section",
+    },
+    HelpEntry {
+        keys: "←/Esc",
+        desc: "return focus to the section list",
+    },
+    HelpEntry {
+        keys: "n e d",
+        desc: "(Infisical) add / edit / delete a profile",
+    },
 ];
 
 impl App {
@@ -191,16 +266,35 @@ impl App {
         let pool = WorkPool::new();
 
         // Ping on startup to populate connection status
-        pool.dispatch(client.clone(), WorkRequest::Ping { job_id: next_job_id() });
+        pool.dispatch(
+            client.clone(),
+            WorkRequest::Ping {
+                job_id: next_job_id(),
+            },
+        );
         // Load agents immediately on startup
-        pool.dispatch(client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
+        pool.dispatch(
+            client.clone(),
+            WorkRequest::ListAgents {
+                job_id: next_job_id(),
+            },
+        );
         // Resolve token identity when auth came from --token or EP_AGENT_TOKEN bootstrap
         if matches!(auth_state, AuthState::SessionFromFlag) {
-            pool.dispatch(client.clone(), WorkRequest::Whoami { job_id: next_job_id() });
+            pool.dispatch(
+                client.clone(),
+                WorkRequest::Whoami {
+                    job_id: next_job_id(),
+                },
+            );
         }
 
         let token_masked = token.as_ref().map(|t| {
-            if t.len() > 8 { format!("{}…", &t[..8]) } else { "***".into() }
+            if t.len() > 8 {
+                format!("{}…", &t[..8])
+            } else {
+                "***".into()
+            }
         });
         let mut config = ConfigScreenState {
             base_url: base_url.clone(),
@@ -263,9 +357,10 @@ impl App {
         let now = Instant::now();
         if !force
             && let Some(last) = self.auth_last_check
-                && now.duration_since(last) < POLL_INTERVAL {
-                    return false;
-                }
+            && now.duration_since(last) < POLL_INTERVAL
+        {
+            return false;
+        }
         self.auth_last_check = Some(now);
 
         // Only useful when we're NOT currently authenticated — there's no
@@ -285,7 +380,9 @@ impl App {
             email: saved.email.clone(),
             expires_at: saved.expires_at.clone(),
         };
-        let Ok(new_client) = RemoteDataClient::new(self.base_url.clone(), Some(saved.token.clone())) else {
+        let Ok(new_client) =
+            RemoteDataClient::new(self.base_url.clone(), Some(saved.token.clone()))
+        else {
             return false;
         };
         self.token = Some(saved.token);
@@ -319,9 +416,7 @@ impl App {
             if !matches!(self.auth_state, AuthState::SessionFromFlag) {
                 self.auth_state = AuthState::SessionExpired;
             }
-            return Some(
-                "Not signed in — go to Config → Auth to sign in.".to_string(),
-            );
+            return Some("Not signed in — go to Config → Auth to sign in.".to_string());
         }
         Some(raw)
     }
@@ -334,14 +429,20 @@ impl App {
                     modal: InfoModal {
                         title: "Identity".to_string(),
                         lines: vec![
-                            "You're signed in via a session token from ~/.ep/session.json.".to_string(),
+                            "You're signed in via a session token from ~/.ep/session.json."
+                                .to_string(),
                             "".to_string(),
-                            "If calls are failing, run `edgeplane auth login` to refresh.".to_string(),
+                            "If calls are failing, run `edgeplane auth login` to refresh."
+                                .to_string(),
                         ],
                     },
                 });
             }
-            AuthState::SessionValid { subject, expires_at, .. } => {
+            AuthState::SessionValid {
+                subject,
+                expires_at,
+                ..
+            } => {
                 let subject = subject.clone();
                 let expires_at = expires_at.clone();
                 self.modal = Some(AppModal::Info {
@@ -366,8 +467,10 @@ impl App {
                             lines: vec![
                                 format!("Cannot connect to: {base_url}"),
                                 "".to_string(),
-                                "Check that the server is running and EP_BASE_URL is correct.".to_string(),
-                                "  edgeplane system start    — start the local dev stack".to_string(),
+                                "Check that the server is running and EP_BASE_URL is correct."
+                                    .to_string(),
+                                "  edgeplane system start    — start the local dev stack"
+                                    .to_string(),
                                 format!("  EP_BASE_URL=https://your-server.com edgeplane tui"),
                                 "".to_string(),
                                 "Press R to retry once it's up.".to_string(),
@@ -399,7 +502,12 @@ impl App {
     pub fn tick(&mut self) {
         while let Ok(result) = self.pool.result_rx.try_recv() {
             match result {
-                WorkResult::Pinged { ok, latency_ms, server_version, .. } => {
+                WorkResult::Pinged {
+                    ok,
+                    latency_ms,
+                    server_version,
+                    ..
+                } => {
                     self.config.connected = ok;
                     self.config.latency_ms = Some(latency_ms);
                     if server_version.is_some() {
@@ -416,13 +524,25 @@ impl App {
                         self.agents_last_refresh = Some(Instant::now());
                     }
                 }
-                WorkResult::AgentDeleted { agent_id, ok, error, .. } => {
+                WorkResult::AgentDeleted {
+                    agent_id,
+                    ok,
+                    error,
+                    ..
+                } => {
                     if ok {
                         self.agents.agents.retain(|a| a.id != agent_id);
                         let max = self.agents.visible_agents().len().saturating_sub(1);
-                        if self.agents.agent_selection > max { self.agents.agent_selection = max; }
+                        if self.agents.agent_selection > max {
+                            self.agents.agent_selection = max;
+                        }
                         // Refresh in case the server deleted other rows we don't know about.
-                        self.pool.dispatch(self.client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
+                        self.pool.dispatch(
+                            self.client.clone(),
+                            WorkRequest::ListAgents {
+                                job_id: next_job_id(),
+                            },
+                        );
                     } else {
                         self.agents.error = error;
                     }
@@ -430,7 +550,12 @@ impl App {
                 WorkResult::AgentOpCompleted { ok, error, .. } => {
                     if ok {
                         // Re-fetch immediately so status flips show without waiting for the poll tick.
-                        self.pool.dispatch(self.client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
+                        self.pool.dispatch(
+                            self.client.clone(),
+                            WorkRequest::ListAgents {
+                                job_id: next_job_id(),
+                            },
+                        );
                     } else {
                         self.agents.error = error;
                     }
@@ -438,18 +563,30 @@ impl App {
                 WorkResult::DomainsListed { domains, error, .. } => {
                     if let Some(e) = error {
                         let classified = self.classify_error(e).unwrap_or_default();
-                        self.matrix.error = Some(if is_auth_error(&classified) || classified.starts_with("Not signed in") {
-                            classified
-                        } else {
-                            format!("domains error: {classified}")
-                        });
+                        self.matrix.error = Some(
+                            if is_auth_error(&classified) || classified.starts_with("Not signed in")
+                            {
+                                classified
+                            } else {
+                                format!("domains error: {classified}")
+                            },
+                        );
                     } else {
                         self.matrix.error = None;
                         self.matrix.loading_domains = false;
-                        let prev_id = self.matrix.visible_domains().get(self.matrix.domain_selection).map(|m| m.id.clone());
+                        let prev_id = self
+                            .matrix
+                            .visible_domains()
+                            .get(self.matrix.domain_selection)
+                            .map(|m| m.id.clone());
                         self.matrix.domains = domains;
                         if let Some(id) = prev_id {
-                            if let Some(idx) = self.matrix.visible_domains().iter().position(|m| m.id == id) {
+                            if let Some(idx) = self
+                                .matrix
+                                .visible_domains()
+                                .iter()
+                                .position(|m| m.id == id)
+                            {
                                 self.matrix.domain_selection = idx;
                             } else {
                                 self.matrix.domain_selection = 0;
@@ -460,13 +597,26 @@ impl App {
                         self.domains_last_refresh = Some(Instant::now());
                     }
                 }
-                WorkResult::MissionsListed { domain_id, missions, .. } => {
+                WorkResult::MissionsListed {
+                    domain_id,
+                    missions,
+                    ..
+                } => {
                     if Some(&domain_id) == self.matrix.selected_domain_id.as_ref() {
                         self.matrix.loading_missions = false;
-                        let prev_id = self.matrix.visible_missions().get(self.matrix.mission_selection).map(|k| k.id.clone());
+                        let prev_id = self
+                            .matrix
+                            .visible_missions()
+                            .get(self.matrix.mission_selection)
+                            .map(|k| k.id.clone());
                         self.matrix.missions = missions;
                         if let Some(id) = prev_id {
-                            if let Some(idx) = self.matrix.visible_missions().iter().position(|k| k.id == id) {
+                            if let Some(idx) = self
+                                .matrix
+                                .visible_missions()
+                                .iter()
+                                .position(|k| k.id == id)
+                            {
                                 self.matrix.mission_selection = idx;
                             } else {
                                 self.matrix.mission_selection = 0;
@@ -476,10 +626,16 @@ impl App {
                         }
                     }
                 }
-                WorkResult::TasksListed { mission_id, tasks, .. } => {
+                WorkResult::TasksListed {
+                    mission_id, tasks, ..
+                } => {
                     if Some(&mission_id) == self.matrix.selected_mission_id.as_ref() {
                         self.matrix.loading_tasks = false;
-                        let prev_id = self.matrix.tasks.get(self.matrix.task_selection).map(|t| t.id);
+                        let prev_id = self
+                            .matrix
+                            .tasks
+                            .get(self.matrix.task_selection)
+                            .map(|t| t.id);
                         self.matrix.tasks = tasks;
                         if let Some(id) = prev_id {
                             if let Some(idx) = self.matrix.tasks.iter().position(|t| t.id == id) {
@@ -501,12 +657,20 @@ impl App {
                 WorkResult::FeedEvent(ev) => {
                     self.agent_feed.push_event(ev);
                 }
-                WorkResult::SecretFoldersLoaded { job_id, folders, error } => {
+                WorkResult::SecretFoldersLoaded {
+                    job_id,
+                    folders,
+                    error,
+                } => {
                     if let Some(tree) = &mut self.secrets.tree {
                         tree.deliver_folders(job_id, folders, error);
                     }
                 }
-                WorkResult::SecretNamesLoaded { job_id, names, error } => {
+                WorkResult::SecretNamesLoaded {
+                    job_id,
+                    names,
+                    error,
+                } => {
                     if let Some(tree) = &mut self.secrets.tree {
                         tree.deliver_names(job_id, names, error);
                     }
@@ -527,7 +691,13 @@ impl App {
                                 };
                             }
                         }
-                        OidcFlowEvent::Complete { token, subject, expires_at, email, .. } => {
+                        OidcFlowEvent::Complete {
+                            token,
+                            subject,
+                            expires_at,
+                            email,
+                            ..
+                        } => {
                             // Update auth state with the new session.
                             self.auth_state = AuthState::SessionValid {
                                 subject: subject.clone(),
@@ -565,27 +735,37 @@ impl App {
                             }
                         }
                         OidcFlowEvent::Failed { error, .. } => {
-                            self.config.auth_oidc_state = Some(OidcPanelState::Failed { error: error.clone() });
+                            self.config.auth_oidc_state = Some(OidcPanelState::Failed {
+                                error: error.clone(),
+                            });
                             if let Some(AppModal::OidcLogin { modal }) = &mut self.modal {
                                 modal.state = OidcLoginState::Failed { error };
                             }
                         }
                     }
                 }
-                WorkResult::UrlTested { ok, latency_ms, version, error, .. } => {
-                    self.config.set_controlplane_test_result(ok, latency_ms, version, error);
+                WorkResult::UrlTested {
+                    ok,
+                    latency_ms,
+                    version,
+                    error,
+                    ..
+                } => {
+                    self.config
+                        .set_controlplane_test_result(ok, latency_ms, version, error);
                 }
                 WorkResult::WhoamiComplete { subject, .. } => {
                     // Resolve the real identity for token-auth sessions so the
                     // header shows the actual subject instead of "--token".
                     if matches!(self.auth_state, AuthState::SessionFromFlag)
-                        && let Some(sub) = subject {
-                            self.auth_state = AuthState::SessionValid {
-                                subject: sub,
-                                email: None,
-                                expires_at: String::new(),
-                            };
-                        }
+                        && let Some(sub) = subject
+                    {
+                        self.auth_state = AuthState::SessionValid {
+                            subject: sub,
+                            email: None,
+                            expires_at: String::new(),
+                        };
+                    }
                 }
             }
         }
@@ -608,9 +788,15 @@ impl App {
                 .latency_ms
                 .map(|ms| format!("{ms}ms"))
                 .unwrap_or_else(|| "—".to_string());
-            (DoctorStatus::Ok, format!("connected · {lat} · {}", self.base_url))
+            (
+                DoctorStatus::Ok,
+                format!("connected · {lat} · {}", self.base_url),
+            )
         } else {
-            (DoctorStatus::Err, format!("unreachable at {}", self.base_url))
+            (
+                DoctorStatus::Err,
+                format!("unreachable at {}", self.base_url),
+            )
         };
         checks.push(DoctorCheckRow {
             name: "Controlplane",
@@ -669,7 +855,8 @@ impl App {
                 DoctorStatus::Err,
                 "session expired".to_string(),
                 Some(
-                    "Run `edgeplane auth login` in another shell — TUI auto-recovers within 2s.".to_string(),
+                    "Run `edgeplane auth login` in another shell — TUI auto-recovers within 2s."
+                        .to_string(),
                 ),
             ),
             AuthState::Anonymous => (
@@ -705,19 +892,33 @@ impl App {
 
         let now = Instant::now();
         let stale = |last: Option<Instant>, interval: Duration| {
-            last.map(|t| now.duration_since(t) >= interval).unwrap_or(false)
+            last.map(|t| now.duration_since(t) >= interval)
+                .unwrap_or(false)
         };
         match self.screen {
             Screen::Agents => {
-                if !self.agents.loading && stale(self.agents_last_refresh, AGENTS_REFRESH_INTERVAL) {
+                if !self.agents.loading && stale(self.agents_last_refresh, AGENTS_REFRESH_INTERVAL)
+                {
                     self.agents_last_refresh = Some(now); // stamp now to dedupe in-flight
-                    self.pool.dispatch(self.client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
+                    self.pool.dispatch(
+                        self.client.clone(),
+                        WorkRequest::ListAgents {
+                            job_id: next_job_id(),
+                        },
+                    );
                 }
             }
             Screen::Domains => {
-                if !self.matrix.loading_domains && stale(self.domains_last_refresh, DOMAINS_REFRESH_INTERVAL) {
+                if !self.matrix.loading_domains
+                    && stale(self.domains_last_refresh, DOMAINS_REFRESH_INTERVAL)
+                {
                     self.domains_last_refresh = Some(now);
-                    self.pool.dispatch(self.client.clone(), WorkRequest::ListDomains { job_id: next_job_id() });
+                    self.pool.dispatch(
+                        self.client.clone(),
+                        WorkRequest::ListDomains {
+                            job_id: next_job_id(),
+                        },
+                    );
                 }
             }
             Screen::Feed | Screen::Secrets | Screen::Config => {}
@@ -760,10 +961,20 @@ impl App {
             // Force an immediate refetch of the current panel.
             match &self.screen {
                 Screen::Agents => {
-                    self.pool.dispatch(self.client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
+                    self.pool.dispatch(
+                        self.client.clone(),
+                        WorkRequest::ListAgents {
+                            job_id: next_job_id(),
+                        },
+                    );
                 }
                 Screen::Domains => {
-                    self.pool.dispatch(self.client.clone(), WorkRequest::ListDomains { job_id: next_job_id() });
+                    self.pool.dispatch(
+                        self.client.clone(),
+                        WorkRequest::ListDomains {
+                            job_id: next_job_id(),
+                        },
+                    );
                 }
                 Screen::Feed | Screen::Secrets | Screen::Config => {}
             }
@@ -822,7 +1033,8 @@ impl App {
                 }
                 if let Some((_ctx_name, url)) = self.config.take_pending_url_test() {
                     let job_id = next_job_id();
-                    self.pool.dispatch(self.client.clone(), WorkRequest::PingUrl { job_id, url });
+                    self.pool
+                        .dispatch(self.client.clone(), WorkRequest::PingUrl { job_id, url });
                 }
                 if let Some((ctx_name, url)) = self.config.take_pending_url_apply() {
                     self.apply_context_url(ctx_name, url);
@@ -890,16 +1102,27 @@ impl App {
                     self.dispatch_pending_action(action);
                 }
             }
-            ModalAction::Cancelled => { self.modal = None; }
+            ModalAction::Cancelled => {
+                self.modal = None;
+            }
             ModalAction::Handled | ModalAction::Passthrough => {}
         }
     }
 
     fn dispatch_pending_action(&mut self, action: PendingAction) {
         let req = match action {
-            PendingAction::DeleteAgent(id)        => WorkRequest::DeleteAgent { job_id: next_job_id(), agent_id: id },
-            PendingAction::RestartAgent(id)       => WorkRequest::RestartAgent { job_id: next_job_id(), agent_id: id },
-            PendingAction::ClearAgentContext(id)  => WorkRequest::ClearAgentContext { job_id: next_job_id(), agent_id: id },
+            PendingAction::DeleteAgent(id) => WorkRequest::DeleteAgent {
+                job_id: next_job_id(),
+                agent_id: id,
+            },
+            PendingAction::RestartAgent(id) => WorkRequest::RestartAgent {
+                job_id: next_job_id(),
+                agent_id: id,
+            },
+            PendingAction::ClearAgentContext(id) => WorkRequest::ClearAgentContext {
+                job_id: next_job_id(),
+                agent_id: id,
+            },
         };
         self.pool.dispatch(self.client.clone(), req);
     }
@@ -926,7 +1149,11 @@ impl App {
             ),
         };
         self.modal = Some(AppModal::Confirm {
-            modal: ConfirmModal { title: title.to_string(), message, danger },
+            modal: ConfirmModal {
+                title: title.to_string(),
+                message,
+                danger,
+            },
             action,
         });
     }
@@ -948,21 +1175,25 @@ impl App {
 
     fn next_tab(&mut self) {
         match self.screen {
-            Screen::Agents  => self.switch_to_domains(),
+            Screen::Agents => self.switch_to_domains(),
             Screen::Domains => self.switch_to_feed(),
-            Screen::Feed    => self.switch_to_secrets(),
-            Screen::Secrets => { self.screen = Screen::Config; }
-            Screen::Config  => self.switch_to_agents(),
+            Screen::Feed => self.switch_to_secrets(),
+            Screen::Secrets => {
+                self.screen = Screen::Config;
+            }
+            Screen::Config => self.switch_to_agents(),
         }
     }
 
     fn prev_tab(&mut self) {
         match self.screen {
-            Screen::Agents  => { self.screen = Screen::Config; }
+            Screen::Agents => {
+                self.screen = Screen::Config;
+            }
             Screen::Domains => self.switch_to_agents(),
-            Screen::Feed    => self.switch_to_domains(),
+            Screen::Feed => self.switch_to_domains(),
             Screen::Secrets => self.switch_to_feed(),
-            Screen::Config  => self.switch_to_secrets(),
+            Screen::Config => self.switch_to_secrets(),
         }
     }
 
@@ -970,7 +1201,12 @@ impl App {
         self.screen = Screen::Agents;
         if self.agents.agents.is_empty() && !self.agents.loading {
             self.agents.loading = true;
-            self.pool.dispatch(self.client.clone(), WorkRequest::ListAgents { job_id: next_job_id() });
+            self.pool.dispatch(
+                self.client.clone(),
+                WorkRequest::ListAgents {
+                    job_id: next_job_id(),
+                },
+            );
         }
     }
 
@@ -978,7 +1214,12 @@ impl App {
         self.screen = Screen::Domains;
         if self.matrix.domains.is_empty() && !self.matrix.loading_domains {
             self.matrix.loading_domains = true;
-            self.pool.dispatch(self.client.clone(), WorkRequest::ListDomains { job_id: next_job_id() });
+            self.pool.dispatch(
+                self.client.clone(),
+                WorkRequest::ListDomains {
+                    job_id: next_job_id(),
+                },
+            );
         }
     }
 
@@ -999,7 +1240,9 @@ impl App {
         self.screen = Screen::Secrets;
         // If tree is loaded and healthy, nothing to do
         if let Some(tree) = &self.secrets.tree {
-            if tree.error.is_none() { return; }
+            if tree.error.is_none() {
+                return;
+            }
             // Tree has an error — reset so we reinitialize on re-entry
             self.secrets.tree = None;
         }
@@ -1014,16 +1257,13 @@ impl App {
         let cfg = map.as_ref().and_then(|m| m.active_profile().cloned());
 
         let Some(cfg) = cfg else {
-            self.secrets.no_profile_error = Some(
-                "No active Infisical profile.".into(),
-            );
+            self.secrets.no_profile_error = Some("No active Infisical profile.".into());
             return;
         };
 
         let Some(pid) = cfg.default_project_id.clone() else {
-            self.secrets.no_profile_error = Some(
-                "Active profile has no default_project_id configured.".into(),
-            );
+            self.secrets.no_profile_error =
+                Some("Active profile has no default_project_id configured.".into());
             return;
         };
 
@@ -1056,12 +1296,17 @@ impl App {
 
     fn switch_context(&mut self, name: String) {
         let mut ctxs = crate::context::load_contexts();
-        let Some(entry) = ctxs.contexts.get(&name).cloned() else { return };
+        let Some(entry) = ctxs.contexts.get(&name).cloned() else {
+            return;
+        };
         ctxs.active = name.clone();
         let _ = crate::context::save_contexts(&ctxs);
 
-        let Ok(new_client) = super::data::RemoteDataClient::new(entry.base_url.clone(), self.token.clone())
-        else { return };
+        let Ok(new_client) =
+            super::data::RemoteDataClient::new(entry.base_url.clone(), self.token.clone())
+        else {
+            return;
+        };
         let new_client: std::sync::Arc<dyn DataClient> = std::sync::Arc::new(new_client);
 
         self.client = new_client.clone();
@@ -1093,8 +1338,18 @@ impl App {
         self.domains_last_refresh = None;
         self.modal = None;
 
-        self.pool.dispatch(new_client.clone(), WorkRequest::Ping { job_id: next_job_id() });
-        self.pool.dispatch(new_client, WorkRequest::ListAgents { job_id: next_job_id() });
+        self.pool.dispatch(
+            new_client.clone(),
+            WorkRequest::Ping {
+                job_id: next_job_id(),
+            },
+        );
+        self.pool.dispatch(
+            new_client,
+            WorkRequest::ListAgents {
+                job_id: next_job_id(),
+            },
+        );
     }
 
     fn apply_context_url(&mut self, ctx_name: String, new_url: String) {
@@ -1118,7 +1373,9 @@ impl App {
 
     fn domains_enter(&mut self) {
         let visible = self.matrix.visible_domains();
-        let Some(domain) = visible.get(self.matrix.domain_selection) else { return };
+        let Some(domain) = visible.get(self.matrix.domain_selection) else {
+            return;
+        };
         let mid = domain.id.clone();
         self.matrix.selected_domain_id = Some(mid.clone());
         self.matrix.selected_mission_id = None;
@@ -1128,13 +1385,18 @@ impl App {
         self.matrix.mission_selection = 0;
         self.pool.dispatch(
             self.client.clone(),
-            WorkRequest::ListMissions { domain_id: mid, job_id: next_job_id() },
+            WorkRequest::ListMissions {
+                domain_id: mid,
+                job_id: next_job_id(),
+            },
         );
     }
 
     fn missions_enter(&mut self) {
         let visible = self.matrix.visible_missions();
-        let Some(mission) = visible.get(self.matrix.mission_selection) else { return };
+        let Some(mission) = visible.get(self.matrix.mission_selection) else {
+            return;
+        };
         let kid = mission.id.clone();
         let mid = self.matrix.selected_domain_id.clone().unwrap_or_default();
         self.matrix.selected_mission_id = Some(kid.clone());
@@ -1143,7 +1405,11 @@ impl App {
         self.matrix.task_selection = 0;
         self.pool.dispatch(
             self.client.clone(),
-            WorkRequest::ListTasks { domain_id: mid, mission_id: kid, job_id: next_job_id() },
+            WorkRequest::ListTasks {
+                domain_id: mid,
+                mission_id: kid,
+                job_id: next_job_id(),
+            },
         );
     }
 
@@ -1169,14 +1435,39 @@ impl App {
         self.render_tab_bar(f, chunks[0]);
 
         match &self.screen {
-            Screen::Agents => f.render_widget(AgentScreen { state: &self.agents }, chunks[1]),
-            Screen::Domains => f.render_widget(MissionMatrix { state: &self.matrix }, chunks[1]),
-            Screen::Feed => f.render_widget(AgentFeed { state: &self.agent_feed }, chunks[1]),
+            Screen::Agents => f.render_widget(
+                AgentScreen {
+                    state: &self.agents,
+                },
+                chunks[1],
+            ),
+            Screen::Domains => f.render_widget(
+                MissionMatrix {
+                    state: &self.matrix,
+                },
+                chunks[1],
+            ),
+            Screen::Feed => f.render_widget(
+                AgentFeed {
+                    state: &self.agent_feed,
+                },
+                chunks[1],
+            ),
             Screen::Secrets => {
-                f.render_widget(SecretsScreen { state: &self.secrets }, chunks[1]);
+                f.render_widget(
+                    SecretsScreen {
+                        state: &self.secrets,
+                    },
+                    chunks[1],
+                );
                 render_tree_overlay(&self.secrets, f, chunks[1]);
             }
-            Screen::Config => f.render_widget(ConfigScreen { state: &self.config }, chunks[1]),
+            Screen::Config => f.render_widget(
+                ConfigScreen {
+                    state: &self.config,
+                },
+                chunks[1],
+            ),
         }
 
         self.render_hints(f, chunks[2]);
@@ -1190,7 +1481,14 @@ impl App {
         // to whatever was underneath.
         if self.help_open {
             let (title, entries) = self.screen_help();
-            f.render_widget(HelpOverlay { title, entries, global: GLOBAL_HELP }, area);
+            f.render_widget(
+                HelpOverlay {
+                    title,
+                    entries,
+                    global: GLOBAL_HELP,
+                },
+                area,
+            );
         }
     }
 
@@ -1219,7 +1517,10 @@ impl App {
         let mut spans: Vec<Span> = vec![
             Span::styled(
                 " edgeplane ",
-                Style::default().fg(theme::ACCENT).bg(panel_bg).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme::ACCENT)
+                    .bg(panel_bg)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" │ ", Style::default().fg(theme::PANEL_BORDER).bg(panel_bg)),
         ];
@@ -1227,12 +1528,18 @@ impl App {
         for (screen, label) in tabs {
             let active = std::mem::discriminant(&self.screen) == std::mem::discriminant(screen);
             let style = if active {
-                Style::default().fg(theme::ACCENT).bg(theme::BG).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(theme::ACCENT)
+                    .bg(theme::BG)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme::TEXT_MUTED).bg(panel_bg)
             };
             spans.push(Span::styled(format!(" {label} "), style));
-            spans.push(Span::styled(" │ ", Style::default().fg(theme::PANEL_BORDER).bg(panel_bg)));
+            spans.push(Span::styled(
+                " │ ",
+                Style::default().fg(theme::PANEL_BORDER).bg(panel_bg),
+            ));
         }
 
         // Right side: identity badge · context · connection status.
@@ -1263,7 +1570,10 @@ impl App {
         spans.push(Span::styled(" ".repeat(pad), panel_style));
         spans.push(Span::styled(
             format!("  {}  ", badge_text),
-            Style::default().fg(badge_color).bg(panel_bg).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(badge_color)
+                .bg(panel_bg)
+                .add_modifier(Modifier::BOLD),
         ));
         spans.push(Span::styled(
             "·  ".to_string(),
@@ -1279,10 +1589,7 @@ impl App {
             Style::default().fg(theme::TEXT_MUTED).bg(panel_bg),
         ));
 
-        f.render_widget(
-            Paragraph::new(Line::from(spans)).style(panel_style),
-            area,
-        );
+        f.render_widget(Paragraph::new(Line::from(spans)).style(panel_style), area);
     }
 
     fn render_hints(&self, f: &mut Frame<'_>, area: ratatui::layout::Rect) {
@@ -1370,10 +1677,7 @@ impl App {
             spans.push(Span::styled(format!(" {desc}", desc = desc), theme::dim()));
         }
 
-        f.render_widget(
-            Paragraph::new(Line::from(spans)).style(theme::dim()),
-            area,
-        );
+        f.render_widget(Paragraph::new(Line::from(spans)).style(theme::dim()), area);
     }
 }
 

@@ -105,10 +105,9 @@ pub async fn run(args: &ServeMcpArgs, client: &EdgeplaneClient) -> Result<()> {
     // Optional preflight: verify connectivity before entering the message loop.
     // Off by default — stdio servers must respond to `initialize` immediately.
     if args.preflight {
-        client
-            .get_json("/mcp/health")
-            .await
-            .context("preflight health check failed — run `edgeplane auth login` and verify EP_BASE_URL")?;
+        client.get_json("/mcp/health").await.context(
+            "preflight health check failed — run `edgeplane auth login` and verify EP_BASE_URL",
+        )?;
         tracing::debug!("mcp_server: preflight ok");
     }
 
@@ -354,7 +353,10 @@ async fn dispatch(
                             .collect()
                     })
                     .unwrap_or_default();
-                let deep = tool_args.get("deep").and_then(|v| v.as_bool()).unwrap_or(false);
+                let deep = tool_args
+                    .get("deep")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let result = crate::cli_schema::discover_to_value(&path, deep);
                 let text = result_to_text(&result);
                 return resp!(json!({
@@ -377,10 +379,9 @@ async fn dispatch(
                             .collect()
                     })
                     .unwrap_or_default();
-                let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("edgeplane"));
-                let output = std::process::Command::new(&exe)
-                    .args(&cli_args)
-                    .output();
+                let exe = std::env::current_exe()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("edgeplane"));
+                let output = std::process::Command::new(&exe).args(&cli_args).output();
                 let result = match output {
                     Ok(out) => json!({
                         "stdout": String::from_utf8_lossy(&out.stdout),

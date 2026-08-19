@@ -1,8 +1,4 @@
-use crate::{
-    client::EdgeplaneClient,
-    config::EdgeplaneConfig,
-    ep_info, ep_ok, ep_warn,
-};
+use crate::{client::EdgeplaneClient, config::EdgeplaneConfig, ep_info, ep_ok, ep_warn};
 use anyhow::{Context, Result, anyhow, bail};
 use clap::ValueEnum;
 use serde::Serialize;
@@ -92,7 +88,10 @@ pub async fn run_launch(
 
     let status = run_claude_process(&launch_args, &paths.runtime_home, config, &profile)?;
     if !status.success() && use_resume {
-        ep_warn!("{}: resume failed; clearing stale session and retrying fresh", profile);
+        ep_warn!(
+            "{}: resume failed; clearing stale session and retrying fresh",
+            profile
+        );
         // Drop the poisoned session id so the next launch can't try to resume it
         // again. On a successful fresh start the session-start hook rewrites it.
         let _ = fs::remove_file(&paths.state_path);
@@ -185,7 +184,10 @@ pub async fn run_hook(event: String, config: &EdgeplaneConfig) -> Result<()> {
         "session-start" => ClaudeHookEvent::SessionStart,
         "post-tool-use" => ClaudeHookEvent::PostToolUse,
         "session-end" => ClaudeHookEvent::SessionEnd,
-        other => bail!("unknown hook event '{}'; valid: session-start, post-tool-use, session-end", other),
+        other => bail!(
+            "unknown hook event '{}'; valid: session-start, post-tool-use, session-end",
+            other
+        ),
     };
 
     let mut input = String::new();
@@ -193,14 +195,15 @@ pub async fn run_hook(event: String, config: &EdgeplaneConfig) -> Result<()> {
     let payload: Value = serde_json::from_str(&input).unwrap_or_else(|_| json!({}));
 
     if matches!(hook_event, ClaudeHookEvent::SessionStart)
-        && let Some(session_id) = payload.get("session_id").and_then(|v| v.as_str()) {
-            let home = std::env::var("HOME").unwrap_or_default();
-            let home_path = PathBuf::from(home);
-            if let Some(runtime_root) = home_path.parent() {
-                let state_path = runtime_root.join("state.json");
-                let _ = write_state_session(&state_path, session_id);
-            }
+        && let Some(session_id) = payload.get("session_id").and_then(|v| v.as_str())
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let home_path = PathBuf::from(home);
+        if let Some(runtime_root) = home_path.parent() {
+            let state_path = runtime_root.join("state.json");
+            let _ = write_state_session(&state_path, session_id);
         }
+    }
 
     let endpoint = match hook_event {
         ClaudeHookEvent::SessionStart => "/hooks/claude/session-start",
@@ -284,7 +287,11 @@ fn add_rtk_issues(issues: &mut Vec<ClaudeDoctorIssue>, paths: &ClaudePaths) {
     }
 }
 
-fn inspect_profile(profile: &str, config: &EdgeplaneConfig, fix: bool) -> Result<ClaudeDoctorReport> {
+fn inspect_profile(
+    profile: &str,
+    config: &EdgeplaneConfig,
+    fix: bool,
+) -> Result<ClaudeDoctorReport> {
     let mut issues = Vec::<ClaudeDoctorIssue>::new();
     let mut repaired = false;
     let paths = claude_paths(profile);
@@ -594,7 +601,9 @@ fn is_managed_hook(entry: &Value) -> bool {
             hooks.iter().any(|hook| {
                 hook.get("command")
                     .and_then(|v| v.as_str())
-                    .map(|cmd| cmd.contains("/.claude/hooks/edgeplane-") || cmd.contains("/hooks/claude/"))
+                    .map(|cmd| {
+                        cmd.contains("/.claude/hooks/edgeplane-") || cmd.contains("/hooks/claude/")
+                    })
                     .unwrap_or(false)
             })
         })
@@ -761,9 +770,10 @@ fn run_claude_process(
     cmd.env("EP_AGENT_PROFILE", profile);
 
     if let Some(token) = &config.token
-        && !token.trim().is_empty() {
-            cmd.env("EP_AGENT_TOKEN", token);
-        }
+        && !token.trim().is_empty()
+    {
+        cmd.env("EP_AGENT_TOKEN", token);
+    }
 
     let runtime_local_bin = runtime_home.join(".local").join("bin");
     if let Some(current_path) = std::env::var_os("PATH") {
@@ -813,9 +823,10 @@ pub fn launch_claude_blocking(
         cmd.env("EP_TASK_MD_PATH", p);
     }
     if let Some(token) = &config.token
-        && !token.trim().is_empty() {
-            cmd.env("EP_AGENT_TOKEN", token);
-        }
+        && !token.trim().is_empty()
+    {
+        cmd.env("EP_AGENT_TOKEN", token);
+    }
     let runtime_local_bin = runtime_home.join(".local").join("bin");
     if let Some(current_path) = std::env::var_os("PATH") {
         let new_path = std::env::join_paths(
@@ -835,14 +846,12 @@ fn check_rtk_hooks_configured(paths: &ClaudePaths) -> bool {
     std::fs::read_dir(hooks_dir)
         .ok()
         .map(|entries| {
-            entries
-                .filter_map(|e| e.ok())
-                .any(|e| {
-                    let file_name = e.file_name();
-                    let name_str = file_name.to_string_lossy();
-                    // Check for RTK-specific hook filenames created by `rtk init`
-                    name_str == "rtk-rewrite.sh" || name_str == ".rtk-hook.sha256"
-                })
+            entries.filter_map(|e| e.ok()).any(|e| {
+                let file_name = e.file_name();
+                let name_str = file_name.to_string_lossy();
+                // Check for RTK-specific hook filenames created by `rtk init`
+                name_str == "rtk-rewrite.sh" || name_str == ".rtk-hook.sha256"
+            })
         })
         .unwrap_or(false)
 }

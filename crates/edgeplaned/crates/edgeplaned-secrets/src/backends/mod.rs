@@ -38,6 +38,12 @@ mod tests {
         m.insert("greeting".to_string(), "hi".to_string());
         let b = LiteralBackend::new(m);
         let r = SecretRef::parse("secret://literal/greeting").unwrap();
-        assert_eq!(b.resolve(&r, &ResolveCtx::default()).await.unwrap().expose(), "hi");
+        assert_eq!(
+            b.resolve(&r, &ResolveCtx::default())
+                .await
+                .unwrap()
+                .expose(),
+            "hi"
+        );
     }
 }

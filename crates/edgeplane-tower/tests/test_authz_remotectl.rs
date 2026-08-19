@@ -35,22 +35,14 @@ async fn enroll_and_get_token(
         .add_header(h, v)
         .json(&serde_json::json!({"runtime_kind": "test"}))
         .await;
-    assert_eq!(
-        res.status_code(),
-        201,
-        "enroll failed: {}",
-        res.text()
-    );
+    assert_eq!(res.status_code(), 201, "enroll failed: {}", res.text());
     let body: serde_json::Value = res.json();
     let agent_id = body["id"].as_str().unwrap().to_string();
     let agent_token = body["agent_token"].as_str().unwrap().to_string();
     (agent_id, agent_token)
 }
 
-async fn register_node_and_get_jwt(
-    s: &axum_test::TestServer,
-    session_token: &str,
-) -> String {
+async fn register_node_and_get_jwt(s: &axum_test::TestServer, session_token: &str) -> String {
     let (h, v) = bearer(session_token);
     let jt_res = s
         .post("/api/runtime/join-tokens")
@@ -64,7 +56,9 @@ async fn register_node_and_get_jwt(
         jt_res.text()
     );
     let jt_body: serde_json::Value = jt_res.json();
-    let bootstrap_token = jt_body["token"].as_str().expect("join token must contain token");
+    let bootstrap_token = jt_body["token"]
+        .as_str()
+        .expect("join token must contain token");
 
     let node_name = format!("node-remotectl-{}", uuid::Uuid::new_v4().simple());
     let reg_res = s
@@ -185,13 +179,11 @@ async fn create_launch_clamps_ttl() {
         .as_str()
         .expect("response must contain session_token");
     let token_hash = edgeplane_tower::auth::hash_token(session_token);
-    let row = sqlx::query(
-        "SELECT created_at, expires_at FROM usersession WHERE token_hash = $1",
-    )
-    .bind(token_hash)
-    .fetch_one(&pool)
-    .await
-    .expect("fetch minted usersession");
+    let row = sqlx::query("SELECT created_at, expires_at FROM usersession WHERE token_hash = $1")
+        .bind(token_hash)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch minted usersession");
     let created_at: chrono::NaiveDateTime = row.get("created_at");
     let expires_at: chrono::NaiveDateTime = row.get("expires_at");
     let ttl_seconds = (expires_at - created_at).num_seconds();

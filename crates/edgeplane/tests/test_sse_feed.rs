@@ -51,9 +51,15 @@ fn parse_sse(raw: &str) -> Vec<ParsedEvent> {
 
 fn extract_ids(data: &str) -> (Option<String>, Option<String>) {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-        let agent_id = v.get("agent_id").and_then(|x| x.as_str()).map(str::to_string)
+        let agent_id = v
+            .get("agent_id")
+            .and_then(|x| x.as_str())
+            .map(str::to_string)
             .or_else(|| v.get("agent").and_then(|x| x.as_str()).map(str::to_string));
-        let domain_id = v.get("domain_id").and_then(|x| x.as_str()).map(str::to_string);
+        let domain_id = v
+            .get("domain_id")
+            .and_then(|x| x.as_str())
+            .map(str::to_string);
         (agent_id, domain_id)
     } else {
         (None, None)

@@ -1,13 +1,13 @@
 //! Shared domain-authorization guard for privileged dispatch/ledger/stream handlers.
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde_json::json;
 use sqlx::{PgPool, Row};
 
-use crate::auth::{authorized_for, authorized_for_owner, Principal};
+use crate::auth::{Principal, authorized_for, authorized_for_owner};
 
 fn deny(status: StatusCode, detail: &str) -> Response {
     (status, Json(json!({ "detail": detail }))).into_response()
@@ -299,16 +299,15 @@ pub async fn authz_task_owner(
     if crate::auth::is_full_trust(p) || p.is_admin {
         return Ok(());
     }
-    let row = sqlx::query(
-        "SELECT claimed_by_agent_id, claim_lease_id, owner FROM task WHERE id=$1",
-    )
-    .bind(task_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| {
-        tracing::error!("authz_task_owner {task_id}: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR.into_response()
-    })?;
+    let row =
+        sqlx::query("SELECT claimed_by_agent_id, claim_lease_id, owner FROM task WHERE id=$1")
+            .bind(task_id)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| {
+                tracing::error!("authz_task_owner {task_id}: {e}");
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            })?;
     let Some(row) = row else {
         return Err(deny(StatusCode::NOT_FOUND, "Task not found"));
     };

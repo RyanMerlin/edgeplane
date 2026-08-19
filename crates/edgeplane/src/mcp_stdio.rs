@@ -77,14 +77,15 @@ async fn read_content_length_with_first_line(
             break;
         }
         if let Some((name, value)) = trimmed.split_once(':')
-            && name.trim().eq_ignore_ascii_case("Content-Length") {
-                content_length = Some(
-                    value
-                        .trim()
-                        .parse()
-                        .context("invalid Content-Length value")?,
-                );
-            }
+            && name.trim().eq_ignore_ascii_case("Content-Length")
+        {
+            content_length = Some(
+                value
+                    .trim()
+                    .parse()
+                    .context("invalid Content-Length value")?,
+            );
+        }
     }
     content_length.ok_or_else(|| anyhow::anyhow!("missing Content-Length header"))
 }

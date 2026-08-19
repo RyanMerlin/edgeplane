@@ -62,7 +62,11 @@ pub async fn run_list(args: ListArgs) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&resp)?);
         return Ok(());
     }
-    let jobs = resp.get("jobs").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let jobs = resp
+        .get("jobs")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     if jobs.is_empty() {
         println!("(no cron jobs)");
         return Ok(());
@@ -93,9 +97,7 @@ pub async fn run_list(args: ListArgs) -> Result<()> {
         let status = j.get("last_status").and_then(|v| v.as_str()).unwrap_or("-");
         let enabled = j.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
         let enabled_s = if enabled { "yes" } else { "NO" };
-        println!(
-            "{name:<24} {agent:<14} {sched_owned:<18} {last:<22} {status:<10} {enabled_s}"
-        );
+        println!("{name:<24} {agent:<14} {sched_owned:<18} {last:<22} {status:<10} {enabled_s}");
     }
     Ok(())
 }
@@ -121,9 +123,15 @@ pub async fn run_describe(args: DescribeArgs) -> Result<()> {
     println!("dispatch:      {}", str_or(&resp, "dispatch", "?"));
     println!(
         "enabled:       {}",
-        resp.get("enabled").and_then(|v| v.as_bool()).map(|b| b.to_string()).unwrap_or_else(|| "?".into())
+        resp.get("enabled")
+            .and_then(|v| v.as_bool())
+            .map(|b| b.to_string())
+            .unwrap_or_else(|| "?".into())
     );
-    println!("last_fired_at: {}", str_or(&resp, "last_fired_at", "(never)"));
+    println!(
+        "last_fired_at: {}",
+        str_or(&resp, "last_fired_at", "(never)")
+    );
     println!("last_status:   {}", str_or(&resp, "last_status", "(never)"));
     if let Some(err) = resp.get("last_error").and_then(|v| v.as_str()) {
         println!("last_error:    {err}");
@@ -135,7 +143,11 @@ pub async fn run_describe(args: DescribeArgs) -> Result<()> {
         }
     }
     println!("\nrecent fires (last {}):", args.limit);
-    let history = resp.get("history").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let history = resp
+        .get("history")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     if history.is_empty() {
         println!("  (none)");
     } else {
@@ -149,9 +161,10 @@ pub async fn run_describe(args: DescribeArgs) -> Result<()> {
                 .unwrap_or_else(|| "-".into());
             println!("  {when}  {status:<8}  {dur}");
             if let Some(e) = h.get("error_message").and_then(|v| v.as_str())
-                && !e.is_empty() {
-                    println!("    err: {e}");
-                }
+                && !e.is_empty()
+            {
+                println!("    err: {e}");
+            }
         }
     }
     Ok(())
@@ -176,15 +189,16 @@ pub async fn run_history(args: HistoryArgs) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&resp)?);
         return Ok(());
     }
-    let fires = resp.get("fires").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let fires = resp
+        .get("fires")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     if fires.is_empty() {
         println!("(no fires recorded)");
         return Ok(());
     }
-    println!(
-        "{:<24} {:<24} {:<8} DURATION",
-        "FIRED_AT", "JOB", "STATUS"
-    );
+    println!("{:<24} {:<24} {:<8} DURATION", "FIRED_AT", "JOB", "STATUS");
     for f in fires {
         let when = f.get("fired_at").and_then(|v| v.as_str()).unwrap_or("?");
         let job = f.get("job_name").and_then(|v| v.as_str()).unwrap_or("?");
@@ -196,9 +210,10 @@ pub async fn run_history(args: HistoryArgs) -> Result<()> {
             .unwrap_or_else(|| "-".into());
         println!("{when:<24} {job:<24} {status:<8} {dur}");
         if let Some(e) = f.get("error_message").and_then(|v| v.as_str())
-            && !e.is_empty() {
-                println!("  err: {e}");
-            }
+            && !e.is_empty()
+        {
+            println!("  err: {e}");
+        }
     }
     Ok(())
 }
@@ -217,7 +232,9 @@ pub async fn run_gc_now(args: GcNowArgs) -> Result<()> {
     if let Some(d) = resp.get("history_days").and_then(|v| v.as_u64()) {
         println!(
             "  history_days={d}  max_rows_per_job={}",
-            resp.get("max_rows_per_job").and_then(|v| v.as_u64()).unwrap_or(0)
+            resp.get("max_rows_per_job")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
         );
     }
     Ok(())
@@ -235,12 +252,14 @@ fn mgmt_socket_path() -> std::path::PathBuf {
 
 async fn call_mgmt(method: &str, params: Value) -> Result<Value> {
     let path = mgmt_socket_path();
-    let stream = tokio::net::UnixStream::connect(&path).await.with_context(|| {
-        format!(
-            "connect to edgeplaned mgmt socket {} (is edgeplaned running?)",
-            path.display()
-        )
-    })?;
+    let stream = tokio::net::UnixStream::connect(&path)
+        .await
+        .with_context(|| {
+            format!(
+                "connect to edgeplaned mgmt socket {} (is edgeplaned running?)",
+                path.display()
+            )
+        })?;
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
 
@@ -252,13 +271,16 @@ async fn call_mgmt(method: &str, params: Value) -> Result<Value> {
     });
     let mut bytes = serde_json::to_vec(&request).context("serialize request")?;
     bytes.push(b'\n');
-    write_half.write_all(&bytes).await.context("write request")?;
+    write_half
+        .write_all(&bytes)
+        .await
+        .context("write request")?;
 
     let mut line = String::new();
     reader.read_line(&mut line).await.context("read response")?;
 
-    let parsed: Value =
-        serde_json::from_str(line.trim()).with_context(|| format!("parse mgmt response: {}", line.trim()))?;
+    let parsed: Value = serde_json::from_str(line.trim())
+        .with_context(|| format!("parse mgmt response: {}", line.trim()))?;
 
     if let Some(err) = parsed.get("error") {
         let code = err.get("code").and_then(|c| c.as_i64()).unwrap_or(0);

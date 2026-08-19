@@ -1,5 +1,5 @@
 use axum_test::TestServer;
-use edgeplane_tower::{build_app, AppConfig};
+use edgeplane_tower::{AppConfig, build_app};
 use sqlx::PgPool;
 
 fn test_pool() -> PgPool {

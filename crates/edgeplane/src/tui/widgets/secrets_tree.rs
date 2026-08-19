@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
 use crossterm::event::KeyCode;
 use ratatui::{prelude::*, widgets::*};
+use std::collections::{HashMap, HashSet};
 
 use super::theme;
 
@@ -11,7 +11,10 @@ pub type JobId = u64;
 // ── data model ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum NodeKind { Folder, Secret }
+pub enum NodeKind {
+    Folder,
+    Secret,
+}
 
 /// Per-path state: what we know about a folder's contents.
 #[derive(Default, Debug, Clone)]
@@ -24,7 +27,9 @@ pub struct PathState {
 }
 
 impl PathState {
-    pub fn is_loading(&self) -> bool { self.folders_loading || self.secrets_loading }
+    pub fn is_loading(&self) -> bool {
+        self.folders_loading || self.secrets_loading
+    }
 }
 
 /// A resolved Infisical secret reference (for Bind mode).
@@ -89,11 +94,14 @@ impl SecretsTree {
             pending_names: HashMap::new(),
             error: None,
         };
-        tree.paths.insert("/".to_string(), PathState {
-            folders_loading: true,
-            secrets_loading: true,
-            ..Default::default()
-        });
+        tree.paths.insert(
+            "/".to_string(),
+            PathState {
+                folders_loading: true,
+                secrets_loading: true,
+                ..Default::default()
+            },
+        );
         tree
     }
 
@@ -103,7 +111,11 @@ impl SecretsTree {
     }
 
     /// Request a load for a specific path. Returns (folders_job_id, names_job_id).
-    pub fn request_load(&mut self, path: &str, next_id: &mut dyn FnMut() -> JobId) -> (JobId, JobId) {
+    pub fn request_load(
+        &mut self,
+        path: &str,
+        next_id: &mut dyn FnMut() -> JobId,
+    ) -> (JobId, JobId) {
         let fid = next_id();
         let nid = next_id();
         self.pending_folders.insert(path.to_string(), fid);
@@ -115,11 +127,20 @@ impl SecretsTree {
     }
 
     /// Deliver folder list for a completed job. Returns true if the job was accepted.
-    pub fn deliver_folders(&mut self, job_id: JobId, folders: Vec<String>, error: Option<String>) -> bool {
-        let path = self.pending_folders.iter()
+    pub fn deliver_folders(
+        &mut self,
+        job_id: JobId,
+        folders: Vec<String>,
+        error: Option<String>,
+    ) -> bool {
+        let path = self
+            .pending_folders
+            .iter()
             .find(|(_, jid)| **jid == job_id)
             .map(|(p, _)| p.clone());
-        let Some(path) = path else { return false; };
+        let Some(path) = path else {
+            return false;
+        };
         self.pending_folders.remove(&path);
         let state = self.paths.entry(path).or_default();
         state.folders_loading = false;
@@ -128,26 +149,41 @@ impl SecretsTree {
         } else {
             state.folders = folders;
         }
-        if !state.is_loading() { state.loaded = true; }
+        if !state.is_loading() {
+            state.loaded = true;
+        }
         self.rebuild_visible();
         true
     }
 
     /// Deliver secret names for a completed job. Returns true if accepted.
-    pub fn deliver_names(&mut self, job_id: JobId, names: Vec<String>, error: Option<String>) -> bool {
-        let path = self.pending_names.iter()
+    pub fn deliver_names(
+        &mut self,
+        job_id: JobId,
+        names: Vec<String>,
+        error: Option<String>,
+    ) -> bool {
+        let path = self
+            .pending_names
+            .iter()
             .find(|(_, jid)| **jid == job_id)
             .map(|(p, _)| p.clone());
-        let Some(path) = path else { return false; };
+        let Some(path) = path else {
+            return false;
+        };
         self.pending_names.remove(&path);
         let state = self.paths.entry(path).or_default();
         state.secrets_loading = false;
         if let Some(e) = error {
-            if self.error.is_none() { self.error = Some(format!("Secret list error: {e}")); }
+            if self.error.is_none() {
+                self.error = Some(format!("Secret list error: {e}"));
+            }
         } else {
             state.secrets = names;
         }
-        if !state.is_loading() { state.loaded = true; }
+        if !state.is_loading() {
+            state.loaded = true;
+        }
         self.rebuild_visible();
         true
     }
@@ -162,7 +198,9 @@ impl SecretsTree {
     }
 
     fn dfs_collect(&self, path: &str, depth: usize, out: &mut Vec<VisibleRow>) {
-        let Some(state) = self.paths.get(path) else { return; };
+        let Some(state) = self.paths.get(path) else {
+            return;
+        };
 
         for folder in &state.folders {
             let full_path = if path == "/" {
@@ -198,14 +236,19 @@ impl SecretsTree {
     }
 
     pub fn current_path(&self) -> &str {
-        self.visible.get(self.cursor)
+        self.visible
+            .get(self.cursor)
             .map(|r| r.parent_path.as_str())
             .unwrap_or("/")
     }
 
     // ── key handling ─────────────────────────────────────────────────────────
 
-    pub fn handle_key(&mut self, code: KeyCode, next_id: &mut dyn FnMut() -> JobId) -> SecretsTreeAction {
+    pub fn handle_key(
+        &mut self,
+        code: KeyCode,
+        next_id: &mut dyn FnMut() -> JobId,
+    ) -> SecretsTreeAction {
         // When the tree is in an error state, only Esc (cancel) and 'r' (retry root) are honored.
         if self.error.is_some() {
             match code {
@@ -228,10 +271,14 @@ impl SecretsTree {
             KeyCode::Esc => return SecretsTreeAction::Cancelled,
 
             KeyCode::Up => {
-                if self.cursor > 0 { self.cursor -= 1; }
+                if self.cursor > 0 {
+                    self.cursor -= 1;
+                }
             }
             KeyCode::Down => {
-                if self.cursor + 1 < self.visible.len() { self.cursor += 1; }
+                if self.cursor + 1 < self.visible.len() {
+                    self.cursor += 1;
+                }
             }
             KeyCode::PageUp => {
                 self.cursor = self.cursor.saturating_sub(10);
@@ -274,13 +321,14 @@ impl SecretsTree {
 
             KeyCode::Char(' ') => {
                 if let Some(row) = self.visible.get(self.cursor)
-                    && row.kind == NodeKind::Secret {
-                        if self.selected.contains(&self.cursor) {
-                            self.selected.remove(&self.cursor);
-                        } else {
-                            self.selected.insert(self.cursor);
-                        }
+                    && row.kind == NodeKind::Secret
+                {
+                    if self.selected.contains(&self.cursor) {
+                        self.selected.remove(&self.cursor);
+                    } else {
+                        self.selected.insert(self.cursor);
                     }
+                }
             }
 
             KeyCode::Char('a') => {
@@ -296,14 +344,23 @@ impl SecretsTree {
         SecretsTreeAction::None
     }
 
-    fn toggle_or_enter_folder(&mut self, row: &VisibleRow, next_id: &mut dyn FnMut() -> JobId) -> SecretsTreeAction {
+    fn toggle_or_enter_folder(
+        &mut self,
+        row: &VisibleRow,
+        next_id: &mut dyn FnMut() -> JobId,
+    ) -> SecretsTreeAction {
         if self.expanded.contains(&row.full_path) {
             self.expanded.remove(&row.full_path);
             self.rebuild_visible();
         } else {
             self.expanded.insert(row.full_path.clone());
-            if !self.paths.get(&row.full_path).map(|s| s.loaded).unwrap_or(false)
-                && !self.pending_folders.contains_key(&row.full_path) {
+            if !self
+                .paths
+                .get(&row.full_path)
+                .map(|s| s.loaded)
+                .unwrap_or(false)
+                && !self.pending_folders.contains_key(&row.full_path)
+            {
                 let (fid, nid) = self.request_load(&row.full_path, next_id);
                 return SecretsTreeAction::NeedsLoad {
                     path: row.full_path.clone(),
@@ -317,13 +374,19 @@ impl SecretsTree {
     }
 
     fn confirm_multi_select(&mut self) -> Option<SecretsTreeAction> {
-        if self.selected.is_empty() { return None; }
-        let refs: Vec<InfisicalRef> = self.selected.iter()
+        if self.selected.is_empty() {
+            return None;
+        }
+        let refs: Vec<InfisicalRef> = self
+            .selected
+            .iter()
             .filter_map(|&idx| self.visible.get(idx))
             .filter(|r| r.kind == NodeKind::Secret)
             .map(|r| self.make_ref(r))
             .collect();
-        if refs.is_empty() { return None; }
+        if refs.is_empty() {
+            return None;
+        }
         Some(SecretsTreeAction::SelectedMany(refs))
     }
 
@@ -348,7 +411,11 @@ impl SecretsTree {
 
         f.render_widget(Clear, dialog);
 
-        let mode_badge = if self.mode == TreeMode::Bind { " [BIND]" } else { "" };
+        let mode_badge = if self.mode == TreeMode::Bind {
+            " [BIND]"
+        } else {
+            ""
+        };
         let title = format!(
             " Infisical · {} · {}{} ",
             self.project_id, self.environment, mode_badge
@@ -361,17 +428,19 @@ impl SecretsTree {
         f.render_widget(block, dialog);
 
         let chunks = Layout::vertical([
-                Constraint::Length(1),
-                Constraint::Min(0),
-                Constraint::Length(1),
-            ])
-            .split(inner);
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(inner);
 
         let raw = self.current_path();
         let crumb = if raw == "/" {
             "/".to_string()
         } else {
-            raw.trim_start_matches('/').trim_end_matches('/').replace('/', " › ")
+            raw.trim_start_matches('/')
+                .trim_end_matches('/')
+                .replace('/', " › ")
         };
         f.render_widget(
             Paragraph::new(Span::styled(format!(" {}", crumb), theme::dim())),
@@ -387,7 +456,10 @@ impl SecretsTree {
             let lines = vec![
                 Line::from(Span::styled(err.as_str(), theme::danger())),
                 Line::from(""),
-                Line::from(Span::styled("press r to retry · esc to close", theme::muted())),
+                Line::from(Span::styled(
+                    "press r to retry · esc to close",
+                    theme::muted(),
+                )),
             ];
             f.render_widget(Paragraph::new(lines), area);
             return;
@@ -400,7 +472,10 @@ impl SecretsTree {
                 .unwrap_or(0);
             let spinner = ["⠋", "⠙", "⠹", "⠸"][frame];
             f.render_widget(
-                Paragraph::new(Span::styled(format!("  {} Loading…", spinner), theme::muted())),
+                Paragraph::new(Span::styled(
+                    format!("  {} Loading…", spinner),
+                    theme::muted(),
+                )),
                 area,
             );
             return;
@@ -408,37 +483,64 @@ impl SecretsTree {
 
         if self.visible.is_empty() {
             f.render_widget(
-                Paragraph::new(Span::styled("  (empty — no secrets or folders found)", theme::inactive())),
+                Paragraph::new(Span::styled(
+                    "  (empty — no secrets or folders found)",
+                    theme::inactive(),
+                )),
                 area,
             );
             return;
         }
 
-        let items: Vec<ListItem> = self.visible.iter().enumerate().map(|(i, row)| {
-            let is_cursor = i == self.cursor;
-            let is_selected = self.selected.contains(&i);
+        let items: Vec<ListItem> = self
+            .visible
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let is_cursor = i == self.cursor;
+                let is_selected = self.selected.contains(&i);
 
-            let guide = "│   ".repeat(row.depth);
-            let (icon, base_style) = match row.kind {
-                NodeKind::Folder => {
-                    let expanded = self.expanded.contains(&row.full_path);
-                    let loading = self.pending_folders.contains_key(&row.full_path)
-                        || self.pending_names.contains_key(&row.full_path);
-                    let icon = if loading { "⠸ " } else if expanded { "▾ " } else { "▸ " };
-                    (icon, if is_cursor { theme::selected() } else { theme::accent() })
-                }
-                NodeKind::Secret => {
-                    let icon = if is_selected { "[✓] " } else { "[ ] " };
-                    let style = if is_cursor { theme::selected() } else if is_selected { theme::ok() } else { theme::normal() };
-                    (icon, style)
-                }
-            };
+                let guide = "│   ".repeat(row.depth);
+                let (icon, base_style) = match row.kind {
+                    NodeKind::Folder => {
+                        let expanded = self.expanded.contains(&row.full_path);
+                        let loading = self.pending_folders.contains_key(&row.full_path)
+                            || self.pending_names.contains_key(&row.full_path);
+                        let icon = if loading {
+                            "⠸ "
+                        } else if expanded {
+                            "▾ "
+                        } else {
+                            "▸ "
+                        };
+                        (
+                            icon,
+                            if is_cursor {
+                                theme::selected()
+                            } else {
+                                theme::accent()
+                            },
+                        )
+                    }
+                    NodeKind::Secret => {
+                        let icon = if is_selected { "[✓] " } else { "[ ] " };
+                        let style = if is_cursor {
+                            theme::selected()
+                        } else if is_selected {
+                            theme::ok()
+                        } else {
+                            theme::normal()
+                        };
+                        (icon, style)
+                    }
+                };
 
-            ListItem::new(Line::from(vec![
-                Span::styled(format!("  {}", guide), theme::dim()),
-                Span::styled(format!("{}{}", icon, row.name), base_style),
-            ]))
-        }).collect();
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("  {}", guide), theme::dim()),
+                    Span::styled(format!("{}{}", icon, row.name), base_style),
+                ]))
+            })
+            .collect();
 
         let list = List::new(items).highlight_style(theme::selected());
         let mut state = ListState::default();
@@ -449,14 +551,14 @@ impl SecretsTree {
     fn render_hint(&self, f: &mut Frame, area: Rect) {
         let sel_count = self.selected.len();
         let hint = if sel_count > 0 {
-            format!("{} selected  space:toggle  a:all  enter:confirm  esc:cancel", sel_count)
+            format!(
+                "{} selected  space:toggle  a:all  enter:confirm  esc:cancel",
+                sel_count
+            )
         } else {
             "↑↓ move  →/enter:expand  ←:collapse  esc:close".to_string()
         };
-        f.render_widget(
-            Paragraph::new(hint).style(theme::muted()),
-            area,
-        );
+        f.render_widget(Paragraph::new(hint).style(theme::muted()), area);
     }
 }
 
@@ -466,7 +568,11 @@ impl SecretsTree {
 pub enum SecretsTreeAction {
     None,
     Cancelled,
-    NeedsLoad { path: String, folders_job: JobId, names_job: JobId },
+    NeedsLoad {
+        path: String,
+        folders_job: JobId,
+        names_job: JobId,
+    },
     Selected(InfisicalRef),
     SelectedMany(Vec<InfisicalRef>),
 }
@@ -478,7 +584,10 @@ mod tests {
 
     fn next_id_factory() -> impl FnMut() -> JobId {
         let mut n: JobId = 100;
-        move || { n += 1; n }
+        move || {
+            n += 1;
+            n
+        }
     }
 
     #[test]
@@ -488,7 +597,12 @@ mod tests {
         // Stale id (never registered) — should not crash, should not mutate state.
         let accepted = tree.deliver_folders(9999, vec!["unexpected".into()], None);
         assert!(!accepted);
-        assert!(tree.paths.get("/").map(|s| s.folders.is_empty()).unwrap_or(true));
+        assert!(
+            tree.paths
+                .get("/")
+                .map(|s| s.folders.is_empty())
+                .unwrap_or(true)
+        );
     }
 
     #[test]
@@ -512,6 +626,9 @@ mod tests {
         // Down arrow must not move cursor or panic.
         let _ = tree.handle_key(KeyCode::Down, &mut next);
         assert_eq!(tree.cursor, 0);
-        assert!(tree.error.is_some(), "error stays until cleared by 'r' or Esc");
+        assert!(
+            tree.error.is_some(),
+            "error stays until cleared by 'r' or Esc"
+        );
     }
 }

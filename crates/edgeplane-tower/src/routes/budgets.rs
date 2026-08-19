@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use chrono::Utc;
 use sqlx::Row;
@@ -15,11 +15,20 @@ use crate::{auth::Principal, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/budgets", get(list_budget_policies).post(create_budget_policy))
+        .route(
+            "/budgets",
+            get(list_budget_policies).post(create_budget_policy),
+        )
         .route("/budgets/usage", get(get_usage_summary))
         .route("/budgets/usage/batch", post(record_usage_batch))
-        .route("/budgets/{policy_id}", get(get_budget_policy).delete(delete_budget_policy))
-        .route("/budgets/{policy_id}/override", post(override_budget_window))
+        .route(
+            "/budgets/{policy_id}",
+            get(get_budget_policy).delete(delete_budget_policy),
+        )
+        .route(
+            "/budgets/{policy_id}/override",
+            post(override_budget_window),
+        )
 }
 
 // ── Request bodies ────────────────────────────────────────────────────────────
@@ -89,7 +98,11 @@ struct UsageSummaryQuery {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (axum::http::StatusCode::NOT_FOUND, axum::Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        axum::http::StatusCode::NOT_FOUND,
+        axum::Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 fn row_to_policy(row: &sqlx::postgres::PgRow) -> serde_json::Value {
@@ -277,13 +290,11 @@ async fn override_budget_window(
     let window_id: String = window_row.get("id");
     let now = Utc::now().naive_utc();
 
-    let result = sqlx::query(
-        "UPDATE budgetwindow SET state='open', updated_at=$2 WHERE id=$1",
-    )
-    .bind(&window_id)
-    .bind(now)
-    .execute(&state.db)
-    .await;
+    let result = sqlx::query("UPDATE budgetwindow SET state='open', updated_at=$2 WHERE id=$1")
+        .bind(&window_id)
+        .bind(now)
+        .execute(&state.db)
+        .await;
 
     match result {
         Ok(_) => Json(serde_json::json!({"reset": policy_id})).into_response(),

@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -93,8 +93,11 @@ async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &s
         let owners: String = row.get("owners");
         let contributors: String = row.get("contributors");
         let sub = principal.subject.to_lowercase();
-        let in_list =
-            |s: &str| s.split(',').map(|x| x.trim().to_lowercase()).any(|x| x == sub);
+        let in_list = |s: &str| {
+            s.split(',')
+                .map(|x| x.trim().to_lowercase())
+                .any(|x| x == sub)
+        };
         if in_list(&owners) || in_list(&contributors) {
             return true;
         }
@@ -107,9 +110,10 @@ async fn can_read_domain(db: &sqlx::PgPool, principal: &Principal, domain_id: &s
 fn matches_query(needle: &str, values: &[Option<&str>]) -> bool {
     for v in values {
         if let Some(s) = v
-            && s.to_lowercase().contains(needle) {
-                return true;
-            }
+            && s.to_lowercase().contains(needle)
+        {
+            return true;
+        }
     }
     false
 }
@@ -138,24 +142,23 @@ async fn explorer_tree(
     Query(params): Query<TreeQuery>,
 ) -> impl IntoResponse {
     let needle = params.q.as_deref().unwrap_or("").trim().to_lowercase();
-    let limit_tasks_per_cluster = params
-        .limit_tasks_per_cluster
-        .unwrap_or(5)
-        .clamp(1, 50) as usize;
+    let limit_tasks_per_cluster = params.limit_tasks_per_cluster.unwrap_or(5).clamp(1, 50) as usize;
     let limit_missions = params.limit_missions.unwrap_or(100).clamp(1, 200);
 
     // --- fetch domains ---
     let domain_rows = {
         let q = match &params.domain_id {
-            Some(mid) => sqlx::query(
-                "SELECT * FROM domain WHERE id=$1 ORDER BY updated_at DESC",
-            )
-            .bind(mid)
-            .fetch_all(&state.db)
-            .await,
-            None => sqlx::query("SELECT * FROM domain ORDER BY updated_at DESC")
-                .fetch_all(&state.db)
-                .await,
+            Some(mid) => {
+                sqlx::query("SELECT * FROM domain WHERE id=$1 ORDER BY updated_at DESC")
+                    .bind(mid)
+                    .fetch_all(&state.db)
+                    .await
+            }
+            None => {
+                sqlx::query("SELECT * FROM domain ORDER BY updated_at DESC")
+                    .fetch_all(&state.db)
+                    .await
+            }
         };
         match q {
             Ok(rows) => rows,
@@ -194,21 +197,22 @@ async fn explorer_tree(
 
     // --- fetch missions ---
     let mission_rows = {
-        let q = match &params.domain_id {
-            Some(mid) => sqlx::query(
-                "SELECT * FROM mission WHERE domain_id=$1 ORDER BY updated_at DESC LIMIT $2",
-            )
-            .bind(mid)
-            .bind(limit_missions)
-            .fetch_all(&state.db)
-            .await,
-            None => sqlx::query(
-                "SELECT * FROM mission ORDER BY updated_at DESC LIMIT $1",
-            )
-            .bind(limit_missions)
-            .fetch_all(&state.db)
-            .await,
-        };
+        let q =
+            match &params.domain_id {
+                Some(mid) => sqlx::query(
+                    "SELECT * FROM mission WHERE domain_id=$1 ORDER BY updated_at DESC LIMIT $2",
+                )
+                .bind(mid)
+                .bind(limit_missions)
+                .fetch_all(&state.db)
+                .await,
+                None => {
+                    sqlx::query("SELECT * FROM mission ORDER BY updated_at DESC LIMIT $1")
+                        .bind(limit_missions)
+                        .fetch_all(&state.db)
+                        .await
+                }
+            };
         match q {
             Ok(rows) => rows,
             Err(e) => {
@@ -295,7 +299,10 @@ async fn explorer_tree(
     let mut missions_by_domain: HashMap<Option<String>, Vec<&sqlx::postgres::PgRow>> =
         HashMap::new();
     for row in &missions {
-        let mid: Option<String> = row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+        let mid: Option<String> = row
+            .try_get("domain_id")
+            .ok()
+            .and_then(|v: Option<String>| v);
         missions_by_domain.entry(mid).or_default().push(row);
     }
 
@@ -309,7 +316,10 @@ async fn explorer_tree(
         let domain_name: String = domain_row.get("name");
         let domain_desc: String = domain_row.get("description");
         let domain_owners: String = domain_row.get("owners");
-        let domain_tags: Option<String> = domain_row.try_get("tags").ok().and_then(|v: Option<String>| v);
+        let domain_tags: Option<String> = domain_row
+            .try_get("tags")
+            .ok()
+            .and_then(|v: Option<String>| v);
 
         let domain_match = if needle.is_empty() {
             true
@@ -337,7 +347,10 @@ async fn explorer_tree(
             let k_name: String = mission_row.get("name");
             let k_desc: String = mission_row.get("description");
             let k_owners: String = mission_row.get("owners");
-            let k_tags: Option<String> = mission_row.try_get("tags").ok().and_then(|v: Option<String>| v);
+            let k_tags: Option<String> = mission_row
+                .try_get("tags")
+                .ok()
+                .and_then(|v: Option<String>| v);
 
             let all_cluster_tasks = tasks_by_mission.get(&kid).unwrap_or(&empty_vec);
 
@@ -467,7 +480,10 @@ async fn explorer_tree(
         let k_name: String = mission_row.get("name");
         let k_desc: String = mission_row.get("description");
         let k_owners: String = mission_row.get("owners");
-        let k_tags: Option<String> = mission_row.try_get("tags").ok().and_then(|v: Option<String>| v);
+        let k_tags: Option<String> = mission_row
+            .try_get("tags")
+            .ok()
+            .and_then(|v: Option<String>| v);
 
         let all_cluster_tasks = tasks_by_mission.get(&kid).unwrap_or(&empty_vec);
 
@@ -512,12 +528,11 @@ async fn explorer_tree(
             continue;
         }
 
-        let display_tasks: Vec<&&sqlx::postgres::PgRow> =
-            if cluster_match || needle.is_empty() {
-                all_cluster_tasks.iter().collect()
-            } else {
-                matching_tasks
-            };
+        let display_tasks: Vec<&&sqlx::postgres::PgRow> = if cluster_match || needle.is_empty() {
+            all_cluster_tasks.iter().collect()
+        } else {
+            matching_tasks
+        };
 
         let mut status_counts: HashMap<String, i64> = HashMap::new();
         for t in &display_tasks {
@@ -599,7 +614,7 @@ async fn explorer_node(
                         StatusCode::NOT_FOUND,
                         Json(json!({"detail": "Domain not found"})),
                     )
-                        .into_response()
+                        .into_response();
                 }
                 Err(e) => {
                     tracing::error!("explorer_node domain fetch: {e}");
@@ -625,8 +640,10 @@ async fn explorer_node(
                 }
             };
 
-            let mission_ids: Vec<String> =
-                mission_rows.iter().map(|r| r.get::<String, _>("id")).collect();
+            let mission_ids: Vec<String> = mission_rows
+                .iter()
+                .map(|r| r.get::<String, _>("id"))
+                .collect();
 
             let task_rows: Vec<sqlx::postgres::PgRow> = if mission_ids.is_empty() {
                 vec![]
@@ -678,7 +695,7 @@ async fn explorer_node(
                         StatusCode::NOT_FOUND,
                         Json(json!({"detail": "Mission not found"})),
                     )
-                        .into_response()
+                        .into_response();
                 }
                 Err(e) => {
                     tracing::error!("explorer_node mission fetch: {e}");
@@ -785,7 +802,7 @@ async fn explorer_node(
                         StatusCode::NOT_FOUND,
                         Json(json!({"detail": "Task not found"})),
                     )
-                        .into_response()
+                        .into_response();
                 }
             };
 
@@ -801,7 +818,7 @@ async fn explorer_node(
                         StatusCode::NOT_FOUND,
                         Json(json!({"detail": "Mission not found"})),
                     )
-                        .into_response()
+                        .into_response();
                 }
                 Err(e) => {
                     tracing::error!("explorer_node task mission fetch: {e}");

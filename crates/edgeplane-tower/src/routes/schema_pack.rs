@@ -1,4 +1,4 @@
-use axum::{routing::get, Json, Router};
+use axum::{Json, Router, routing::get};
 use std::sync::Arc;
 
 use crate::state::AppState;

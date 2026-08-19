@@ -56,5 +56,9 @@ pub struct NorthstarUpdate {
     pub content: String,
 }
 
-fn default_public() -> String { "public".into() }
-fn default_active() -> String { "active".into() }
+fn default_public() -> String {
+    "public".into()
+}
+fn default_active() -> String {
+    "active".into()
+}

@@ -30,7 +30,12 @@ impl<'a> Widget for HelpOverlay<'a> {
         let height = need_h.min(area.height.saturating_sub(2));
         let x = area.x + area.width.saturating_sub(width) / 2;
         let y = area.y + area.height.saturating_sub(height) / 2;
-        let dialog = Rect { x, y, width, height };
+        let dialog = Rect {
+            x,
+            y,
+            width,
+            height,
+        };
 
         Clear.render(dialog, buf);
 
@@ -38,7 +43,10 @@ impl<'a> Widget for HelpOverlay<'a> {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(theme::border_focused())
-            .title(Span::styled(format!(" Help · {} ", self.title), theme::accent_bold()))
+            .title(Span::styled(
+                format!(" Help · {} ", self.title),
+                theme::accent_bold(),
+            ))
             .style(theme::normal());
         let inner = block.inner(dialog);
         block.render(dialog, buf);
@@ -51,16 +59,23 @@ impl<'a> Widget for HelpOverlay<'a> {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 "Global",
-                Style::default().fg(theme::TEXT_MUTED).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme::TEXT_MUTED)
+                    .add_modifier(Modifier::BOLD),
             )));
             for e in self.global {
                 lines.push(entry_line(e.keys, e.desc));
             }
         }
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("press any key to close", theme::dim())));
+        lines.push(Line::from(Span::styled(
+            "press any key to close",
+            theme::dim(),
+        )));
 
-        Paragraph::new(lines).style(theme::normal()).render(inner, buf);
+        Paragraph::new(lines)
+            .style(theme::normal())
+            .render(inner, buf);
     }
 }
 
@@ -73,10 +88,28 @@ fn entry_line(keys: &str, desc: &str) -> Line<'static> {
 
 /// Default global keybindings shown in every Help overlay.
 pub const GLOBAL_HELP: &[HelpEntry] = &[
-    HelpEntry { keys: "Tab/S+Tab", desc: "next/prev tab" },
-    HelpEntry { keys: "a m f s c", desc: "jump to Agents/Domains/Feed/Secrets/Config" },
-    HelpEntry { keys: "L", desc: "identity / sign-in instructions" },
-    HelpEntry { keys: "R", desc: "refresh panel + re-check session on disk" },
-    HelpEntry { keys: "?", desc: "toggle this help" },
-    HelpEntry { keys: "Ctrl+Q / Ctrl+C", desc: "quit" },
+    HelpEntry {
+        keys: "Tab/S+Tab",
+        desc: "next/prev tab",
+    },
+    HelpEntry {
+        keys: "a m f s c",
+        desc: "jump to Agents/Domains/Feed/Secrets/Config",
+    },
+    HelpEntry {
+        keys: "L",
+        desc: "identity / sign-in instructions",
+    },
+    HelpEntry {
+        keys: "R",
+        desc: "refresh panel + re-check session on disk",
+    },
+    HelpEntry {
+        keys: "?",
+        desc: "toggle this help",
+    },
+    HelpEntry {
+        keys: "Ctrl+Q / Ctrl+C",
+        desc: "quit",
+    },
 ];

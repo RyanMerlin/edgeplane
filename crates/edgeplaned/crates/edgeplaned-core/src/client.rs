@@ -1,6 +1,6 @@
 use anyhow::Result;
 use reqwest::{Client, Response};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::sync::{Arc, RwLock};
 
 /// Thin HTTP client with bearer auth for the Edgeplane backend.
@@ -131,7 +131,11 @@ impl BackendClient {
             .await?)
     }
 
-    pub async fn patch<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> Result<T> {
+    pub async fn patch<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T> {
         let resp = self
             .inner
             .patch(self.url(path))
@@ -171,7 +175,8 @@ impl BackendClient {
         agent_id: &str,
         profile: &serde_json::Value,
     ) -> Result<serde_json::Value> {
-        self.patch(&format!("/agents/{agent_id}/profile"), profile).await
+        self.patch(&format!("/agents/{agent_id}/profile"), profile)
+            .await
     }
 
     /// Mint a fresh per-agent JWT for `agent_id` via the full-trust-gated

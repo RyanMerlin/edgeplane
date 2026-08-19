@@ -19,9 +19,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
-use futures::StreamExt;
-use futures::stream::BoxStream;
-use edgeplaned_acp::{Agent, ContentBlock, SessionUpdate, SpawnOpts, consts::PROTOCOL_VERSION, schema};
+use edgeplaned_acp::{
+    Agent, ContentBlock, SessionUpdate, SpawnOpts, consts::PROTOCOL_VERSION, schema,
+};
 use edgeplaned_core::agent_runtime::AgentRuntime;
 use edgeplaned_core::paths;
 use edgeplaned_core::progress::{ProgressEvent, ProgressEventType};
@@ -29,6 +29,8 @@ use edgeplaned_core::types::{
     AgentHandle, AgentSignal, Capability, LaunchContext, PtySession, RuntimeKind, TaskResult,
     TaskSpec,
 };
+use futures::StreamExt;
+use futures::stream::BoxStream;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::shared::{build_prompt, merge_capabilities};
@@ -203,7 +205,10 @@ impl AgentRuntime for ClaudeAgentAcpRuntime {
     async fn shutdown(&self, handle: AgentHandle) -> Result<()> {
         // Each task already shut down its own session in inject_task's stream
         // close. Nothing to do here in task-mode.
-        tracing::info!("claude_agent_acp agent {} shutdown (no-op)", handle.agent_id);
+        tracing::info!(
+            "claude_agent_acp agent {} shutdown (no-op)",
+            handle.agent_id
+        );
         Ok(())
     }
 
@@ -250,9 +255,9 @@ impl AgentRuntime for ClaudeAgentAcpRuntime {
         }
 
         // Step 4: re-locate after install.
-        let p = locate_acp_js()
-            .await
-            .ok_or_else(|| anyhow!("npm install succeeded but {AGENT_NPM_PKG} dist/index.js still not found"))?;
+        let p = locate_acp_js().await.ok_or_else(|| {
+            anyhow!("npm install succeeded but {AGENT_NPM_PKG} dist/index.js still not found")
+        })?;
         let _ = self.acp_js.set(p);
         let _ = self.install_done.set(());
         Ok(())
@@ -269,11 +274,9 @@ impl ClaudeAgentAcpRuntime {
             .get()
             .cloned()
             .ok_or_else(|| anyhow!("node not resolved — call ensure_installed first"))?;
-        let acp_js = self
-            .acp_js
-            .get()
-            .cloned()
-            .ok_or_else(|| anyhow!("acp dist/index.js not resolved — call ensure_installed first"))?;
+        let acp_js = self.acp_js.get().cloned().ok_or_else(|| {
+            anyhow!("acp dist/index.js not resolved — call ensure_installed first")
+        })?;
         let mut opts = SpawnOpts::claude_code_acp(node, acp_js);
         opts.cwd = Some(cwd.to_path_buf());
         // Prefer the system claude CLI over the binary bundled in the ACP npm
@@ -337,7 +340,11 @@ impl AcpSession {
     /// via `_meta.claudeCode.options.extraArgs` in `session/new`. The session
     /// then appears in the Claude app under that prefix, making it addressable
     /// for interactive inspection of fleet ACP sessions.
-    pub async fn open(opts: SpawnOpts, cwd: PathBuf, remote_control_prefix: Option<String>) -> Result<Self> {
+    pub async fn open(
+        opts: SpawnOpts,
+        cwd: PathBuf,
+        remote_control_prefix: Option<String>,
+    ) -> Result<Self> {
         let agent = Agent::spawn(opts).await.context("acp spawn")?;
 
         let init = tokio::time::timeout(
@@ -461,7 +468,9 @@ impl AcpSession {
     /// Subscribe to raw `session/update` notifications. Used by the
     /// persistent-session supervisor to fan agent output out to viewers
     /// over the attach registry.
-    pub fn subscribe_updates(&self) -> tokio::sync::broadcast::Receiver<edgeplaned_acp::wire::SessionNotification> {
+    pub fn subscribe_updates(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<edgeplaned_acp::wire::SessionNotification> {
         self.agent.subscribe_session_updates()
     }
 
@@ -740,7 +749,10 @@ mod tests {
             SessionUpdate::SessionInfoUpdate(serde_json::json!({})),
             SessionUpdate::UsageUpdate(serde_json::json!({})),
         ] {
-            assert!(update_to_progress(&u).is_none(), "unexpected event for {u:?}");
+            assert!(
+                update_to_progress(&u).is_none(),
+                "unexpected event for {u:?}"
+            );
         }
     }
 
