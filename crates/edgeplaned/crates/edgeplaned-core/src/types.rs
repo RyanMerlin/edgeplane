@@ -20,6 +20,15 @@ pub enum RuntimeKind {
     /// this variant, since the runtime impl is a node-wide singleton).
     /// See `edgeplaned-runtimes/src/zellij_hosted.rs`.
     ZellijHosted,
+    /// A long-running agent hosted in a Herdr session. Mirrors ZellijHosted:
+    /// the supervisor talks to the agent through `herdr` subprocess
+    /// invocations (session-scoped via the `HERDR_SESSION` env var, not a
+    /// `--session` flag), and there is no PTY owned by edgeplaned directly —
+    /// see `edgeplaned-bin/src/herdr_bridge.rs` for the separate PTY-view
+    /// path. The per-agent session name lives in
+    /// `AgentLaunchContext.herdr_session`. See
+    /// `edgeplaned-runtimes/src/herdr_hosted.rs`.
+    HerdrHosted,
     Custom(String),
 }
 
@@ -31,6 +40,7 @@ impl std::fmt::Display for RuntimeKind {
             RuntimeKind::Codex => write!(f, "codex"),
             RuntimeKind::Gemini => write!(f, "gemini"),
             RuntimeKind::ZellijHosted => write!(f, "zellij_hosted"),
+            RuntimeKind::HerdrHosted => write!(f, "herdr_hosted"),
             RuntimeKind::Custom(s) => write!(f, "{s}"),
         }
     }
@@ -172,6 +182,10 @@ pub struct LaunchContext {
     /// daemon from `AgentLaunchContext.zellij_session` only when
     /// `runtime_kind == ZellijHosted`. `None` for all other runtimes.
     pub zellij_session: Option<String>,
+    /// Name of the Herdr session this agent runs in. Populated by the
+    /// daemon from `AgentLaunchContext.herdr_session` only when
+    /// `runtime_kind == HerdrHosted`. `None` for all other runtimes.
+    pub herdr_session: Option<String>,
 }
 
 /// Events emitted by edgeplaned's unit-health (Phase 5 watchdog) loop. Broadcast
@@ -313,4 +327,14 @@ pub struct MeshTaskRecord {
     /// Semantic inputs this task requires from prior tasks.
     #[serde(default)]
     pub consumes: serde_json::Value,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn herdr_hosted_display_is_snake_case() {
+        assert_eq!(RuntimeKind::HerdrHosted.to_string(), "herdr_hosted");
+    }
 }
