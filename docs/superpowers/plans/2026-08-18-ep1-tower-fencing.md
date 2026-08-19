@@ -14,7 +14,8 @@
 
 - `LEASE_TTL_SECS = 120` (`work.rs:467`) — unchanged, do not touch.
 - **Never add `kind='claimable'` unconditionally to a query that today serves both kinds.** `complete_task`, `fail_task`, `cancel_task` are deliberately unified across `kind='claimable'` and `kind='assigned'` — express the per-kind precondition as an `OR`-branch inside one `WHERE` clause, never as a blanket kind filter. This was blocker #1 in the spec's first-draft Codex review.
-- **Lease freshness, not just token equality:** any predicate that checks `claim_lease_id = $lease` must also assert `lease_expires_at >= now()` (or rely on `expire_stale_leases` having already cleared the token — but do not assume the sweep ran recently; assert it explicitly). This was blocker #2 in the spec's first-draft Codex review.
+- **Lease freshness, not just token equality:** any predicate that checks `claim_lease_id = $lease` must also assert lease freshness (or rely on `expire_stale_leases` having already cleared the token — but do not assume the sweep ran recently; assert it explicitly). This was blocker #2 in the spec's first-draft Codex review.
+- **Bind the freshness check as a parameter — never write SQL `now()` in the predicate.** `task.lease_expires_at`/`updated_at` are `timestamp without time zone`; SQL `now()` returns `timestamptz`. Comparing them forces Postgres to cast the naive column through the connection's session `TimeZone` GUC (`timestamp_ge_timestamptz`), so the fence's correctness silently depends on that session defaulting to UTC — true today (verified live against both the CI/local test Postgres and the production `edgeplane-cnpg` cluster) but asserted nowhere, and any future timezone change (pooler default, a `SET TIME ZONE`, a different base image) flips the predicate: an expired lease can pass, or a live one can be rejected. Fix: bind the already-computed `Utc::now().naive_utc()` value and compare against that placeholder (`lease_expires_at >= $N`), the same pattern `expire_stale_leases` already uses. **Ruling (Task 1 fix loop, adversarial review, retroactively applied to every task below that references `lease_expires_at`):** every occurrence of `lease_expires_at >= now()` in this plan's code blocks was corrected to a bound parameter — if you're implementing from an older copy of this plan, do not transcribe a literal `now()` here.
 - **Full-trust/admin bypass is explicit, not implicit:** every fenced predicate that includes an ownership/lease check must also carry `OR $is_bypass`, where `is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin`. Omitting this silently breaks legitimate admin force-operations.
 - **403 vs 409 classification rule** (applies everywhere `classify_fenced_rejection` is used): if the caller presented *any* ownership proof — a `claimed_by_agent_id`/`owner` match, or a `claim_lease_id` value at all (even a wrong/stale one) — a failed predicate is `409` (lost a race, not unauthorized). Only a caller who presented zero proof and isn't full-trust/admin gets `403`.
 - **Broadcast claims and full-trust/admin bypass are explicitly unfenced by design**, not an oversight — `claim_task`'s broadcast branch (`work.rs:1068`) stays a blind `UPDATE ... WHERE id=$1` after a precheck; this is intentional broadcast semantics and is out of scope for this plan.
@@ -233,7 +234,7 @@ async fn heartbeat_task(
     let updated = sqlx::query(
         "UPDATE task SET status='running', lease_expires_at=$2, updated_at=$3 \
          WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-           AND lease_expires_at >= now() AND (claim_lease_id = $4 OR $5) \
+           AND lease_expires_at >= $3 AND (claim_lease_id = $4 OR $5) \
          RETURNING *",
     )
     .bind(&task_id)
@@ -577,7 +578,7 @@ async fn complete_task(
          WHERE task.id = $1 \
            AND ( \
              (task.kind = 'claimable' AND task.status IN ('claimed','running','waiting_review') \
-              AND task.lease_expires_at >= now() AND (task.claim_lease_id = $5 OR $6)) \
+              AND task.lease_expires_at >= $4 AND (task.claim_lease_id = $5 OR $6)) \
              OR \
              (task.kind = 'assigned' AND task.status NOT IN ('done','finished','failed','cancelled') \
               AND (task.owner = $7 OR task.claim_lease_id = $5 OR $6)) \
@@ -825,7 +826,7 @@ async fn fail_task(
          WHERE id=$1 \
            AND ( \
              (kind = 'claimable' AND status IN ('claimed','running','waiting_review') \
-              AND lease_expires_at >= now() AND (claim_lease_id = $4 OR $5)) \
+              AND lease_expires_at >= $2 AND (claim_lease_id = $4 OR $5)) \
              OR \
              (kind = 'assigned' AND status NOT IN ('done','finished','failed','cancelled') \
               AND (owner = $6 OR claim_lease_id = $4 OR $5)) \
@@ -1722,7 +1723,7 @@ async fn append_progress(
     let row = sqlx::query(
         "WITH eligible AS ( \
            SELECT 1 FROM task WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-             AND lease_expires_at >= now() AND (claim_lease_id = $2 OR $3) \
+             AND lease_expires_at >= $10 AND (claim_lease_id = $2 OR $3) \
          ) \
          INSERT INTO meshprogressevent \
            (task_id, agent_id, seq, event_type, phase, step, summary, payload_json, occurred_at, agent_run_id) \
@@ -1930,6 +1931,7 @@ Replace `mcp.rs:791-864` with:
                 _ => return err_result("unknown_tool"),
             };
             let now_tz = Utc::now();
+            let now = Utc::now().naive_utc();
 
             let row = sqlx::query(
                 "UPDATE task SET status=$2, updated_at=NOW(), \
@@ -1937,7 +1939,7 @@ Replace `mcp.rs:791-864` with:
                  claimed_by_agent_id=CASE WHEN $2 IN ('finished','failed','cancelled','blocked') THEN NULL ELSE claimed_by_agent_id END, \
                  finalized_at=CASE WHEN $2 IN ('finished','failed','cancelled') THEN $3 ELSE finalized_at END \
                  WHERE id=$1 AND kind='claimable' AND status = ANY($4) \
-                   AND lease_expires_at >= now() AND (claim_lease_id = $5 OR $6) \
+                   AND lease_expires_at >= $7 AND (claim_lease_id = $5 OR $6) \
                  RETURNING id",
             )
             .bind(&task_id)
@@ -1946,6 +1948,7 @@ Replace `mcp.rs:791-864` with:
             .bind(source_statuses)
             .bind(lease_opt)
             .bind(is_bypass)
+            .bind(now)
             .fetch_optional(&state.db)
             .await;
 
