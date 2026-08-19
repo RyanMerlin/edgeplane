@@ -20,6 +20,7 @@ pub struct SpawnOverrides {
     pub vault_folder: Option<String>,
     pub state_dir_spec: Option<StateDirSpec>,
     pub zellij_session: Option<String>,
+    pub herdr_session: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -91,7 +92,7 @@ impl Supervisor {
             vault_folder: overrides.vault_folder,
             state_dir_spec: overrides.state_dir_spec,
             zellij_session: overrides.zellij_session,
-            herdr_session: None,
+            herdr_session: overrides.herdr_session,
         };
 
         let handle = runtime.launch(ctx).await?;

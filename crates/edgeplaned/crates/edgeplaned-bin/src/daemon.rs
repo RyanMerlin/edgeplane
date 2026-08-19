@@ -1220,16 +1220,18 @@ pub(crate) fn merge_federated_overrides(
             vault_folder: matched_ctx.vault_folder.clone(),
             state_dir_spec: matched_ctx.state_dir_spec.clone(),
             zellij_session: matched_ctx.zellij_session.clone(),
+            herdr_session: matched_ctx.herdr_session.clone(),
         };
         spec.local_alias_id = Some(matched_ctx.agent_id.clone());
         tracing::info!(
             "federated merge: controlplane spec '{}' (key='{}') matched \
-             local context '{}' source='{}' (zellij_session={:?})",
+             local context '{}' source='{}' (zellij_session={:?}, herdr_session={:?})",
             spec.agent_id,
             cp_key,
             matched_ctx.agent_id,
             matched_ctx.source,
             matched_ctx.zellij_session,
+            matched_ctx.herdr_session,
         );
     }
 }
@@ -1681,6 +1683,7 @@ async fn resolve_agent_specs(
                                     vault_folder: ctx.vault_folder,
                                     state_dir_spec: ctx.state_dir_spec,
                                     zellij_session: ctx.zellij_session,
+                                    herdr_session: ctx.herdr_session,
                                 };
                                 // name and local_alias_id stay None here —
                                 // these are local-source specs, not
@@ -2107,6 +2110,37 @@ mod tests {
         assert_eq!(
             s.local_alias_id.as_deref(),
             Some("engineer"),
+            "local_alias_id should be set to fleet_import agent_id"
+        );
+    }
+
+    /// Federated spec with name "my-agent-vega" merges a fleet context whose
+    /// only launch override is `herdr_session` (no zellij_session) — the
+    /// HerdrHosted analog of `merge_federated_overrides_sets_zellij_session_and_alias`.
+    #[test]
+    fn merge_federated_overrides_sets_herdr_session() {
+        let mut specs = vec![cp_zellij_spec("my-agent-vega-abc12345", "my-agent-vega")];
+        let ctxs = vec![AgentLaunchContext {
+            source: crate::fleet_import::SOURCE_FLEET_IMPORT.to_string(),
+            agent_id: "vega".to_string(),
+            vault_folder: Some("vega".to_string()),
+            state_dir_spec: None,
+            zellij_session: None,
+            herdr_session: Some("vega".to_string()),
+            systemd_service: Some("my-agent-vega.service".to_string()),
+            supervise_paused: false,
+        }];
+        merge_federated_overrides(&mut specs, &ctxs);
+
+        let s = &specs[0];
+        assert_eq!(
+            s.launch_overrides.herdr_session.as_deref(),
+            Some("vega"),
+            "herdr_session should be merged from fleet_import context"
+        );
+        assert_eq!(
+            s.local_alias_id.as_deref(),
+            Some("vega"),
             "local_alias_id should be set to fleet_import agent_id"
         );
     }
@@ -2678,6 +2712,7 @@ mod tests {
                     path: PathBuf::from("/tmp/test-work"),
                 }),
                 zellij_session: Some("work-session".to_string()),
+                herdr_session: None,
             },
             name: Some("my-agent-work".to_string()),
             local_alias_id: Some("work".to_string()),
@@ -2720,6 +2755,7 @@ mod tests {
                 vault_folder: None,
                 state_dir_spec: None,
                 zellij_session: Some("my-agent-operator".to_string()),
+                herdr_session: None,
             },
             name: Some("my-agent-operator".to_string()),
             local_alias_id: Some("operator".to_string()),
