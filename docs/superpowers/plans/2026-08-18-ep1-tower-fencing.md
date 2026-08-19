@@ -19,6 +19,8 @@
 - **Full-trust/admin bypass is explicit, not implicit:** every fenced predicate that includes an ownership/lease check must also carry `OR $is_bypass`, where `is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin`. Omitting this silently breaks legitimate admin force-operations.
 - **403 vs 409 classification rule** (applies everywhere `classify_fenced_rejection` is used): if the caller presented *any* ownership proof — a `claimed_by_agent_id`/`owner` match, or a `claim_lease_id` value at all (even a wrong/stale one) — a failed predicate is `409` (lost a race, not unauthorized). Only a caller who presented zero proof and isn't full-trust/admin gets `403`.
 - **Broadcast claims and full-trust/admin bypass are explicitly unfenced by design**, not an oversight — `claim_task`'s broadcast branch (`work.rs:1068`) stays a blind `UPDATE ... WHERE id=$1` after a precheck; this is intentional broadcast semantics and is out of scope for this plan.
+- **The broadcast exception applies to every later lifecycle transition, not just the initial claim.** **Ruling (Task 2 review, applies to every task below with a `lease_expires_at` freshness check on the claimable branch — Tasks 1, 2, 3, 8, 9):** `expire_stale_leases` explicitly excludes `claim_policy != 'broadcast'` (`work.rs:549`) and `claim_task` requires `status='ready'` to (re)claim (`work.rs:1100-1107`) — so once a broadcast task's lease lapses, it is never auto-reclaimed and can never be re-claimed either. Pre-fencing, `heartbeat_task`/`complete_task`/`fail_task`/`append_progress` had no freshness check at all, so a broadcast task was always renewable/completable regardless of lease staleness. A bare freshness check with no carve-out therefore wedges every broadcast task that outlives one lease window with **no in-band recovery** — contradicting this same bullet's own principle. Fix: the claimable branch's ownership/lease sub-condition gets `task.claim_policy = 'broadcast'` as a caller-agnostic bypass of the *entire* lease/freshness/lease-id-match clause (not just the lease-id match), mirroring `claim_task`'s own "no single owner for a CAS to protect" reasoning — `authz_domain` (coarse domain membership) still runs first and is unaffected.
+- **`complete_task` and `fail_task` specifically also need `claimed_by_agent_id` as a standalone ownership path, unguarded by freshness.** **Ruling (Task 2 review):** `edgeplaned/crates/edgeplaned-bin/src/task_worker.rs` (a real, live, currently-deployed daemon loop, out of scope for this Tower-only plan) calls `/work/tasks/{id}/complete` and `/work/tasks/{id}/fail` with `{"agent_id": agent_id}` only — never a `claim_lease_id`, and never calls `/heartbeat` at all. A lease-only predicate (safe for `heartbeat_task`, whose one real caller — `task_loop.rs` — always carries a lease, independently verified) would reject every completion/failure this live caller performs on a `kind='claimable'` row the moment this plan's Tower changes deploy. `classify_fenced_rejection` already treats a `claimed_by_agent_id` match as valid ownership proof (409, not 403) — the predicate should agree with its own classifier. Fix: `complete_task`'s and `fail_task`'s claimable branches add `OR task.claimed_by_agent_id = $subject_id` as a third, independent path (alongside broadcast and the lease/freshness path), **not gated on `lease_expires_at`** — the state machine already makes this race-safe without an explicit freshness check: a non-broadcast claimable row can't be re-claimed by anyone else until `expire_stale_leases` clears `claimed_by_agent_id` to `NULL`, at which point the identity check stops matching for everyone, including the stale former claimer. This restores exactly the capability `authz_task_owner` already granted before this plan started — no new capability, and `heartbeat_task`/`append_progress`/the MCP mirror do not need this path (their real callers always carry a lease or are unaffected — verify this holds for the MCP mirror specifically when Task 9 is reviewed, since it wasn't directly audited here).
 - All new/modified SQL uses `sqlx::query` + `.bind()` + `Row::get`, matching every existing handler in `work.rs`/`mcp.rs` — do not introduce the `sqlx::query!` compile-time-checked macro family, which nothing in this crate uses today.
 - Migrations go in `crates/edgeplane-tower/migrations/`, sequential numbering; the next free number is `0015`.
 - Test convention for this crate's DB-gated integration tests: match live CI exactly (`.github/workflows/ci.yml:23-37,54`), which uses `cargo nextest`, not plain `cargo test` — a 2026-07-16 plan's precedent documented `cargo test`, but that has since drifted from what CI actually runs; verified directly against the current workflow file, trust that over the older plan. Full-crate form: `TEST_DATABASE_URL=<url> cargo nextest run --manifest-path crates/edgeplane-tower/Cargo.toml`. Scoped to one test file: add `-E 'binary(<test_binary>)'`; scoped to a name filter within a file: `-E 'test(<substring>)'`. CI's Postgres (`.github/workflows/ci.yml:23-28`) is `postgres:16`, user/pass `postgres`/`postgres`, db `test`, port 5432 — `TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/test`. Locally, verify a matching Postgres is actually reachable (a real connection attempt — `psql`/`pg_isready` if present, or a raw TCP probe — not just "the env var is set") before running; if none is up, start one ephemerally and matching CI's exact image/creds: `docker run -d --rm --name edgeplane-test-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=test -p 5432:5432 postgres:16`, wait for it to accept connections, then run tests; stop it (`docker stop edgeplane-test-pg`) once the plan's tasks are done, since it's scratch and reversible, not the repo's persistent dev-stack `docker-compose.yml` (a separate compose file, different DB name/creds — do not touch that one for this plan's tests).
@@ -234,7 +236,8 @@ async fn heartbeat_task(
     let updated = sqlx::query(
         "UPDATE task SET status='running', lease_expires_at=$2, updated_at=$3 \
          WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-           AND lease_expires_at >= $3 AND (claim_lease_id = $4 OR $5) \
+           AND (claim_policy = 'broadcast' \
+                OR (lease_expires_at >= $3 AND (claim_lease_id = $4 OR $5))) \
          RETURNING *",
     )
     .bind(&task_id)
@@ -578,7 +581,9 @@ async fn complete_task(
          WHERE task.id = $1 \
            AND ( \
              (task.kind = 'claimable' AND task.status IN ('claimed','running','waiting_review') \
-              AND task.lease_expires_at >= $4 AND (task.claim_lease_id = $5 OR $6)) \
+              AND (task.claim_policy = 'broadcast' \
+                   OR task.claimed_by_agent_id = $7 \
+                   OR (task.lease_expires_at >= $4 AND (task.claim_lease_id = $5 OR $6)))) \
              OR \
              (task.kind = 'assigned' AND task.status NOT IN ('done','finished','failed','cancelled') \
               AND (task.owner = $7 OR task.claim_lease_id = $5 OR $6)) \
@@ -826,7 +831,9 @@ async fn fail_task(
          WHERE id=$1 \
            AND ( \
              (kind = 'claimable' AND status IN ('claimed','running','waiting_review') \
-              AND lease_expires_at >= $2 AND (claim_lease_id = $4 OR $5)) \
+              AND (claim_policy = 'broadcast' \
+                   OR claimed_by_agent_id = $6 \
+                   OR (lease_expires_at >= $2 AND (claim_lease_id = $4 OR $5)))) \
              OR \
              (kind = 'assigned' AND status NOT IN ('done','finished','failed','cancelled') \
               AND (owner = $6 OR claim_lease_id = $4 OR $5)) \
@@ -1723,7 +1730,8 @@ async fn append_progress(
     let row = sqlx::query(
         "WITH eligible AS ( \
            SELECT 1 FROM task WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-             AND lease_expires_at >= $10 AND (claim_lease_id = $2 OR $3) \
+             AND (claim_policy = 'broadcast' \
+                  OR (lease_expires_at >= $10 AND (claim_lease_id = $2 OR $3))) \
          ) \
          INSERT INTO meshprogressevent \
            (task_id, agent_id, seq, event_type, phase, step, summary, payload_json, occurred_at, agent_run_id) \
@@ -1939,7 +1947,8 @@ Replace `mcp.rs:791-864` with:
                  claimed_by_agent_id=CASE WHEN $2 IN ('finished','failed','cancelled','blocked') THEN NULL ELSE claimed_by_agent_id END, \
                  finalized_at=CASE WHEN $2 IN ('finished','failed','cancelled') THEN $3 ELSE finalized_at END \
                  WHERE id=$1 AND kind='claimable' AND status = ANY($4) \
-                   AND lease_expires_at >= $7 AND (claim_lease_id = $5 OR $6) \
+                   AND (claim_policy = 'broadcast' \
+                        OR (lease_expires_at >= $7 AND (claim_lease_id = $5 OR $6))) \
                  RETURNING id",
             )
             .bind(&task_id)
