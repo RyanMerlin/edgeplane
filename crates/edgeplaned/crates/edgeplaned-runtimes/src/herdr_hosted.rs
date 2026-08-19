@@ -2,8 +2,8 @@
 //!
 //! Mirrors zellij_hosted.rs's "thin facade" pattern exactly: this runtime
 //! owns no agent process — the Herdr session is externally managed by
-//! systemd (see the `aria` repo's `integrations/herdr/aria-<profile>.service`
-//! units). This runtime only knows how to poke at an already-running pane.
+//! the configured supervisor and systemd. This runtime only knows how to
+//! poke at an already-running pane.
 //!
 //! Unlike ZellijHostedRuntime, there is no plugin-routing path here.
 //! Zellij's WASM plugin control channel exists specifically to get an
