@@ -9,7 +9,7 @@ use edgeplaned_packs::{PackRegistry, PolicyBundle};
 use edgeplaned_receipts::ReceiptStore;
 use edgeplaned_runtimes::{
     claude_agent_acp::ClaudeAgentAcpRuntime, claude_code::ClaudeCodeRuntime, codex::CodexRuntime,
-    gemini::GeminiRuntime, zellij_hosted::ZellijHostedRuntime,
+    gemini::GeminiRuntime, herdr_hosted::HerdrHostedRuntime, zellij_hosted::ZellijHostedRuntime,
 };
 use edgeplaned_secrets::{
     BackendRegistry, EnvBackend, InfisicalBackend, InfisicalConfig, InfisicalProfileMap,
@@ -1408,6 +1408,9 @@ impl Spawner {
                 "zellij_hosted" => Arc::new(Box::new(
                     ZellijHostedRuntime::with_extra_capabilities(extra_caps),
                 )),
+                "herdr_hosted" => Arc::new(Box::new(HerdrHostedRuntime::with_extra_capabilities(
+                    extra_caps,
+                ))),
                 other => {
                     tracing::warn!(
                         "Unknown runtime kind '{other}', skipping agent {}",
@@ -2778,5 +2781,16 @@ mod tests {
             "zellij_session must be unchanged when no override matches"
         );
         assert!(spec.profile_path.is_none(), "profile_path must remain None");
+    }
+
+    /// HerdrHostedRuntime instantiation resolves correctly when runtime_kind == "herdr_hosted".
+    #[test]
+    fn resolves_herdr_hosted_runtime() {
+        let rt = HerdrHostedRuntime::with_extra_capabilities(vec![]);
+        assert_eq!(
+            rt.kind(),
+            edgeplaned_core::types::RuntimeKind::HerdrHosted,
+            "herdr_hosted runtime must have RuntimeKind::HerdrHosted"
+        );
     }
 }
