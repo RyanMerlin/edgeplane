@@ -13,7 +13,7 @@
 //!   to approximate it (see zellij_hosted.rs's PluginRouting — there is no
 //!   Herdr equivalent because none is needed).
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::process::Command;
 use std::sync::OnceLock;
@@ -332,14 +332,18 @@ mod tests {
             {"name":"gwyn","running":false}
         ]}"#;
         let parsed: SessionListOutput = serde_json::from_str(json).unwrap();
-        assert!(parsed
-            .sessions
-            .iter()
-            .any(|s| s.name == "vega" && s.running));
-        assert!(!parsed
-            .sessions
-            .iter()
-            .any(|s| s.name == "gwyn" && s.running));
+        assert!(
+            parsed
+                .sessions
+                .iter()
+                .any(|s| s.name == "vega" && s.running)
+        );
+        assert!(
+            !parsed
+                .sessions
+                .iter()
+                .any(|s| s.name == "gwyn" && s.running)
+        );
     }
 
     #[test]
