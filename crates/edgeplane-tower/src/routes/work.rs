@@ -385,6 +385,13 @@ struct HeartbeatBody {
 struct CompleteBody {
     result_artifact_id: Option<String>,
     claim_lease_id: Option<String>,
+    /// On-behalf-of ephemeral agent id — only honored for full-trust/admin
+    /// callers (see complete_task's effective_id derivation), mirroring
+    /// claim_task's own on-behalf-of write (work.rs:1055-1068). This is the
+    /// real edgeplaned-bin/task_worker.rs call shape: it authenticates with
+    /// its node's full-trust credential, never a per-agent token, and always
+    /// sends `{"agent_id": ...}`.
+    agent_id: Option<String>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -393,6 +400,8 @@ struct FailBody {
     #[allow(dead_code)]
     error: String,
     claim_lease_id: Option<String>,
+    /// See CompleteBody::agent_id.
+    agent_id: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1391,6 +1400,20 @@ async fn complete_task(
 
     let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
     let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+    // The real edgeplaned-bin/task_worker.rs caller authenticates with its
+    // node's full-trust credential (never a per-agent token — confirmed no
+    // mint_agent_token call anywhere in that file) and always sends
+    // {"agent_id": ...}. Its own subject is "node:<id>", which can never
+    // match claimed_by_agent_id, so Ruling C2's identity path is inert for
+    // it unless we read ownership back the same way claim_task wrote it:
+    // on-behalf-of, only for bypass callers (work.rs:1055-1068's own rule —
+    // restricted callers are always attributed to themselves so a
+    // compromised agent can't spoof another agent's id via this field).
+    let effective_id = if is_bypass {
+        body.agent_id.as_deref().unwrap_or(subject_id)
+    } else {
+        subject_id
+    };
     let now = Utc::now().naive_utc();
     let now_tz = Utc::now();
     // result_artifact_id is now `integer` (matches artifact.id) — was varchar.
@@ -1438,7 +1461,7 @@ async fn complete_task(
     .bind(now)
     .bind(body.claim_lease_id.as_deref())
     .bind(is_bypass)
-    .bind(subject_id)
+    .bind(effective_id)
     .fetch_optional(&state.db)
     .await;
 
@@ -1507,6 +1530,16 @@ async fn fail_task(
 
     let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
     let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+    // See CompleteBody::agent_id / complete_task's effective_id comment: the
+    // real task_worker.rs caller is a node (full-trust) principal, not an
+    // agent-token principal, so its own subject never matches
+    // claimed_by_agent_id. Read ownership back the same on-behalf-of way
+    // claim_task wrote it, bypass-gated so a restricted caller can't spoof it.
+    let effective_id = if is_bypass {
+        body.agent_id.as_deref().unwrap_or(subject_id)
+    } else {
+        subject_id
+    };
     let now = Utc::now().naive_utc();
     let now_tz = Utc::now();
 
@@ -1530,7 +1563,7 @@ async fn fail_task(
     .bind(now_tz)
     .bind(body.claim_lease_id.as_deref())
     .bind(is_bypass)
-    .bind(subject_id)
+    .bind(effective_id)
     .fetch_optional(&state.db)
     .await;
 

@@ -20,6 +20,56 @@ fn server(pool: sqlx::PgPool) -> TestServer {
     TestServer::new(build_app(pool, AppConfig::default()))
 }
 
+/// Builds a test server whose node/agent JWT verification key is a freshly
+/// generated RSA keypair we also hold the private half of, so the caller can
+/// sign a real, verifiable node JWT — the actual `task_worker.rs` auth
+/// shape (it authenticates with its node's full-trust credential, never a
+/// per-agent token). `build_app` reads `EP_JWT_SIGNING_KEY` at call time
+/// (`server.rs::load_jwt_keys`), so this must be set before `server()` runs;
+/// nextest's per-test-process isolation makes mutating this process-wide env
+/// var safe here (each test is its own process).
+fn server_with_node_signing_key(pool: sqlx::PgPool) -> (TestServer, jsonwebtoken::EncodingKey) {
+    let (priv_pem, _pub_pem) = edgeplane_tower::jwt::generate_rsa_keypair().unwrap();
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, priv_pem.as_bytes());
+    // SAFETY (soundness, not memory): mutating a process-wide env var is
+    // inherently racy if another thread reads it concurrently; nextest
+    // isolates each #[tokio::test] in its own process, so nothing else in
+    // this process reads EP_JWT_SIGNING_KEY at the same time.
+    unsafe {
+        std::env::set_var("EP_JWT_SIGNING_KEY", b64);
+    }
+    let encoding_key = edgeplane_tower::jwt::encoding_key_from_pem(&priv_pem).unwrap();
+    (server(pool), encoding_key)
+}
+
+/// Registers a `runtimenode`, gives it `domain_id` scope via a `meshagent`
+/// row (`resolve_node_domain_scope` reads `meshagent.runtime_node_id`/
+/// `node_id`), signs a real node JWT against `encoding_key`, and inserts the
+/// matching `nodetoken` row `auth.rs`'s node-JWT path requires (signature
+/// verification alone isn't enough — it also checks a live, non-revoked
+/// `nodetoken` by `jti`). Returns the Bearer token string.
+async fn seed_node_caller(
+    pool: &sqlx::PgPool,
+    domain_id: &str,
+    encoding_key: &jsonwebtoken::EncodingKey,
+) -> String {
+    let node_name = format!("fencing-test-node-{}", uuid::Uuid::new_v4().simple());
+    let node_id = common::seed_runtime_node(pool, "harness", &node_name).await;
+    common::seed_node_agent(pool, domain_id, &node_id).await;
+    let (node_jwt, jti) = edgeplane_tower::jwt::sign_node_jwt(&node_id, encoding_key, 1)
+        .expect("sign node jwt");
+    sqlx::query(
+        "INSERT INTO nodetoken (jti, node_id, revoked, issued_at, expires_at) \
+         VALUES ($1, $2, false, now(), now() + interval '1 day')",
+    )
+    .bind(&jti)
+    .bind(&node_id)
+    .execute(pool)
+    .await
+    .expect("insert nodetoken");
+    node_jwt
+}
+
 /// Enroll an agent (as owner session) and return the enrolled agent_id +
 /// agent_token from the response. Mirrors `test_authz.rs`'s helper of the
 /// same name (each integration-test binary is a separate crate, so it can't
@@ -1115,11 +1165,13 @@ async fn fencing_complete_claimed_by_agent_id_without_lease_succeeds() {
     };
     let s = server(pool.clone());
 
-    // Mirrors the real, live task_worker.rs daemon loop (out of scope for
-    // this Tower-only plan): it calls /complete with {"agent_id": ...} only
-    // — never a claim_lease_id, and never heartbeats. Enroll a real
-    // non-full-trust agent and claim for real via REST, so
-    // claimed_by_agent_id is a genuine identity match.
+    // The restricted-agent self-identity path: a real, non-full-trust
+    // agent-token principal completing a task it genuinely claimed itself,
+    // with no lease presented. NOT what task_worker.rs actually does —
+    // task_worker.rs authenticates as its node (full-trust), not as a
+    // per-agent token (confirmed: no mint_agent_token call anywhere in
+    // task_worker.rs); see fencing_complete_node_caller_on_behalf_of_
+    // stale_lease_succeeds below for that real shape.
     let (agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
@@ -1462,7 +1514,9 @@ async fn fencing_fail_claimed_by_agent_id_without_lease_succeeds() {
     };
     let s = server(pool.clone());
 
-    // Mirrors task_worker.rs: calls /fail with {"agent_id": ...} only.
+    // The restricted-agent self-identity path (see complete_task's twin
+    // test for why this is NOT actually task_worker.rs's shape — that's
+    // fencing_fail_node_caller_on_behalf_of_stale_lease_succeeds below).
     let (agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
@@ -1538,6 +1592,176 @@ async fn fencing_fail_real_lease_match_non_bypass_succeeds() {
     assert!(
         res.status_code().is_success(),
         "a restricted caller presenting the real, live lease must fail the task: {}",
+        res.text()
+    );
+}
+
+// ── Adversarial review fix round: Ruling C2's identity path was inert for
+// its actual target caller. task_worker.rs authenticates as its NODE
+// (full-trust, subject "node:<id>"), never a per-agent token, so comparing
+// claimed_by_agent_id against the caller's own principal.subject can never
+// match — the caller's identity and the on-behalf-of agent it claimed for
+// are two different strings. Fixed by reading ownership back the same
+// on-behalf-of way claim_task already writes it (work.rs:1055-1068):
+// bypass callers may supply body.agent_id; restricted callers cannot.
+
+#[tokio::test]
+async fn fencing_complete_node_caller_on_behalf_of_stale_lease_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let (s, encoding_key) = server_with_node_signing_key(pool.clone());
+    let node_token = seed_node_caller(&pool, &ctx.domain_id, &encoding_key).await;
+
+    // The real task_worker.rs call shape: claimed_by_agent_id is an
+    // ephemeral agent id the node claimed on behalf of, never heartbeated,
+    // now well past LEASE_TTL_SECS (120s) with no sweep having run.
+    let ephemeral_agent_id = format!("agent-{}", uuid::Uuid::new_v4().simple());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some(&ephemeral_agent_id),
+        1,
+    )
+    .await;
+    sqlx::query("UPDATE task SET lease_expires_at = now() - interval '1 hour' WHERE id=$1")
+        .bind(&task_id)
+        .execute(&pool)
+        .await
+        .expect("force an expired, never-heartbeated lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {node_token}"),
+        )
+        .json(&serde_json::json!({"agent_id": ephemeral_agent_id}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "the real task_worker.rs shape (node caller, on-behalf-of agent_id, \
+         no lease, stale lease on file) must complete: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_fail_node_caller_on_behalf_of_stale_lease_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let (s, encoding_key) = server_with_node_signing_key(pool.clone());
+    let node_token = seed_node_caller(&pool, &ctx.domain_id, &encoding_key).await;
+
+    let ephemeral_agent_id = format!("agent-{}", uuid::Uuid::new_v4().simple());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some(&ephemeral_agent_id),
+        1,
+    )
+    .await;
+    sqlx::query("UPDATE task SET lease_expires_at = now() - interval '1 hour' WHERE id=$1")
+        .bind(&task_id)
+        .execute(&pool)
+        .await
+        .expect("force an expired, never-heartbeated lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {node_token}"),
+        )
+        .json(&serde_json::json!({"agent_id": ephemeral_agent_id, "error": "boom"}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "the real task_worker.rs shape (node caller, on-behalf-of agent_id, \
+         no lease, stale lease on file) must fail the task: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_complete_restricted_caller_cannot_spoof_agent_id_in_body() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // A restricted (non-bypass) agent-token caller claims its OWN task, then
+    // tries to complete a DIFFERENT task by naming its real claimer in
+    // body.agent_id. The on-behalf-of path must be bypass-gated only —
+    // otherwise any compromised agent could spoof any other agent's
+    // ownership via this field (the same risk claim_task's own on-behalf-of
+    // write already guards against, work.rs:1055-1058).
+    let (_caller_agent_id, caller_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let victim_agent_id = format!("agent-{}", uuid::Uuid::new_v4().simple());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some(&victim_agent_id),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='victim-lease', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed the victim's live lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {caller_token}"),
+        )
+        .json(&serde_json::json!({"agent_id": victim_agent_id}))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "a restricted caller must not be able to spoof ownership via body.agent_id: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_fail_kind_assigned_still_works_after_predicate_split() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_assigned_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        ctx.owner_session_subject(),
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"error": "boom"}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "kind='assigned' failure must still work after the predicate split: {}",
         res.text()
     );
 }
