@@ -89,7 +89,11 @@ pub fn import_into(registry: &LocalRegistry, profiles: &[Profile]) -> Result<Imp
         .collect();
 
     for profile in profiles {
-        let runtime_kind = profile.runtime.as_deref().unwrap_or("zellij_hosted").to_string();
+        let runtime_kind = profile
+            .runtime
+            .as_deref()
+            .unwrap_or("zellij_hosted")
+            .to_string();
         let is_acp = runtime_kind == "claude_agent_acp";
 
         let spec = AgentSpec {
@@ -122,7 +126,15 @@ pub fn import_into(registry: &LocalRegistry, profiles: &[Profile]) -> Result<Imp
                 path: PathBuf::from(&profile.state_dir),
             }),
             // ACP supervisor doesn't use zellij_session; only set it for PTY profiles.
-            zellij_session: if is_acp { None } else { profile.zellij_session.clone() },
+            zellij_session: if is_acp {
+                None
+            } else {
+                profile.zellij_session.clone()
+            },
+            // This importer's `Profile` manifest type has no herdr_session
+            // field yet (herdr_hosted isn't supported by this legacy,
+            // currently-unused import path); always None here.
+            herdr_session: None,
             // Phase 5: store the systemd unit name so the unit-health
             // loop can supervise it.
             systemd_service: Some(profile.service.clone()),
@@ -130,9 +142,9 @@ pub fn import_into(registry: &LocalRegistry, profiles: &[Profile]) -> Result<Imp
             // operator's pause state across re-imports.
             supervise_paused: false,
         };
-        registry.upsert_launch_context(&ctx).with_context(|| {
-            format!("upserting launch context for profile '{}'", profile.name)
-        })?;
+        registry
+            .upsert_launch_context(&ctx)
+            .with_context(|| format!("upserting launch context for profile '{}'", profile.name))?;
 
         if existing.contains(&profile.name) {
             summary.updated += 1;
@@ -285,7 +297,10 @@ state_dir      = "/tmp/test-profiles/work"
         let second = import_into(&registry, &profiles).unwrap();
         assert_eq!(second.created, 0);
         assert_eq!(second.updated, 1);
-        assert_eq!(registry.list_by_source(SOURCE_FLEET_IMPORT).unwrap().len(), 1);
+        assert_eq!(
+            registry.list_by_source(SOURCE_FLEET_IMPORT).unwrap().len(),
+            1
+        );
     }
 
     #[test]
@@ -302,7 +317,10 @@ state_dir      = "/tmp/test-profiles/work"
         import_into(&registry, &profiles).unwrap();
         profiles[0].state_dir = "/new/path".into();
         import_into(&registry, &profiles).unwrap();
-        let ctx = registry.get_launch_context(SOURCE_FLEET_IMPORT, "work").unwrap().unwrap();
+        let ctx = registry
+            .get_launch_context(SOURCE_FLEET_IMPORT, "work")
+            .unwrap()
+            .unwrap();
         match ctx.state_dir_spec {
             Some(StateDirSpec::Persistent { path }) => assert_eq!(path, PathBuf::from("/new/path")),
             other => panic!("expected Persistent /new/path, got {other:?}"),
