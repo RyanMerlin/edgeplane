@@ -29,8 +29,12 @@ pub fn is_federated() -> bool {
         return false;
     };
     // v1 state: has node_id. v2 (Phase 5b): has active_profile.
-    v.get("node_id").and_then(|s| s.as_str()).is_some_and(|s| !s.is_empty())
-        || v.get("active_profile").and_then(|s| s.as_str()).is_some_and(|s| !s.is_empty())
+    v.get("node_id")
+        .and_then(|s| s.as_str())
+        .is_some_and(|s| !s.is_empty())
+        || v.get("active_profile")
+            .and_then(|s| s.as_str())
+            .is_some_and(|s| !s.is_empty())
 }
 
 // ---------- DB access ----------
@@ -69,6 +73,7 @@ fn ensure_schema(conn: &Connection) -> Result<()> {
              vault_folder    TEXT,
              state_dir_spec  TEXT,
              zellij_session  TEXT,
+             herdr_session   TEXT,
              systemd_service TEXT,
              supervise_paused INTEGER NOT NULL DEFAULT 0,
              PRIMARY KEY (source, agent_id),
@@ -165,11 +170,9 @@ pub fn list(domain_filter: Option<&str>) -> Result<Vec<LocalAgent>> {
 
     let mut stmt = conn.prepare(sql)?;
     let rows: rusqlite::Result<Vec<LocalAgent>> = if let Some(p) = param {
-        stmt.query_map(params![p], row_to_agent)?
-            .collect()
+        stmt.query_map(params![p], row_to_agent)?.collect()
     } else {
-        stmt.query_map([], row_to_agent)?
-            .collect()
+        stmt.query_map([], row_to_agent)?.collect()
     };
     rows.context("reading local agents")
 }
@@ -192,10 +195,7 @@ fn row_to_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalAgent> {
 /// Remove agents by source tag. Returns the number of rows deleted.
 pub fn unenroll_by_source(source: &str) -> Result<usize> {
     let conn = open()?;
-    let n = conn.execute(
-        "DELETE FROM agent WHERE source = ?1",
-        params![source],
-    )?;
+    let n = conn.execute("DELETE FROM agent WHERE source = ?1", params![source])?;
     let _ = conn.execute(
         "DELETE FROM agent_launch_context WHERE source = ?1",
         params![source],
@@ -212,6 +212,9 @@ struct ManifestProfile {
     /// Only required for `zellij_hosted` runtime. Optional so ACP profiles
     /// can omit it without breaking existing TOML files that still include it.
     pub zellij_session: Option<String>,
+    /// Only required for `herdr_hosted` runtime. Optional so profiles on
+    /// other runtimes can omit it.
+    pub herdr_session: Option<String>,
     /// systemd `--user` unit name (e.g. `my-agent.service`).
     pub service: String,
     pub state_dir: String,
@@ -240,20 +243,20 @@ pub struct ImportSummary {
 pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("reading manifest: {}", path.display()))?;
-    let parsed: ManifestFile = toml::from_str(&raw)
-        .with_context(|| format!("parsing manifest: {}", path.display()))?;
+    let parsed: ManifestFile =
+        toml::from_str(&raw).with_context(|| format!("parsing manifest: {}", path.display()))?;
 
     let conn = open()?;
     let enrolled_at = chrono::Utc::now().to_rfc3339();
 
     // Snapshot existing agents under this source tag to distinguish create vs update.
     let existing: std::collections::HashSet<String> = {
-        let mut stmt = conn.prepare(
-            "SELECT id FROM agent WHERE source = ?1",
-        )?;
+        let mut stmt = conn.prepare("SELECT id FROM agent WHERE source = ?1")?;
         let rows: rusqlite::Result<Vec<String>> =
             stmt.query_map(params![source], |row| row.get(0))?.collect();
-        rows.context("reading existing agents")?.into_iter().collect()
+        rows.context("reading existing agents")?
+            .into_iter()
+            .collect()
     };
 
     let mut summary = ImportSummary {
@@ -264,10 +267,14 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
     for profile in &parsed.profile {
         let runtime_kind = profile.runtime.as_deref().unwrap_or("zellij_hosted");
         let is_acp = runtime_kind == "claude_agent_acp";
+        let is_herdr = runtime_kind == "herdr_hosted";
 
         // ACP supervisor uses profile_path as cwd so claude loads the right CLAUDE.md.
-        let profile_path: Option<&str> =
-            if is_acp { Some(&profile.state_dir) } else { None };
+        let profile_path: Option<&str> = if is_acp {
+            Some(&profile.state_dir)
+        } else {
+            None
+        };
 
         // Upsert agent row.
         conn.execute(
@@ -279,7 +286,13 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
                 runtime_kind     = excluded.runtime_kind,
                 supervision_mode = excluded.supervision_mode,
                 profile_path     = excluded.profile_path",
-            params![profile.name, source, runtime_kind, profile_path, enrolled_at],
+            params![
+                profile.name,
+                source,
+                runtime_kind,
+                profile_path,
+                enrolled_at
+            ],
         )?;
 
         // Upsert launch context row.
@@ -290,20 +303,31 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
         })
         .to_string();
 
-        // ACP profiles don't use a zellij_session in their launch context.
-        let zellij_session: Option<&str> =
-            if is_acp { None } else { profile.zellij_session.as_deref() };
+        // ACP and Herdr profiles don't use a zellij_session in their launch
+        // context; a profile shouldn't carry both zellij_session and
+        // herdr_session.
+        let zellij_session: Option<&str> = if is_acp || is_herdr {
+            None
+        } else {
+            profile.zellij_session.as_deref()
+        };
+        let herdr_session: Option<&str> = if is_herdr {
+            profile.herdr_session.as_deref()
+        } else {
+            None
+        };
 
         conn.execute(
             "INSERT INTO agent_launch_context
                 (source, agent_id, vault_folder, state_dir_spec,
-                 zellij_session, systemd_service, supervise_paused)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)
+                 zellij_session, systemd_service, supervise_paused, herdr_session)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)
              ON CONFLICT(source, agent_id) DO UPDATE SET
                 vault_folder    = excluded.vault_folder,
                 state_dir_spec  = excluded.state_dir_spec,
                 zellij_session  = excluded.zellij_session,
-                systemd_service = excluded.systemd_service",
+                systemd_service = excluded.systemd_service,
+                herdr_session   = excluded.herdr_session",
             params![
                 source,
                 profile.name,
@@ -311,6 +335,7 @@ pub fn import_manifest(path: &Path, source: &str) -> Result<ImportSummary> {
                 state_dir_spec,
                 zellij_session,
                 profile.service,
+                herdr_session,
             ],
         )?;
 
@@ -359,6 +384,25 @@ state_dir      = "/tmp/test-profiles/work"
         )
         .unwrap();
         path
+    }
+
+    #[test]
+    fn fresh_db_has_herdr_session_column() {
+        let dir = TempDir::new().unwrap();
+        let conn = edgeplaned_paths::open_tuned(&dir.path().join("registry.db")).unwrap();
+        ensure_schema(&conn).unwrap();
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(agent_launch_context)")
+            .unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert!(
+            cols.contains(&"herdr_session".to_string()),
+            "columns: {cols:?}"
+        );
     }
 
     #[test]
@@ -427,7 +471,10 @@ state_dir      = "/tmp/test-profiles/work"
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(count, 2, "idempotent re-import should not create duplicates");
+        assert_eq!(
+            count, 2,
+            "idempotent re-import should not create duplicates"
+        );
 
         teardown();
     }
@@ -466,7 +513,10 @@ state_dir = "{}"
             )
             .unwrap();
         assert_eq!(runtime_kind, "claude_agent_acp");
-        assert_eq!(profile_path.as_deref(), Some(state_dir.to_string_lossy().as_ref()));
+        assert_eq!(
+            profile_path.as_deref(),
+            Some(state_dir.to_string_lossy().as_ref())
+        );
 
         let zellij_session: Option<String> = conn
             .query_row(
@@ -475,7 +525,55 @@ state_dir = "{}"
                 |r| r.get(0),
             )
             .unwrap();
-        assert!(zellij_session.is_none(), "ACP profile should have no zellij_session");
+        assert!(
+            zellij_session.is_none(),
+            "ACP profile should have no zellij_session"
+        );
+
+        teardown();
+    }
+
+    #[test]
+    fn import_herdr_profile_sets_herdr_session_and_null_zellij() {
+        let tmp = TempDir::new().unwrap();
+        setup_ep_home(&tmp);
+
+        let manifest = r#"
+[[profile]]
+name           = "vega"
+herdr_session  = "vega"
+service        = "aria-vega.service"
+state_dir      = "/tmp/test-profiles/vega"
+runtime        = "herdr_hosted"
+"#;
+        let path = tmp.path().join("fleet.toml");
+        std::fs::write(&path, manifest).unwrap();
+
+        let summary = import_manifest(&path, "test_herdr").unwrap();
+        assert_eq!(summary.created, 1);
+
+        let conn = open().unwrap();
+        let runtime_kind: String = conn
+            .query_row(
+                "SELECT runtime_kind FROM agent WHERE id = 'vega'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(runtime_kind, "herdr_hosted");
+
+        let (herdr_session, zellij_session): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT herdr_session, zellij_session FROM agent_launch_context WHERE agent_id = 'vega'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(herdr_session.as_deref(), Some("vega"));
+        assert!(
+            zellij_session.is_none(),
+            "herdr_hosted profile should have no zellij_session"
+        );
 
         teardown();
     }
