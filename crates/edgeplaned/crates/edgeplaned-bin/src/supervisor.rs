@@ -91,6 +91,7 @@ impl Supervisor {
             vault_folder: overrides.vault_folder,
             state_dir_spec: overrides.state_dir_spec,
             zellij_session: overrides.zellij_session,
+            herdr_session: None,
         };
 
         let handle = runtime.launch(ctx).await?;
