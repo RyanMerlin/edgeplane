@@ -1,6 +1,5 @@
 /// edgeplaned daemon — wires config, supervisor, runtimes, and task loops together.
 use anyhow::Result;
-use edgeplaned_core::agent_runtime::AgentRuntime;
 use edgeplaned_core::capability_dispatcher::CapabilityDispatcher;
 use edgeplaned_core::client::BackendClient;
 use edgeplaned_core::machine::MachineInfo;
@@ -1249,6 +1248,41 @@ fn profile_from_public_id(public_id: &str) -> Option<&str> {
     (!profile.is_empty()).then_some(profile)
 }
 
+// ── Runtime instantiation helper ────────────────────────────────────────────────
+
+/// Instantiate an agent runtime based on its kind string.
+/// Returns `Some(Arc<DynAgentRuntime>)` if the runtime_kind is recognized,
+/// or `None` if the runtime_kind is unknown and the agent should be skipped.
+fn instantiate_agent_runtime(
+    runtime_kind: &str,
+    capabilities: Vec<edgeplaned_core::types::Capability>,
+) -> Option<Arc<edgeplaned_core::agent_runtime::DynAgentRuntime>> {
+    match runtime_kind {
+        "claude_code" => Some(Arc::new(Box::new(
+            ClaudeCodeRuntime::with_extra_capabilities(capabilities),
+        ))),
+        "claude_agent_acp" => Some(Arc::new(Box::new(
+            ClaudeAgentAcpRuntime::with_extra_capabilities(capabilities),
+        ))),
+        "codex" => Some(Arc::new(Box::new(CodexRuntime::with_extra_capabilities(
+            capabilities,
+        )))),
+        "gemini" => Some(Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(
+            capabilities,
+        )))),
+        "zellij_hosted" => Some(Arc::new(Box::new(
+            ZellijHostedRuntime::with_extra_capabilities(capabilities),
+        ))),
+        "herdr_hosted" => Some(Arc::new(Box::new(
+            HerdrHostedRuntime::with_extra_capabilities(capabilities),
+        ))),
+        other => {
+            tracing::warn!("Unknown runtime kind '{other}'");
+            None
+        }
+    }
+}
+
 // ── Phase 4d: per-agent spawner + reconcile-driven apply ─────────────────────
 
 /// Bundles the shared deps every per-agent spawn needs. Cloned/Arc-shared
@@ -1374,51 +1408,47 @@ impl Spawner {
         let mut acp_spawn_opts: Option<edgeplaned_acp::SpawnOpts> = None;
 
         let rt: Arc<edgeplaned_core::agent_runtime::DynAgentRuntime> =
-            match spec.runtime_kind.as_str() {
-                "claude_code" => Arc::new(Box::new(ClaudeCodeRuntime::with_extra_capabilities(
-                    extra_caps,
-                ))),
-                "claude_agent_acp" => {
-                    let concrete = ClaudeAgentAcpRuntime::with_extra_capabilities(extra_caps);
-                    if let Err(e) = std::fs::create_dir_all(&work_dir) {
-                        tracing::error!("failed to create work dir for {}: {e}", spec.agent_id);
-                        return None;
-                    }
-                    if let Err(e) = concrete.ensure_installed().await {
-                        tracing::error!(
-                            "ensure_installed failed for ACP agent {}: {e:#}. Skipping.",
-                            spec.agent_id
-                        );
-                        return None;
-                    }
-                    match concrete.spawn_opts(&work_dir) {
-                        Ok(opts) => acp_spawn_opts = Some(opts),
-                        Err(e) => {
-                            tracing::error!(
-                                "could not resolve ACP spawn opts for {}: {e:#}. Skipping.",
-                                spec.agent_id
-                            );
-                            return None;
-                        }
-                    }
-                    Arc::new(Box::new(concrete))
-                }
-                "codex" => Arc::new(Box::new(CodexRuntime::with_extra_capabilities(extra_caps))),
-                "gemini" => Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(extra_caps))),
-                "zellij_hosted" => Arc::new(Box::new(
-                    ZellijHostedRuntime::with_extra_capabilities(extra_caps),
-                )),
-                "herdr_hosted" => Arc::new(Box::new(HerdrHostedRuntime::with_extra_capabilities(
-                    extra_caps,
-                ))),
-                other => {
+            match instantiate_agent_runtime(&spec.runtime_kind, extra_caps.clone()) {
+                Some(runtime) => runtime,
+                None => {
                     tracing::warn!(
-                        "Unknown runtime kind '{other}', skipping agent {}",
+                        "Unknown runtime kind '{}', skipping agent {}",
+                        spec.runtime_kind,
                         spec.agent_id
                     );
                     return None;
                 }
             };
+
+        // ACP requires pre-spawn setup: create work dir and resolve spawn opts.
+        if spec.runtime_kind == "claude_agent_acp" {
+            if let Err(e) = std::fs::create_dir_all(&work_dir) {
+                tracing::error!("failed to create work dir for {}: {e}", spec.agent_id);
+                return None;
+            }
+            if let Err(e) = rt.ensure_installed().await {
+                tracing::error!(
+                    "ensure_installed failed for ACP agent {}: {e:#}. Skipping.",
+                    spec.agent_id
+                );
+                return None;
+            }
+            // Extract the ACP runtime to get spawn_opts.
+            // NOTE: instantiate_agent_runtime returns Arc<Box<dyn AgentRuntime>>,
+            // so we can't downcast. Instead, we re-instantiate a concrete ACP runtime
+            // (safe since we know runtime_kind == "claude_agent_acp").
+            let concrete = ClaudeAgentAcpRuntime::with_extra_capabilities(extra_caps);
+            match concrete.spawn_opts(&work_dir) {
+                Ok(opts) => acp_spawn_opts = Some(opts),
+                Err(e) => {
+                    tracing::error!(
+                        "could not resolve ACP spawn opts for {}: {e:#}. Skipping.",
+                        spec.agent_id
+                    );
+                    return None;
+                }
+            }
+        }
 
         if let Err(e) = rt.ensure_installed().await {
             tracing::error!(
@@ -2783,14 +2813,39 @@ mod tests {
         assert!(spec.profile_path.is_none(), "profile_path must remain None");
     }
 
-    /// HerdrHostedRuntime instantiation resolves correctly when runtime_kind == "herdr_hosted".
+    /// The instantiate_agent_runtime helper resolves "herdr_hosted" string to HerdrHostedRuntime.
+    /// This test exercises the actual match arm added in this task.
     #[test]
-    fn resolves_herdr_hosted_runtime() {
-        let rt = HerdrHostedRuntime::with_extra_capabilities(vec![]);
+    fn instantiate_agent_runtime_resolves_herdr_hosted() {
+        let rt = instantiate_agent_runtime("herdr_hosted", vec![]);
+        assert!(
+            rt.is_some(),
+            "instantiate_agent_runtime should resolve 'herdr_hosted' to a runtime"
+        );
+        let rt = rt.unwrap();
         assert_eq!(
             rt.kind(),
             edgeplaned_core::types::RuntimeKind::HerdrHosted,
-            "herdr_hosted runtime must have RuntimeKind::HerdrHosted"
+            "resolved runtime must be HerdrHostedRuntime (RuntimeKind::HerdrHosted)"
         );
+    }
+
+    /// Unknown runtime kinds return None.
+    #[test]
+    fn instantiate_agent_runtime_unknown_returns_none() {
+        let rt = instantiate_agent_runtime("nonexistent_runtime", vec![]);
+        assert!(
+            rt.is_none(),
+            "unknown runtime kind should return None and fall through to 'other' arm"
+        );
+    }
+
+    /// Verify that zellij_hosted still resolves (regression test).
+    #[test]
+    fn instantiate_agent_runtime_resolves_zellij_hosted() {
+        let rt = instantiate_agent_runtime("zellij_hosted", vec![]);
+        assert!(rt.is_some());
+        let rt = rt.unwrap();
+        assert_eq!(rt.kind(), edgeplaned_core::types::RuntimeKind::ZellijHosted);
     }
 }
