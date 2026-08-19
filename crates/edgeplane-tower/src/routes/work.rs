@@ -1378,95 +1378,93 @@ async fn complete_task(
 ) -> impl IntoResponse {
     let body = body.map(|b| b.0).unwrap_or_default();
 
-    let task_row = match sqlx::query("SELECT * FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return not_found("Task not found"),
-        Err(e) => {
-            tracing::error!("complete_task fetch: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
     };
-
-    let domain_id: String = task_row.get("domain_id");
     if let Err(resp) =
         crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
     {
         return resp;
     }
 
-    // Completion is the unified path for both kinds (migration 0014's design
-    // point — one completion token, validated the same way regardless of
-    // routing mode): authz_task_owner already branches internally on how
-    // ownership is proven (claimed_by_agent_id/lease for claimable, owner/lease
-    // for assigned), so call it unconditionally rather than rejecting
-    // kind='assigned' up front.
-    let kind: String = task_row.get("kind");
-    if let Err(resp) = crate::routes::authz::authz_task_owner(
-        &state.db,
-        &principal,
-        &task_id,
-        body.claim_lease_id.as_deref(),
-    )
-    .await
-    {
-        return resp;
-    }
-
-    // Status precondition is kind-specific: claimable rows use the meshtask
-    // claim/lease vocabulary (unchanged from before this migration); assigned
-    // rows use free-text PM-style status and are completable from any
-    // non-terminal state (see routes::tasks::is_terminal_status).
-    let status: String = task_row.get("status");
-    if kind == "claimable" {
-        if status != "claimed" && status != "running" && status != "waiting_review" {
-            return conflict(&format!("Task cannot be completed from status: {status}"));
-        }
-    } else if crate::routes::tasks::is_terminal_status(&status) {
-        return conflict(&format!("Task cannot be completed from status: {status}"));
-    }
-
-    // Lease ID mismatch check
-    if let Some(caller_lease) = &body.claim_lease_id {
-        let task_lease: Option<String> = task_row.get("claim_lease_id");
-        if let Some(tl) = task_lease
-            && &tl != caller_lease
-        {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({"detail": "Lease ID mismatch"})),
-            )
-                .into_response();
-        }
-    }
-
-    let mission_id: String = task_row.get("mission_id");
+    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
+    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
     let now = Utc::now().naive_utc();
     let now_tz = Utc::now();
+    // result_artifact_id is now `integer` (matches artifact.id) — was varchar.
+    let result_artifact_id: Option<i32> = body
+        .result_artifact_id
+        .as_deref()
+        .and_then(|s| s.parse::<i32>().ok());
 
-    // Check for pending review gates
-    let pending_gates =
-        sqlx::query("SELECT id FROM reviewgate WHERE mesh_task_id=$1 AND status='pending'")
-            .bind(&task_id)
-            .fetch_all(&state.db)
-            .await
-            .unwrap_or_default();
+    // Fences the ownership/lease/status predicate AND the pending-gate check
+    // in one statement, closing the race where a gate is created between a
+    // separate SELECT and the transition UPDATE (spec §1, complete_task
+    // pending-gates subsection). `gate_check.has_pending` is computed fresh
+    // inside this same statement, so there is no window for a concurrently
+    // created gate to be missed.
+    let row = sqlx::query(
+        "WITH gate_check AS ( \
+           SELECT EXISTS ( \
+             SELECT 1 FROM reviewgate WHERE mesh_task_id=$1 AND status='pending' \
+           ) AS has_pending \
+         ) \
+         UPDATE task SET \
+           status = CASE WHEN gate_check.has_pending THEN 'waiting_review' ELSE 'finished' END, \
+           result_artifact_id = CASE WHEN gate_check.has_pending THEN task.result_artifact_id ELSE $2 END, \
+           lease_expires_at = CASE WHEN gate_check.has_pending THEN task.lease_expires_at ELSE NULL END, \
+           claim_lease_id = CASE WHEN gate_check.has_pending THEN task.claim_lease_id ELSE NULL END, \
+           claimed_by_agent_id = CASE WHEN gate_check.has_pending THEN task.claimed_by_agent_id ELSE NULL END, \
+           finalized_at = CASE WHEN gate_check.has_pending THEN task.finalized_at ELSE $3 END, \
+           updated_at = $4 \
+         FROM gate_check \
+         WHERE task.id = $1 \
+           AND ( \
+             (task.kind = 'claimable' AND task.status IN ('claimed','running','waiting_review') \
+              AND task.lease_expires_at >= $4 AND (task.claim_lease_id = $5 OR $6)) \
+             OR \
+             (task.kind = 'assigned' AND task.status NOT IN ('done','finished','failed','cancelled') \
+              AND (task.owner = $7 OR task.claim_lease_id = $5 OR $6)) \
+           ) \
+         RETURNING task.*, gate_check.has_pending",
+    )
+    .bind(&task_id)
+    .bind(result_artifact_id)
+    .bind(now_tz)
+    .bind(now)
+    .bind(body.claim_lease_id.as_deref())
+    .bind(is_bypass)
+    .bind(subject_id)
+    .fetch_optional(&state.db)
+    .await;
 
-    if !pending_gates.is_empty() {
-        let gate_ids: Vec<String> = pending_gates
-            .iter()
-            .map(|r| r.get::<String, _>("id"))
-            .collect();
-        let _ =
-            sqlx::query("UPDATE task SET status='waiting_review', updated_at=$2 WHERE id=$1")
-                .bind(&task_id)
-                .bind(now)
-                .execute(&state.db)
-                .await;
+    let r = match row {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return classify_fenced_rejection(
+                &state.db,
+                &principal,
+                &task_id,
+                body.claim_lease_id.as_deref(),
+            )
+            .await;
+        }
+        Err(e) => {
+            tracing::error!("complete_task update: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
+    let has_pending: bool = r.get("has_pending");
+    if has_pending {
+        let gate_ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM reviewgate WHERE mesh_task_id=$1 AND status='pending'",
+        )
+        .bind(&task_id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
         return Json(serde_json::json!({
             "status": "waiting_review",
             "pending_gates": gate_ids,
@@ -1475,41 +1473,15 @@ async fn complete_task(
         .into_response();
     }
 
-    // result_artifact_id is now `integer` (matches artifact.id) — was varchar.
-    // The wire body still carries it as an optional string (CompleteBody);
-    // parse it defensively rather than trusting the caller sent a clean int.
-    let result_artifact_id: Option<i32> = body
-        .result_artifact_id
-        .as_deref()
-        .and_then(|s| s.parse::<i32>().ok());
-
-    // Complete the task
-    match sqlx::query(
-        "UPDATE task SET status='finished', result_artifact_id=$2, \
-         lease_expires_at=NULL, claim_lease_id=NULL, finalized_at=$4, updated_at=$3 WHERE id=$1 RETURNING *",
-    )
-    .bind(&task_id)
-    .bind(result_artifact_id)
-    .bind(now)
-    .bind(now_tz)
-    .fetch_one(&state.db)
-    .await
-    {
-        Ok(r) => {
-            let domain_id: String = r.get("domain_id");
-            let unblocked = unblock_dependents(&state.db, &mission_id, &task_id).await;
-            for tid in &unblocked {
-                broadcast_task_available(&domain_id, &mission_id, tid).await;
-            }
-            let mut val = row_to_task(&r);
-            val["unblocked_tasks"] = serde_json::json!(unblocked);
-            Json(val).into_response()
-        }
-        Err(e) => {
-            tracing::error!("complete_task update: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+    let mission_id: String = r.get("mission_id");
+    let domain_id: String = r.get("domain_id");
+    let unblocked = unblock_dependents(&state.db, &mission_id, &task_id).await;
+    for tid in &unblocked {
+        broadcast_task_available(&domain_id, &mission_id, tid).await;
     }
+    let mut val = row_to_task(&r);
+    val["unblocked_tasks"] = serde_json::json!(unblocked);
+    Json(val).into_response()
 }
 
 async fn fail_task(

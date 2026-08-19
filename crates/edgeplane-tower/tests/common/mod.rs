@@ -12,6 +12,21 @@ pub struct Ctx {
     pub owner_session_token: String,
     pub outsider_sa_token: String,
     pub member_sa_token: String,
+    /// The subject the owner session token was minted with (`mint_session`'s
+    /// `subject` arg — `owner_email` in `setup()`). Backs
+    /// [`Ctx::owner_session_subject`].
+    pub owner_subject: String,
+}
+
+impl Ctx {
+    /// The subject string that resolves to `owner_session_token`'s principal
+    /// (i.e. what `authz_task_owner`/fenced predicates compare against for a
+    /// `kind='assigned'` task's `owner` column). Lets tests seed an assigned
+    /// task owned by the owner session without hardcoding/duplicating the
+    /// generated email literal at each call site.
+    pub fn owner_session_subject(&self) -> &str {
+        &self.owner_subject
+    }
 }
 
 /// Insert a usersession row and return the raw `ep_` token the extractor accepts.
@@ -608,6 +623,7 @@ pub async fn setup() -> Option<(PgPool, Ctx)> {
             owner_session_token: owner_token,
             outsider_sa_token: outsider_token,
             member_sa_token: member_token,
+            owner_subject: owner_email,
         },
     ))
 }

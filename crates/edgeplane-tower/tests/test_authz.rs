@@ -129,6 +129,19 @@ async fn agent_cannot_complete_unassigned_task() {
     // the domain guard passes, but it is NOT agent-A, so the owner guard fires.
     let task_id =
         common::seed_claimed_task(&pool, &ctx.mission_id, &ctx.domain_id, "agent-A").await;
+    // seed_claimed_task doesn't set a lease; complete_task's fenced predicate
+    // (EP-1 Task 2) requires lease_expires_at to be live for a claimable row
+    // regardless of caller trust — a state only reachable in practice via a
+    // real claim (which always sets one). Give it a live lease so this test
+    // exercises the intended reachable state instead of an artifact of the
+    // fixture never claiming for real.
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a live lease");
     let s = server(pool.clone());
 
     // A domain-member SA that is not the claimer must get 403.
