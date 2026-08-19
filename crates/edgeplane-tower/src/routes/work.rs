@@ -1495,78 +1495,51 @@ async fn fail_task(
 ) -> impl IntoResponse {
     let body = body.map(|b| b.0).unwrap_or_default();
 
-    let task_row = match sqlx::query("SELECT * FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return not_found("Task not found"),
-        Err(e) => {
-            tracing::error!("fail_task fetch: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
     };
-
-    let domain_id: String = task_row.get("domain_id");
     if let Err(resp) =
         crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
     {
         return resp;
     }
 
-    // Completion is the unified path for both kinds — see complete_task for
-    // the full rationale. authz_task_owner branches internally on ownership
-    // proof by kind; call it unconditionally.
-    let kind: String = task_row.get("kind");
-    if let Err(resp) = crate::routes::authz::authz_task_owner(
-        &state.db,
-        &principal,
-        &task_id,
-        body.claim_lease_id.as_deref(),
-    )
-    .await
-    {
-        return resp;
-    }
-
-    // Status precondition is kind-specific — see complete_task.
-    let status: String = task_row.get("status");
-    if kind == "claimable" {
-        if status != "claimed" && status != "running" && status != "waiting_review" {
-            return conflict(&format!("Task cannot be failed from status: {status}"));
-        }
-    } else if crate::routes::tasks::is_terminal_status(&status) {
-        return conflict(&format!("Task cannot be failed from status: {status}"));
-    }
-
-    // Lease ID mismatch check
-    if let Some(caller_lease) = &body.claim_lease_id {
-        let task_lease: Option<String> = task_row.get("claim_lease_id");
-        if let Some(tl) = task_lease
-            && &tl != caller_lease
-        {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({"detail": "Lease ID mismatch"})),
-            )
-                .into_response();
-        }
-    }
-
+    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
+    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
     let now = Utc::now().naive_utc();
     let now_tz = Utc::now();
-    match sqlx::query(
+
+    let updated = sqlx::query(
         "UPDATE task SET status='failed', lease_expires_at=NULL, claim_lease_id=NULL, \
-         finalized_at=$3, updated_at=$2 WHERE id=$1 RETURNING *",
+         claimed_by_agent_id=NULL, finalized_at=$3, updated_at=$2 \
+         WHERE id=$1 \
+           AND ( \
+             (kind = 'claimable' AND status IN ('claimed','running','waiting_review') \
+              AND (claim_policy = 'broadcast' \
+                   OR claimed_by_agent_id = $6 \
+                   OR (lease_expires_at >= $2 AND (claim_lease_id = $4 OR $5)))) \
+             OR \
+             (kind = 'assigned' AND status NOT IN ('done','finished','failed','cancelled') \
+              AND (owner = $6 OR claim_lease_id = $4 OR $5)) \
+           ) \
+         RETURNING *",
     )
     .bind(&task_id)
     .bind(now)
     .bind(now_tz)
-    .fetch_one(&state.db)
-    .await
-    {
-        Ok(r) => Json(row_to_task(&r)).into_response(),
+    .bind(body.claim_lease_id.as_deref())
+    .bind(is_bypass)
+    .bind(subject_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match updated {
+        Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
+        Ok(None) => {
+            classify_fenced_rejection(&state.db, &principal, &task_id, body.claim_lease_id.as_deref())
+                .await
+        }
         Err(e) => {
             tracing::error!("fail_task update: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()

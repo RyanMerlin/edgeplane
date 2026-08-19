@@ -1319,3 +1319,225 @@ async fn fencing_complete_timezone_guc_regression() {
         res.text()
     );
 }
+
+// ── Task 3: fail_task — fenced CAS + 3-field lease clear ────────────────────
+
+#[tokio::test]
+async fn fencing_fail_terminal_transition_clears_all_three_lease_fields() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a live lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"error": "boom"}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+
+    let row = sqlx::query(
+        "SELECT claimed_by_agent_id, claim_lease_id, lease_expires_at FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        row.get::<Option<String>, _>("claimed_by_agent_id").is_none(),
+        "fail_task must clear claimed_by_agent_id, not just the lease fields"
+    );
+    assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
+    assert!(row
+        .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+        .is_none());
+}
+
+#[tokio::test]
+async fn fencing_fail_stale_lease_after_reclaim_is_409() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"agent_id": "agent-A"}))
+        .await;
+    let lease_a = claim_res.json::<serde_json::Value>()["claim_lease_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    sqlx::query("UPDATE task SET lease_expires_at = now() - interval '1 hour' WHERE id=$1")
+        .bind(&task_id)
+        .execute(&pool)
+        .await
+        .expect("force lease into the past");
+    trigger_reclaim_sweep(&s, &ctx.mission_id, &ctx.owner_session_token).await;
+
+    let fail_res = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": lease_a, "error": "boom"}))
+        .await;
+    assert_eq!(fail_res.status_code(), 409, "{}", fail_res.text());
+}
+
+// Proactive coverage for fail_task's C1/C2 paths (Task 3's plan section
+// already includes both from the start — see Task 1/2's fix rounds for why
+// leaving these uncovered invites the exact same gap-and-reopen cycle).
+
+#[tokio::test]
+async fn fencing_fail_broadcast_task_bypasses_expired_lease() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_policy='broadcast', claim_lease_id='lease-a', \
+         lease_expires_at = now() - interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a broadcast task with an expired lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"error": "boom"}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "a broadcast task's expired lease must not block failure (Ruling C1): {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_fail_claimed_by_agent_id_without_lease_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Mirrors task_worker.rs: calls /fail with {"agent_id": ...} only.
+    let (agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+    assert_eq!(
+        claim_res.json::<serde_json::Value>()["claimed_by_agent_id"],
+        agent_id
+    );
+
+    sqlx::query("UPDATE task SET lease_expires_at = now() - interval '1 hour' WHERE id=$1")
+        .bind(&task_id)
+        .execute(&pool)
+        .await
+        .expect("force an expired lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({"error": "boom"}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "the real caller's own claimed_by_agent_id must fail without a lease (Ruling C2): {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_fail_real_lease_match_non_bypass_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a live lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "lease-a", "error": "boom"}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "a restricted caller presenting the real, live lease must fail the task: {}",
+        res.text()
+    );
+}
