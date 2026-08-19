@@ -1247,7 +1247,7 @@ async fn heartbeat_task(
     let updated = sqlx::query(
         "UPDATE task SET status='running', lease_expires_at=$2, updated_at=$3 \
          WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-           AND lease_expires_at >= now() AND (claim_lease_id = $4 OR $5) \
+           AND lease_expires_at >= $3 AND (claim_lease_id = $4 OR $5) \
          RETURNING *",
     )
     .bind(&task_id)

@@ -599,6 +599,71 @@ async fn fencing_heartbeat_no_proof_at_all_is_403() {
     );
 }
 
+/// The real production success path: a non-full-trust `agent`-type principal
+/// heartbeats a task it genuinely claimed itself, presenting its own live,
+/// correct `claim_lease_id`. This is the `(claim_lease_id = $4 OR $5)` branch
+/// with `$4` actually matching — every other test in this file either uses a
+/// full-trust session token (which always takes the `$5` bypass branch) or
+/// deliberately presents a wrong/missing lease to probe the 403/409 split.
+/// Without this test, the branch real workers depend on
+/// (`edgeplaned-work`'s `task_loop.rs`, which always threads its own
+/// `claim_lease_id` through every heartbeat) had zero passing coverage.
+#[tokio::test]
+async fn fencing_heartbeat_real_agent_own_live_lease_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // A real agent identity (non-full-trust — enrolled agent tokens are the
+    // restricted principal type that actually exercises the lease-match
+    // branch; full-trust/admin bypass ownership checks entirely via `$5`).
+    let (agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
+
+    // Claim for real, via the REST endpoint, as the agent itself — this
+    // mints a genuine, live claim_lease_id owned by this exact principal.
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(
+        claim_res.status_code().is_success(),
+        "claim failed: {}",
+        claim_res.text()
+    );
+    let claim_body: serde_json::Value = claim_res.json();
+    assert_eq!(claim_body["claimed_by_agent_id"], agent_id);
+    let lease_id = claim_body["claim_lease_id"].as_str().unwrap().to_string();
+
+    // Heartbeat with the agent's own token and its own genuinely live lease.
+    let hb_res = s
+        .post(&format!("/api/work/tasks/{task_id}/heartbeat"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({"claim_lease_id": lease_id}))
+        .await;
+    assert!(
+        hb_res.status_code().is_success(),
+        "a real agent heartbeating its own live lease must succeed: {}",
+        hb_res.text()
+    );
+    let hb_body: serde_json::Value = hb_res.json();
+    assert_eq!(
+        hb_body["status"], "running",
+        "heartbeat must (re)set status to running"
+    );
+}
+
 // ── Bounded retry / backoff (attempt vs. max_attempts) ───────────────────────
 
 #[tokio::test]
