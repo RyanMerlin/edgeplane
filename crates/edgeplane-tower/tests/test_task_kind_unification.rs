@@ -1017,3 +1017,305 @@ async fn fencing_complete_pending_gate_race_is_closed() {
         .unwrap();
     assert_eq!(row_status, "waiting_review");
 }
+
+// ── Task 2 review fix round: broadcast-wedge (Ruling C1) + restored
+// claimed_by_agent_id identity path (Ruling C2) + carried-forward coverage
+// gaps (Important #3/#4). See progress.md for the full rulings.
+
+#[tokio::test]
+async fn fencing_heartbeat_broadcast_task_bypasses_expired_lease() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    // Broadcast + an already-expired lease that will never be swept
+    // (expire_stale_leases skips claim_policy='broadcast') and can never be
+    // re-claimed (claim_task requires status='ready'). Ruling C1: broadcast
+    // bypasses the entire lease/freshness sub-condition, not just the
+    // lease-id match, so this must still succeed.
+    sqlx::query(
+        "UPDATE task SET claim_policy='broadcast', claim_lease_id='lease-a', \
+         lease_expires_at = now() - interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a broadcast task with an expired lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/heartbeat"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "a broadcast task's expired lease must not block heartbeat (Ruling C1): {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_complete_broadcast_task_bypasses_expired_lease() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_policy='broadcast', claim_lease_id='lease-a', \
+         lease_expires_at = now() - interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a broadcast task with an expired lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "a broadcast task's expired lease must not block completion (Ruling C1): {}",
+        res.text()
+    );
+    assert_eq!(res.json::<serde_json::Value>()["status"], "finished");
+}
+
+#[tokio::test]
+async fn fencing_complete_claimed_by_agent_id_without_lease_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Mirrors the real, live task_worker.rs daemon loop (out of scope for
+    // this Tower-only plan): it calls /complete with {"agent_id": ...} only
+    // — never a claim_lease_id, and never heartbeats. Enroll a real
+    // non-full-trust agent and claim for real via REST, so
+    // claimed_by_agent_id is a genuine identity match.
+    let (agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+    assert_eq!(
+        claim_res.json::<serde_json::Value>()["claimed_by_agent_id"],
+        agent_id
+    );
+
+    // Force the lease into the past — Ruling C2's identity path is
+    // deliberately NOT gated on freshness (the state machine already makes
+    // this race-safe without one), so this must still succeed even though
+    // no lease is presented and the lease on file has expired.
+    sqlx::query("UPDATE task SET lease_expires_at = now() - interval '1 hour' WHERE id=$1")
+        .bind(&task_id)
+        .execute(&pool)
+        .await
+        .expect("force an expired lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "the real caller's own claimed_by_agent_id must complete without a lease (Ruling C2): {}",
+        res.text()
+    );
+    assert_eq!(res.json::<serde_json::Value>()["status"], "finished");
+}
+
+#[tokio::test]
+async fn fencing_complete_real_lease_match_non_bypass_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // The actual production success path this predicate branch protects: a
+    // restricted (non-full-trust) caller presenting the row's genuinely
+    // live, correct claim_lease_id — not the identity path (caller's
+    // subject is member_sa_token, not the task's claimed_by_agent_id) and
+    // not the is_bypass path. Without this test the `(claim_lease_id = $5
+    // OR $6)` branch would pass every existing test even hardcoded to $6.
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a live lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "lease-a"}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "a restricted caller presenting the real, live lease must complete: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_complete_expired_lease_not_yet_swept_is_rejected() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Distinct from fencing_complete_stale_lease_after_reclaim_is_409: no
+    // reclaim sweep runs here, so claim_lease_id still matches on file.
+    // This isolates the `lease_expires_at >= $4` freshness check itself —
+    // the exact predicate the timezone-GUC bug lived in — proving it does
+    // real rejection work independent of expire_stale_leases clearing the
+    // lease id.
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() - interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("force an expired lease, no sweep");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "lease-a"}))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "a genuinely expired lease must be rejected even with a matching claim_lease_id \
+         and no sweep having run: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_complete_timezone_guc_regression() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+
+    // Regression guard for the bug this plan's Task 1 fix corrected:
+    // lease_expires_at >= now() silently depended on the session TimeZone
+    // GUC defaulting to UTC (an already-expired lease passed the fence
+    // under America/Denver). The app now binds a Rust-computed naive `now`
+    // instead of calling SQL now(), so behavior must be identical
+    // regardless of session TimeZone. A second pool to the same database
+    // whose connections default to a non-UTC session TimeZone drives the
+    // actual HTTP request here.
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    let tz_pool = sqlx::postgres::PgPoolOptions::new()
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET TIME ZONE 'America/Denver'")
+                    .execute(conn)
+                    .await
+                    .map(|_| ())
+            })
+        })
+        .connect(&url)
+        .await
+        .expect("connect non-UTC pool");
+    let s = server(tz_pool);
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() - interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("force an expired lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "lease-a"}))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "an expired lease must be rejected under a non-UTC session TimeZone too \
+         (regression guard for the timezone-GUC bug): {}",
+        res.text()
+    );
+}
