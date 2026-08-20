@@ -1664,15 +1664,6 @@ async fn block_task(
     principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await
-        .unwrap_or(None);
-    if exists.is_none() {
-        return not_found("Task not found");
-    }
-
     let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
         Ok(d) => d,
         Err(resp) => return resp,
@@ -1683,24 +1674,46 @@ async fn block_task(
         return resp;
     }
 
-    // "Blocked" (waiting on external input) is mode-agnostic — applies the
-    // same to either kind (see docs/plans task/meshtask unification design:
-    // blocked/waiting_review are independent of ownership routing mode).
-    // authz_task_owner branches internally on ownership proof by kind.
-    if let Err(resp) =
-        crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
-    {
-        return resp;
-    }
-
+    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
+    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
     let now = Utc::now().naive_utc();
-    match sqlx::query("UPDATE task SET status='blocked', updated_at=$2 WHERE id=$1 RETURNING *")
-        .bind(&task_id)
-        .bind(now)
-        .fetch_one(&state.db)
-        .await
-    {
-        Ok(r) => Json(row_to_task(&r)).into_response(),
+
+    // Fenced CAS — was a blind UPDATE with zero status precondition at all
+    // (any domain member could block any task from any status) and never
+    // released the claim. Block releases the lease (clears claim_lease_id/
+    // lease_expires_at/claimed_by_agent_id) so the task re-enters the
+    // claimable pool rather than pinning it to a claimer that may never
+    // return (spec §1 "block/unblock: lease retention" decision). No
+    // finalized_at/finalized_by_subject: unlike complete/fail/cancel,
+    // 'blocked' isn't terminal — the task can be unblocked and re-enter
+    // the pool, so nothing here has actually finished.
+    //
+    // kind='claimable' only, mirroring retry_task's precedent that
+    // claimable-pool-adjacent status transitions reject kind='assigned'
+    // rows — a narrowing from the prior no-kind-gating-at-all behavior,
+    // not a widening. No broadcast carve-out (no lease_expires_at term to
+    // need one) and no on-behalf-of support: grepped the whole repo
+    // (crates/edgeplane, crates/edgeplaned, web/) for any real caller of
+    // /block at all — there is none, REST or otherwise. Implemented
+    // exactly per the plan's prescribed predicate; add on-behalf-of only
+    // if a real caller ever needs it.
+    let updated = sqlx::query(
+        "UPDATE task SET status='blocked', claimed_by_agent_id=NULL, \
+         lease_expires_at=NULL, claim_lease_id=NULL, updated_at=$2 \
+         WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
+           AND (claimed_by_agent_id = $3 OR $4) \
+         RETURNING *",
+    )
+    .bind(&task_id)
+    .bind(now)
+    .bind(subject_id)
+    .bind(is_bypass)
+    .fetch_optional(&state.db)
+    .await;
+
+    match updated {
+        Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
+        Ok(None) => classify_fenced_rejection(&state.db, &principal, &task_id, None, &[]).await,
         Err(e) => {
             tracing::error!("block_task: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()

@@ -2487,3 +2487,144 @@ async fn fencing_cancel_idempotent_retry_after_success_is_409_not_403() {
         retry.text()
     );
 }
+
+// ── Task 5: block_task — net-new fenced precondition + lease release ────────
+
+#[tokio::test]
+async fn fencing_block_wrong_status_is_409() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 1)
+            .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "block_task must reject a task that's not claimed/running (previously had NO precondition at all): {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_block_releases_the_lease() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a live lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+
+    let row = sqlx::query(
+        "SELECT status, claimed_by_agent_id, claim_lease_id, lease_expires_at FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("status"), "blocked");
+    assert!(
+        row.get::<Option<String>, _>("claimed_by_agent_id").is_none(),
+        "block releases the lease so the task re-enters the claimable pool (spec §1 decision)"
+    );
+    assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
+    assert!(row
+        .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+        .is_none());
+}
+
+#[tokio::test]
+async fn fencing_block_kind_assigned_is_rejected() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    // kind='assigned' rows have no claim/lease semantics — block_task is
+    // scoped to kind='claimable' only (mirrors retry_task's precedent),
+    // so this must fail the predicate entirely, not silently succeed with
+    // a no-op lease-release.
+    let task_id = common::seed_assigned_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        ctx.owner_session_subject(),
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "kind='assigned' rows must be rejected by block_task, not silently blocked: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_block_non_owner_restricted_caller_is_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-someone-else"),
+        1,
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "a restricted caller with no claim on the task must get 403 on block: {}",
+        res.text()
+    );
+}
