@@ -2157,3 +2157,179 @@ async fn fencing_complete_already_finished_rejects_unrelated_caller_as_409_not_4
         res.text()
     );
 }
+
+// ── Task 4: cancel_task — fenced CAS ─────────────────────────────────────────
+
+#[tokio::test]
+async fn fencing_cancel_non_owner_restricted_caller_is_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-someone-else"),
+        1,
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/cancel"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "a restricted caller with no claim on the task must get 403 on cancel: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_cancel_already_terminal_is_409() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "finished",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/cancel"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "cancelling an already-finished task must be 409: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_cancel_kind_assigned_still_works_after_predicate_split() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_assigned_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        ctx.owner_session_subject(),
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/cancel"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "kind='assigned' cancellation must still work after the fenced rewrite: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_cancel_finalized_by_subject_preserves_claimer_identity() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let (agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/cancel"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+    let body: serde_json::Value = res.json();
+    assert!(body["claimed_by_agent_id"].is_null());
+    assert_eq!(
+        body["finalized_by_subject"], agent_id,
+        "finalized_by_subject must preserve the real claimer's identity on cancel too: {body}"
+    );
+}
+
+#[tokio::test]
+async fn fencing_cancel_idempotent_retry_after_success_is_409_not_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let (_agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+
+    let first = s
+        .post(&format!("/api/work/tasks/{task_id}/cancel"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert!(first.status_code().is_success(), "{}", first.text());
+
+    let retry = s
+        .post(&format!("/api/work/tasks/{task_id}/cancel"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert_eq!(
+        retry.status_code(),
+        409,
+        "an idempotent retry after a successful cancel must be 409, not 403: {}",
+        retry.text()
+    );
+}

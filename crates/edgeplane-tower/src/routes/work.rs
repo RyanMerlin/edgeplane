@@ -986,67 +986,58 @@ async fn cancel_task(
     principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let row = sqlx::query("SELECT * FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await;
-
-    let task_row = match row {
-        Ok(Some(r)) => r,
-        Ok(None) => return not_found("Task not found"),
-        Err(e) => {
-            tracing::error!("cancel_task fetch: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
     };
-
-    let domain_id: String = task_row.get("domain_id");
     if let Err(resp) =
         crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
     {
         return resp;
     }
 
-    // Cancellation is a mode-agnostic terminal transition, same as
-    // complete/fail/block — an assigned task's owner should be able to
-    // cancel it too. authz_task_owner branches internally on ownership proof
-    // by kind (claimed_by_agent_id/lease for claimable, owner/lease for
-    // assigned); call it unconditionally.
-    //
-    // NOTE: this is a narrowing behavior change for kind='claimable' rows —
-    // cancel_task previously had no per-task ownership check at all (any
-    // domain member could cancel any claimable task, only complete_task/
-    // fail_task were claimer-gated). It is now claimer-or-full-trust/admin
-    // like its siblings. Flagged explicitly since it wasn't separately
-    // discussed for the claimable side.
-    let kind: String = task_row.get("kind");
-    if let Err(resp) =
-        crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
-    {
-        return resp;
-    }
-
-    // Status precondition is kind-specific — see complete_task.
-    let status: String = task_row.get("status");
-    if kind == "claimable" {
-        if status == "finished" || status == "cancelled" {
-            return conflict(&format!("Task is already {status}"));
-        }
-    } else if crate::routes::tasks::is_terminal_status(&status) {
-        return conflict(&format!("Task is already {status}"));
-    }
-
+    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
+    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
     let now = Utc::now().naive_utc();
-    match sqlx::query(
+
+    // Fenced CAS, same pattern as complete_task/fail_task — closes the
+    // TOCTOU window the prior authz_task_owner-then-blind-UPDATE left open.
+    // No broadcast carve-out needed: unlike the lease/freshness endpoints,
+    // this predicate never checks lease_expires_at at all, so there's
+    // nothing broadcast would need to bypass (the dual-review CRITICAL
+    // finding on the other three endpoints doesn't recur here structurally
+    // — confirmed by inspection, not by omission). No on-behalf-of
+    // (effective_id) support either: cancel_task's one real caller
+    // (`edgeplane task cancel`, a full-trust CLI session) sends no body at
+    // all, so `subject_id` alone matches the plan; add on-behalf-of only if
+    // a real caller ever needs it (YAGNI, not because there's a shape it
+    // can't yet handle).
+    let updated = sqlx::query(
         "UPDATE task SET status='cancelled', claimed_by_agent_id=NULL, \
-         lease_expires_at=NULL, claim_lease_id=NULL, updated_at=$2 WHERE id=$1 RETURNING *",
+         lease_expires_at=NULL, claim_lease_id=NULL, updated_at=$2, \
+         finalized_by_subject=COALESCE(claimed_by_agent_id, $3) \
+         WHERE id=$1 \
+           AND ( \
+             (kind = 'claimable' AND status NOT IN ('finished','cancelled') \
+              AND (claimed_by_agent_id = $3 OR $4)) \
+             OR \
+             (kind = 'assigned' AND status NOT IN ('done','finished','failed','cancelled') \
+              AND (owner = $3 OR $4)) \
+           ) \
+         RETURNING *",
     )
     .bind(&task_id)
     .bind(now)
-    .fetch_one(&state.db)
-    .await
-    {
-        Ok(r) => Json(row_to_task(&r)).into_response(),
+    .bind(subject_id)
+    .bind(is_bypass)
+    .fetch_optional(&state.db)
+    .await;
+
+    match updated {
+        Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
+        Ok(None) => {
+            classify_fenced_rejection(&state.db, &principal, &task_id, None, &["cancelled"]).await
+        }
         Err(e) => {
             tracing::error!("cancel_task update: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
