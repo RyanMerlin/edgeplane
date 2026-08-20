@@ -2285,6 +2285,24 @@ has enough context to start from without re-deriving it.
   look whenever `claim_task`'s broadcast branch is next touched: either accept the race as a known,
   documented cost of "intentionally unfenced," or give broadcast claims a per-claim/per-attempt
   identity instead of overwriting one singleton lease.
+- **Four Minor findings from Task 6's review, all pre-existing or narrow-scope, not fixed:**
+  (1) `unblock_dependents` (`work.rs:680`) sweeps `status IN ('pending','blocked')` → `'ready'` with
+  no check that the block was dependency-caused — a task an agent deliberately paused via
+  `block_task` could in principle get auto-unblocked by an unrelated dependency finishing.
+  Reachability is narrow today (a claimable task only becomes claimable once its deps are already
+  finished), but MCP `block_mesh_task` has no status precondition at all, so it can move a
+  `'pending'` row into `'blocked'` and reopen the window — check when Task 9 touches MCP block.
+  (2) `'pending'` tasks are no longer force-readyable through `/unblock` (the old blind UPDATE had
+  no status precondition; the new `status='blocked'` conjunct 409s a `'pending'` row). Matches the
+  plan's own prescription, no real caller of `/unblock` exists at all today — a known, intentional
+  narrowing, not a surprise, but worth remembering if an operator ever needs that escape hatch.
+  (3) MCP `block_mesh_task` (`mcp.rs:830`) sets `status='blocked'` for any `kind` with no status
+  precondition — it can create an assigned-kind row in `'blocked'`, which REST `/unblock`'s new
+  `kind='claimable'` gate can never recover. Task 9's `block_mesh_task` note already covers the
+  proof-shape difference (Roadmap item above); add the kind gate to that same fix.
+  (4) `unblock_task` moves a task to `'ready'` without calling `broadcast_task_available`, unlike
+  every other `'ready'`-producing path. Currently harmless (the daemon discovers work by polling
+  `list_tasks?status=ready`, not the notify registry) — latency, not loss. Consistency-only note.
 
 ## Execution Handoff
 
