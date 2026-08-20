@@ -25,6 +25,7 @@
 - Migrations go in `crates/edgeplane-tower/migrations/`, sequential numbering; the next free number is `0015`.
 - Test convention for this crate's DB-gated integration tests: match live CI exactly (`.github/workflows/ci.yml:23-37,54`), which uses `cargo nextest`, not plain `cargo test` — a 2026-07-16 plan's precedent documented `cargo test`, but that has since drifted from what CI actually runs; verified directly against the current workflow file, trust that over the older plan. Full-crate form: `TEST_DATABASE_URL=<url> cargo nextest run --manifest-path crates/edgeplane-tower/Cargo.toml`. Scoped to one test file: add `-E 'binary(<test_binary>)'`; scoped to a name filter within a file: `-E 'test(<substring>)'`. CI's Postgres (`.github/workflows/ci.yml:23-28`) is `postgres:16`, user/pass `postgres`/`postgres`, db `test`, port 5432 — `TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/test`. Locally, verify a matching Postgres is actually reachable (a real connection attempt — `psql`/`pg_isready` if present, or a raw TCP probe — not just "the env var is set") before running; if none is up, start one ephemerally and matching CI's exact image/creds: `docker run -d --rm --name edgeplane-test-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=test -p 5432:5432 postgres:16`, wait for it to accept connections, then run tests; stop it (`docker stop edgeplane-test-pg`) once the plan's tasks are done, since it's scratch and reversible, not the repo's persistent dev-stack `docker-compose.yml` (a separate compose file, different DB name/creds — do not touch that one for this plan's tests).
 - Every task in this plan ends with `cargo clippy --workspace --all-targets -- -D warnings` passing, per this repo's CI gate convention (`.claude/rule-library` / CLAUDE.md "Rust CI gate completeness").
+- **Three-test minimum per fenced transition** (ruling: post-Task-5 pattern review, cross-checked with an independent gpt-5.6-terra review of the bug pattern across Tasks 1-5, 2026-08-20). Every task from Task 6 onward writes at least these three, not just the plan's originally-prescribed tests: (1) **stale-actor retry** — the original claimer/actor attempts the operation again after its ownership evidence has been superseded (reclaimed, re-attributed, or cleared by an earlier successful call) and gets the correct classification, not an accidental 403; (2) **concurrent conflicting operation** — two callers race the same transition (or two competing transitions on the same row, e.g. approve vs. reject, unblock vs. cancel) and exactly one wins, atomically, with no window for both to partially apply; (3) **idempotent retry** — the same caller repeats an already-successful call and gets 409, not 403, with attribution/side effects unchanged from the first call. Tasks 1-5 each independently discovered a bug matching one of these three shapes only after a separate adversarial review pass, not from the plan's own originally-prescribed test list — write these proactively instead of waiting for review to find the gap.
 
 ---
 
@@ -2234,7 +2235,18 @@ has enough context to start from without re-deriving it.
   independently" section now also carries two dual-review specifics worth re-verifying at
   implementation time in case they've drifted: `mcp.rs`'s `updated_at=NOW()` still has the
   timezone-GUC dependency Task 1 fixed on REST, and `heartbeat_mesh_task`'s 300s TTL disagrees with
-  REST's 120s `LEASE_TTL_SECS`.
+  REST's 120s `LEASE_TTL_SECS`. **Design question to resolve before implementing, not just noting**
+  (gpt-5.6-terra review, 2026-08-20, cross-checked and endorsed independently): the plan as
+  currently scoped has MCP hand-derive its *own* fenced predicates, structurally identical to but
+  separately written from REST's. That's exactly the "re-derive by analogy" shape that caused every
+  real bug in Tasks 1-5 — two independently-verified-but-independently-fallible copies of the same
+  authorization logic, guaranteed to drift the moment one side changes without the other. Evaluate
+  having MCP's handlers call the same Rust transition function/logic REST's handlers use (one
+  fenced UPDATE per transition, shared by both surfaces) instead of writing a second predicate —
+  this eliminates the duplication risk structurally rather than relying on review to keep two
+  copies in sync. If a shared function turns out to be impractical given MCP's different response
+  shape (JSON ok/error, not HTTP status — spec already flags this), that's a legitimate reason to
+  keep them separate, but make that a stated decision when Task 9 is dispatched, not a default.
 - **`crates/edgeplane/src/solo_supervisor.rs`'s heartbeat gap — not yet tracked anywhere before
   this.** Presents a real `claim_lease_id` on `/complete`/`/fail` (unlike `task_worker.rs`, which
   sends none), but its heartbeat thread only renews the *agent* heartbeat
@@ -2254,6 +2266,25 @@ has enough context to start from without re-deriving it.
   Tasks 2/3 just had fixed for them. Deliberately scoped out of the current design pass (kept to
   complete_task/fail_task, which are already shipped and already broken) rather than designing
   ahead of code that doesn't exist yet — pick this up when Task 7 is actually dispatched.
+- **`claim_task`'s broadcast branch (`work.rs:1185-1203`) is genuinely unfenced at the UPDATE
+  level — no CAS condition, just an earlier separate `SELECT` for the `status='ready'` precondition
+  — and this now interacts with this plan's own broadcast-ownership fix in a way worth tracking.**
+  Surfaced investigating (and refuting) a gpt-5.6-terra claim that broadcast tasks support true
+  concurrent multi-claimer semantics (they don't — `status != 'ready'` gates every claim policy
+  identically, confirmed live at work.rs:1173, before the broadcast branch even runs, so a second
+  agent cannot claim a broadcast row while it's already `running`). The real, narrower issue: two
+  callers racing to claim the *same* still-`ready` broadcast task at nearly the same instant can
+  both pass the precondition and both write, unconditionally — the second silently overwrites the
+  first's `claim_lease_id`. Harmless before this plan, because pre-fencing (and pre-Task-1/2's
+  broadcast-ownership-bypass bug) any caller could complete/fail a broadcast task regardless of the
+  row's current lease state. Since 37dca61a's fix, completing a broadcast task now requires
+  lease-match-or-bypass — so a clobbered first-claimer could become legitimately unable to finish
+  its own in-progress work, and `expire_stale_leases` still excludes `claim_policy='broadcast'`
+  rows (confirmed live, work.rs:613), so nothing auto-recovers it either. Narrow, real, edge-case
+  (requires two claims racing within the same request window) — not a rework trigger, but worth a
+  look whenever `claim_task`'s broadcast branch is next touched: either accept the race as a known,
+  documented cost of "intentionally unfenced," or give broadcast claims a per-claim/per-attempt
+  identity instead of overwriting one singleton lease.
 
 ## Execution Handoff
 
