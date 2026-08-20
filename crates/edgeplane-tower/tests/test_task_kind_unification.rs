@@ -1073,7 +1073,7 @@ async fn fencing_complete_pending_gate_race_is_closed() {
 // gaps (Important #3/#4). See progress.md for the full rulings.
 
 #[tokio::test]
-async fn fencing_heartbeat_broadcast_task_bypasses_expired_lease() {
+async fn fencing_heartbeat_broadcast_task_without_matching_lease_is_403() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
@@ -1088,11 +1088,13 @@ async fn fencing_heartbeat_broadcast_task_bypasses_expired_lease() {
         1,
     )
     .await;
-    // Broadcast + an already-expired lease that will never be swept
-    // (expire_stale_leases skips claim_policy='broadcast') and can never be
-    // re-claimed (claim_task requires status='ready'). Ruling C1: broadcast
-    // bypasses the entire lease/freshness sub-condition, not just the
-    // lease-id match, so this must still succeed.
+    // Broadcast + an expired lease, but the caller presents NO lease at all
+    // and has no relationship to the task whatsoever. Dual-review (2026-08-19,
+    // rust-reviewer + security-reviewer, independently) found the original
+    // "claim_policy = 'broadcast'" bare disjunct let ANY domain member
+    // terminalize/hijack ANY broadcast task — a full ownership bypass, not
+    // just a freshness bypass. This must be rejected: broadcast waives
+    // freshness (Ruling C1's real fix target), never ownership.
     sqlx::query(
         "UPDATE task SET claim_policy='broadcast', claim_lease_id='lease-a', \
          lease_expires_at = now() - interval '1 hour' WHERE id=$1",
@@ -1110,15 +1112,63 @@ async fn fencing_heartbeat_broadcast_task_bypasses_expired_lease() {
         )
         .json(&serde_json::json!({}))
         .await;
-    assert!(
-        res.status_code().is_success(),
-        "a broadcast task's expired lease must not block heartbeat (Ruling C1): {}",
+    assert_eq!(
+        res.status_code(),
+        403,
+        "an unrelated caller with no lease must not heartbeat someone else's \
+         broadcast task just because claim_policy='broadcast': {}",
         res.text()
     );
 }
 
 #[tokio::test]
-async fn fencing_complete_broadcast_task_bypasses_expired_lease() {
+async fn fencing_heartbeat_broadcast_task_with_matching_lease_and_expired_freshness_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    // Broadcast + an already-expired lease that will never be swept
+    // (expire_stale_leases skips claim_policy='broadcast') and can never be
+    // re-claimed (claim_task requires status='ready') — the real C1 wedge.
+    // Caller presents the row's actual current lease id, proving broadcast
+    // correctly waives freshness while still requiring lease-or-bypass proof.
+    sqlx::query(
+        "UPDATE task SET claim_policy='broadcast', claim_lease_id='lease-a', \
+         lease_expires_at = now() - interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a broadcast task with an expired lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/heartbeat"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "lease-a"}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "a broadcast task's expired lease must not block heartbeat when the \
+         caller presents the real, current lease id (Ruling C1): {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_complete_broadcast_task_without_matching_lease_is_403() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
@@ -1150,9 +1200,52 @@ async fn fencing_complete_broadcast_task_bypasses_expired_lease() {
         )
         .json(&serde_json::json!({}))
         .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "an unrelated caller with no lease must not be able to complete \
+         (hijack/terminalize) someone else's broadcast task: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_complete_broadcast_task_with_matching_lease_and_expired_freshness_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_policy='broadcast', claim_lease_id='lease-a', \
+         lease_expires_at = now() - interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a broadcast task with an expired lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "lease-a"}))
+        .await;
     assert!(
         res.status_code().is_success(),
-        "a broadcast task's expired lease must not block completion (Ruling C1): {}",
+        "a broadcast task's expired lease must not block completion when the \
+         caller presents the real, current lease id (Ruling C1): {}",
         res.text()
     );
     assert_eq!(res.json::<serde_json::Value>()["status"], "finished");
@@ -1468,7 +1561,7 @@ async fn fencing_fail_stale_lease_after_reclaim_is_409() {
 // leaving these uncovered invites the exact same gap-and-reopen cycle).
 
 #[tokio::test]
-async fn fencing_fail_broadcast_task_bypasses_expired_lease() {
+async fn fencing_fail_broadcast_task_without_matching_lease_is_403() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
@@ -1500,9 +1593,52 @@ async fn fencing_fail_broadcast_task_bypasses_expired_lease() {
         )
         .json(&serde_json::json!({"error": "boom"}))
         .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "an unrelated caller with no lease must not be able to fail \
+         (hijack/DoS) someone else's broadcast task: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_fail_broadcast_task_with_matching_lease_and_expired_freshness_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_policy='broadcast', claim_lease_id='lease-a', \
+         lease_expires_at = now() - interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a broadcast task with an expired lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "lease-a", "error": "boom"}))
+        .await;
     assert!(
         res.status_code().is_success(),
-        "a broadcast task's expired lease must not block failure (Ruling C1): {}",
+        "a broadcast task's expired lease must not block failure when the \
+         caller presents the real, current lease id (Ruling C1): {}",
         res.text()
     );
 }

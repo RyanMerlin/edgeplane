@@ -1256,8 +1256,8 @@ async fn heartbeat_task(
     let updated = sqlx::query(
         "UPDATE task SET status='running', lease_expires_at=$2, updated_at=$3 \
          WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-           AND (claim_policy = 'broadcast' \
-                OR (lease_expires_at >= $3 AND (claim_lease_id = $4 OR $5))) \
+           AND (claim_lease_id = $4 OR $5) \
+           AND (claim_policy = 'broadcast' OR lease_expires_at >= $3) \
          RETURNING *",
     )
     .bind(&task_id)
@@ -1446,9 +1446,9 @@ async fn complete_task(
          WHERE task.id = $1 \
            AND ( \
              (task.kind = 'claimable' AND task.status IN ('claimed','running','waiting_review') \
-              AND (task.claim_policy = 'broadcast' \
-                   OR task.claimed_by_agent_id = $7 \
-                   OR (task.lease_expires_at >= $4 AND (task.claim_lease_id = $5 OR $6)))) \
+              AND (task.claimed_by_agent_id = $7 \
+                   OR ((task.claim_lease_id = $5 OR $6) \
+                       AND (task.claim_policy = 'broadcast' OR task.lease_expires_at >= $4)))) \
              OR \
              (task.kind = 'assigned' AND task.status NOT IN ('done','finished','failed','cancelled') \
               AND (task.owner = $7 OR task.claim_lease_id = $5 OR $6)) \
@@ -1549,9 +1549,9 @@ async fn fail_task(
          WHERE id=$1 \
            AND ( \
              (kind = 'claimable' AND status IN ('claimed','running','waiting_review') \
-              AND (claim_policy = 'broadcast' \
-                   OR claimed_by_agent_id = $6 \
-                   OR (lease_expires_at >= $2 AND (claim_lease_id = $4 OR $5)))) \
+              AND (claimed_by_agent_id = $6 \
+                   OR ((claim_lease_id = $4 OR $5) \
+                       AND (claim_policy = 'broadcast' OR lease_expires_at >= $2)))) \
              OR \
              (kind = 'assigned' AND status NOT IN ('done','finished','failed','cancelled') \
               AND (owner = $6 OR claim_lease_id = $4 OR $5)) \
