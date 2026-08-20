@@ -2219,6 +2219,42 @@ git commit -m "feat(tower): independent periodic lease-expiry sweep, covering in
 
 **Type consistency:** `classify_fenced_rejection`'s signature (`db, p, task_id, lease_id: Option<&str>`) is identical across every call site in Tasks 1-6, 8. `run_lease_expiry_sweep`'s signature (`db, mission_id: Option<&str>`) matches its two call sites in Task 10. `post_progress`'s new 4th parameter (`claim_lease_id: &str`) matches its one call site in Task 8 Step 5.
 
+## Roadmap: Phase 2 candidates (surfaced during Phase 1 dual-review, 2026-08-19/20)
+
+Items below are deliberately **not** in this plan's scope (Tower REST only). Listed here so they
+don't get lost between this plan's completion and whenever a Phase 2 picks them up — each one
+has enough context to start from without re-deriving it.
+
+- **`task_loop.rs`'s event-driven heartbeat gap.** Already fully specified in spec §2 ("Quiet-
+  stream heartbeat gap") — a fresh dual-review (rust-reviewer) independently rediscovered the same
+  bug, confirming it's still live and still accurately scoped. Spec §2 also covers three related
+  bugs found on the same file (lease-loss miscategorized as failure, missing-lease-after-claim not
+  treated as fatal, dead watchdog offline-fail wiring) — all still open, none touched by this plan.
+- **MCP mirror (Task 9, this plan).** Already scheduled; the spec's "MCP mirrors the same gap
+  independently" section now also carries two dual-review specifics worth re-verifying at
+  implementation time in case they've drifted: `mcp.rs`'s `updated_at=NOW()` still has the
+  timezone-GUC dependency Task 1 fixed on REST, and `heartbeat_mesh_task`'s 300s TTL disagrees with
+  REST's 120s `LEASE_TTL_SECS`.
+- **`crates/edgeplane/src/solo_supervisor.rs`'s heartbeat gap — not yet tracked anywhere before
+  this.** Presents a real `claim_lease_id` on `/complete`/`/fail` (unlike `task_worker.rs`, which
+  sends none), but its heartbeat thread only renews the *agent* heartbeat
+  (`/work/agents/{id}/heartbeat`), never the *task* lease (`/work/tasks/{id}/heartbeat`) — so a
+  task running past `LEASE_TTL_SECS` (120s) correctly, not buggily, gets 409 on completion, and all
+  three call sites (`solo_supervisor.rs:404-426`) discard the result with `let _ = ...`, so the
+  supervisor can't even observe it. Fix belongs in that crate (add task-lease heartbeating, or
+  extend the TTL for that caller specifically) — flagged here rather than fixed inline because it's
+  a different crate's daemon loop, out of this plan's Tower-only scope, same reasoning as
+  `task_worker.rs`/`task_loop.rs` above.
+- **`resolve_gate` (Task 7, this plan) inherits the attribution + idempotent-retry pattern from
+  Tasks 2/3's post-dual-review fix, not just the 3-field lease clear the spec's "Correction"
+  section already calls for.** When Task 2/3's `finalized_by_subject` column and
+  `classify_fenced_rejection`'s "already-reached-target-status → 409 unconditionally" check land,
+  Task 7's dispatch brief needs to apply both to `resolve_gate`'s approve/reject transitions too —
+  otherwise it repeats the exact non-repudiation-loss and idempotent-retry-breaks-403 regression
+  Tasks 2/3 just had fixed for them. Deliberately scoped out of the current design pass (kept to
+  complete_task/fail_task, which are already shipped and already broken) rather than designing
+  ahead of code that doesn't exist yet — pick this up when Task 7 is actually dispatched.
+
 ## Execution Handoff
 
 Plan complete and saved to `docs/superpowers/plans/2026-08-18-ep1-tower-fencing.md`. Two execution options:

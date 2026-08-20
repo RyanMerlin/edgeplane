@@ -87,6 +87,8 @@ Separately: `authz_task_owner` today lets full-trust/admin principals bypass own
 
 `routes/mcp.rs` has its own direct-SQL complete/fail/block handlers (a second code path entirely, not a thin wrapper over the REST handlers) with the identical unfenced-update pattern, including the same `block_mesh_task` precondition gap. These get the same fix. Note MCP responds with a JSON `ok`/`error` shape, not HTTP status codes — the REST 403→409 change does **not** automatically extend to MCP; the CLI parses MCP's JSON contract directly (`commands.rs:4089`), so MCP's error classification needs its own explicit (if parallel) treatment, not an assumption that fixing REST covers it.
 
+**Two more specifics, found by dual-review (2026-08-19/20) while Tasks 1-3 were landing — confirm still true when this section is implemented, don't assume they've drifted:** (1) `mcp.rs`'s handlers still write `updated_at=NOW()` — the exact timezone-GUC dependency Task 1 fixed on the REST side (binds a Rust-computed naive `now` instead), not yet ported here. (2) `heartbeat_mesh_task`'s lease TTL is 300s against REST's `LEASE_TTL_SECS = 120s` — the two paths can put the same row in different freshness states depending on which one last touched it; needs a decision (unify the constant, or document why they're allowed to differ) as part of this section's implementation, not left as an unstated inconsistency.
+
 ### Background expiry sweep
 
 `expire_stale_leases` currently only runs as a side effect of `list_tasks` (`work.rs:658`) — if nothing polls, expired leases never requeue. Add an independent periodic sweep (tower-side `tokio::time::interval`, every 30s, across all missions in one unscoped query rather than looping per-mission).
