@@ -2926,7 +2926,7 @@ async fn fencing_unblock_idempotent_retry_after_success_is_409_not_403() {
 }
 
 #[tokio::test]
-async fn fencing_unblock_loses_race_to_concurrent_cancel_is_403() {
+async fn fencing_unblock_loses_race_to_concurrent_cancel_is_409() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
@@ -2936,20 +2936,24 @@ async fn fencing_unblock_loses_race_to_concurrent_cancel_is_403() {
     // cancellable too (cancel_task's status precondition doesn't exclude
     // 'blocked'). Simulate the race sequentially: cancel wins first, then
     // the blocker's own unblock attempt — which would have succeeded had
-    // it run first — must correctly lose, not silently succeed or 500.
+    // it run first — must correctly lose, but as 409 (lost a race it had
+    // real standing in), not 403 (no standing at all).
     //
-    // Correctly 403, not 409: this differs from a same-endpoint idempotent
-    // retry or a lease-only reclaim race. cancel_task nulls
-    // claimed_by_agent_id on success (its own correct, established
-    // terminal-transition semantic, same as complete_task/fail_task) — so
-    // by the time this unblock attempt runs, agent-A's OWN ownership
-    // evidence has been erased by a different, unrelated, already-correct
-    // operation, not by unblock's own action. This is the same outcome
-    // complete_task/fail_task would give in an analogous cross-transition
-    // race (their own already_done_statuses only covers their own target
-    // status, not a competing operation's). Not unblock-specific, not
-    // fixed here — a real, narrow, documented cross-endpoint classification
-    // edge case, not a bug in this task's own fencing.
+    // An earlier version of this test asserted 403 here, reasoning that
+    // cancel_task nulling claimed_by_agent_id erased agent-A's ownership
+    // evidence. An independent review (2026-08-20) caught that this was
+    // wrong on both counts it rested on: (1) cancel_task's own
+    // finalized_by_subject=COALESCE(finalized_by_subject, $subject) (see
+    // 79d0c493) means agent-A's identity survives its own cancel in a
+    // column classify_fenced_rejection simply wasn't reading — the
+    // evidence was never actually erased; (2) the claimed parallel to
+    // complete_task/fail_task doesn't hold — their real callers are either
+    // a full-trust node (task_worker.rs, hits the unconditional bypass) or
+    // always carry a claim_lease_id (task_loop.rs/edgeplaned-work, hits
+    // the lease_id.is_some() escape hatch), so neither actually exercises
+    // the "no evidence at all" dead branch block_task/unblock_task's real
+    // callers can hit, being the only two lease-less endpoints. Fixed by
+    // adding finalized_by_subject to classify_fenced_rejection's read.
     let (_agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
@@ -2996,10 +3000,105 @@ async fn fencing_unblock_loses_race_to_concurrent_cancel_is_403() {
         .await;
     assert_eq!(
         unblock_res.status_code(),
-        403,
+        409,
         "unblock must correctly lose to a cancel that already moved the row \
-         out of 'blocked' (and erased the ownership evidence unblock needed), \
-         not silently succeed on a stale assumption: {}",
+         out of 'blocked', classified as 409 since agent-A's identity survives \
+         via finalized_by_subject, not a bare 403: {}",
         unblock_res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_unblock_stale_actor_after_reclaim_is_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Category (1), stale-actor retry — the one required test category an
+    // independent review (2026-08-20) found missing from this task's
+    // original six: A claims, blocks, and successfully unblocks (status
+    // 'ready', claimed_by_agent_id deliberately still A per this task's own
+    // design). B then claims the now-ready row, overwriting claimed_by_
+    // agent_id to B. A's client, unaware its unblock already succeeded
+    // (e.g. a lost response), retries the identical unblock call.
+    //
+    // Correctly 403, NOT the 409 the sibling concurrent-cancel test now
+    // asserts: this is the genuinely harder case that fix doesn't reach.
+    // unblock_task never writes finalized_by_subject (it isn't a
+    // terminal/attribution transition), and B's claim overwrites
+    // claimed_by_agent_id outright — so nothing on the row points to A
+    // anymore, unlike the cancel case where A's identity survived in a
+    // column the classifier just wasn't reading. A's retry presents no
+    // evidence in the request itself either (unblock has never accepted a
+    // lease or on-behalf-of param) — there is no server-side signal left
+    // to distinguish "A, legitimately retrying" from "a stranger polling
+    // this task_id at random." Per spec's own 403-vs-409 rule (only a
+    // caller who presented zero proof and isn't full-trust gets 403), zero
+    // surviving proof is exactly the 403 case, and lease-based leniency
+    // (why a stale-but-real lease still gets 409 elsewhere) does not apply
+    // here since this endpoint never had a lease to be stale in the first
+    // place.
+    let (agent_a_id, agent_a_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let (_agent_b_id, agent_b_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+    let block_res = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .await;
+    assert!(block_res.status_code().is_success(), "{}", block_res.text());
+    let first_unblock = s
+        .post(&format!("/api/work/tasks/{task_id}/unblock"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .await;
+    assert!(first_unblock.status_code().is_success(), "{}", first_unblock.text());
+    assert_eq!(
+        first_unblock.json::<serde_json::Value>()["claimed_by_agent_id"],
+        agent_a_id
+    );
+
+    let reclaim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_b_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(reclaim_res.status_code().is_success(), "{}", reclaim_res.text());
+
+    let retry_unblock = s
+        .post(&format!("/api/work/tasks/{task_id}/unblock"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .await;
+    assert_eq!(
+        retry_unblock.status_code(),
+        403,
+        "a stale retry with zero surviving evidence, after a legitimate reclaim \
+         by a different agent, must be 403: {}",
+        retry_unblock.text()
     );
 }
