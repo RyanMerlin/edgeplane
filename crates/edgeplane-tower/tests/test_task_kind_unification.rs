@@ -2197,6 +2197,13 @@ async fn fencing_cancel_already_terminal_is_409() {
         return;
     };
     let s = server(pool.clone());
+    // owner_session_token is full-trust, so this exercises classify_fenced_
+    // rejection's is_full_trust short-circuit, NOT already_done_statuses —
+    // "cancelled" isn't even in cancel_task's set (only its own target
+    // status is, matching complete_task/fail_task's narrow scoping; see
+    // fencing_cancel_idempotent_retry_after_success_is_409_not_403 for the
+    // test that actually exercises already_done_statuses via a restricted
+    // caller).
     let task_id = common::seed_claimable_task(
         &pool,
         &ctx.mission_id,
@@ -2251,12 +2258,16 @@ async fn fencing_cancel_kind_assigned_still_works_after_predicate_split() {
 }
 
 #[tokio::test]
-async fn fencing_cancel_finalized_by_subject_preserves_claimer_identity() {
+async fn fencing_cancel_self_cancel_finalized_by_subject_is_the_agent() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
     let s = server(pool.clone());
 
+    // A self-cancel: canceller == claimer, so this can't distinguish
+    // "record the canceller" from "record the claimer" — see
+    // fencing_cancel_full_trust_caller_cancelling_different_agents_task_
+    // attributes_to_canceller_not_claimer below for the test that does.
     let (agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
@@ -2282,9 +2293,152 @@ async fn fencing_cancel_finalized_by_subject_preserves_claimer_identity() {
     assert!(res.status_code().is_success(), "{}", res.text());
     let body: serde_json::Value = res.json();
     assert!(body["claimed_by_agent_id"].is_null());
+    assert_eq!(body["finalized_by_subject"], agent_id, "{body}");
+    assert!(
+        body["finalized_at"].is_string(),
+        "cancel must stamp finalized_at like every other terminal transition: {body}"
+    );
+}
+
+#[tokio::test]
+async fn fencing_cancel_full_trust_caller_cancelling_different_agents_task_attributes_to_canceller_not_claimer()
+ {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // The actual production shape: an operator (full-trust CLI session,
+    // edgeplane daemon task cancel) interrupts a DIFFERENT agent's live
+    // task. Adversarial review (2026-08-20) caught that recording the
+    // claimer here (as complete/fail correctly do) would attribute the
+    // cancellation to its victim, not its actor — this proves the fix.
+    let (agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/cancel"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+    let body: serde_json::Value = res.json();
+    assert_ne!(
+        body["finalized_by_subject"], agent_id,
+        "cancelling someone else's task must not attribute it to the victim claimer: {body}"
+    );
+    assert_eq!(
+        body["finalized_by_subject"],
+        ctx.owner_session_subject(),
+        "must attribute to the canceller (the actor), not the claimer: {body}"
+    );
+}
+
+#[tokio::test]
+async fn fencing_cancel_after_fail_preserves_original_failure_attribution() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Cancelling an already-failed task is legal (only finished/cancelled
+    // are excluded from the claimable branch's status precondition). The
+    // agent that failed it already has a real, recorded attribution —
+    // a later administrative cancel must not clobber it with the canceller.
+    let (agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+    let fail_res = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({"error": "boom"}))
+        .await;
+    assert!(fail_res.status_code().is_success(), "{}", fail_res.text());
+    assert_eq!(fail_res.json::<serde_json::Value>()["finalized_by_subject"], agent_id);
+
+    let cancel_res = s
+        .post(&format!("/api/work/tasks/{task_id}/cancel"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert!(cancel_res.status_code().is_success(), "{}", cancel_res.text());
+    let body: serde_json::Value = cancel_res.json();
     assert_eq!(
         body["finalized_by_subject"], agent_id,
-        "finalized_by_subject must preserve the real claimer's identity on cancel too: {body}"
+        "cancelling an already-failed task must preserve the original failure's \
+         attribution, not overwrite it with the canceller: {body}"
+    );
+}
+
+#[tokio::test]
+async fn fencing_cancel_broadcast_task_claimed_by_other_agent_restricted_caller_is_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Cheap insurance against the exact CRITICAL bug class dual-review
+    // found on heartbeat/complete/fail (commit 37dca61a): pin that
+    // cancel_task's predicate has no claim_policy carve-out at all, so a
+    // restricted, unrelated caller cannot hijack-cancel a broadcast task
+    // any more than a non-broadcast one.
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query("UPDATE task SET claim_policy='broadcast' WHERE id=$1")
+        .bind(&task_id)
+        .execute(&pool)
+        .await
+        .expect("seed a broadcast task");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/cancel"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "claim_policy='broadcast' must not bypass ownership on cancel: {}",
+        res.text()
     );
 }
 

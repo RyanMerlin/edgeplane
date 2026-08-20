@@ -999,6 +999,7 @@ async fn cancel_task(
     let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
     let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
     let now = Utc::now().naive_utc();
+    let now_tz = Utc::now();
 
     // Fenced CAS, same pattern as complete_task/fail_task — closes the
     // TOCTOU window the prior authz_task_owner-then-blind-UPDATE left open.
@@ -1007,15 +1008,29 @@ async fn cancel_task(
     // nothing broadcast would need to bypass (the dual-review CRITICAL
     // finding on the other three endpoints doesn't recur here structurally
     // — confirmed by inspection, not by omission). No on-behalf-of
-    // (effective_id) support either: cancel_task's one real caller
-    // (`edgeplane task cancel`, a full-trust CLI session) sends no body at
-    // all, so `subject_id` alone matches the plan; add on-behalf-of only if
-    // a real caller ever needs it (YAGNI, not because there's a shape it
-    // can't yet handle).
+    // (effective_id) support either: the one real caller (`edgeplane daemon
+    // task cancel`, a full-trust CLI session) sends no body at all, so
+    // `subject_id` alone matches the plan; add on-behalf-of only if a real
+    // caller ever needs it (YAGNI, not because there's a shape it can't yet
+    // handle).
+    //
+    // finalized_at/finalized_by_subject: cancel is a terminal transition
+    // like complete/fail, so it stamps both (the pre-existing code stamped
+    // neither — closing that gap here, not just adding the new column).
+    // Deliberately NOT `COALESCE(claimed_by_agent_id, $3)` like complete/
+    // fail — an adversarial review (2026-08-20) caught that cancel's real
+    // caller is an operator interrupting someone ELSE's live task, not a
+    // claimer self-reporting its own work, so recording the *claimer*
+    // would attribute the cancellation to its victim. `COALESCE(finalized_
+    // by_subject, $3)` records the canceller for a live cancel, while still
+    // preserving an already-recorded attribution rather than clobbering it
+    // (e.g. cancelling an already-`failed` task — legal, since only
+    // `finished`/`cancelled` are excluded — must not overwrite the agent
+    // that actually failed it with the operator who cleaned it up after).
     let updated = sqlx::query(
         "UPDATE task SET status='cancelled', claimed_by_agent_id=NULL, \
          lease_expires_at=NULL, claim_lease_id=NULL, updated_at=$2, \
-         finalized_by_subject=COALESCE(claimed_by_agent_id, $3) \
+         finalized_at=$5, finalized_by_subject=COALESCE(finalized_by_subject, $3) \
          WHERE id=$1 \
            AND ( \
              (kind = 'claimable' AND status NOT IN ('finished','cancelled') \
@@ -1030,6 +1045,7 @@ async fn cancel_task(
     .bind(now)
     .bind(subject_id)
     .bind(is_bypass)
+    .bind(now_tz)
     .fetch_optional(&state.db)
     .await;
 
@@ -1086,7 +1102,8 @@ async fn retry_task(
     let now = Utc::now().naive_utc();
     match sqlx::query(
         "UPDATE task SET status='ready', claimed_by_agent_id=NULL, result_artifact_id=NULL, \
-         lease_expires_at=NULL, claim_lease_id=NULL, finalized_at=NULL, updated_at=$2 WHERE id=$1 RETURNING *",
+         lease_expires_at=NULL, claim_lease_id=NULL, finalized_at=NULL, \
+         finalized_by_subject=NULL, updated_at=$2 WHERE id=$1 RETURNING *",
     )
     .bind(&task_id)
     .bind(now)
