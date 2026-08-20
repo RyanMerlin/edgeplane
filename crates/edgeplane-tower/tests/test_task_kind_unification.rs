@@ -2516,7 +2516,7 @@ async fn fencing_block_wrong_status_is_409() {
 }
 
 #[tokio::test]
-async fn fencing_block_releases_the_lease() {
+async fn fencing_block_clears_lease_but_preserves_claimer_identity() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
@@ -2555,14 +2555,108 @@ async fn fencing_block_releases_the_lease() {
     .await
     .unwrap();
     assert_eq!(row.get::<String, _>("status"), "blocked");
-    assert!(
-        row.get::<Option<String>, _>("claimed_by_agent_id").is_none(),
-        "block releases the lease so the task re-enters the claimable pool (spec §1 decision)"
+    // Deliberately preserved, NOT cleared — an adversarial review
+    // (2026-08-20) caught that nulling this locks the blocker out of
+    // unblock_task (its only non-bypass ownership proof), and that the
+    // original "re-enters the claimable pool" justification for clearing
+    // it was factually false (claim_task requires status='ready';
+    // expire_stale_leases doesn't sweep 'blocked' rows either).
+    assert_eq!(
+        row.get::<Option<String>, _>("claimed_by_agent_id"),
+        Some("agent-A".to_string()),
+        "claimed_by_agent_id must survive block so the blocker can still unblock it"
     );
     assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
     assert!(row
         .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
         .is_none());
+}
+
+#[tokio::test]
+async fn fencing_block_real_claimer_non_bypass_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // The claimed_by_agent_id = $3 branch specifically, via a restricted
+    // (non-bypass) agent-token caller — the existing releases-the-lease
+    // test only exercised this through owner_session_token (full-trust),
+    // so a broken bind or a broken agent: prefix strip would have kept
+    // every prior test green.
+    let (_agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "the real claimer, non-bypass, must be able to block its own task: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_block_idempotent_retry_after_success_is_409_not_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let (_agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+
+    let first = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert!(first.status_code().is_success(), "{}", first.text());
+
+    let retry = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert_eq!(
+        retry.status_code(),
+        409,
+        "an idempotent retry after a successful block must be 409, not 403: {}",
+        retry.text()
+    );
 }
 
 #[tokio::test]

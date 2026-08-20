@@ -1680,25 +1680,46 @@ async fn block_task(
 
     // Fenced CAS — was a blind UPDATE with zero status precondition at all
     // (any domain member could block any task from any status) and never
-    // released the claim. Block releases the lease (clears claim_lease_id/
-    // lease_expires_at/claimed_by_agent_id) so the task re-enters the
-    // claimable pool rather than pinning it to a claimer that may never
-    // return (spec §1 "block/unblock: lease retention" decision). No
-    // finalized_at/finalized_by_subject: unlike complete/fail/cancel,
-    // 'blocked' isn't terminal — the task can be unblocked and re-enter
-    // the pool, so nothing here has actually finished.
+    // cleared the active lease. Clears claim_lease_id/lease_expires_at (the
+    // heartbeat-lease mechanics for actively-in-progress work, which are
+    // moot once paused/blocked) but deliberately KEEPS claimed_by_agent_id
+    // — an earlier version of this fix nulled it, following spec §1's
+    // "block releases the lease" note, and an adversarial review
+    // (2026-08-20) caught two problems with that: (1) the stated
+    // justification — "re-enters the claimable pool" — is false: claim_task
+    // requires status='ready' (work.rs ~1173) and expire_stale_leases only
+    // sweeps 'claimed'/'running' (work.rs ~610), so a blocked row never
+    // re-enters the pool regardless of whether claimed_by_agent_id survives;
+    // (2) it silently locked the blocking agent out of unblock_task
+    // (Task 6, and unblock_task's *existing*, not-yet-fenced code today) —
+    // authz_task_owner's only viable non-bypass path for a claimable row is
+    // claimed == subject (owner is NULL for claimable, and unblock_task
+    // passes lease_id=None), so nulling it made every non-admin block
+    // permanent. Preserving it keeps that path intact and costs nothing —
+    // nothing reads it while blocked (no fenced predicate matches
+    // status='blocked', and the sweep never touches it either).
+    //
+    // already_done_statuses includes 'blocked': block DOES destroy
+    // ownership evidence a retry could need (the lease fields), same
+    // criterion as complete_task/fail_task/cancel_task, not "is this
+    // terminal" — heartbeat_task passes &[] correctly because it clears
+    // nothing, not because it isn't terminal; this endpoint clears lease
+    // fields, so it needs the same idempotent-retry protection.
     //
     // kind='claimable' only, mirroring retry_task's precedent that
     // claimable-pool-adjacent status transitions reject kind='assigned'
     // rows — a narrowing from the prior no-kind-gating-at-all behavior,
     // not a widening. No broadcast carve-out (no lease_expires_at term to
-    // need one) and no on-behalf-of support: grepped the whole repo
-    // (crates/edgeplane, crates/edgeplaned, web/) for any real caller of
-    // /block at all — there is none, REST or otherwise. Implemented
-    // exactly per the plan's prescribed predicate; add on-behalf-of only
-    // if a real caller ever needs it.
+    // need one). No on-behalf-of support: there is no REST caller of
+    // /block, but `edgeplane mesh task block` DOES exist — it calls MCP
+    // block_mesh_task (a separate, unfenced code path, not this endpoint),
+    // authorizing via claim_lease_id, not identity. Do not mirror this
+    // predicate onto MCP's block_mesh_task when Task 9 lands — they need
+    // different proof shapes for their different real callers, the same
+    // trap the plan already documents for task_worker.rs vs complete_task/
+    // fail_task.
     let updated = sqlx::query(
-        "UPDATE task SET status='blocked', claimed_by_agent_id=NULL, \
+        "UPDATE task SET status='blocked', \
          lease_expires_at=NULL, claim_lease_id=NULL, updated_at=$2 \
          WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
            AND (claimed_by_agent_id = $3 OR $4) \
@@ -1713,7 +1734,9 @@ async fn block_task(
 
     match updated {
         Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
-        Ok(None) => classify_fenced_rejection(&state.db, &principal, &task_id, None, &[]).await,
+        Ok(None) => {
+            classify_fenced_rejection(&state.db, &principal, &task_id, None, &["blocked"]).await
+        }
         Err(e) => {
             tracing::error!("block_task: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
