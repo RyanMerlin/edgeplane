@@ -1826,15 +1826,6 @@ async fn unblock_task(
     principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await
-        .unwrap_or(None);
-    if exists.is_none() {
-        return not_found("Task not found");
-    }
-
     let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
         Ok(d) => d,
         Err(resp) => return resp,
@@ -1844,21 +1835,55 @@ async fn unblock_task(
     {
         return resp;
     }
-    // Change 9: symmetric ownership check with block_task (which already calls authz_task_owner).
-    if let Err(resp) =
-        crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
-    {
-        return resp;
-    }
 
+    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
+    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
     let now = Utc::now().naive_utc();
-    match sqlx::query("UPDATE task SET status='ready', updated_at=$2 WHERE id=$1 RETURNING *")
-        .bind(&task_id)
-        .bind(now)
-        .fetch_one(&state.db)
-        .await
-    {
-        Ok(r) => Json(row_to_task(&r)).into_response(),
+
+    // Fenced CAS — was a blind UPDATE with zero status precondition (any
+    // domain member with ownership could unblock a task in ANY status, not
+    // just 'blocked'). kind='claimable' only, same rationale as Task 5:
+    // 'ready' is claimable-pool-only vocabulary (retry_task precedent,
+    // work.rs ~974). Ownership: claimed_by_agent_id = $3 OR $4, no lease
+    // path — this endpoint has never accepted a lease param, matching
+    // block_task's symmetric predicate.
+    //
+    // Deliberately does NOT clear claimed_by_agent_id, unlike retry_task's
+    // failed/cancelled->ready transition (which does). Traced this before
+    // implementing rather than pattern-matching retry_task's precedent by
+    // analogy (exactly the failure mode Tasks 4/5's bugs came from):
+    // claim_task's non-broadcast path never consults claimed_by_agent_id
+    // at all (only checks status='ready', fences via version_counter), so
+    // clearing it buys no protection against a different agent claiming
+    // the row the instant it's ready again — that race exists identically
+    // either way. The two transitions aren't actually analogous:
+    // retry_task's source states (failed/cancelled) are a deliberate fresh
+    // start for anyone; unblock's predicate (only the original blocker or
+    // a bypass caller may call it) encodes a "resume your own paused work"
+    // semantic instead, where preserving the attribution is correct, not
+    // stale. already_done_statuses is &[] (not &["ready"]): 'ready' isn't
+    // exclusively produced by this endpoint (claim/retry/creation all land
+    // there too), so treating "row is ready" as "already unblocked" would
+    // misclassify a task that was never blocked in the first place; the
+    // real criterion (does this transition destroy ownership evidence) is
+    // satisfied some other way here — it doesn't destroy any, so a retry
+    // resolves correctly via owns_directly alone.
+    let updated = sqlx::query(
+        "UPDATE task SET status='ready', updated_at=$2 \
+         WHERE id=$1 AND kind='claimable' AND status='blocked' \
+           AND (claimed_by_agent_id = $3 OR $4) \
+         RETURNING *",
+    )
+    .bind(&task_id)
+    .bind(now)
+    .bind(subject_id)
+    .bind(is_bypass)
+    .fetch_optional(&state.db)
+    .await;
+
+    match updated {
+        Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
+        Ok(None) => classify_fenced_rejection(&state.db, &principal, &task_id, None, &[]).await,
         Err(e) => {
             tracing::error!("unblock_task: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()

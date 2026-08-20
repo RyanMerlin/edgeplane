@@ -2722,3 +2722,284 @@ async fn fencing_block_non_owner_restricted_caller_is_403() {
         res.text()
     );
 }
+
+// ── Task 6: unblock_task — net-new fenced precondition ──────────────────────
+
+#[tokio::test]
+async fn fencing_unblock_wrong_source_status_is_409() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/unblock"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "unblock_task must reject a task that isn't blocked (previously had NO source-status guard): {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_unblock_assigned_kind_is_409() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id =
+        common::seed_assigned_task(&pool, &ctx.mission_id, &ctx.domain_id, "harness").await;
+    sqlx::query("UPDATE task SET status='blocked' WHERE id=$1")
+        .bind(&task_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/unblock"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "'ready' is claimable-pool-only vocabulary (retry_task precedent) — unblock must reject kind='assigned': {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_unblock_non_owner_restricted_caller_is_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "blocked",
+        Some("agent-someone-else"),
+        1,
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/unblock"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "a restricted caller with no claim on the task must get 403 on unblock: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_unblock_real_blocker_non_bypass_succeeds_and_preserves_claimer() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // The direct regression test for what Task 5's review found broken:
+    // block preserves claimed_by_agent_id specifically so the blocker can
+    // unblock its own task via this identity path, non-bypass.
+    let (agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+    let block_res = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert!(block_res.status_code().is_success(), "{}", block_res.text());
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/unblock"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "the real blocker, non-bypass, must be able to unblock its own task: {}",
+        res.text()
+    );
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["status"], "ready");
+    assert_eq!(
+        body["claimed_by_agent_id"], agent_id,
+        "unblock deliberately preserves claimed_by_agent_id (resume-your-own-work \
+         semantic, unlike retry_task's fresh-start semantic): {body}"
+    );
+}
+
+#[tokio::test]
+async fn fencing_unblock_idempotent_retry_after_success_is_409_not_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let (_agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+    let block_res = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert!(block_res.status_code().is_success(), "{}", block_res.text());
+
+    let first = s
+        .post(&format!("/api/work/tasks/{task_id}/unblock"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert!(first.status_code().is_success(), "{}", first.text());
+
+    let retry = s
+        .post(&format!("/api/work/tasks/{task_id}/unblock"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert_eq!(
+        retry.status_code(),
+        409,
+        "an idempotent retry after a successful unblock must be 409, not 403 \
+         (resolves via owns_directly — claimed_by_agent_id survives unblock): {}",
+        retry.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_unblock_loses_race_to_concurrent_cancel_is_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Concurrent conflicting operation: a blocked task is legally
+    // cancellable too (cancel_task's status precondition doesn't exclude
+    // 'blocked'). Simulate the race sequentially: cancel wins first, then
+    // the blocker's own unblock attempt — which would have succeeded had
+    // it run first — must correctly lose, not silently succeed or 500.
+    //
+    // Correctly 403, not 409: this differs from a same-endpoint idempotent
+    // retry or a lease-only reclaim race. cancel_task nulls
+    // claimed_by_agent_id on success (its own correct, established
+    // terminal-transition semantic, same as complete_task/fail_task) — so
+    // by the time this unblock attempt runs, agent-A's OWN ownership
+    // evidence has been erased by a different, unrelated, already-correct
+    // operation, not by unblock's own action. This is the same outcome
+    // complete_task/fail_task would give in an analogous cross-transition
+    // race (their own already_done_statuses only covers their own target
+    // status, not a competing operation's). Not unblock-specific, not
+    // fixed here — a real, narrow, documented cross-endpoint classification
+    // edge case, not a bug in this task's own fencing.
+    let (_agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+    let block_res = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert!(block_res.status_code().is_success(), "{}", block_res.text());
+
+    let cancel_res = s
+        .post(&format!("/api/work/tasks/{task_id}/cancel"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert!(
+        cancel_res.status_code().is_success(),
+        "a blocked task must be legally cancellable: {}",
+        cancel_res.text()
+    );
+    assert_eq!(cancel_res.json::<serde_json::Value>()["status"], "cancelled");
+
+    let unblock_res = s
+        .post(&format!("/api/work/tasks/{task_id}/unblock"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .await;
+    assert_eq!(
+        unblock_res.status_code(),
+        403,
+        "unblock must correctly lose to a cancel that already moved the row \
+         out of 'blocked' (and erased the ownership evidence unblock needed), \
+         not silently succeed on a stale assumption: {}",
+        unblock_res.text()
+    );
+}
