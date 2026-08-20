@@ -194,14 +194,31 @@ fn bad_request(msg: &str) -> axum::response::Response {
 /// wrong. Abuse detection belongs on the `fenced_rejection` tracing event
 /// below (which does distinguish a never-matching lease from a real one),
 /// not on the HTTP status code.
+///
+/// `already_done_statuses`: statuses that mean *this specific transition*
+/// already succeeded (e.g. `["finished"]` for `complete_task`) — checked
+/// before ownership, unconditionally, for every caller. complete_task/
+/// fail_task null `claimed_by_agent_id` on their terminal transition (to
+/// close a real ownership-carryover gap — see the plan's "Correction:
+/// terminal transitions don't fully clear ownership" section), which
+/// otherwise turns a legitimate idempotent retry into a 403 instead of a
+/// 409 once that evidence is gone (`edgeplaned-work` maps only 409 to a
+/// graceful lease-mismatch path). A row already at the target status is a
+/// state fact, not an authorization fact — true for the original owner
+/// retrying AND for a caller that never had any relationship to the task,
+/// so this check doesn't distinguish by identity at all; it doesn't leak
+/// anything a domain-gated `GET /work/tasks/{id}` doesn't already reveal.
+/// Empty slice for endpoints with no idempotent-retry concern (e.g.
+/// `heartbeat_task`, whose target status isn't terminal).
 async fn classify_fenced_rejection(
     db: &sqlx::PgPool,
     p: &Principal,
     task_id: &str,
     lease_id: Option<&str>,
+    already_done_statuses: &[&str],
 ) -> axum::response::Response {
     let row = match sqlx::query(
-        "SELECT claimed_by_agent_id, owner, claim_lease_id FROM task WHERE id=$1",
+        "SELECT claimed_by_agent_id, owner, claim_lease_id, status FROM task WHERE id=$1",
     )
     .bind(task_id)
     .fetch_optional(db)
@@ -214,7 +231,9 @@ async fn classify_fenced_rejection(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-    if crate::auth::is_full_trust(p) || p.is_admin {
+    let status: String = row.get("status");
+    let already_done = already_done_statuses.contains(&status.as_str());
+    if already_done || crate::auth::is_full_trust(p) || p.is_admin {
         return conflict("Task is not in the required state for this transition");
     }
     let claimed: Option<String> = row.get("claimed_by_agent_id");
@@ -230,6 +249,7 @@ async fn classify_fenced_rejection(
         lease_presented = lease_id.is_some(),
         lease_matches_current,
         owns_directly,
+        already_done,
         "fenced_rejection"
     );
     if owns_directly || lease_id.is_some() {
@@ -276,6 +296,7 @@ fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
         "attempt": row.get::<i16, _>("attempt"),
         "max_attempts": row.get::<i16, _>("max_attempts"),
         "finalized_at": row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("finalized_at").ok().flatten(),
+        "finalized_by_subject": row.try_get::<Option<String>, _>("finalized_by_subject").ok().flatten(),
         "created_by_subject": row.get::<String, _>("created_by_subject"),
         "created_at": row.get::<chrono::NaiveDateTime, _>("created_at").and_utc(),
         "updated_at": row.get::<chrono::NaiveDateTime, _>("updated_at").and_utc(),
@@ -1305,8 +1326,14 @@ async fn heartbeat_task(
     match updated {
         Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
         Ok(None) => {
-            classify_fenced_rejection(&state.db, &principal, &task_id, body.claim_lease_id.as_deref())
-                .await
+            classify_fenced_rejection(
+                &state.db,
+                &principal,
+                &task_id,
+                body.claim_lease_id.as_deref(),
+                &[],
+            )
+            .await
         }
         Err(e) => {
             tracing::error!("heartbeat_task update: {e}");
@@ -1475,6 +1502,8 @@ async fn complete_task(
            claim_lease_id = CASE WHEN gate_check.has_pending THEN task.claim_lease_id ELSE NULL END, \
            claimed_by_agent_id = CASE WHEN gate_check.has_pending THEN task.claimed_by_agent_id ELSE NULL END, \
            finalized_at = CASE WHEN gate_check.has_pending THEN task.finalized_at ELSE $3 END, \
+           finalized_by_subject = CASE WHEN gate_check.has_pending THEN task.finalized_by_subject \
+                                        ELSE COALESCE(task.claimed_by_agent_id, $7) END, \
            updated_at = $4 \
          FROM gate_check \
          WHERE task.id = $1 \
@@ -1507,6 +1536,7 @@ async fn complete_task(
                 &principal,
                 &task_id,
                 body.claim_lease_id.as_deref(),
+                &["finished"],
             )
             .await;
         }
@@ -1579,7 +1609,8 @@ async fn fail_task(
 
     let updated = sqlx::query(
         "UPDATE task SET status='failed', lease_expires_at=NULL, claim_lease_id=NULL, \
-         claimed_by_agent_id=NULL, finalized_at=$3, updated_at=$2 \
+         claimed_by_agent_id=NULL, finalized_at=$3, updated_at=$2, \
+         finalized_by_subject=COALESCE(claimed_by_agent_id, $6) \
          WHERE id=$1 \
            AND ( \
              (kind = 'claimable' AND status IN ('claimed','running','waiting_review') \
@@ -1604,8 +1635,14 @@ async fn fail_task(
     match updated {
         Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
         Ok(None) => {
-            classify_fenced_rejection(&state.db, &principal, &task_id, body.claim_lease_id.as_deref())
-                .await
+            classify_fenced_rejection(
+                &state.db,
+                &principal,
+                &task_id,
+                body.claim_lease_id.as_deref(),
+                &["failed"],
+            )
+            .await
         }
         Err(e) => {
             tracing::error!("fail_task update: {e}");

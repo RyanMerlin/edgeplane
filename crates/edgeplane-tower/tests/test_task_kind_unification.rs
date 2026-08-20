@@ -1901,3 +1901,259 @@ async fn fencing_fail_kind_assigned_still_works_after_predicate_split() {
         res.text()
     );
 }
+
+// ── Attribution + idempotent-retry design pass (2026-08-20): finalized_by_subject
+// preserves who actually completed/failed a task after claimed_by_agent_id is
+// nulled, and classify_fenced_rejection treats "already at this transition's
+// target status" as an unconditional 409 rather than losing that signal along
+// with the ownership evidence. ──────────────────────────────────────────────
+
+#[tokio::test]
+async fn fencing_complete_finalized_by_subject_preserves_claimer_identity() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let (agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+    let body: serde_json::Value = res.json();
+    assert!(
+        body["claimed_by_agent_id"].is_null(),
+        "claimed_by_agent_id must still be cleared: {body}"
+    );
+    assert_eq!(
+        body["finalized_by_subject"], agent_id,
+        "finalized_by_subject must preserve the real claimer's identity: {body}"
+    );
+}
+
+#[tokio::test]
+async fn fencing_fail_finalized_by_subject_preserves_claimer_identity() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let (agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({"error": "boom"}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+    let body: serde_json::Value = res.json();
+    assert_eq!(
+        body["finalized_by_subject"], agent_id,
+        "finalized_by_subject must preserve the real claimer's identity: {body}"
+    );
+}
+
+#[tokio::test]
+async fn fencing_complete_finalized_by_subject_falls_back_to_caller_for_assigned_kind() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // kind='assigned' rows never have claimed_by_agent_id — the fallback
+    // (COALESCE's second branch) records the completing caller's own
+    // identity instead.
+    let task_id =
+        common::seed_assigned_task(&pool, &ctx.mission_id, &ctx.domain_id, ctx.owner_session_subject())
+            .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+    let body: serde_json::Value = res.json();
+    assert_eq!(
+        body["finalized_by_subject"],
+        ctx.owner_session_subject(),
+        "assigned-kind completion must fall back to the caller's own identity: {body}"
+    );
+}
+
+#[tokio::test]
+async fn fencing_complete_idempotent_retry_after_success_is_409_not_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // The exact shape that broke: a restricted agent-token caller completes
+    // its own claim with no lease presented (the identity-only path). Once
+    // claimed_by_agent_id is nulled by that success, a duplicate delivery of
+    // the identical request has zero ownership evidence left and must not
+    // fall through to 403 — it must still classify as 409 (already done).
+    let (_agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+
+    let first = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(first.status_code().is_success(), "{}", first.text());
+
+    let retry = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert_eq!(
+        retry.status_code(),
+        409,
+        "an idempotent retry after a successful completion must be 409, not 403: {}",
+        retry.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_fail_idempotent_retry_after_success_is_409_not_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let (_agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
+            .await;
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+
+    let first = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({"error": "boom"}))
+        .await;
+    assert!(first.status_code().is_success(), "{}", first.text());
+
+    let retry = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({"error": "boom again"}))
+        .await;
+    assert_eq!(
+        retry.status_code(),
+        409,
+        "an idempotent retry after a successful failure must be 409, not 403: {}",
+        retry.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_complete_already_finished_rejects_unrelated_caller_as_409_not_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // A caller with ZERO relationship to the task, ever, hits an
+    // already-finished row. Deliberately universal: "already done" is a
+    // state fact, not an authorization fact, so this classifies as 409 the
+    // same way an idempotent retry from the real claimer does — the door is
+    // closed to everyone equally, not selectively re-opened for a stranger.
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "finished",
+        None,
+        1,
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "an already-finished task must classify as 409 for any caller, not 403: {}",
+        res.text()
+    );
+}
