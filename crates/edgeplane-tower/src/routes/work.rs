@@ -1398,6 +1398,19 @@ async fn append_progress(
     // (spec's own endpoint table lists both as claimed/running-only), so this
     // converges on that same pattern rather than inventing a new one.
     //
+    // Second pass (independent rust-reviewer): the first version of this
+    // predicate had `claim_policy = 'broadcast'` as a bare top-level OR
+    // disjunct spanning the ENTIRE ownership+lease clause — the exact
+    // CRITICAL bug commit 37dca61a already fixed in heartbeat_task/
+    // complete_task/fail_task five days earlier on this same branch. Copied
+    // verbatim from this plan doc's own Task 8 text, which itself was never
+    // updated after 37dca61a — the doc's Global Constraints ruling and Tasks
+    // 1/2/3/9's embedded code blocks all still carried the stale shape too
+    // (fixed in the same pass as this code, see the plan doc + SDD ledger).
+    // Ownership (claim_lease_id match or bypass) is required UNCONDITIONALLY
+    // now; broadcast only waives the freshness sub-check, matching
+    // heartbeat_task's current (post-37dca61a) shape exactly.
+    //
     // The seq computation (COALESCE(MAX(seq),-1)+1) still races two
     // concurrent posts against the same task the same way it did before this
     // change (verified live: no UNIQUE(task_id, seq) constraint exists, so a
@@ -1407,8 +1420,8 @@ async fn append_progress(
     let row = sqlx::query(
         "WITH eligible AS ( \
            SELECT 1 FROM task WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-             AND (claim_policy = 'broadcast' \
-                  OR (lease_expires_at >= $10 AND (claim_lease_id = $2 OR $3))) \
+             AND (claim_lease_id = $2 OR $3) \
+             AND (claim_policy = 'broadcast' OR lease_expires_at >= $10) \
          ) \
          INSERT INTO meshprogressevent \
            (task_id, agent_id, seq, event_type, phase, step, summary, payload_json, occurred_at, agent_run_id) \

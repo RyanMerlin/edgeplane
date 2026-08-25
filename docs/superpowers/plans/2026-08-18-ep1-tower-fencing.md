@@ -19,7 +19,7 @@
 - **Full-trust/admin bypass is explicit, not implicit:** every fenced predicate that includes an ownership/lease check must also carry `OR $is_bypass`, where `is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin`. Omitting this silently breaks legitimate admin force-operations.
 - **403 vs 409 classification rule** (applies everywhere `classify_fenced_rejection` is used): if the caller presented *any* ownership proof — a `claimed_by_agent_id`/`owner` match, or a `claim_lease_id` value at all (even a wrong/stale one) — a failed predicate is `409` (lost a race, not unauthorized). Only a caller who presented zero proof and isn't full-trust/admin gets `403`.
 - **Broadcast claims and full-trust/admin bypass are explicitly unfenced by design**, not an oversight — `claim_task`'s broadcast branch (`work.rs:1068`) stays a blind `UPDATE ... WHERE id=$1` after a precheck; this is intentional broadcast semantics and is out of scope for this plan.
-- **The broadcast exception applies to every later lifecycle transition, not just the initial claim.** **Ruling (Task 2 review, applies to every task below with a `lease_expires_at` freshness check on the claimable branch — Tasks 1, 2, 3, 8, 9):** `expire_stale_leases` explicitly excludes `claim_policy != 'broadcast'` (`work.rs:549`) and `claim_task` requires `status='ready'` to (re)claim (`work.rs:1100-1107`) — so once a broadcast task's lease lapses, it is never auto-reclaimed and can never be re-claimed either. Pre-fencing, `heartbeat_task`/`complete_task`/`fail_task`/`append_progress` had no freshness check at all, so a broadcast task was always renewable/completable regardless of lease staleness. A bare freshness check with no carve-out therefore wedges every broadcast task that outlives one lease window with **no in-band recovery** — contradicting this same bullet's own principle. Fix: the claimable branch's ownership/lease sub-condition gets `task.claim_policy = 'broadcast'` as a caller-agnostic bypass of the *entire* lease/freshness/lease-id-match clause (not just the lease-id match), mirroring `claim_task`'s own "no single owner for a CAS to protect" reasoning — `authz_domain` (coarse domain membership) still runs first and is unaffected.
+- **The broadcast exception applies to every later lifecycle transition, not just the initial claim.** **Ruling (Task 2 review, applies to every task below with a `lease_expires_at` freshness check on the claimable branch — Tasks 1, 2, 3, 8, 9):** `expire_stale_leases` explicitly excludes `claim_policy != 'broadcast'` (`work.rs:549`) and `claim_task` requires `status='ready'` to (re)claim (`work.rs:1100-1107`) — so once a broadcast task's lease lapses, it is never auto-reclaimed and can never be re-claimed either. Pre-fencing, `heartbeat_task`/`complete_task`/`fail_task`/`append_progress` had no freshness check at all, so a broadcast task was always renewable/completable regardless of lease staleness. A bare freshness check with no carve-out therefore wedges every broadcast task that outlives one lease window with **no in-band recovery** — contradicting this same bullet's own principle. ~~Fix: the claimable branch's ownership/lease sub-condition gets `task.claim_policy = 'broadcast'` as a caller-agnostic bypass of the *entire* lease/freshness/lease-id-match clause (not just the lease-id match), mirroring `claim_task`'s own "no single owner for a CAS to protect" reasoning — `authz_domain` (coarse domain membership) still runs first and is unaffected.`~~ **SUPERSEDED (commit 37dca61a, 2026-08-20; doc corrected 2026-08-25 after this exact stale ruling caused Task 8 to reintroduce the bug 37dca61a had already fixed in code — see the SDD ledger's Task 8 second-pass entry):** the "entire clause" framing above was itself the CRITICAL bug — a caller-agnostic bypass of the *entire* clause bypasses OWNERSHIP too, not just freshness, so ANY domain member (no lease, no relation to the task) could complete/fail/heartbeat-hijack/progress-hijack ANY broadcast task. The correct, current fix, in force in every landed task's actual code: ownership (`claim_lease_id = $lease OR $is_bypass`) is **unconditional**; broadcast waives **freshness only** — `(claim_lease_id = $lease OR $is_bypass) AND (claim_policy = 'broadcast' OR lease_expires_at >= $now)`. If you are implementing a task below from this doc's own embedded code blocks, do not transcribe the old "entire clause" shape even where a task's own Step 3 text below still shows it — cross-check against a already-landed sibling endpoint's ACTUAL CURRENT code (e.g. `heartbeat_task`) before writing any broadcast-aware predicate, not just this doc.
 - **`complete_task` and `fail_task` specifically also need `claimed_by_agent_id` as a standalone ownership path, unguarded by freshness.** **Ruling (Task 2 review):** `edgeplaned/crates/edgeplaned-bin/src/task_worker.rs` (a real, live, currently-deployed daemon loop, out of scope for this Tower-only plan) calls `/work/tasks/{id}/complete` and `/work/tasks/{id}/fail` with `{"agent_id": agent_id}` only — never a `claim_lease_id`, and never calls `/heartbeat` at all. A lease-only predicate (safe for `heartbeat_task`, whose one real caller — `task_loop.rs` — always carries a lease, independently verified) would reject every completion/failure this live caller performs on a `kind='claimable'` row the moment this plan's Tower changes deploy. `classify_fenced_rejection` already treats a `claimed_by_agent_id` match as valid ownership proof (409, not 403) — the predicate should agree with its own classifier. Fix: `complete_task`'s and `fail_task`'s claimable branches add `OR task.claimed_by_agent_id = $subject_id` as a third, independent path (alongside broadcast and the lease/freshness path), **not gated on `lease_expires_at`** — the state machine already makes this race-safe without an explicit freshness check: a non-broadcast claimable row can't be re-claimed by anyone else until `expire_stale_leases` clears `claimed_by_agent_id` to `NULL`, at which point the identity check stops matching for everyone, including the stale former claimer. This restores exactly the capability `authz_task_owner` already granted before this plan started — no new capability, and `heartbeat_task`/`append_progress`/the MCP mirror do not need this path (their real callers always carry a lease or are unaffected — verify this holds for the MCP mirror specifically when Task 9 is reviewed, since it wasn't directly audited here).
 - All new/modified SQL uses `sqlx::query` + `.bind()` + `Row::get`, matching every existing handler in `work.rs`/`mcp.rs` — do not introduce the `sqlx::query!` compile-time-checked macro family, which nothing in this crate uses today.
 - Migrations go in `crates/edgeplane-tower/migrations/`, sequential numbering; the next free number is `0015`.
@@ -237,8 +237,8 @@ async fn heartbeat_task(
     let updated = sqlx::query(
         "UPDATE task SET status='running', lease_expires_at=$2, updated_at=$3 \
          WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-           AND (claim_policy = 'broadcast' \
-                OR (lease_expires_at >= $3 AND (claim_lease_id = $4 OR $5))) \
+           AND (claim_lease_id = $4 OR $5) \
+           AND (claim_policy = 'broadcast' OR lease_expires_at >= $3) \
          RETURNING *",
     )
     .bind(&task_id)
@@ -582,9 +582,9 @@ async fn complete_task(
          WHERE task.id = $1 \
            AND ( \
              (task.kind = 'claimable' AND task.status IN ('claimed','running','waiting_review') \
-              AND (task.claim_policy = 'broadcast' \
-                   OR task.claimed_by_agent_id = $7 \
-                   OR (task.lease_expires_at >= $4 AND (task.claim_lease_id = $5 OR $6)))) \
+              AND (task.claimed_by_agent_id = $7 \
+                   OR ((task.claim_lease_id = $5 OR $6) \
+                       AND (task.claim_policy = 'broadcast' OR task.lease_expires_at >= $4)))) \
              OR \
              (task.kind = 'assigned' AND task.status NOT IN ('done','finished','failed','cancelled') \
               AND (task.owner = $7 OR task.claim_lease_id = $5 OR $6)) \
@@ -832,9 +832,9 @@ async fn fail_task(
          WHERE id=$1 \
            AND ( \
              (kind = 'claimable' AND status IN ('claimed','running','waiting_review') \
-              AND (claim_policy = 'broadcast' \
-                   OR claimed_by_agent_id = $6 \
-                   OR (lease_expires_at >= $2 AND (claim_lease_id = $4 OR $5)))) \
+              AND (claimed_by_agent_id = $6 \
+                   OR ((claim_lease_id = $4 OR $5) \
+                       AND (claim_policy = 'broadcast' OR lease_expires_at >= $2)))) \
              OR \
              (kind = 'assigned' AND status NOT IN ('done','finished','failed','cancelled') \
               AND (owner = $6 OR claim_lease_id = $4 OR $5)) \
@@ -1731,8 +1731,8 @@ async fn append_progress(
     let row = sqlx::query(
         "WITH eligible AS ( \
            SELECT 1 FROM task WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-             AND (claim_policy = 'broadcast' \
-                  OR (lease_expires_at >= $10 AND (claim_lease_id = $2 OR $3))) \
+             AND (claim_lease_id = $2 OR $3) \
+             AND (claim_policy = 'broadcast' OR lease_expires_at >= $10) \
          ) \
          INSERT INTO meshprogressevent \
            (task_id, agent_id, seq, event_type, phase, step, summary, payload_json, occurred_at, agent_run_id) \
@@ -1948,8 +1948,8 @@ Replace `mcp.rs:791-864` with:
                  claimed_by_agent_id=CASE WHEN $2 IN ('finished','failed','cancelled','blocked') THEN NULL ELSE claimed_by_agent_id END, \
                  finalized_at=CASE WHEN $2 IN ('finished','failed','cancelled') THEN $3 ELSE finalized_at END \
                  WHERE id=$1 AND kind='claimable' AND status = ANY($4) \
-                   AND (claim_policy = 'broadcast' \
-                        OR (lease_expires_at >= $7 AND (claim_lease_id = $5 OR $6))) \
+                   AND (claim_lease_id = $5 OR $6) \
+                   AND (claim_policy = 'broadcast' OR lease_expires_at >= $7) \
                  RETURNING id",
             )
             .bind(&task_id)
@@ -2285,6 +2285,27 @@ has enough context to start from without re-deriving it.
   look whenever `claim_task`'s broadcast branch is next touched: either accept the race as a known,
   documented cost of "intentionally unfenced," or give broadcast claims a per-claim/per-attempt
   identity instead of overwriting one singleton lease.
+- **`progress_mesh_task` (MCP, `mcp.rs`) is unfenced and outside even Task 9's stated scope —
+  found during Task 8's independent review, not previously tracked anywhere.** Task 9's own scope
+  (below) is `complete_mesh_task`/`fail_mesh_task`/`block_mesh_task` only (`mcp.rs:791-864`);
+  `progress_mesh_task` (`mcp.rs:731-786`) and `heartbeat_mesh_task` are in NO task's stated scope,
+  despite this plan's own Goal statement (line 5) explicitly listing "complete/fail/block/**progress**"
+  as the transitions a stale claimer must never be able to perform on a reclaimed task. Concretely:
+  `progress_mesh_task`'s `claim_lease_id` is OPTIONAL (empty string → `None`), and `authz_task_owner`
+  passes on a bare `claimed_by_agent_id == subject` match with no lease check and no freshness check
+  at all — a stale claimer whose lease expired and was reclaimed can still post progress via MCP,
+  the exact threat this whole plan exists to close, now that Task 8 closes it on the REST side.
+  Decision needed when Task 9 is dispatched: fold `progress_mesh_task`/`heartbeat_mesh_task` into
+  Task 9's scope, or split them into their own task — but don't leave them unscoped again.
+- **Deploy-ordering hazard for Task 8's tower/daemon interlock — not a code bug, an operational
+  note.** Landing tower (`edgeplane-tower`, a K8s Deployment) and daemon (`edgeplaned`, runs on fleet
+  nodes) changes in one commit fixes source-tree ordering, not deploy ordering — they ship as
+  separate artifacts. A tower with Task 8's change talking to a not-yet-upgraded `edgeplaned` 422s
+  every progress post from that node, and `post_progress` failures are only `tracing::warn!`'d
+  (`task_loop.rs`), so it fails silently: progress events/SSE just go dark for un-upgraded nodes
+  until they update. Worth an explicit rollout note (upgrade `edgeplaned` nodes before or with the
+  tower deploy) whenever this branch actually ships — not a blocker for continuing Phase 1's
+  remaining tasks.
 - **`append_progress`'s `seq = COALESCE(MAX(seq),-1)+1` computation races two concurrent posts
   against the same task — verified live (Task 8), not just Terra's flagged-but-unconfirmed claim
   from the handoff.** No `UNIQUE(task_id, seq)` constraint exists on `meshprogressevent` (confirmed
@@ -2294,7 +2315,21 @@ has enough context to start from without re-deriving it.
   scoped out by the spec's own text ("that pre-existing race is out of EP-1's scope"). Fix, if ever
   picked up: either a `UNIQUE(task_id, seq)` constraint (turns silent duplication into a retryable
   23505 the caller can react to) or a per-task Postgres sequence/serial allocation instead of a
-  `MAX+1` read.
+  `MAX+1` read. **Considered and NOT adopted (Task 8 independent review's suggestion): adding `FOR
+  UPDATE` to the CTE's `SELECT 1 FROM task WHERE id=$1 ...`**, on the theory that locking the task
+  row serializes concurrent posts to the same task and closes the race for free, no migration. Real
+  open question, not dismissed lightly: this is ONE round-tripped SQL statement (CTE + the
+  `meshprogressevent` MAX(seq) subquery + the INSERT), not a multi-statement transaction — under
+  READ COMMITTED, a statement's snapshot is fixed at that statement's own start, and `FOR UPDATE`'s
+  documented EvalPlanQual re-check only refreshes the specific LOCKED row's own data for further
+  qual evaluation, not the snapshot used by an unrelated table read (the `meshprogressevent`
+  subquery) elsewhere in the same statement. If that reasoning holds, a second caller blocked on the
+  lock could still compute `MAX(seq)` from its pre-wait snapshot after the lock releases, seeing the
+  same value the first caller did — i.e. `FOR UPDATE` might only serialize the WRITES, not actually
+  freshen the READ that decides `seq`, and the duplicate-seq race could survive it. This needs a
+  genuine two-connection concurrent probe to settle, not statement-validity testing (both this
+  session and the reviewing session confirmed the SQL is valid and takes a lock; neither confirmed
+  the deeper correctness property). Don't adopt `FOR UPDATE` here as a fix without that probe.
 - **`dispatch_task` (work.rs) is another unfenced terminal `→'finished'` transition, missed by this
   plan's own original §1 endpoint table — not yet independently verified beyond a single review's
   read.** Flagged by an independent rust-reviewer pass during Task 7 (SDD ledger, Task 7 review).

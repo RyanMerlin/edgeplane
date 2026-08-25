@@ -191,6 +191,18 @@ async fn assigned_task_cannot_be_progressed() {
     };
     let task_id =
         common::seed_assigned_task(&pool, &ctx.mission_id, &ctx.domain_id, "harness").await;
+    // seed_assigned_task's default status='open' would already fail the
+    // fenced predicate's status IN ('claimed','running') term on its own —
+    // this test would pass even with kind='claimable' deleted from the
+    // predicate entirely, and so wouldn't actually isolate the kind gate it
+    // claims to test (independent review, Task 8 second pass). Force status
+    // into the claimable-only vocabulary so ONLY the kind mismatch can be
+    // what rejects this row.
+    sqlx::query("UPDATE task SET status='running' WHERE id=$1")
+        .bind(&task_id)
+        .execute(&pool)
+        .await
+        .unwrap();
     let s = server(pool);
     // append_progress now requires claim_lease_id in the body (checked before
     // the task is even touched — a 422 for a missing lease would mask what
@@ -3905,18 +3917,27 @@ async fn fencing_progress_requires_lease_now() {
         res.text()
     );
 
-    // Correct lease — must succeed.
+    // Correct lease — must succeed. Deliberately uses member_sa_token, NOT
+    // owner_session_token (corrected after independent review: owner_
+    // session_token is a session-auth principal, so is_full_trust=true makes
+    // the predicate's `$3` bypass arm satisfy it regardless of what lease
+    // value is presented — that leg would pass identically with a wrong or
+    // missing lease and prove nothing about lease matching). member_sa_token
+    // is restricted and isn't "agent-A" either, so success here can only
+    // come from the lease actually matching.
     let ok_res = s
         .post(&format!("/api/work/tasks/{task_id}/progress"))
         .add_header(
             axum::http::header::AUTHORIZATION,
-            format!("Bearer {}", ctx.owner_session_token),
+            format!("Bearer {}", ctx.member_sa_token),
         )
         .json(&serde_json::json!({"event_type": "status", "summary": "with lease", "claim_lease_id": "lease-a"}))
         .await;
     assert!(ok_res.status_code().is_success(), "{}", ok_res.text());
 
-    // Stale/wrong lease — must be rejected.
+    // Stale/wrong lease — must be rejected. 409, not just "any non-success":
+    // classify_fenced_rejection treats a presented (even wrong) lease as
+    // ownership proof, so this is a lost race (409), not zero-proof (403).
     let bad_res = s
         .post(&format!("/api/work/tasks/{task_id}/progress"))
         .add_header(
@@ -3925,9 +3946,143 @@ async fn fencing_progress_requires_lease_now() {
         )
         .json(&serde_json::json!({"event_type": "status", "summary": "wrong lease", "claim_lease_id": "not-it"}))
         .await;
-    assert!(
-        !bad_res.status_code().is_success(),
-        "progress with a stale lease must be rejected: {}",
+    assert_eq!(
+        bad_res.status_code(),
+        409,
+        "progress with a wrong-but-presented lease must be 409 (lost a \
+         race), not silently accepted or misclassified as 403: {}",
         bad_res.text()
+    );
+}
+
+/// Second pass (independent rust-reviewer, Task 8): the first version of
+/// append_progress's fenced predicate had `claim_policy = 'broadcast'` as a
+/// bare top-level OR disjunct spanning the ENTIRE ownership+lease clause —
+/// the exact CRITICAL bug commit 37dca61a already fixed in heartbeat_task/
+/// complete_task/fail_task, reintroduced here by copying this plan's own
+/// stale Task 8 text (never updated after 37dca61a) verbatim. No test in
+/// this suite caught it: every test in this file seeds via
+/// seed_claimable_task, which hardcodes claim_policy='any'
+/// (tests/common/mod.rs), so the broadcast branch was never evaluated by
+/// any prior progress test. Mirrors the sibling regression tests 37dca61a
+/// added for heartbeat/complete/fail/cancel.
+#[tokio::test]
+async fn fencing_progress_broadcast_task_without_matching_lease_is_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    // Broadcast + an expired lease, but the caller presents NO lease at all
+    // and has no relationship to the task whatsoever.
+    sqlx::query(
+        "UPDATE task SET claim_policy='broadcast', claim_lease_id='lease-a', \
+         lease_expires_at = now() - interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a broadcast task with an expired lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/progress"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"event_type": "status", "summary": "hijack", "claim_lease_id": ""}))
+        .await;
+    // An empty claim_lease_id hits the 400 "required" guard before the fence
+    // even runs — use a non-empty, definitely-wrong value to actually
+    // exercise the predicate.
+    assert_eq!(
+        res.status_code(),
+        400,
+        "sanity: an empty lease must 400 before reaching the fence: {}",
+        res.text()
+    );
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/progress"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"event_type": "status", "summary": "hijack", "claim_lease_id": "not-the-real-lease"}))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "an unrelated caller presenting a lease that doesn't match must not \
+         post progress to someone else's broadcast task just because \
+         claim_policy='broadcast' — 409 (lease presented, but wrong), not a \
+         silent 200: {}",
+        res.text()
+    );
+
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM meshprogressevent WHERE task_id=$1")
+            .bind(&task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0,
+        "no progress event must have been inserted"
+    );
+}
+
+/// Positive counterpart: broadcast correctly waives FRESHNESS, never
+/// ownership — a caller presenting the row's actual current lease must
+/// still succeed even though the lease has expired (the real point of the
+/// broadcast carve-out: a broadcast task's lease is never auto-reclaimed by
+/// expire_stale_leases and can never be re-claimed either, so it must stay
+/// operable past one lease window for whoever's actually still working it).
+#[tokio::test]
+async fn fencing_progress_broadcast_task_with_matching_lease_and_expired_freshness_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_policy='broadcast', claim_lease_id='lease-a', \
+         lease_expires_at = now() - interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a broadcast task with an expired lease");
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/progress"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"event_type": "status", "summary": "still working", "claim_lease_id": "lease-a"}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "a broadcast task's expired lease must not block progress-posting \
+         when the caller presents the real, current lease id: {}",
+        res.text()
     );
 }
