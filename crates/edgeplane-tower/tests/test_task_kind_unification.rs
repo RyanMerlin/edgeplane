@@ -3102,3 +3102,481 @@ async fn fencing_unblock_stale_actor_after_reclaim_is_403() {
         retry_unblock.text()
     );
 }
+
+// ── Task 7: resolve_gate — bespoke fenced transaction ───────────────────────
+//
+// Zero pre-existing coverage of this endpoint anywhere in this file before
+// this task (verified by grep before writing these). Unlike every other
+// endpoint in this plan, resolve_gate does not call classify_fenced_rejection
+// (ownership is gate ownership, not task lease) — it gets its own fenced
+// gate-row CAS plus a fenced task-transition CAS, per the plan's "bespoke
+// transaction" framing.
+
+async fn seed_pending_gate(pool: &sqlx::PgPool, owner_subject: &str, task_id: &str) -> String {
+    let gate_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO reviewgate (id, owner_subject, mesh_task_id, run_id, gate_type, \
+         required_approvals, status, created_at) \
+         VALUES ($1, $2, $3, NULL, 'manual', 'any', 'pending', now())",
+    )
+    .bind(&gate_id)
+    .bind(owner_subject)
+    .bind(task_id)
+    .execute(pool)
+    .await
+    .expect("seed pending gate");
+    gate_id
+}
+
+#[tokio::test]
+async fn fencing_resolve_gate_approved_clears_all_three_lease_fields() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "waiting_review",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"decision": "approved"}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+
+    let row = sqlx::query(
+        "SELECT status, claimed_by_agent_id, claim_lease_id, lease_expires_at FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("status"), "finished");
+    assert!(
+        row.get::<Option<String>, _>("claimed_by_agent_id").is_none(),
+        "resolve_gate's approval path must clear claimed_by_agent_id too (spec §1 third-pass correction)"
+    );
+    assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
+    assert!(row
+        .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+        .is_none());
+}
+
+#[tokio::test]
+async fn fencing_resolve_gate_rejected_clears_all_three_lease_fields() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "waiting_review",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"decision": "rejected"}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+
+    let row = sqlx::query(
+        "SELECT status, claimed_by_agent_id, claim_lease_id, lease_expires_at FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("status"), "failed");
+    assert!(
+        row.get::<Option<String>, _>("claimed_by_agent_id").is_none(),
+        "resolve_gate's rejection path currently clears NOTHING pre-fix — spec §1 finding"
+    );
+    assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
+    assert!(row
+        .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+        .is_none());
+}
+
+#[tokio::test]
+async fn fencing_resolve_gate_approved_stamps_finalized_by_subject_and_finalized_at() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let (agent_a_id, agent_a_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "waiting_review",
+        Some(&agent_a_id),
+        1,
+    )
+    .await;
+    let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"decision": "approved"}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+
+    let row = sqlx::query(
+        "SELECT finalized_by_subject, finalized_at FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        row.get::<Option<String>, _>("finalized_by_subject").as_deref(),
+        Some(agent_a_id.as_str()),
+        "resolve_gate must attribute finalization to the task's actual claimer \
+         (complete_task/fail_task's 'record the claimer' rationale — this finalizes \
+         the claimer's own submitted work, it doesn't interrupt someone else's), not \
+         the gate resolver — roadmap item 'resolve_gate inherits the attribution + \
+         idempotent-retry pattern'"
+    );
+    assert!(
+        row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("finalized_at").is_some(),
+        "resolve_gate is the one terminal-transition endpoint in this codebase that \
+         never stamped finalized_at (tasks.rs, mcp.rs, and every other work.rs \
+         terminal transition all do) — closing that gap while touching this code"
+    );
+    let _ = agent_a_token; // only the id is needed for this test
+}
+
+#[tokio::test]
+async fn fencing_resolve_gate_rejected_stamps_finalized_by_subject_and_finalized_at() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let (agent_a_id, _agent_a_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "waiting_review",
+        Some(&agent_a_id),
+        1,
+    )
+    .await;
+    let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"decision": "rejected"}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+
+    let row = sqlx::query("SELECT finalized_by_subject, finalized_at FROM task WHERE id=$1")
+        .bind(&task_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        row.get::<Option<String>, _>("finalized_by_subject").as_deref(),
+        Some(agent_a_id.as_str())
+    );
+    assert!(row
+        .get::<Option<chrono::DateTime<chrono::Utc>>, _>("finalized_at")
+        .is_some());
+}
+
+#[tokio::test]
+async fn fencing_resolve_gate_non_owner_restricted_caller_is_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "waiting_review",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    // Owned by the harness/owner session, not the restricted member token.
+    let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"decision": "approved"}))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "a caller who isn't the gate's owner and isn't admin must be 403, even \
+         though the fenced UPDATE's WHERE clause (not an app-level precheck) is what \
+         now rejects it: {}",
+        res.text()
+    );
+
+    let gate_status: String = sqlx::query_scalar("SELECT status FROM reviewgate WHERE id=$1")
+        .bind(&gate_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(gate_status, "pending", "the fenced UPDATE must not have touched the row");
+}
+
+/// Idempotent retry (three-test-minimum category 3): the SAME caller repeats
+/// an already-successful resolve on the SAME gate. Must be 409, not a second
+/// success and not a silent overwrite — this is the exact TOCTOU an
+/// independent gpt-5.6-terra review flagged live against this code (SDD
+/// ledger, Task 7 next-actions): the pre-fix `reviewgate` UPDATE had no
+/// `WHERE status='pending'` guard at all, only an earlier, separate
+/// app-level SELECT-then-check — so two callers who both observed 'pending'
+/// could both pass and the second would clobber the first.
+#[tokio::test]
+async fn fencing_resolve_gate_idempotent_retry_same_decision_is_409() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "waiting_review",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
+
+    let first = s
+        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"decision": "approved"}))
+        .await;
+    assert!(first.status_code().is_success(), "{}", first.text());
+    let finalized_by_after_first: Option<String> =
+        sqlx::query_scalar("SELECT finalized_by_subject FROM task WHERE id=$1")
+            .bind(&task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    let retry = s
+        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"decision": "approved"}))
+        .await;
+    assert_eq!(
+        retry.status_code(),
+        409,
+        "retrying an identical, already-successful resolve must be 409, not 200 \
+         again and not silently accepted: {}",
+        retry.text()
+    );
+
+    let finalized_by_after_retry: Option<String> =
+        sqlx::query_scalar("SELECT finalized_by_subject FROM task WHERE id=$1")
+            .bind(&task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        finalized_by_after_first, finalized_by_after_retry,
+        "attribution from the first, real resolution must survive the retry unchanged"
+    );
+}
+
+/// Concurrent conflicting operation (three-test-minimum category 2): two
+/// DIFFERENT, both-legitimately-pending gates on the SAME task, resolved in
+/// sequence — the first resolution's task-side transition (any_rejected →
+/// failed) must be the only one that ever lands. The second gate's own
+/// resolution still succeeds (its row genuinely was still 'pending'), but the
+/// `AND status='waiting_review'` CAS guard on the task UPDATE must make its
+/// stale recompute a no-op rather than double-firing finalized_at/
+/// finalized_by_subject or flipping the task's terminal outcome.
+#[tokio::test]
+async fn fencing_resolve_gate_second_gates_recompute_does_not_reprocess_finalized_task() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "waiting_review",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    let gate1 = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
+    let gate2 = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
+
+    let reject_res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates/{gate1}/resolve"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"decision": "rejected"}))
+        .await;
+    assert!(reject_res.status_code().is_success(), "{}", reject_res.text());
+
+    let row_after_first = sqlx::query(
+        "SELECT status, finalized_at, finalized_by_subject FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row_after_first.get::<String, _>("status"), "failed");
+    let finalized_at_first: chrono::DateTime<chrono::Utc> =
+        row_after_first.get("finalized_at");
+
+    // gate2 is still legitimately pending — its own resolution must succeed —
+    // but the task is already terminal, so this call's recompute must not
+    // touch it.
+    let approve_res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates/{gate2}/resolve"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"decision": "approved"}))
+        .await;
+    assert!(
+        approve_res.status_code().is_success(),
+        "gate2 itself was genuinely still pending, its own resolution must succeed: {}",
+        approve_res.text()
+    );
+
+    let row_after_second = sqlx::query(
+        "SELECT status, finalized_at, finalized_by_subject FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        row_after_second.get::<String, _>("status"),
+        "failed",
+        "a later, unrelated gate's own successful resolution must not flip an \
+         already-finalized task's outcome"
+    );
+    assert_eq!(
+        row_after_second.get::<chrono::DateTime<chrono::Utc>, _>("finalized_at"),
+        finalized_at_first,
+        "finalized_at must not be re-stamped by the second gate's stale recompute"
+    );
+}
+
+/// Stale-actor retry (three-test-minimum category 1): after resolve_gate
+/// finalizes a task, the ORIGINAL CLAIMER (now stripped of
+/// claimed_by_agent_id) retries a different terminal endpoint on the
+/// now-finished task and must get 409, not 403 — proving resolve_gate's
+/// finalized_by_subject stamp is actually read by classify_fenced_rejection
+/// (the exact cross-endpoint blind spot Task 6's review caught: a column
+/// written by one endpoint but not read by the shared classifier).
+#[tokio::test]
+async fn fencing_resolve_gate_stale_claimer_retry_via_complete_is_409_not_403() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let (agent_a_id, agent_a_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "waiting_review",
+        Some(&agent_a_id),
+        1,
+    )
+    .await;
+    let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
+
+    let resolve_res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"decision": "approved"}))
+        .await;
+    assert!(resolve_res.status_code().is_success(), "{}", resolve_res.text());
+
+    // Agent A never saw the gate resolve (e.g. its poll of the task raced
+    // the resolution) and retries the completion it thinks is still needed.
+    let stale_complete = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_a_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert_eq!(
+        stale_complete.status_code(),
+        409,
+        "agent A's identity survives in finalized_by_subject after resolve_gate \
+         finalizes the task, so a stale retry must be 409 (lost a race), not 403 \
+         (zero proof): {}",
+        stale_complete.text()
+    );
+}
