@@ -2285,6 +2285,17 @@ has enough context to start from without re-deriving it.
   look whenever `claim_task`'s broadcast branch is next touched: either accept the race as a known,
   documented cost of "intentionally unfenced," or give broadcast claims a per-claim/per-attempt
   identity instead of overwriting one singleton lease.
+- **`dispatch_task` (work.rs) is another unfenced terminal `→'finished'` transition, missed by this
+  plan's own original §1 endpoint table — not yet independently verified beyond a single review's
+  read.** Flagged by an independent rust-reviewer pass during Task 7 (SDD ledger, Task 7 review).
+  App-level `status != "ready"` precheck then a blind `UPDATE task SET status='finished' ... WHERE
+  id=$1` — same TOCTOU shape every endpoint in this plan exists to close, and it stamps neither
+  `finalized_at` nor `finalized_by_subject`, so a `claim_task` landing in the precheck-to-write
+  window would leave a `'finished'` row still carrying a live `claim_lease_id`/`claimed_by_agent_id`/
+  `lease_expires_at` — the exact ownership-carryover hole the spec's "Correction: terminal
+  transitions don't fully clear ownership" section exists to close for every OTHER terminal
+  transition. Out of this plan's Task 7 scope (a different endpoint entirely); worth its own
+  dispatch/review cycle alongside the `claim_task` broadcast-branch item above once Phase 1 wraps.
 - **Four Minor findings from Task 6's review, all pre-existing or narrow-scope, not fixed:**
   (1) `unblock_dependents` (`work.rs:680`) sweeps `status IN ('pending','blocked')` → `'ready'` with
   no check that the block was dependency-caused — a task an agent deliberately paused via
