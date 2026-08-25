@@ -2083,6 +2083,32 @@ async fn resolve_gate(
 
     let now = Utc::now().naive_utc();
     let now_tz = Utc::now();
+    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+
+    // Second pass (independent rust-reviewer, Task 7): the first version of
+    // this function fenced the reviewgate UPDATE and the task-transition
+    // UPDATE individually but ran them as two separate autocommitted
+    // statements, with the any_rejected/all_resolved aggregate computed in a
+    // THIRD statement in between — a gate created by a concurrent
+    // create_gate call (which has no task-status precondition at all,
+    // verified live) between that aggregate SELECT and the task UPDATE
+    // could be missed entirely, letting a task finish with a still-pending
+    // approval gate. This is exactly the race the spec's "recomputes
+    // remaining-gate state in the same transaction so a second gate created
+    // concurrently isn't missed" language calls out. Fixed: both statements
+    // now run inside one explicit transaction (the `claim_task` FOR UPDATE
+    // SKIP LOCKED path above is this file's existing precedent for
+    // `state.db.begin()`), and the aggregate is folded into the task
+    // UPDATE's own CTE — the same technique complete_task's pending-gate
+    // check already uses for an identical cross-table-read-inside-a-fence
+    // problem — instead of a separate, race-prone SELECT.
+    let mut tx = match state.db.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("resolve_gate begin tx: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     // Fenced: the ownership check and the pending-status precondition move
     // into the UPDATE's WHERE clause, same converge-into-WHERE pattern as
@@ -2108,18 +2134,20 @@ async fn resolve_gate(
     .bind(&task_id)
     .bind(&principal.subject)
     .bind(principal.is_admin)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await;
 
     let gate_row = match updated_gate {
         Ok(Some(r)) => r,
         Ok(None) => {
-            // Zero rows: re-fetch (unfenced) to classify why the same way
-            // classify_fenced_rejection does for the task table — 404 if the
-            // gate doesn't exist for this task, 409 if it exists but isn't
-            // pending (a real, already-applied decision — including a
-            // decision that just won a race this same request lost), 403
-            // only for a genuine owner mismatch.
+            let _ = tx.rollback().await;
+            // Zero rows: re-fetch (unfenced, pool connection — the tx that
+            // would have seen the pending row just rolled back) to classify
+            // why the same way classify_fenced_rejection does for the task
+            // table — 404 if the gate doesn't exist for this task, 409 if it
+            // exists but isn't pending (a real, already-applied decision —
+            // including a decision that just won a race this same request
+            // lost), 403 only for a genuine owner mismatch.
             let existing = sqlx::query(
                 "SELECT owner_subject, status FROM reviewgate WHERE id=$1 AND mesh_task_id=$2",
             )
@@ -2149,104 +2177,93 @@ async fn resolve_gate(
         }
         Err(e) => {
             tracing::error!("resolve_gate update: {e}");
+            let _ = tx.rollback().await;
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
     let gate_val = row_to_gate(&gate_row);
 
-    // Re-fetch task to check if waiting_review
-    let task_row = match sqlx::query("SELECT * FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return Json(gate_val).into_response(),
+    // Fenced task transition, atomic with the gate UPDATE above (same tx).
+    // The any_rejected/all_resolved aggregate is computed by the CTE against
+    // whatever reviewgate rows exist for this task AT THE MOMENT this
+    // statement runs — including the row this same request just resolved,
+    // visible to itself within the open transaction — rather than from a
+    // separately-fetched snapshot that a concurrent create_gate could race.
+    // `bool_and` over zero rows is NULL (fails the `(agg.any_rejected OR
+    // agg.all_resolved)` guard rather than defaulting to "finish the task"
+    // the way the old code's `all(...)`-over-empty-Vec did) — unreachable in
+    // practice here since the row just resolved above is always visible,
+    // but a correct guard rather than an accidental one.
+    //
+    // finalized_by_subject: COALESCE prefers the task's actual claimer
+    // (still present on the row — the pending-gate CTE in complete_task
+    // never clears claimed_by_agent_id while waiting_review), falling back
+    // to any attribution a prior cycle already recorded, falling back to
+    // the gate resolver's own (agent-prefix-stripped, matching every
+    // sibling endpoint's `subject_id` convention) identity. This mirrors
+    // complete_task's/fail_task's "record the claimer" rationale, not
+    // cancel_task's "record the interrupter" one — resolving a gate
+    // finalizes the claimer's own submitted work, it doesn't interrupt
+    // someone else's. Roadmap item: "resolve_gate inherits the attribution
+    // + idempotent-retry pattern from Tasks 2/3's post-dual-review fix."
+    //
+    // finalized_at: every other terminal-transition endpoint in this crate
+    // (tasks.rs, mcp.rs, complete_task, fail_task, cancel_task) stamps it;
+    // resolve_gate was a gap, closed here rather than left inconsistent
+    // while this code is already being touched. (dispatch_task is a
+    // separate, still-open gap of the same shape — out of this plan's
+    // scope, flagged in the roadmap rather than fixed here.)
+    let updated_task = sqlx::query(
+        "WITH agg AS ( \
+           SELECT bool_or(status='rejected') AS any_rejected, \
+                  bool_and(status IN ('approved','expired')) AS all_resolved \
+           FROM reviewgate WHERE mesh_task_id=$1 \
+         ) \
+         UPDATE task SET \
+           status = CASE WHEN agg.any_rejected THEN 'failed' ELSE 'finished' END, \
+           finalized_by_subject = COALESCE(task.claimed_by_agent_id, task.finalized_by_subject, $3), \
+           finalized_at=$4, lease_expires_at=NULL, claim_lease_id=NULL, \
+           claimed_by_agent_id=NULL, updated_at=$2 \
+         FROM agg \
+         WHERE task.id=$1 AND task.status='waiting_review' \
+           AND (agg.any_rejected OR agg.all_resolved) \
+         RETURNING task.status, task.mission_id, task.domain_id",
+    )
+    .bind(&task_id)
+    .bind(now)
+    .bind(subject_id)
+    .bind(now_tz)
+    .fetch_optional(&mut *tx)
+    .await;
+
+    let transitioned = match updated_task {
+        Ok(r) => r,
         Err(e) => {
-            tracing::error!("resolve_gate fetch task: {e}");
+            tracing::error!("resolve_gate task transition: {e}");
+            let _ = tx.rollback().await;
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let task_status: String = task_row.get("status");
-    let mission_id: String = task_row.get("mission_id");
+    if let Err(e) = tx.commit().await {
+        tracing::error!("resolve_gate commit: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
 
-    if task_status == "waiting_review" {
-        // Re-fetch all gates for this task
-        let all_gates = sqlx::query("SELECT status FROM reviewgate WHERE mesh_task_id=$1")
-            .bind(&task_id)
-            .fetch_all(&state.db)
-            .await
-            .unwrap_or_default();
-
-        let any_rejected = all_gates
-            .iter()
-            .any(|r| r.get::<String, _>("status") == "rejected");
-        let all_resolved = all_gates.iter().all(|r| {
-            let s: String = r.get("status");
-            s == "approved" || s == "expired"
-        });
-
-        // Fenced: `AND status='waiting_review'` makes the task-side
-        // transition a CAS, not a blind write — a second, concurrently
-        // resolved gate on the same task recomputing this same aggregate
-        // after the first gate's resolution already flipped the task must
-        // not double-fire finalized_at/finalized_by_subject, re-run
-        // unblock_dependents, or reverse an already-landed outcome.
-        //
-        // finalized_by_subject: COALESCE prefers the task's actual claimer
-        // (still present on the row — the pending-gate CTE in complete_task
-        // never clears claimed_by_agent_id while waiting_review), falling
-        // back to any attribution a prior cycle already recorded, falling
-        // back to the gate resolver itself. This mirrors complete_task's/
-        // fail_task's "record the claimer" rationale, not cancel_task's
-        // "record the interrupter" one — resolving a gate finalizes the
-        // claimer's own submitted work, it doesn't interrupt someone else's.
-        // Roadmap item: "resolve_gate inherits the attribution +
-        // idempotent-retry pattern from Tasks 2/3's post-dual-review fix."
-        //
-        // finalized_at: every other terminal-transition endpoint in this
-        // crate (tasks.rs, mcp.rs, complete_task, fail_task, cancel_task)
-        // stamps it; resolve_gate was the one gap, closed here rather than
-        // left inconsistent while this code is already being touched.
-        if any_rejected {
-            let _ = sqlx::query(
-                "UPDATE task SET status='failed', \
-                 finalized_by_subject=COALESCE(claimed_by_agent_id, finalized_by_subject, $3), \
-                 finalized_at=$4, lease_expires_at=NULL, claim_lease_id=NULL, \
-                 claimed_by_agent_id=NULL, updated_at=$2 \
-                 WHERE id=$1 AND status='waiting_review'",
-            )
-            .bind(&task_id)
-            .bind(now)
-            .bind(&principal.subject)
-            .bind(now_tz)
-            .execute(&state.db)
-            .await;
-        } else if all_resolved {
-            let updated = sqlx::query(
-                "UPDATE task SET status='finished', \
-                 finalized_by_subject=COALESCE(claimed_by_agent_id, finalized_by_subject, $3), \
-                 finalized_at=$4, lease_expires_at=NULL, claim_lease_id=NULL, \
-                 claimed_by_agent_id=NULL, updated_at=$2 \
-                 WHERE id=$1 AND status='waiting_review' \
-                 RETURNING id",
-            )
-            .bind(&task_id)
-            .bind(now)
-            .bind(&principal.subject)
-            .bind(now_tz)
-            .fetch_optional(&state.db)
-            .await;
-            if matches!(updated, Ok(Some(_))) {
-                let domain_id: String = task_row.get("domain_id");
-                let unblocked = unblock_dependents(&state.db, &mission_id, &task_id).await;
-                for tid in &unblocked {
-                    broadcast_task_available(&domain_id, &mission_id, tid).await;
-                }
-            }
+    // Only a real transition to 'finished' unblocks dependents — a 'failed'
+    // transition, a still-waiting_review no-op (some gates still pending),
+    // or a stale recompute that lost the CAS to an earlier resolution (this
+    // row's own read of `agg` is unaffected by that — see the residual-race
+    // note in the SDD ledger) never should.
+    if let Some(r) = &transitioned
+        && r.get::<String, _>("status") == "finished"
+    {
+        let mission_id: String = r.get("mission_id");
+        let domain_id: String = r.get("domain_id");
+        let unblocked = unblock_dependents(&state.db, &mission_id, &task_id).await;
+        for tid in &unblocked {
+            broadcast_task_available(&domain_id, &mission_id, tid).await;
         }
-        // else: some still pending, leave as waiting_review
     }
 
     Json(gate_val).into_response()
