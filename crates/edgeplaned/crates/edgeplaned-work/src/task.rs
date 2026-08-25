@@ -103,10 +103,14 @@ pub async fn heartbeat_task(
 }
 
 /// Post a typed progress event.
+/// Post a typed progress event. `claim_lease_id` is required by the tower
+/// (EP-1 spec §1, work.rs's `append_progress`) — the caller must hold a live
+/// lease to post progress.
 pub async fn post_progress(
     client: &BackendClient,
     task_id: &str,
     event: &edgeplaned_core::progress::ProgressEvent,
+    claim_lease_id: &str,
 ) -> Result<()> {
     use serde_json::json;
     let body = json!({
@@ -115,6 +119,7 @@ pub async fn post_progress(
         "step": event.step,
         "summary": event.summary,
         "payload_json": event.payload.to_string(),
+        "claim_lease_id": claim_lease_id,
     });
     client
         .raw_post(&format!("/work/tasks/{task_id}/progress"), &body)
@@ -228,7 +233,7 @@ pub async fn fail_task(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path, query_param};
+    use wiremock::matchers::{body_partial_json, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     /// Every field of MeshTaskRecord, explicit, so JSON deserialization can't
@@ -328,9 +333,39 @@ mod tests {
             summary: "test".to_string(),
             payload: serde_json::json!({}),
         };
-        let result = post_progress(&client, "t-1", &event).await;
+        let result = post_progress(&client, "t-1", &event, "lease-abc").await;
 
         assert!(result.is_ok(), "post_progress should succeed against /work/tasks/{{id}}/progress: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn post_progress_sends_claim_lease_id_in_body() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/work/tasks/t-1/progress"))
+            .and(body_partial_json(serde_json::json!({"claim_lease_id": "lease-abc"})))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = BackendClient::new(mock_server.uri(), "test-token");
+        let event = edgeplaned_core::progress::ProgressEvent {
+            event_type: edgeplaned_core::progress::ProgressEventType::PhaseStarted,
+            phase: Some("test-phase".to_string()),
+            step: None,
+            summary: "test".to_string(),
+            payload: serde_json::json!({}),
+        };
+        let result = post_progress(&client, "t-1", &event, "lease-abc").await;
+
+        assert!(
+            result.is_ok(),
+            "the mock only responds to a request whose body contains claim_lease_id=lease-abc \
+             (wiremock's body_partial_json matcher) — an Err here means the tower's new required \
+             field genuinely isn't in the request body, not just that the call errored: {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]

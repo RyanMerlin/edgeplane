@@ -224,6 +224,15 @@ async fn agent_token_attributes_progress_to_self() {
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
         common::seed_claimed_task(&pool, &ctx.mission_id, &ctx.domain_id, &agent_id).await;
+    // append_progress now requires a live lease (EP-1 §1) — seed_claimed_task
+    // doesn't set one, so give the row a real, fresh claim_lease_id to present.
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-progress-attrib', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     // POST progress with the agent's token — no agent_id in body.
     let res = s
@@ -232,7 +241,7 @@ async fn agent_token_attributes_progress_to_self() {
             axum::http::header::AUTHORIZATION,
             format!("Bearer {agent_token}"),
         )
-        .json(&serde_json::json!({"event_type": "status", "summary": "working"}))
+        .json(&serde_json::json!({"event_type": "status", "summary": "working", "claim_lease_id": "lease-progress-attrib"}))
         .await;
     assert!(
         res.status_code().is_success(),

@@ -482,6 +482,7 @@ struct ProgressCreate {
     #[serde(default = "default_input_json")]
     payload_json: String,
     agent_run_id: Option<String>,
+    claim_lease_id: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1369,15 +1370,9 @@ async fn append_progress(
     Path(task_id): Path<String>,
     Json(body): Json<ProgressCreate>,
 ) -> impl IntoResponse {
-    // Verify task exists and fetch its kind for gating below.
-    let kind: Option<String> = sqlx::query_scalar("SELECT kind FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await
-        .unwrap_or(None);
-    let Some(kind) = kind else {
-        return not_found("Task not found");
-    };
+    if body.claim_lease_id.is_empty() {
+        return bad_request("claim_lease_id is required");
+    }
 
     let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
         Ok(d) => d,
@@ -1389,45 +1384,43 @@ async fn append_progress(
         return resp;
     }
 
-    // Kind-gating: an assigned task is never progress-reportable via this
-    // claim/lease-scoped route, full stop.
-    if kind != "claimable" {
-        return conflict("Task is not claimable (kind='assigned')");
-    }
-
-    // Change 8: ownership check — only the task's claimer (or full-trust/admin) may post progress.
-    // ProgressCreate has no claim_lease_id field; pass None (ownership via claimed_by_agent_id).
-    if let Err(resp) =
-        crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
-    {
-        return resp;
-    }
-
-    // Get next sequence number. seq is `integer` (i32) in Postgres — decoding as i64
-    // here previously mismatched the wire type, so sqlx's runtime decode always failed
-    // and silently fell through to unwrap_or(0): every progress event got seq=0.
-    let seq: i32 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(seq), -1) + 1 FROM meshprogressevent WHERE task_id=$1",
-    )
-    .bind(&task_id)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
-
+    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
     let now = Utc::now().naive_utc();
     // Attribute progress to the authenticated caller. Full-trust and admin may
     // supply an explicit agent_id via the (future) body field; restricted
     // callers (agents, SA) are always attributed to their own subject.
     let agent_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject).to_string();
 
+    // Fenced insert: verify the lease/status eligibility and insert in one
+    // statement — no separate precheck, so there is no TOCTOU window between
+    // checking eligibility and writing the event (spec §1 append_progress).
+    // Legal source states/predicate shape match heartbeat_task's exactly
+    // (spec's own endpoint table lists both as claimed/running-only), so this
+    // converges on that same pattern rather than inventing a new one.
+    //
+    // The seq computation (COALESCE(MAX(seq),-1)+1) still races two
+    // concurrent posts against the same task the same way it did before this
+    // change (verified live: no UNIQUE(task_id, seq) constraint exists, so a
+    // race here is a silent duplicate seq, not a retryable conflict) — that
+    // pre-existing race is out of EP-1's scope per the spec, flagged again in
+    // the plan's roadmap after independent verification (SDD ledger, Task 8).
     let row = sqlx::query(
-        "INSERT INTO meshprogressevent (task_id, agent_id, seq, event_type, phase, step, summary, \
-         payload_json, occurred_at, agent_run_id) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *",
+        "WITH eligible AS ( \
+           SELECT 1 FROM task WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
+             AND (claim_policy = 'broadcast' \
+                  OR (lease_expires_at >= $10 AND (claim_lease_id = $2 OR $3))) \
+         ) \
+         INSERT INTO meshprogressevent \
+           (task_id, agent_id, seq, event_type, phase, step, summary, payload_json, occurred_at, agent_run_id) \
+         SELECT $1, $4, (SELECT COALESCE(MAX(seq), -1) + 1 FROM meshprogressevent WHERE task_id=$1), \
+                $5, $6, $7, $8, $9, $10, $11 \
+         WHERE EXISTS (SELECT 1 FROM eligible) \
+         RETURNING *",
     )
     .bind(&task_id)
-    .bind(agent_id)
-    .bind(seq)
+    .bind(&body.claim_lease_id)
+    .bind(is_bypass)
+    .bind(&agent_id)
     .bind(&body.event_type)
     .bind(&body.phase)
     .bind(&body.step)
@@ -1435,25 +1428,32 @@ async fn append_progress(
     .bind(&body.payload_json)
     .bind(now)
     .bind(&body.agent_run_id)
-    .fetch_one(&state.db)
+    .fetch_optional(&state.db)
     .await;
 
     match row {
-        Ok(r) => {
-            Json(serde_json::json!({
-                "id": r.get::<i32, _>("id"),
-                "task_id": r.get::<String, _>("task_id"),
-                "agent_id": r.get::<String, _>("agent_id"),
-                "seq": r.get::<i32, _>("seq"),
-                "event_type": r.get::<String, _>("event_type"),
-                "phase": r.get::<Option<String>, _>("phase"),
-                "step": r.get::<Option<String>, _>("step"),
-                "summary": r.get::<String, _>("summary"),
-                "payload_json": serde_json::from_str::<serde_json::Value>(r.get::<&str, _>("payload_json")).unwrap_or(serde_json::json!({})),
-                "occurred_at": r.get::<chrono::NaiveDateTime, _>("occurred_at"),
-                "agent_run_id": r.get::<Option<String>, _>("agent_run_id"),
-            }))
-            .into_response()
+        Ok(Some(r)) => Json(serde_json::json!({
+            "id": r.get::<i32, _>("id"),
+            "task_id": r.get::<String, _>("task_id"),
+            "agent_id": r.get::<String, _>("agent_id"),
+            "seq": r.get::<i32, _>("seq"),
+            "event_type": r.get::<String, _>("event_type"),
+            "phase": r.get::<Option<String>, _>("phase"),
+            "step": r.get::<Option<String>, _>("step"),
+            "summary": r.get::<String, _>("summary"),
+            "payload_json": serde_json::from_str::<serde_json::Value>(r.get::<&str, _>("payload_json")).unwrap_or(serde_json::json!({})),
+            "occurred_at": r.get::<chrono::NaiveDateTime, _>("occurred_at"),
+            "agent_run_id": r.get::<Option<String>, _>("agent_run_id"),
+        }))
+        .into_response(),
+        Ok(None) => {
+            // already_done_statuses=&[] — matches heartbeat_task's own call
+            // (the closest analog: also non-terminal, also requires a live
+            // lease). Progress-appending has no "already reached this
+            // transition's target status" concept the way a terminal
+            // transition does.
+            classify_fenced_rejection(&state.db, &principal, &task_id, Some(&body.claim_lease_id), &[])
+                .await
         }
         Err(e) => {
             tracing::error!("append_progress: {e}");

@@ -329,8 +329,15 @@ async fn stream_and_heartbeat(
             success = false;
         }
 
-        if let Err(e) = task::post_progress(client, task_id, &event).await {
-            tracing::warn!("Progress post failed: {e}");
+        if let Some(lease) = claim_lease_id {
+            if let Err(e) = task::post_progress(client, task_id, &event, lease).await {
+                tracing::warn!("Progress post failed: {e}");
+            }
+        } else {
+            tracing::warn!(
+                "no lease held, skipping progress post for task {task_id} (event {:?})",
+                event.event_type
+            );
         }
 
         // Heartbeat if overdue.

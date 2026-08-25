@@ -192,13 +192,19 @@ async fn assigned_task_cannot_be_progressed() {
     let task_id =
         common::seed_assigned_task(&pool, &ctx.mission_id, &ctx.domain_id, "harness").await;
     let s = server(pool);
+    // append_progress now requires claim_lease_id in the body (checked before
+    // the task is even touched — a 422 for a missing lease would mask what
+    // this test is actually about, the kind='assigned' rejection). The value
+    // is irrelevant here: the caller is a full-trust session, which
+    // classify_fenced_rejection unconditionally routes to 409 regardless of
+    // any lease presented.
     let res = s
         .post(&format!("/api/work/tasks/{task_id}/progress"))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.owner_session_token),
         )
-        .json(&serde_json::json!({"event_type": "status", "summary": "nope"}))
+        .json(&serde_json::json!({"event_type": "status", "summary": "nope", "claim_lease_id": "irrelevant"}))
         .await;
     assert_eq!(
         res.status_code(),
@@ -298,7 +304,7 @@ async fn claimable_task_claim_heartbeat_progress_retry_still_work() {
     let progress_res = s
         .post(&format!("/api/work/tasks/{task_id}/progress"))
         .add_header(axum::http::header::AUTHORIZATION, format!("Bearer {owner}"))
-        .json(&serde_json::json!({"event_type": "status", "summary": "still working"}))
+        .json(&serde_json::json!({"event_type": "status", "summary": "still working", "claim_lease_id": lease_id}))
         .await;
     assert!(
         progress_res.status_code().is_success(),
@@ -3854,5 +3860,74 @@ async fn fencing_resolve_gate_all_must_resolve_before_task_finishes() {
         status_after_second, "finished",
         "both gates approved must finish the task — bool_and over \
          ('approved','approved') must be true"
+    );
+}
+
+// ── Task 8: append_progress — required lease, fenced insert ─────────────────
+
+#[tokio::test]
+async fn fencing_progress_requires_lease_now() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // No claim_lease_id in the body at all — must be rejected now (was
+    // previously accepted with zero lease field).
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/progress"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"event_type": "status", "summary": "no lease"}))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        422,
+        "progress without claim_lease_id must be rejected: {}",
+        res.text()
+    );
+
+    // Correct lease — must succeed.
+    let ok_res = s
+        .post(&format!("/api/work/tasks/{task_id}/progress"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"event_type": "status", "summary": "with lease", "claim_lease_id": "lease-a"}))
+        .await;
+    assert!(ok_res.status_code().is_success(), "{}", ok_res.text());
+
+    // Stale/wrong lease — must be rejected.
+    let bad_res = s
+        .post(&format!("/api/work/tasks/{task_id}/progress"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({"event_type": "status", "summary": "wrong lease", "claim_lease_id": "not-it"}))
+        .await;
+    assert!(
+        !bad_res.status_code().is_success(),
+        "progress with a stale lease must be rejected: {}",
+        bad_res.text()
     );
 }
