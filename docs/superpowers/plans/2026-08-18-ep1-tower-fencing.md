@@ -2285,6 +2285,16 @@ has enough context to start from without re-deriving it.
   look whenever `claim_task`'s broadcast branch is next touched: either accept the race as a known,
   documented cost of "intentionally unfenced," or give broadcast claims a per-claim/per-attempt
   identity instead of overwriting one singleton lease.
+- **`append_progress`'s `seq = COALESCE(MAX(seq),-1)+1` computation races two concurrent posts
+  against the same task — verified live (Task 8), not just Terra's flagged-but-unconfirmed claim
+  from the handoff.** No `UNIQUE(task_id, seq)` constraint exists on `meshprogressevent` (confirmed
+  against the live schema), so this isn't a retryable conflict — it's a silent duplicate `seq` value
+  across two rows, an ordering/data-quality issue for any consumer that treats `seq` as a strict
+  per-task cursor. Pre-existing (unrelated to fencing, present before this plan started), explicitly
+  scoped out by the spec's own text ("that pre-existing race is out of EP-1's scope"). Fix, if ever
+  picked up: either a `UNIQUE(task_id, seq)` constraint (turns silent duplication into a retryable
+  23505 the caller can react to) or a per-task Postgres sequence/serial allocation instead of a
+  `MAX+1` read.
 - **`dispatch_task` (work.rs) is another unfenced terminal `→'finished'` transition, missed by this
   plan's own original §1 endpoint table — not yet independently verified beyond a single review's
   read.** Flagged by an independent rust-reviewer pass during Task 7 (SDD ledger, Task 7 review).
