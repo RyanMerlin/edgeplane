@@ -46,9 +46,55 @@ pub enum TransitionError {
     },
 }
 
-/// After a fenced write rejects a caller (zero rows returned), classify why.
-/// Moved verbatim from `work.rs`'s `classify_fenced_rejection` — same
-/// behavior, retyped to return `TransitionError` instead of an
+/// After a fenced UPDATE's WHERE clause rejects a caller (zero rows
+/// returned), classify why. Mirrors `claim_task`'s `conflict()`-on-`None`
+/// pattern but adds the 403 split: a caller who presented no ownership
+/// proof at all (no matching `claimed_by_agent_id`/`owner`, no lease
+/// supplied) and isn't full-trust/admin gets 403; anyone who presented
+/// *some* proof — a stale lease, a real-but-wrong-status claim — gets 409,
+/// since from their perspective the request looked legitimate and lost a
+/// race, not unauthorized access. See spec §1 "403 vs 409, done correctly".
+///
+/// This function is diagnostic-only: by the time it runs, the fenced
+/// UPDATE has already atomically decided the request is rejected — nothing
+/// here grants or withholds access, it only picks the response shape.
+///
+/// Deliberate: `lease_id.is_some()` alone is enough for 409, without
+/// checking whether it matches the row's *current* `claim_lease_id`.
+/// Dual-review (2026-08-19/20) flagged this as letting a caller suppress
+/// the 403 signal by attaching any string. Verified the stricter
+/// alternative (require an exact match) before rejecting it: it breaks
+/// the reclaim-race case this design exists to serve —
+/// `expire_stale_leases` clears a reclaimed row's `claim_lease_id` to
+/// `NULL`, so a legitimate agent presenting its own, once-real, since-
+/// reclaimed lease would get 403 instead of 409 under strict matching
+/// (see `fencing_complete_stale_lease_after_reclaim_is_409` and
+/// `fencing_heartbeat_stale_lease_is_409_not_403`, both of which encode
+/// this exact scenario). `edgeplaned-work` maps 409 to a graceful
+/// lease-mismatch/abandon path and 403 to a hard error, so this isn't
+/// cosmetic — strict matching would hard-error a caller that did nothing
+/// wrong. Abuse detection belongs on the `fenced_rejection` tracing event
+/// below (which does distinguish a never-matching lease from a real one),
+/// not on the HTTP status code.
+///
+/// `already_done_statuses`: statuses that mean *this specific transition*
+/// already succeeded (e.g. `["finished"]` for `complete_task`) — checked
+/// before ownership, unconditionally, for every caller. complete_task/
+/// fail_task null `claimed_by_agent_id` on their terminal transition (to
+/// close a real ownership-carryover gap — see the plan's "Correction:
+/// terminal transitions don't fully clear ownership" section), which
+/// otherwise turns a legitimate idempotent retry into a 403 instead of a
+/// 409 once that evidence is gone (`edgeplaned-work` maps only 409 to a
+/// graceful lease-mismatch path). A row already at the target status is a
+/// state fact, not an authorization fact — true for the original owner
+/// retrying AND for a caller that never had any relationship to the task,
+/// so this check doesn't distinguish by identity at all; it doesn't leak
+/// anything a domain-gated `GET /work/tasks/{id}` doesn't already reveal.
+/// Empty slice for endpoints with no idempotent-retry concern (e.g.
+/// `heartbeat_task`, whose target status isn't terminal).
+///
+/// Moved from `work.rs`'s `classify_fenced_rejection` — same behavior,
+/// retyped to return `TransitionError` instead of an
 /// `axum::response::Response` so MCP callers (which have no use for an Axum
 /// response type) can use it too. `rest_transition_error` is the REST-side
 /// adapter back to the exact status codes/bodies this function used to
