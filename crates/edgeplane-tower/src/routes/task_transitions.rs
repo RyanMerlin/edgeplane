@@ -132,6 +132,16 @@ pub(crate) async fn classify_fenced_rejection(
     let claimed: Option<String> = row.get("claimed_by_agent_id");
     let owner: Option<String> = row.get("owner");
     let current_lease: Option<String> = row.get("claim_lease_id");
+    // finalized_by_subject: an earlier terminal/attribution-writing call
+    // (complete/fail/cancel) can erase claimed_by_agent_id while preserving
+    // the actor's identity in this separate column (see 3f8c262a/79d0c493).
+    // A caller racing against that earlier call — e.g. self-cancel, then a
+    // retried unblock — must not be misclassified as "zero ownership proof
+    // ever" just because the specific column this predicate reads got
+    // cleared by a DIFFERENT operation. Not attacker-controllable: this
+    // column is only ever written to a legitimate claimer's or bypass
+    // caller's own subject, so checking it here grants no new capability,
+    // it just stops losing a signal that already exists on the row.
     let finalized_by: Option<String> = row.get("finalized_by_subject");
     let owns_directly = claimed.as_deref() == Some(actor.subject_id)
         || owner.as_deref() == Some(actor.subject_id)
