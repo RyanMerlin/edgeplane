@@ -2762,6 +2762,41 @@ async fn fencing_block_non_owner_restricted_caller_is_403() {
     );
 }
 
+#[tokio::test]
+async fn fencing_classify_rejection_survives_the_move_to_task_transitions() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    // A restricted, unrelated caller with zero ownership proof on a running
+    // task must still get 403 — the exact classify_fenced_rejection behavior
+    // this task moves into task_transitions.rs, unchanged.
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-someone-else"),
+        1,
+    )
+    .await;
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/cancel"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "cancel_task's classify_fenced_rejection call, now routed through \
+         task_transitions::classify_fenced_rejection + rest_transition_error, \
+         must still classify zero-proof restricted callers as 403: {}",
+        res.text()
+    );
+}
+
 // ── Task 6: unblock_task — net-new fenced precondition ──────────────────────
 
 #[tokio::test]

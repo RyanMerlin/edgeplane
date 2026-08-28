@@ -28,6 +28,7 @@ pub mod scheduled_jobs;
 pub mod schema_pack;
 pub mod search;
 pub mod slack_integrations;
+pub mod task_transitions;
 pub mod tasks;
 pub mod teams_integrations;
 pub mod webhooks_tailscale;
