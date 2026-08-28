@@ -2285,6 +2285,55 @@ has enough context to start from without re-deriving it.
   look whenever `claim_task`'s broadcast branch is next touched: either accept the race as a known,
   documented cost of "intentionally unfenced," or give broadcast claims a per-claim/per-attempt
   identity instead of overwriting one singleton lease.
+  **Severity correction (independent Codex review, 2026-08-28):** the above framed this narrowly as
+  "two claims racing" — the actual UPDATE (`work.rs:~1206-1216`, verified live) has **zero predicate
+  beyond `WHERE id=$1`**, not just no version/CAS check. It doesn't re-verify `status='ready'` OR
+  `claim_policy='broadcast'` at write time, only at the earlier separate read. Concretely, this means
+  a stale broadcast-claim request isn't limited to clobbering a *racing claim* — it can overwrite a
+  task that has since moved to **any** state, including `finished`/`cancelled`, resetting it to
+  `running` with the stale request's `claimed_by_agent_id`/lease. Same "intentionally unfenced by
+  design" disposition still applies (this is the claim path, explicitly out of the fenced-transition
+  primitive's scope per the Fable investigation below), but the fix-when-touched note should read
+  "add a `status='ready' AND claim_policy='broadcast'` predicate to the UPDATE, at minimum" rather
+  than treating this as merely a lease-clobber edge case.
+- **`claim_task`'s exclusive-claim CAS has an unchecked `i32` overflow** (`work.rs:~1270`,
+  `version_counter + 1` with no `checked_add`) — panics in debug builds at `i32::MAX`, wraps to a
+  negative version in release and keeps using it for CAS comparisons. Requires an extreme/corrupted
+  row state to reach; LOW severity, but a real, newly-flagged (independent Codex review, 2026-08-28)
+  correctness nit in the same function as the broadcast-predicate gap above — fix both together
+  whenever `claim_task` gets its own dedicated pass.
+- **`create_gate` (`work.rs:1987-2032`) is check-then-insert with no fencing on the insert itself —
+  never part of EP-1's 8-endpoint scope, newly surfaced by independent review (2026-08-28).** Calls
+  `authz_task_owner` as a precheck, then an unconditional `INSERT INTO reviewgate` with no
+  task-status, ownership, or lease predicate on the insert. Confirmed live. A caller who owned the
+  task at check-time but has since lost ownership (reclaimed, completed, cancelled) can still attach
+  a pending gate to it — and since `complete_task`'s and `resolve_gate`'s gate-aggregate CTEs read
+  `reviewgate` fresh each time but don't lock the task row against a concurrent `create_gate` insert,
+  a gate created in that exact window can be either missed (task finishes despite an attacker's gate,
+  narrow) or unexpectedly attached to a task the *new*, legitimate claimer didn't ask to be
+  gate-reviewed (the more likely practical impact — an authz gap, not primarily a race). Fix, when
+  picked up: fence the INSERT the same way the rest of this plan fences mutations — `INSERT ... SELECT
+  ... WHERE EXISTS (task still owned by caller AND still in a gate-attachable status)`.
+- **`append_progress`'s fenced CTE lacks a row lock, unlike its `UPDATE...WHERE` siblings — confirmed
+  by two independent reviews now (rust-reviewer's Task 8 fix-round re-review, live 3-connection
+  reproduction; and an independent Codex review, 2026-08-28, same conclusion via SQL-semantics
+  reasoning).** `WITH eligible AS (SELECT 1 FROM task WHERE ...)` takes the statement's snapshot with
+  no `FOR UPDATE`, so a concurrent write to the same task row (reclaim, completion) that commits
+  after the snapshot is taken but before the INSERT completes isn't observed. This is now a firm
+  design requirement for the shared fenced-transition primitive (`docs/superpowers/specs/` — see the
+  new spec once written): the "live-lease" fence family (heartbeat + progress) must use a row-locked
+  `UPDATE...WHERE`-shaped statement, not a lock-free CTE, closing this structurally rather than
+  patching the old code.
+- **`retry_task` (`work.rs:1083-1125`) — severity correction (independent Codex review,
+  2026-08-28).** Already logged (2026-08-26) as "any domain member can retry any failed/cancelled
+  task, no ownership check." The check-then-act window is worse than that framing suggested: because
+  the write is a blind `UPDATE ... WHERE id=$1` with no status re-check, a caller who read the task
+  as `failed`/`cancelled` can still apply the retry-reset even if the task has since been legitimately
+  retried and re-claimed by someone else — ripping an **actively claimed, in-progress** task back to
+  `ready` and nulling the new claimer's lease, not merely restarting dead work. Same disposition
+  (out of EP-1's 8-endpoint scope, log only, per Merlin's 2026-08-26 call) — noted here so the
+  severity is accurate when this is eventually picked up: needs `AND status IN ('failed','cancelled')`
+  on the UPDATE itself, not just the earlier read.
 - **`progress_mesh_task` (MCP, `mcp.rs`) is unfenced and outside even Task 9's stated scope —
   found during Task 8's independent review, not previously tracked anywhere.** Task 9's own scope
   (below) is `complete_mesh_task`/`fail_mesh_task`/`block_mesh_task` only (`mcp.rs:791-864`);
