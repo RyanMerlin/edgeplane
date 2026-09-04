@@ -4121,3 +4121,162 @@ async fn fencing_progress_broadcast_task_with_matching_lease_and_expired_freshne
         res.text()
     );
 }
+
+#[tokio::test]
+async fn fencing_heartbeat_still_works_after_family_a_refactor() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/heartbeat"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "lease-a"}))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "heartbeat must still succeed after the family-A refactor: {}",
+        res.text()
+    );
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["status"], "running");
+}
+
+#[tokio::test]
+async fn fencing_progress_single_post_works_after_family_a_refactor() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/progress"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({
+            "event_type": "status",
+            "summary": "test progress",
+            "claim_lease_id": "lease-a",
+        }))
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "progress post must succeed after the family-A refactor: {}",
+        res.text()
+    );
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["seq"], 0);
+}
+
+/// The specific race this task's row-locked, multi-statement transaction
+/// design closes: two genuinely concurrent progress posts to the SAME task
+/// must never both compute the same `seq` value. A single-statement CTE
+/// version of this fence (the pre-refactor code) could not guarantee this —
+/// see this plan's Global Constraints for why a multi-statement transaction
+/// does.
+#[tokio::test]
+async fn fencing_progress_concurrent_posts_get_sequential_seq_after_family_a_refactor() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = std::sync::Arc::new(server(pool.clone()));
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut handles = Vec::new();
+    for i in 0..8 {
+        let s = std::sync::Arc::clone(&s);
+        let task_id = task_id.clone();
+        let token = ctx.owner_session_token.clone();
+        handles.push(tokio::spawn(async move {
+            let res = s.post(&format!("/api/work/tasks/{task_id}/progress"))
+                .add_header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {token}"),
+                )
+                .json(&serde_json::json!({
+                    "event_type": "status",
+                    "summary": format!("concurrent {i}"),
+                    "claim_lease_id": "lease-a",
+                }))
+                .await;
+            let status = res.status_code();
+            let body = res.text();
+            if !status.is_success() {
+                eprintln!("Request {i} failed with status {status}: {}", body);
+            }
+            (i, status, body)
+        }));
+    }
+    let mut results = vec![];
+    for h in handles {
+        let (i, status, body) = h.await.unwrap();
+        if !status.is_success() {
+            panic!("Request {i} failed with status {status}: {}", body);
+        }
+        results.push((i, status));
+    }
+
+    let seqs: Vec<i32> = sqlx::query_scalar("SELECT seq FROM meshprogressevent WHERE task_id=$1 ORDER BY seq")
+        .bind(&task_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        seqs,
+        (0..8).collect::<Vec<i32>>(),
+        "8 genuinely concurrent posts must get 8 distinct, sequential seq values, no duplicates: {seqs:?}"
+    );
+}

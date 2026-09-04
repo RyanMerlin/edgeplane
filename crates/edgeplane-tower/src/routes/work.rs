@@ -166,7 +166,7 @@ pub(crate) fn bad_request(msg: &str) -> axum::response::Response {
 
 // ── Row helpers ────────────────────────────────────────────────────────────────
 
-fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
+pub(crate) fn row_to_task(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     serde_json::json!({
         "id": row.get::<String, _>("id"),
         "mission_id": row.get::<String, _>("mission_id"),
@@ -1220,44 +1220,23 @@ async fn heartbeat_task(
         return resp;
     }
 
-    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
-    let now = Utc::now().naive_utc();
-    let lease_expires = now + chrono::Duration::seconds(LEASE_TTL_SECS);
-
-    let updated = sqlx::query(
-        "UPDATE task SET status='running', lease_expires_at=$2, updated_at=$3 \
-         WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-           AND (claim_lease_id = $4 OR $5) \
-           AND (claim_policy = 'broadcast' OR lease_expires_at >= $3) \
-         RETURNING *",
+    let actor = crate::routes::task_transitions::task_actor(&principal);
+    let outcome = crate::routes::task_transitions::execute_task_transition(
+        &state.db,
+        &actor,
+        &task_id,
+        crate::routes::task_transitions::TaskTransition::Heartbeat {
+            claim_lease_id: body.claim_lease_id.as_deref(),
+        },
     )
-    .bind(&task_id)
-    .bind(lease_expires)
-    .bind(now)
-    .bind(body.claim_lease_id.as_deref())
-    .bind(is_bypass)
-    .fetch_optional(&state.db)
     .await;
 
-    match updated {
-        Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
-        Ok(None) => {
-            let actor = crate::routes::task_transitions::task_actor(&principal);
-            crate::routes::task_transitions::rest_transition_error(
-                crate::routes::task_transitions::classify_fenced_rejection(
-                    &state.db,
-                    &actor,
-                    &task_id,
-                    body.claim_lease_id.as_deref(),
-                    &[],
-                )
-                .await,
-            )
+    match outcome {
+        Ok(crate::routes::task_transitions::TransitionOutcome::Task { task, .. }) => {
+            Json(task).into_response()
         }
-        Err(e) => {
-            tracing::error!("heartbeat_task update: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+        Ok(_) => unreachable!("Heartbeat always yields TransitionOutcome::Task"),
+        Err(e) => crate::routes::task_transitions::rest_transition_error(e),
     }
 }
 
@@ -1281,97 +1260,29 @@ async fn append_progress(
         return resp;
     }
 
-    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
-    let now = Utc::now().naive_utc();
-    // Attribute progress to the authenticated caller. Full-trust and admin may
-    // supply an explicit agent_id via the (future) body field; restricted
-    // callers (agents, SA) are always attributed to their own subject.
-    let agent_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject).to_string();
-
-    // Fenced insert: verify the lease/status eligibility and insert in one
-    // statement — no separate precheck, so there is no TOCTOU window between
-    // checking eligibility and writing the event (spec §1 append_progress).
-    // Legal source states/predicate shape match heartbeat_task's exactly
-    // (spec's own endpoint table lists both as claimed/running-only), so this
-    // converges on that same pattern rather than inventing a new one.
-    //
-    // Second pass (independent rust-reviewer): the first version of this
-    // predicate had `claim_policy = 'broadcast'` as a bare top-level OR
-    // disjunct spanning the ENTIRE ownership+lease clause — the exact
-    // CRITICAL bug commit 37dca61a already fixed in heartbeat_task/
-    // complete_task/fail_task five days earlier on this same branch. Copied
-    // verbatim from this plan doc's own Task 8 text, which itself was never
-    // updated after 37dca61a — the doc's Global Constraints ruling and Tasks
-    // 1/2/3/9's embedded code blocks all still carried the stale shape too
-    // (fixed in the same pass as this code, see the plan doc + SDD ledger).
-    // Ownership (claim_lease_id match or bypass) is required UNCONDITIONALLY
-    // now; broadcast only waives the freshness sub-check, matching
-    // heartbeat_task's current (post-37dca61a) shape exactly.
-    //
-    // The seq computation (COALESCE(MAX(seq),-1)+1) still races two
-    // concurrent posts against the same task the same way it did before this
-    // change (verified live: no UNIQUE(task_id, seq) constraint exists, so a
-    // race here is a silent duplicate seq, not a retryable conflict) — that
-    // pre-existing race is out of EP-1's scope per the spec, flagged again in
-    // the plan's roadmap after independent verification (SDD ledger, Task 8).
-    let row = sqlx::query(
-        "WITH eligible AS ( \
-           SELECT 1 FROM task WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-             AND (claim_lease_id = $2 OR $3) \
-             AND (claim_policy = 'broadcast' OR lease_expires_at >= $10) \
-         ) \
-         INSERT INTO meshprogressevent \
-           (task_id, agent_id, seq, event_type, phase, step, summary, payload_json, occurred_at, agent_run_id) \
-         SELECT $1, $4, (SELECT COALESCE(MAX(seq), -1) + 1 FROM meshprogressevent WHERE task_id=$1), \
-                $5, $6, $7, $8, $9, $10, $11 \
-         WHERE EXISTS (SELECT 1 FROM eligible) \
-         RETURNING *",
+    let actor = crate::routes::task_transitions::task_actor(&principal);
+    let outcome = crate::routes::task_transitions::execute_task_transition(
+        &state.db,
+        &actor,
+        &task_id,
+        crate::routes::task_transitions::TaskTransition::AppendProgress {
+            claim_lease_id: &body.claim_lease_id,
+            event_type: &body.event_type,
+            phase: body.phase.as_deref(),
+            step: body.step.as_deref(),
+            summary: &body.summary,
+            payload_json: &body.payload_json,
+            agent_run_id: body.agent_run_id.as_deref(),
+        },
     )
-    .bind(&task_id)
-    .bind(&body.claim_lease_id)
-    .bind(is_bypass)
-    .bind(&agent_id)
-    .bind(&body.event_type)
-    .bind(&body.phase)
-    .bind(&body.step)
-    .bind(&body.summary)
-    .bind(&body.payload_json)
-    .bind(now)
-    .bind(&body.agent_run_id)
-    .fetch_optional(&state.db)
     .await;
 
-    match row {
-        Ok(Some(r)) => Json(serde_json::json!({
-            "id": r.get::<i32, _>("id"),
-            "task_id": r.get::<String, _>("task_id"),
-            "agent_id": r.get::<String, _>("agent_id"),
-            "seq": r.get::<i32, _>("seq"),
-            "event_type": r.get::<String, _>("event_type"),
-            "phase": r.get::<Option<String>, _>("phase"),
-            "step": r.get::<Option<String>, _>("step"),
-            "summary": r.get::<String, _>("summary"),
-            "payload_json": serde_json::from_str::<serde_json::Value>(r.get::<&str, _>("payload_json")).unwrap_or(serde_json::json!({})),
-            "occurred_at": r.get::<chrono::NaiveDateTime, _>("occurred_at"),
-            "agent_run_id": r.get::<Option<String>, _>("agent_run_id"),
-        }))
-        .into_response(),
-        Ok(None) => {
-            // already_done_statuses=&[] — matches heartbeat_task's own call
-            // (the closest analog: also non-terminal, also requires a live
-            // lease). Progress-appending has no "already reached this
-            // transition's target status" concept the way a terminal
-            // transition does.
-            let actor = crate::routes::task_transitions::task_actor(&principal);
-            crate::routes::task_transitions::rest_transition_error(
-                crate::routes::task_transitions::classify_fenced_rejection(&state.db, &actor, &task_id, Some(&body.claim_lease_id), &[])
-                    .await,
-            )
+    match outcome {
+        Ok(crate::routes::task_transitions::TransitionOutcome::Progress(event)) => {
+            Json(event).into_response()
         }
-        Err(e) => {
-            tracing::error!("append_progress: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+        Ok(_) => unreachable!("AppendProgress always yields TransitionOutcome::Progress"),
+        Err(e) => crate::routes::task_transitions::rest_transition_error(e),
     }
 }
 

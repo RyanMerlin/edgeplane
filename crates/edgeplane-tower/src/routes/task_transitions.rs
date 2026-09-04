@@ -9,6 +9,7 @@ use crate::auth::Principal;
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use chrono::{Duration, Utc};
 use sqlx::Row;
 
 /// Derived once per request from the authenticated `Principal`. `subject_id`
@@ -181,6 +182,186 @@ pub(crate) fn rest_transition_error(error: TransitionError) -> Response {
         TransitionError::Database { operation, source } => {
             tracing::error!("{operation}: {source}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+
+fn row_to_progress(row: &sqlx::postgres::PgRow) -> serde_json::Value {
+    serde_json::json!({
+        "id": row.get::<i32, _>("id"),
+        "task_id": row.get::<String, _>("task_id"),
+        "agent_id": row.get::<String, _>("agent_id"),
+        "seq": row.get::<i32, _>("seq"),
+        "event_type": row.get::<String, _>("event_type"),
+        "phase": row.get::<Option<String>, _>("phase"),
+        "step": row.get::<Option<String>, _>("step"),
+        "summary": row.get::<String, _>("summary"),
+        "payload_json": serde_json::from_str::<serde_json::Value>(row.get::<&str, _>("payload_json")).unwrap_or(serde_json::json!({})),
+        "occurred_at": row.get::<chrono::NaiveDateTime, _>("occurred_at"),
+        "agent_run_id": row.get::<Option<String>, _>("agent_run_id"),
+    })
+}
+
+pub enum TaskTransition<'a> {
+    Heartbeat {
+        claim_lease_id: Option<&'a str>,
+    },
+    AppendProgress {
+        claim_lease_id: &'a str,
+        event_type: &'a str,
+        phase: Option<&'a str>,
+        step: Option<&'a str>,
+        summary: &'a str,
+        payload_json: &'a str,
+        agent_run_id: Option<&'a str>,
+    },
+}
+
+pub enum TransitionOutcome {
+    Task {
+        task: serde_json::Value,
+        unblocked_task_ids: Vec<String>,
+    },
+    Progress(serde_json::Value),
+}
+
+pub(crate) async fn execute_task_transition(
+    db: &sqlx::PgPool,
+    actor: &TransitionActor<'_>,
+    task_id: &str,
+    transition: TaskTransition<'_>,
+) -> Result<TransitionOutcome, TransitionError> {
+    match transition {
+        TaskTransition::Heartbeat { claim_lease_id } => {
+            let now = Utc::now().naive_utc();
+            let mut tx = db.begin().await.map_err(|e| TransitionError::Database {
+                operation: "heartbeat begin tx",
+                source: e,
+            })?;
+            let locked = sqlx::query(
+                "SELECT * FROM task WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
+                 AND (claim_lease_id = $2 OR $3) \
+                 AND (claim_policy = 'broadcast' OR lease_expires_at >= $4) \
+                 FOR UPDATE",
+            )
+            .bind(task_id)
+            .bind(claim_lease_id)
+            .bind(actor.is_bypass)
+            .bind(now)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| TransitionError::Database {
+                operation: "heartbeat fence",
+                source: e,
+            })?;
+            if locked.is_none() {
+                let _ = tx.rollback().await;
+                return Err(classify_fenced_rejection(db, actor, task_id, claim_lease_id, &[]).await);
+            }
+            let lease_expires = now + Duration::seconds(crate::routes::work::LEASE_TTL_SECS);
+            let row = sqlx::query(
+                "UPDATE task SET status='running', lease_expires_at=$2, updated_at=$3 \
+                 WHERE id=$1 RETURNING *",
+            )
+            .bind(task_id)
+            .bind(lease_expires)
+            .bind(now)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| TransitionError::Database {
+                operation: "heartbeat update",
+                source: e,
+            })?;
+            tx.commit().await.map_err(|e| TransitionError::Database {
+                operation: "heartbeat commit",
+                source: e,
+            })?;
+            Ok(TransitionOutcome::Task {
+                task: crate::routes::work::row_to_task(&row),
+                unblocked_task_ids: vec![],
+            })
+        }
+        TaskTransition::AppendProgress {
+            claim_lease_id,
+            event_type,
+            phase,
+            step,
+            summary,
+            payload_json,
+            agent_run_id,
+        } => {
+            let now = Utc::now().naive_utc();
+            let mut tx = db.begin().await.map_err(|e| TransitionError::Database {
+                operation: "progress begin tx",
+                source: e,
+            })?;
+            let locked = sqlx::query(
+                "SELECT * FROM task WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
+                 AND (claim_lease_id = $2 OR $3) \
+                 AND (claim_policy = 'broadcast' OR lease_expires_at >= $4) \
+                 FOR UPDATE",
+            )
+            .bind(task_id)
+            .bind(Some(claim_lease_id))
+            .bind(actor.is_bypass)
+            .bind(now)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| TransitionError::Database {
+                operation: "progress fence",
+                source: e,
+            })?;
+            if locked.is_none() {
+                let _ = tx.rollback().await;
+                return Err(
+                    classify_fenced_rejection(db, actor, task_id, Some(claim_lease_id), &[]).await,
+                );
+            }
+            // Issued as its own statement, AFTER the row lock above is held —
+            // under READ COMMITTED this gets a fresh snapshot as of *now*,
+            // not the transaction's start, so a concurrent poster that was
+            // blocked on the same lock and just committed is visible here.
+            // This is what closes the seq-duplication race a single-
+            // statement CTE version of this fence could not (see Global
+            // Constraints).
+            let seq: i32 = sqlx::query_scalar(
+                "SELECT COALESCE(MAX(seq), -1) + 1 FROM meshprogressevent WHERE task_id=$1",
+            )
+            .bind(task_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| TransitionError::Database {
+                operation: "progress seq",
+                source: e,
+            })?;
+            let agent_id = actor.subject_id.to_string();
+            let row = sqlx::query(
+                "INSERT INTO meshprogressevent \
+                 (task_id, agent_id, seq, event_type, phase, step, summary, payload_json, occurred_at, agent_run_id) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *",
+            )
+            .bind(task_id)
+            .bind(&agent_id)
+            .bind(seq)
+            .bind(event_type)
+            .bind(phase)
+            .bind(step)
+            .bind(summary)
+            .bind(payload_json)
+            .bind(now)
+            .bind(agent_run_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| TransitionError::Database {
+                operation: "progress insert",
+                source: e,
+            })?;
+            tx.commit().await.map_err(|e| TransitionError::Database {
+                operation: "progress commit",
+                source: e,
+            })?;
+            Ok(TransitionOutcome::Progress(row_to_progress(&row)))
         }
     }
 }
