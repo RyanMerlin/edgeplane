@@ -1000,9 +1000,7 @@ async fn retry_task(
         Ok(d) => d,
         Err(resp) => return resp,
     };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -1713,7 +1711,10 @@ async fn create_gate(
     }
 
     let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
-    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+    let subject_id = principal
+        .subject
+        .strip_prefix("agent:")
+        .unwrap_or(&principal.subject);
     let gate_id = Uuid::new_v4().to_string();
     let now = Utc::now().naive_utc();
 
@@ -1775,16 +1776,19 @@ async fn create_gate(
 /// read: reuses `authz_task_owner` unchanged for "task missing" (404) /
 /// "caller isn't the claimer" (403) — those two conditions are exactly what
 /// it already checks. A caller who reaches here AND passes
-/// `authz_task_owner` must have failed the status half of the fence (the
-/// only remaining reason the INSERT's WHERE EXISTS could be false), i.e.
-/// the task is no longer in a gate-attachable status.
+/// `authz_task_owner` must have failed either the status half of the fence,
+/// or the kind-specific ownership half — `authz_task_owner` is kind-agnostic
+/// (checks `claimed == me || owner == me` regardless of kind), while this
+/// fence's ownership check is kind-split; the two are equivalent only
+/// because every task write path enforces that each kind exclusively
+/// populates its own ownership column (claimable tasks never set `owner`,
+/// assigned tasks never set `claimed_by_agent_id`).
 async fn classify_create_gate_rejection(
     db: &sqlx::PgPool,
     principal: &Principal,
     task_id: &str,
 ) -> axum::response::Response {
-    if let Err(resp) = crate::routes::authz::authz_task_owner(db, principal, task_id, None).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_task_owner(db, principal, task_id, None).await {
         return resp;
     }
     conflict("Task is not in a gate-attachable status")
@@ -1850,10 +1854,13 @@ async fn resolve_gate(
     // UPDATE individually but ran them as two separate autocommitted
     // statements, with the any_rejected/all_resolved aggregate computed in a
     // THIRD statement in between — a gate created by a concurrent
-    // create_gate call (which has no task-status precondition at all,
-    // verified live) between that aggregate SELECT and the task UPDATE
+    // create_gate call between that aggregate SELECT and the task UPDATE
     // could be missed entirely, letting a task finish with a still-pending
-    // approval gate. This is exactly the race the spec's "recomputes
+    // approval gate. (create_gate now has its own task-status precondition —
+    // see its fenced INSERT above — but `waiting_review` is itself a
+    // gate-attachable status, so a new gate can still land concurrently on a
+    // task sitting in that state; the race this transaction closes is real
+    // regardless.) This is exactly the race the spec's "recomputes
     // remaining-gate state in the same transaction so a second gate created
     // concurrently isn't missed" language calls out. Fixed: both statements
     // now run inside one explicit transaction (the `claim_task` FOR UPDATE

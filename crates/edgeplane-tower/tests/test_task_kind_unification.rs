@@ -807,20 +807,20 @@ async fn fencing_retry_task_current_status_not_failed_or_cancelled_is_409() {
         res.text()
     );
 
-    let row = sqlx::query(
-        "SELECT status, claimed_by_agent_id, claim_lease_id FROM task WHERE id=$1",
-    )
-    .bind(&task_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let row =
+        sqlx::query("SELECT status, claimed_by_agent_id, claim_lease_id FROM task WHERE id=$1")
+            .bind(&task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(
         row.get::<String, _>("status"),
         "running",
         "rejected retry must not have touched the row's status"
     );
     assert_eq!(
-        row.get::<Option<String>, _>("claimed_by_agent_id").as_deref(),
+        row.get::<Option<String>, _>("claimed_by_agent_id")
+            .as_deref(),
         Some("agent-new-claimer"),
         "rejected retry must not have cleared the current claimer's ownership"
     );
@@ -893,11 +893,15 @@ async fn fencing_retry_task_from_failed_still_succeeds() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(row.get::<Option<String>, _>("claimed_by_agent_id").is_none());
+    assert!(
+        row.get::<Option<String>, _>("claimed_by_agent_id")
+            .is_none()
+    );
     assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
-    assert!(row
-        .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
-        .is_none());
+    assert!(
+        row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+            .is_none()
+    );
 }
 
 // ── Bounded retry / backoff (attempt vs. max_attempts) ───────────────────────

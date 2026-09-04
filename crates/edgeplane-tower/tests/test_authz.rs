@@ -719,7 +719,7 @@ async fn domain_peer_cannot_create_gate_on_foreign_task() {
 }
 
 #[tokio::test]
-async fn create_gate_succeeds_for_current_claimer_on_running_task() {
+async fn create_gate_succeeds_for_bypass_caller_on_running_task() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
@@ -764,6 +764,130 @@ async fn create_gate_succeeds_for_current_claimer_on_running_task() {
 }
 
 #[tokio::test]
+async fn create_gate_succeeds_for_real_claimer_non_bypass() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let (_, agent_token) = enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    let task_id = common::seed_ready_task(&pool, &ctx.mission_id, &ctx.domain_id).await;
+
+    let claim_res = s
+        .post(&format!("/api/work/tasks/{task_id}/claim"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({}))
+        .await;
+    assert!(claim_res.status_code().is_success(), "{}", claim_res.text());
+
+    // The real claimer, authenticated as its own agent token (auth_type
+    // "agent", not "session"/"node" — NOT full-trust) — proves
+    // task.claimed_by_agent_id = $9 in the fenced INSERT actually admits the
+    // caller it's meant to, not just the is_bypass arm. Before this test,
+    // nothing in the suite exercised this branch non-bypass.
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({
+            "gate_type": "review",
+            "required_approvals": "1"
+        }))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        201,
+        "the real, non-bypass claimer must be able to attach a gate to its own claimed task: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn create_gate_succeeds_for_assigned_task_owner_non_bypass() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let (agent_id, agent_token) =
+        enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
+    // seed_assigned_task's `owner` column must equal the enrolled agent's
+    // own subject_id for the ownership half to match. An agent JWT's `sub`
+    // claim is `format!("agent:{agent_id}")` (jwt.rs:85), and the fenced
+    // predicate compares against the agent:-prefix-STRIPPED subject — so
+    // `owner` must be the raw `agent_id` enroll_and_get_token returns, not
+    // "agent:{agent_id}".
+    let task_id =
+        common::seed_assigned_task(&pool, &ctx.mission_id, &ctx.domain_id, &agent_id).await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {agent_token}"),
+        )
+        .json(&serde_json::json!({
+            "gate_type": "review",
+            "required_approvals": "1"
+        }))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        201,
+        "the real owner of an assigned-kind task, non-bypass, must be able to attach a gate: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn create_gate_rejected_for_non_owner_on_assigned_task() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    // Owned by a DIFFERENT agent than the caller.
+    let task_id =
+        common::seed_assigned_task(&pool, &ctx.mission_id, &ctx.domain_id, "some-other-agent")
+            .await;
+
+    // member_sa_token: a domain member, non-owner, non-bypass. This is the
+    // regression guard for the exact bug class fixed in 37dca61a elsewhere
+    // in this predicate family: if the assigned arm's parens were ever
+    // written as `(kind='assigned' AND status NOT IN (...) AND owner=$9 OR
+    // $10)` instead of `(kind='assigned' AND status NOT IN (...) AND
+    // (owner=$9 OR $10))`, Postgres would parse the OR as spanning the
+    // WHOLE clause, and `$10=false` wouldn't save you — but a bypass-less
+    // caller like this one would still be correctly rejected either way, so
+    // this test alone doesn't catch that specific misparenthesization (it
+    // requires is_bypass=true against a non-owned row to distinguish the
+    // two parse trees — not adding that as a third test here since the
+    // existing kind='claimable' bypass-caller test already covers the
+    // pattern; this test's job is just proving the assigned arm's ownership
+    // check works in the negative direction at all, which had zero coverage
+    // before this fix).
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({
+            "gate_type": "review",
+            "required_approvals": "1"
+        }))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        403,
+        "a non-owner, non-bypass caller must not be able to attach a gate to someone else's assigned task: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
 async fn create_gate_rejected_when_task_no_longer_gate_attachable() {
     let Some((pool, ctx)) = setup().await else {
         return;
@@ -773,15 +897,9 @@ async fn create_gate_rejected_when_task_no_longer_gate_attachable() {
     // no claimer) rather than driving it through /complete, matching how
     // sibling fencing tests in test_task_kind_unification.rs seed
     // post-terminal-transition state.
-    let task_id = common::seed_claimable_task(
-        &pool,
-        &ctx.mission_id,
-        &ctx.domain_id,
-        "finished",
-        None,
-        1,
-    )
-    .await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "finished", None, 1)
+            .await;
     let s = server(pool.clone());
 
     // Bypass caller (owner_session_token) — satisfies the ownership half of

@@ -90,7 +90,7 @@ below, keeping one blank line before the existing header):
 // ── retry_task — fenced CAS, closes blind-UPDATE TOCTOU ─────────────────────
 
 #[tokio::test]
-async fn fencing_retry_task_stale_read_after_reclaim_is_409() {
+async fn fencing_retry_task_current_status_not_failed_or_cancelled_is_409() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
@@ -223,10 +223,17 @@ async fn fencing_retry_task_from_failed_still_succeeds() {
 - [ ] **Step 2: Run the tests to verify failures**
 
 Run: `TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/test cargo nextest run --manifest-path crates/edgeplane-tower/Cargo.toml -E 'test(fencing_retry_task)'`
-Expected: `fencing_retry_task_stale_read_after_reclaim_is_409` FAILs — current code's blind `UPDATE ...
-WHERE id=$1` has no status/kind predicate, so it unconditionally resets the seeded `running` row to
-`ready`, returning 200 instead of 409 (and clearing `claimed_by_agent_id`, breaking the second
-assertion too). `fencing_retry_task_wrong_kind_is_409` and `fencing_retry_task_from_failed_still_succeeds`
+Expected: `fencing_retry_task_current_status_not_failed_or_cancelled_is_409` does NOT distinguish old
+from new code — both return 409 for this scenario. `retry_task` takes no caller-presented evidence
+(no If-Match/version token), so a stale-read TOCTOU is not observable via a single sequential HTTP
+call: the old app-level `if status != "failed" && status != "cancelled"` check already reads the
+row's CURRENT status (not a pre-fetched snapshot) and rejects this exact case with 409 before the old
+code's blind `UPDATE ... WHERE id=$1` ever runs. This test is a permanent regression guard for the
+status precondition the fenced predicate now enforces, not a TOCTOU reproduction — proving the actual
+concurrency fix requires genuine concurrent request timing, which this file's integration tests (via
+`axum_test::TestServer`, no `tokio::join!` precedent anywhere in this suite) don't exercise, matching
+the honest scope note the test's own doc comment carries in the code. `fencing_retry_task_wrong_kind_is_409`
+and `fencing_retry_task_from_failed_still_succeeds`
 should currently PASS (regression guards for existing precondition checks and the happy path) —
 confirm this before proceeding.
 
