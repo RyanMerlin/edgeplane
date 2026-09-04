@@ -241,6 +241,20 @@ fn err_result(error: &str) -> Value {
     json!({"ok": false, "error": error, "result": {}})
 }
 
+fn mcp_transition_error(error: crate::routes::task_transitions::TransitionError) -> Value {
+    use crate::routes::task_transitions::TransitionError;
+    match error {
+        TransitionError::NotFound => err_result("task not found"),
+        TransitionError::Forbidden => err_result("not the task's claimer"),
+        TransitionError::Conflict => err_result("task is not in the required state for this transition"),
+        TransitionError::Invalid(detail) => err_result(&detail),
+        TransitionError::Database { operation, source } => {
+            tracing::error!("{operation}: {source}");
+            err_result("database_error")
+        }
+    }
+}
+
 #[allow(dead_code)]
 fn not_impl() -> Value {
     err_result("not_implemented_in_rust_server")
@@ -692,99 +706,78 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() || claim_lease_id.is_empty() {
                 return err_result("task_id and claim_lease_id are required");
             }
-            let (domain_id, kind) = match crate::routes::authz::domain_and_kind_for_task(&state.db, &task_id).await {
-                Ok(v) => v,
+            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+                Ok(d) => d,
                 Err(_) => return err_result("task not found"),
             };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
-            // Kind-gating: an assigned task is never heartbeat-able, full stop.
-            if kind != "claimable" {
-                return err_result("task is not claimable (kind='assigned')");
-            }
-            let lease_opt = if claim_lease_id.is_empty() { None } else { Some(claim_lease_id.as_str()) };
-            if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, lease_opt).await.is_err() {
-                return err_result("not the task's claimer");
-            }
-            let expires_at = now + chrono::Duration::seconds(300);
-            match sqlx::query(
-                "UPDATE task SET lease_expires_at=$3, updated_at=NOW() \
-                 WHERE id=$1 AND claim_lease_id=$2 RETURNING id",
+            let actor = crate::routes::task_transitions::task_actor(principal);
+            let outcome = crate::routes::task_transitions::execute_task_transition(
+                &state.db,
+                &actor,
+                &task_id,
+                crate::routes::task_transitions::TaskTransition::Heartbeat {
+                    claim_lease_id: Some(&claim_lease_id),
+                },
             )
-            .bind(&task_id)
-            .bind(&claim_lease_id)
-            .bind(expires_at)
-            .fetch_optional(&state.db)
-            .await
-            {
-                Ok(Some(_)) => {
-                    ok_result(json!({"task_id": task_id, "lease_expires_at": expires_at}))
+            .await;
+            match outcome {
+                Ok(crate::routes::task_transitions::TransitionOutcome::Task { task, .. }) => {
+                    ok_result(json!({
+                        "task_id": task_id,
+                        "lease_expires_at": task.get("lease_expires_at").cloned().unwrap_or(Value::Null),
+                    }))
                 }
-                Ok(None) => err_result("invalid_task_or_lease"),
-                Err(e) => {
-                    tracing::error!("mcp heartbeat_mesh_task: {e}");
-                    err_result("database_error")
-                }
+                Ok(_) => err_result("database_error"),
+                Err(e) => mcp_transition_error(e),
             }
         }
 
         "progress_mesh_task" => {
             let task_id = str_arg(args, "task_id");
             let event_type = str_arg(args, "event_type");
-            // Full-trust callers may supply an explicit agent_id; restricted
-            // callers (agents, SA) are always attributed to themselves.
-            let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
-            let agent_id = if crate::auth::is_full_trust(principal) || principal.is_admin {
-                str_arg(args, "agent_id")
-            } else {
-                self_id.to_string()
-            };
-            if task_id.is_empty() || event_type.is_empty() {
-                return err_result("task_id and event_type are required");
+            let claim_lease_id = str_arg(args, "claim_lease_id");
+            if task_id.is_empty() || event_type.is_empty() || claim_lease_id.is_empty() {
+                return err_result("task_id, event_type, and claim_lease_id are required");
             }
-            let (domain_id, kind) = match crate::routes::authz::domain_and_kind_for_task(&state.db, &task_id).await {
-                Ok(v) => v,
+            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+                Ok(d) => d,
                 Err(_) => return err_result("task not found"),
             };
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
-            // Kind-gating: an assigned task is never progress-reportable via
-            // this claim/lease-scoped tool, full stop.
-            if kind != "claimable" {
-                return err_result("task is not claimable (kind='assigned')");
-            }
-            // Change 7: ownership check (mirrors heartbeat_mesh_task); use caller-presented lease.
-            let claim_lease_str = str_arg(args, "claim_lease_id");
-            let claim_lease_opt = if claim_lease_str.is_empty() { None } else { Some(claim_lease_str.as_str()) };
-            if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, claim_lease_opt).await.is_err() {
-                return err_result("not the task's claimer");
-            }
-            let payload_json = args.get("payload_json").cloned().unwrap_or(json!({}));
+            let payload_json = args.get("payload_json").cloned().unwrap_or(json!({})).to_string();
             let phase = args.get("phase").and_then(|v| v.as_str());
             let step = args.get("step").and_then(|v| v.as_str());
-            // seq has no DB default (see meshprogressevent in migrations/0001) — mirror the
-            // REST post_progress handler (routes/work.rs) and compute the next value ourselves.
-            // seq is `integer` (i32) in Postgres; must match exactly or sqlx's runtime decode
-            // fails silently into unwrap_or(0) (see routes/work.rs for the same fix).
-            let seq: i32 = sqlx::query_scalar(
-                "SELECT COALESCE(MAX(seq), -1) + 1 FROM meshprogressevent WHERE task_id=$1",
+            let actor = crate::routes::task_transitions::task_actor(principal);
+            let outcome = crate::routes::task_transitions::execute_task_transition(
+                &state.db,
+                &actor,
+                &task_id,
+                crate::routes::task_transitions::TaskTransition::AppendProgress {
+                    claim_lease_id: &claim_lease_id,
+                    event_type: &event_type,
+                    phase,
+                    step,
+                    summary: "",
+                    payload_json: &payload_json,
+                    agent_run_id: None,
+                },
             )
-            .bind(&task_id)
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or(0);
-            match sqlx::query(
-                "INSERT INTO meshprogressevent (task_id, agent_id, seq, event_type, phase, step, payload_json, occurred_at) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,NOW()) RETURNING id"
-            )
-            .bind(&task_id).bind(&agent_id).bind(seq).bind(&event_type).bind(phase).bind(step)
-            .bind(payload_json.to_string())
-            .fetch_one(&state.db).await
-            {
-                Ok(r) => ok_result(json!({"event_id": r.get::<i32,_>("id"), "task_id": task_id, "event_type": event_type})),
-                Err(e) => { tracing::error!("mcp progress_mesh_task: {e}"); err_result("database_error") }
+            .await;
+            match outcome {
+                Ok(crate::routes::task_transitions::TransitionOutcome::Progress(event)) => {
+                    ok_result(json!({
+                        "event_id": event.get("id").cloned().unwrap_or(Value::Null),
+                        "task_id": task_id,
+                        "event_type": event_type,
+                    }))
+                }
+                Ok(_) => err_result("database_error"),
+                Err(e) => mcp_transition_error(e),
             }
         }
 
@@ -793,73 +786,41 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
             if task_id.is_empty() {
                 return err_result("task_id is required");
             }
-            // Fetch domain_id/kind/status in one round trip — kind gates the
-            // status-precondition branch below, status is the precondition
-            // itself.
-            let task_row = match sqlx::query("SELECT domain_id, kind, status FROM task WHERE id=$1")
-                .bind(&task_id)
-                .fetch_optional(&state.db)
-                .await
-            {
-                Ok(Some(r)) => r,
-                Ok(None) => return err_result("task not found"),
-                Err(e) => {
-                    tracing::error!("mcp {tool} fetch: {e}");
-                    return err_result("database_error");
-                }
+            let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+                Ok(d) => d,
+                Err(_) => return err_result("task not found"),
             };
-            let domain_id: String = task_row.get("domain_id");
-            let kind: String = task_row.get("kind");
-            let status: String = task_row.get("status");
             if let Err(e) = mcp_authz_domain(state, principal, &domain_id).await {
                 return e;
             }
-            // Completion is the unified path for both kinds (migration 0014's
-            // design point). authz_task_owner branches internally on
-            // ownership proof by kind (claimed_by_agent_id/lease for
-            // claimable, owner/lease for assigned) — call it unconditionally
-            // rather than rejecting kind='assigned' up front.
             let lease_str = str_arg(args, "claim_lease_id");
             let lease_opt = if lease_str.is_empty() { None } else { Some(lease_str.as_str()) };
-            if crate::routes::authz::authz_task_owner(&state.db, principal, &task_id, lease_opt).await.is_err() {
-                return err_result("not the task's claimer");
-            }
-            let new_status = match tool {
-                "complete_mesh_task" => "finished",
-                "fail_mesh_task" => "failed",
-                "block_mesh_task" => "blocked",
+            let actor = crate::routes::task_transitions::task_actor(principal);
+            let transition = match tool {
+                "complete_mesh_task" => crate::routes::task_transitions::TaskTransition::Complete {
+                    claim_lease_id: lease_opt,
+                    agent_id: None,
+                    result_artifact_id: None,
+                },
+                "fail_mesh_task" => crate::routes::task_transitions::TaskTransition::Fail {
+                    claim_lease_id: lease_opt,
+                    agent_id: None,
+                },
+                "block_mesh_task" => crate::routes::task_transitions::TaskTransition::Block { claim_lease_id: lease_opt },
                 _ => return err_result("unknown_tool"),
             };
-            // Status precondition — mirrors this handler's REST siblings
-            // individually (work.rs): complete_task/fail_task reject unless
-            // status is claimed/running/waiting_review (claimable) or not
-            // already terminal (assigned, via is_terminal_status);
-            // block_task has no precondition at all, so block_mesh_task
-            // doesn't gain one here either. Without this, an authorized
-            // owner/claimer could re-fail an already-finished task or
-            // complete repeatedly.
-            if tool != "block_mesh_task" {
-                if kind == "claimable" {
-                    if status != "claimed" && status != "running" && status != "waiting_review" {
-                        return err_result(&format!("task cannot be {new_status} from status: {status}"));
-                    }
-                } else if crate::routes::tasks::is_terminal_status(&status) {
-                    return err_result(&format!("task cannot be {new_status} from status: {status}"));
+            let outcome =
+                crate::routes::task_transitions::execute_task_transition(&state.db, &actor, &task_id, transition)
+                    .await;
+            match outcome {
+                Ok(crate::routes::task_transitions::TransitionOutcome::Task { task, .. }) => {
+                    ok_result(json!({"task_id": task_id, "status": task.get("status").cloned().unwrap_or(Value::Null)}))
                 }
-            }
-            let now_tz = Utc::now();
-            match sqlx::query(
-                "UPDATE task SET status=$2, updated_at=NOW(), \
-                 claim_lease_id=CASE WHEN $2 IN ('finished','failed','cancelled') THEN NULL ELSE claim_lease_id END, \
-                 claimed_by_agent_id=CASE WHEN $2 IN ('finished','failed','cancelled') THEN NULL ELSE claimed_by_agent_id END, \
-                 finalized_at=CASE WHEN $2 IN ('finished','failed','cancelled') THEN $3 ELSE finalized_at END \
-                 WHERE id=$1 RETURNING id"
-            )
-            .bind(&task_id).bind(new_status).bind(now_tz).fetch_optional(&state.db).await
-            {
-                Ok(Some(_)) => ok_result(json!({"task_id": task_id, "status": new_status})),
-                Ok(None) => err_result("mesh_task_not_found"),
-                Err(e) => { tracing::error!("mcp {tool}: {e}"); err_result("database_error") }
+                Ok(crate::routes::task_transitions::TransitionOutcome::WaitingReview { pending_gate_ids, .. }) => {
+                    ok_result(json!({"task_id": task_id, "status": "waiting_review", "pending_gates": pending_gate_ids}))
+                }
+                Ok(_) => err_result("database_error"),
+                Err(e) => mcp_transition_error(e),
             }
         }
 

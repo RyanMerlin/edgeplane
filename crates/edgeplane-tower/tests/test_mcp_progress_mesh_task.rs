@@ -21,6 +21,14 @@ async fn progress_mesh_task_inserts_sequential_events() {
         return;
     };
     let task_id = seed_ready_task(&pool, &ctx.mission_id, &ctx.domain_id).await;
+    sqlx::query(
+        "UPDATE task SET status='running', claim_lease_id='lease-seq-test', \
+         lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a live lease");
     let s = server(pool.clone());
 
     for i in 0..3 {
@@ -35,6 +43,7 @@ async fn progress_mesh_task_inserts_sequential_events() {
                 "args": {
                     "task_id": task_id,
                     "event_type": "phase_finished",
+                    "claim_lease_id": "lease-seq-test",
                     "payload_json": {"iteration": i},
                 }
             }))
