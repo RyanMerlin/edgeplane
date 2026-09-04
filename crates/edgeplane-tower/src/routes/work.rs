@@ -996,54 +996,69 @@ async fn retry_task(
     principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let row = sqlx::query("SELECT * FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await;
-
-    let task_row = match row {
-        Ok(Some(r)) => r,
-        Ok(None) => return not_found("Task not found"),
-        Err(e) => {
-            tracing::error!("retry_task fetch: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
     };
-
-    let domain_id: String = task_row.get("domain_id");
-    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
+    if let Err(resp) =
+        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    {
         return resp;
     }
 
-    // Kind-gating: 'ready' is claimable-pool vocabulary; retry re-enters the
-    // claim pool, which is meaningless for a kind='assigned' row.
-    let kind: String = task_row.get("kind");
-    if kind != "claimable" {
-        return conflict("Task is not claimable (kind='assigned'); retry does not apply");
-    }
-
-    let status: String = task_row.get("status");
-    if status != "failed" && status != "cancelled" {
-        return conflict(&format!("Task cannot be retried from status: {status}"));
-    }
-
     let now = Utc::now().naive_utc();
-    match sqlx::query(
+    let updated = sqlx::query(
         "UPDATE task SET status='ready', claimed_by_agent_id=NULL, result_artifact_id=NULL, \
          lease_expires_at=NULL, claim_lease_id=NULL, finalized_at=NULL, \
-         finalized_by_subject=NULL, updated_at=$2 WHERE id=$1 RETURNING *",
+         finalized_by_subject=NULL, updated_at=$2 \
+         WHERE id=$1 AND kind='claimable' AND status IN ('failed','cancelled') \
+         RETURNING *",
     )
     .bind(&task_id)
     .bind(now)
-    .fetch_one(&state.db)
-    .await
-    {
-        Ok(r) => Json(row_to_task(&r)).into_response(),
+    .fetch_optional(&state.db)
+    .await;
+
+    match updated {
+        Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
+        Ok(None) => classify_retry_rejection(&state.db, &task_id).await,
         Err(e) => {
             tracing::error!("retry_task update: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
+}
+
+/// After the fenced retry UPDATE rejects (zero rows), classify why with a
+/// fresh read — preserves retry_task's existing precondition-specific error
+/// messages (kind vs. status) while ensuring the message reflects the
+/// task's CURRENT state, not the pre-UPDATE snapshot the old check-then-act
+/// code read (which could already be stale by the time the blind UPDATE
+/// ran). No ownership/lease dimension here: retry_task performs no
+/// per-caller ownership check by design (any domain member may retry a
+/// failed/cancelled task — ruled by Merlin 2026-08-26, see
+/// docs/superpowers/plans/2026-08-18-ep1-tower-fencing.md Roadmap,
+/// "retry_task — severity correction"). This function only closes the
+/// TOCTOU on the status/kind precondition, it does not add authorization.
+async fn classify_retry_rejection(db: &sqlx::PgPool, task_id: &str) -> axum::response::Response {
+    let row = match sqlx::query("SELECT kind, status FROM task WHERE id=$1")
+        .bind(task_id)
+        .fetch_optional(db)
+        .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return not_found("Task not found"),
+        Err(e) => {
+            tracing::error!("classify_retry_rejection fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let kind: String = row.get("kind");
+    if kind != "claimable" {
+        return conflict("Task is not claimable (kind='assigned'); retry does not apply");
+    }
+    let status: String = row.get("status");
+    conflict(&format!("Task cannot be retried from status: {status}"))
 }
 
 async fn claim_task(

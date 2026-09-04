@@ -752,6 +752,137 @@ async fn fencing_heartbeat_real_agent_own_live_lease_succeeds() {
     );
 }
 
+// ── retry_task — fenced CAS, closes blind-UPDATE TOCTOU ─────────────────────
+
+#[tokio::test]
+async fn fencing_retry_task_stale_read_after_reclaim_is_409() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Seed a task already back in 'ready' (as if a concurrent retry/reclaim
+    // already happened after this caller's hypothetical earlier read saw
+    // 'failed') — the old code's blind UPDATE would apply the retry-reset
+    // unconditionally regardless of current status; the fenced version must
+    // reject it as a status conflict.
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-new-claimer"),
+        1,
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/retry"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "retrying a task that is not failed/cancelled must be 409, not silently reset: {}",
+        res.text()
+    );
+
+    let row = sqlx::query(
+        "SELECT status, claimed_by_agent_id, claim_lease_id FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        row.get::<String, _>("status"),
+        "running",
+        "rejected retry must not have touched the row's status"
+    );
+    assert_eq!(
+        row.get::<Option<String>, _>("claimed_by_agent_id").as_deref(),
+        Some("agent-new-claimer"),
+        "rejected retry must not have cleared the current claimer's ownership"
+    );
+}
+
+#[tokio::test]
+async fn fencing_retry_task_wrong_kind_is_409() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id =
+        common::seed_assigned_task(&pool, &ctx.mission_id, &ctx.domain_id, "harness").await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/retry"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "retry on a kind='assigned' row must be 409: {}",
+        res.text()
+    );
+    assert!(
+        res.text().contains("not claimable"),
+        "must preserve the existing kind-specific error message: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_retry_task_from_failed_still_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "failed",
+        Some("agent-old-claimer"),
+        1,
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/retry"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "retry from failed must still succeed: {}",
+        res.text()
+    );
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["status"], "ready");
+
+    let row = sqlx::query(
+        "SELECT claimed_by_agent_id, claim_lease_id, lease_expires_at FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(row.get::<Option<String>, _>("claimed_by_agent_id").is_none());
+    assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
+    assert!(row
+        .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+        .is_none());
+}
+
 // ── Bounded retry / backoff (attempt vs. max_attempts) ───────────────────────
 
 #[tokio::test]
