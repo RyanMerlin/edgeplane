@@ -2314,7 +2314,7 @@ has enough context to start from without re-deriving it.
   gate-reviewed (the more likely practical impact — an authz gap, not primarily a race). Fix, when
   picked up: fence the INSERT the same way the rest of this plan fences mutations — `INSERT ... SELECT
   ... WHERE EXISTS (task still owned by caller AND still in a gate-attachable status)`.
-- **`append_progress`'s fenced CTE lacks a row lock, unlike its `UPDATE...WHERE` siblings — confirmed
+- **CLOSED by `docs/superpowers/plans/2026-08-28-shared-fenced-transition-primitive.md`.** `append_progress`'s fenced CTE lacks a row lock, unlike its `UPDATE...WHERE` siblings — confirmed
   by two independent reviews now (rust-reviewer's Task 8 fix-round re-review, live 3-connection
   reproduction; and an independent Codex review, 2026-08-28, same conclusion via SQL-semantics
   reasoning).** `WITH eligible AS (SELECT 1 FROM task WHERE ...)` takes the statement's snapshot with
@@ -2334,8 +2334,8 @@ has enough context to start from without re-deriving it.
   (out of EP-1's 8-endpoint scope, log only, per Merlin's 2026-08-26 call) — noted here so the
   severity is accurate when this is eventually picked up: needs `AND status IN ('failed','cancelled')`
   on the UPDATE itself, not just the earlier read.
-- **`progress_mesh_task` (MCP, `mcp.rs`) is unfenced and outside even Task 9's stated scope —
-  found during Task 8's independent review, not previously tracked anywhere.** Task 9's own scope
+- **CLOSED by `docs/superpowers/plans/2026-08-28-shared-fenced-transition-primitive.md`.** `progress_mesh_task` (MCP, `mcp.rs`) is unfenced and outside even Task 9's stated scope —
+  found during Task 8's independent review, not previously tracked anywhere. Task 9's own scope
   (below) is `complete_mesh_task`/`fail_mesh_task`/`block_mesh_task` only (`mcp.rs:791-864`);
   `progress_mesh_task` (`mcp.rs:731-786`) and `heartbeat_mesh_task` are in NO task's stated scope,
   despite this plan's own Goal statement (line 5) explicitly listing "complete/fail/block/**progress**"
