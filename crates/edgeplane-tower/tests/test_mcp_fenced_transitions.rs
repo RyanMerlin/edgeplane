@@ -314,6 +314,75 @@ async fn mcp_block_has_a_status_precondition_now() {
     );
 }
 
+/// Task 6 review follow-up: the controller's amendment to `TaskTransition::Block`
+/// (`OR claim_lease_id = $5` in the fence, restoring `edgeplane mesh task block
+/// --claim-lease-id`'s real capability) had zero test coverage — deleting that
+/// clause from the fence would leave every existing test green. This proves the
+/// lease branch is load-bearing: `ctx.member_sa_token` is neither the task's
+/// claimer (`agent-A`) nor a bypass principal (`is_full_trust` is false for
+/// `auth_type="service_account"`, unlike `ctx.owner_session_token`'s `"session"`
+/// type, which would pass via the bypass branch regardless of the lease branch's
+/// correctness). The only way this call can succeed is via `claim_lease_id = $5`.
+#[tokio::test]
+async fn mcp_block_via_matching_lease_succeeds_for_non_owner_non_bypass_caller() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let res = s
+        .post("/api/mcp/call")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.member_sa_token),
+        )
+        .json(&serde_json::json!({
+            "tool": "block_mesh_task",
+            "args": {"task_id": task_id, "claim_lease_id": "lease-a"}
+        }))
+        .await;
+    let body: serde_json::Value = res.json();
+    assert_eq!(
+        body["ok"], true,
+        "a non-owner, non-bypass caller presenting the task's real, live claim_lease_id must be able to block it via MCP: {body}"
+    );
+    assert_eq!(
+        body["result"]["status"], "blocked",
+        "block must report the task as blocked: {body}"
+    );
+
+    // Block deliberately preserves claimed_by_agent_id (Task 5's identity-
+    // preserving behavior, restated in the fence's inline comment) — confirm
+    // the lease-authorized caller didn't accidentally overwrite ownership.
+    let claimed_by: Option<String> =
+        sqlx::query_scalar("SELECT claimed_by_agent_id FROM task WHERE id=$1")
+            .bind(&task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        claimed_by.as_deref(),
+        Some("agent-A"),
+        "block must preserve claimed_by_agent_id, not overwrite it with the lease-authorized caller's identity"
+    );
+}
+
 #[tokio::test]
 async fn mcp_fail_broadcast_task_without_matching_lease_is_rejected() {
     let Some((pool, ctx)) = setup().await else {
