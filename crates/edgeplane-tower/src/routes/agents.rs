@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, patch, post},
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -19,9 +19,15 @@ use crate::{
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/agents", get(list_agents).post(create_agent))
-        .route("/agents/{agent_id}", get(get_agent).patch(update_agent).delete(delete_agent))
+        .route(
+            "/agents/{agent_id}",
+            get(get_agent).patch(update_agent).delete(delete_agent),
+        )
         .route("/agents/{agent_id}/restart", post(restart_agent))
-        .route("/agents/{agent_id}/clear-context", post(clear_agent_context))
+        .route(
+            "/agents/{agent_id}/clear-context",
+            post(clear_agent_context),
+        )
         .route("/agents/{agent_id}/domain", patch(attach_domain))
         .route("/agents/{agent_id}/message", post(send_message))
         .route("/agents/{agent_id}/messages", get(list_messages))
@@ -113,7 +119,11 @@ pub async fn upsert_agent_by_name(
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 /// Resolve an [`AgentIdent`] to the internal numeric row id, or return a
@@ -167,7 +177,11 @@ async fn list_agents(
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(100).min(500);
-    let archived_clause = if q.include_archived { "" } else { " AND a.archived_at IS NULL" };
+    let archived_clause = if q.include_archived {
+        ""
+    } else {
+        " AND a.archived_at IS NULL"
+    };
     let rows = if let Some(s) = &q.status {
         let sql = format!(
             "SELECT a.*, m.name AS domain_name \
@@ -175,7 +189,11 @@ async fn list_agents(
              LEFT JOIN domain m ON m.id = a.current_domain_id \
              WHERE a.status=$1{archived_clause} ORDER BY a.updated_at DESC LIMIT $2"
         );
-        sqlx::query(&sql).bind(s).bind(limit).fetch_all(&state.db).await
+        sqlx::query(&sql)
+            .bind(s)
+            .bind(limit)
+            .fetch_all(&state.db)
+            .await
     } else {
         let sql = format!(
             "SELECT a.*, m.name AS domain_name \
@@ -187,7 +205,10 @@ async fn list_agents(
     };
     match rows {
         Ok(rows) => Json(rows.iter().map(row_to_agent).collect::<Vec<_>>()).into_response(),
-        Err(e) => { tracing::error!("list_agents: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("list_agents: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -228,7 +249,10 @@ async fn create_agent(
 
     let row = match result {
         Ok(row) => row,
-        Err(e) => { tracing::error!("create_agent: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("create_agent: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
     let agent_id: i32 = row.get("id");
@@ -242,9 +266,15 @@ async fn create_agent(
                 match sqlx::query(
                     "SELECT a.*, m.name AS domain_name \
                      FROM agent a LEFT JOIN domain m ON m.id = a.current_domain_id \
-                     WHERE a.id=$1"
-                ).bind(agent_id).fetch_one(&state.db).await {
-                    Ok(refreshed) => return (StatusCode::OK, Json(row_to_agent(&refreshed))).into_response(),
+                     WHERE a.id=$1",
+                )
+                .bind(agent_id)
+                .fetch_one(&state.db)
+                .await
+                {
+                    Ok(refreshed) => {
+                        return (StatusCode::OK, Json(row_to_agent(&refreshed))).into_response();
+                    }
                     Err(e) => {
                         tracing::error!("create_agent re-fetch after provision: {e}");
                         // Return the original row without domain fields rather than failing.
@@ -253,7 +283,10 @@ async fn create_agent(
                 let _ = domain_id;
             }
             Err(e) => {
-                tracing::error!("create_agent home domain provision for {}: {e}", payload.name);
+                tracing::error!(
+                    "create_agent home domain provision for {}: {e}",
+                    payload.name
+                );
                 // Non-fatal — agent is registered, domain can be provisioned by backfill.
             }
         }
@@ -265,15 +298,24 @@ async fn create_agent(
 /// Create a home domain + Inbox mission for an agent that has none, then
 /// set both `home_domain_id` and `current_domain_id` on the agent row.
 /// Wrapped in a transaction so a partial provision can't leave orphaned rows.
-pub async fn provision_home_domain(db: &sqlx::PgPool, agent_id: i32, agent_name: &str) -> anyhow::Result<String> {
+pub async fn provision_home_domain(
+    db: &sqlx::PgPool,
+    agent_id: i32,
+    agent_name: &str,
+) -> anyhow::Result<String> {
     let now = chrono::Utc::now().naive_utc();
 
     // Generate a candidate domain id (6-byte hex, same pattern as domains.rs).
     let mut candidate_id = hex_id();
     for _ in 0..5 {
         let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
-            .bind(&candidate_id).fetch_optional(db).await.unwrap_or(None);
-        if exists.is_none() { break; }
+            .bind(&candidate_id)
+            .fetch_optional(db)
+            .await
+            .unwrap_or(None);
+        if exists.is_none() {
+            break;
+        }
         candidate_id = hex_id();
     }
 
@@ -288,14 +330,15 @@ pub async fn provision_home_domain(db: &sqlx::PgPool, agent_id: i32, agent_name:
              northstar_md, northstar_version, northstar_created_by, northstar_modified_by, \
              northstar_created_at, northstar_modified_at, created_at, updated_at) \
          VALUES ($1,$2,$3,$4,'','','public','active','',1,'','',NULL,NULL,$5,$5) \
-         ON CONFLICT (name) DO NOTHING"
+         ON CONFLICT (name) DO NOTHING",
     )
     .bind(&candidate_id)
     .bind(agent_name)
     .bind(format!("Home domain for {agent_name}"))
     .bind(agent_name)
     .bind(now)
-    .execute(&mut *tx).await?;
+    .execute(&mut *tx)
+    .await?;
 
     // Resolve the actual domain_id — may differ from candidate_id if the domain
     // already existed and the INSERT was a no-op.
@@ -319,12 +362,11 @@ pub async fn provision_home_domain(db: &sqlx::PgPool, agent_id: i32, agent_name:
     .bind(now)
     .execute(&mut *tx).await?;
 
-    sqlx::query(
-        "UPDATE agent SET home_domain_id=$1, current_domain_id=$1 WHERE id=$2"
-    )
-    .bind(&domain_id)
-    .bind(agent_id)
-    .execute(&mut *tx).await?;
+    sqlx::query("UPDATE agent SET home_domain_id=$1, current_domain_id=$1 WHERE id=$2")
+        .bind(&domain_id)
+        .bind(agent_id)
+        .execute(&mut *tx)
+        .await?;
 
     tx.commit().await?;
 
@@ -354,11 +396,18 @@ async fn get_agent(
                 WHERE ma.agent_public_id = a.public_id AND ma.runtime_node_id IS NOT NULL \
                 ORDER BY ma.enrolled_at DESC LIMIT 1) AS runtime_node_id \
          FROM agent a LEFT JOIN domain m ON m.id = a.current_domain_id \
-         WHERE a.id=$1"
-    ).bind(agent_id).fetch_optional(&state.db).await {
+         WHERE a.id=$1",
+    )
+    .bind(agent_id)
+    .fetch_optional(&state.db)
+    .await
+    {
         Ok(Some(row)) => Json(row_to_agent(&row)).into_response(),
         Ok(None) => not_found("Agent not found"),
-        Err(e) => { tracing::error!("get_agent: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("get_agent: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -377,10 +426,16 @@ async fn delete_agent(
         return resp;
     }
     match sqlx::query("DELETE FROM agent WHERE id=$1")
-        .bind(agent_id).execute(&state.db).await {
+        .bind(agent_id)
+        .execute(&state.db)
+        .await
+    {
         Ok(r) if r.rows_affected() == 0 => not_found("Agent not found"),
         Ok(_) => (StatusCode::NO_CONTENT, ()).into_response(),
-        Err(e) => { tracing::error!("delete_agent: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("delete_agent: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -405,13 +460,24 @@ async fn restart_agent(
     let now = Utc::now().naive_utc();
     let _ = sqlx::query(
         "UPDATE agentsession SET ended_at=$2, end_reason='restart_requested' \
-         WHERE agent_id=$1 AND ended_at IS NULL"
-    ).bind(agent_id).bind(now).execute(&state.db).await;
+         WHERE agent_id=$1 AND ended_at IS NULL",
+    )
+    .bind(agent_id)
+    .bind(now)
+    .execute(&state.db)
+    .await;
 
     match sqlx::query("UPDATE agent SET status='offline', updated_at=$2 WHERE id=$1 RETURNING *")
-        .bind(agent_id).bind(now).fetch_one(&state.db).await {
+        .bind(agent_id)
+        .bind(now)
+        .fetch_one(&state.db)
+        .await
+    {
         Ok(row) => (StatusCode::OK, Json(row_to_agent(&row))).into_response(),
-        Err(e) => { tracing::error!("restart_agent: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("restart_agent: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -433,33 +499,48 @@ async fn clear_agent_context(
         return resp;
     }
     let existing = sqlx::query("SELECT * FROM agent WHERE id=$1")
-        .bind(agent_id).fetch_optional(&state.db).await;
+        .bind(agent_id)
+        .fetch_optional(&state.db)
+        .await;
     let agent = match existing {
         Ok(Some(r)) => row_to_agent(&r),
         Ok(None) => return not_found("Agent not found"),
-        Err(e) => { tracing::error!("clear_agent_context fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("clear_agent_context fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
     let now = Utc::now().naive_utc();
     let now_iso = Utc::now().to_rfc3339();
     // metadata is text in the schema; parse-merge-serialize so we don't clobber
     // unrelated keys other systems may have written.
-    let mut meta_obj: serde_json::Map<String, serde_json::Value> =
-        if agent.metadata.is_empty() {
-            serde_json::Map::new()
-        } else {
-            serde_json::from_str::<serde_json::Value>(&agent.metadata)
-                .ok()
-                .and_then(|v| v.as_object().cloned())
-                .unwrap_or_default()
-        };
-    meta_obj.insert("last_context_clear_at".into(), serde_json::Value::String(now_iso));
+    let mut meta_obj: serde_json::Map<String, serde_json::Value> = if agent.metadata.is_empty() {
+        serde_json::Map::new()
+    } else {
+        serde_json::from_str::<serde_json::Value>(&agent.metadata)
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default()
+    };
+    meta_obj.insert(
+        "last_context_clear_at".into(),
+        serde_json::Value::String(now_iso),
+    );
     let new_metadata = serde_json::Value::Object(meta_obj).to_string();
 
     match sqlx::query("UPDATE agent SET metadata=$2, updated_at=$3 WHERE id=$1 RETURNING *")
-        .bind(agent_id).bind(&new_metadata).bind(now).fetch_one(&state.db).await {
+        .bind(agent_id)
+        .bind(&new_metadata)
+        .bind(now)
+        .fetch_one(&state.db)
+        .await
+    {
         Ok(row) => (StatusCode::OK, Json(row_to_agent(&row))).into_response(),
-        Err(e) => { tracing::error!("clear_agent_context: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("clear_agent_context: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -479,17 +560,22 @@ async fn update_agent(
         return resp;
     }
     let existing = sqlx::query("SELECT * FROM agent WHERE id=$1")
-        .bind(agent_id).fetch_optional(&state.db).await;
+        .bind(agent_id)
+        .fetch_optional(&state.db)
+        .await;
     let agent = match existing {
         Ok(Some(r)) => row_to_agent(&r),
         Ok(None) => return not_found("Agent not found"),
-        Err(e) => { tracing::error!("update_agent fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("update_agent fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
-    let name         = payload.name.unwrap_or(agent.name);
+    let name = payload.name.unwrap_or(agent.name);
     let capabilities = payload.capabilities.unwrap_or(agent.capabilities);
-    let status       = payload.status.unwrap_or(agent.status);
-    let metadata     = payload.metadata.unwrap_or(agent.metadata);
+    let status = payload.status.unwrap_or(agent.status);
+    let metadata = payload.metadata.unwrap_or(agent.metadata);
     let now = Utc::now().naive_utc();
 
     match sqlx::query(
@@ -536,35 +622,57 @@ async fn attach_domain(
         Some(mid) => {
             // Validate domain exists.
             let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM domain WHERE id=$1")
-                .bind(mid).fetch_optional(&state.db).await.unwrap_or(None);
-            if exists.is_none() { return not_found("Domain not found"); }
+                .bind(mid)
+                .fetch_optional(&state.db)
+                .await
+                .unwrap_or(None);
+            if exists.is_none() {
+                return not_found("Domain not found");
+            }
             Some(mid.clone())
         }
         None => {
             // Detach: return to home.
             sqlx::query_scalar::<_, String>("SELECT home_domain_id FROM agent WHERE id=$1")
-                .bind(agent_id).fetch_optional(&state.db).await.unwrap_or(None)
+                .bind(agent_id)
+                .fetch_optional(&state.db)
+                .await
+                .unwrap_or(None)
         }
     };
 
     let now = Utc::now().naive_utc();
     match sqlx::query(
-        "UPDATE agent SET current_domain_id=$1, updated_at=$2 WHERE id=$3 RETURNING id"
+        "UPDATE agent SET current_domain_id=$1, updated_at=$2 WHERE id=$3 RETURNING id",
     )
-    .bind(&new_current_id).bind(now).bind(agent_id)
-    .fetch_optional(&state.db).await {
+    .bind(&new_current_id)
+    .bind(now)
+    .bind(agent_id)
+    .fetch_optional(&state.db)
+    .await
+    {
         Ok(None) => not_found("Agent not found"),
         Ok(_) => {
             match sqlx::query(
                 "SELECT a.*, m.name AS domain_name \
                  FROM agent a LEFT JOIN domain m ON m.id = a.current_domain_id \
-                 WHERE a.id=$1"
-            ).bind(agent_id).fetch_one(&state.db).await {
+                 WHERE a.id=$1",
+            )
+            .bind(agent_id)
+            .fetch_one(&state.db)
+            .await
+            {
                 Ok(row) => Json(row_to_agent(&row)).into_response(),
-                Err(e) => { tracing::error!("attach_domain re-fetch: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+                Err(e) => {
+                    tracing::error!("attach_domain re-fetch: {e}");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                }
             }
         }
-        Err(e) => { tracing::error!("attach_domain: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("attach_domain: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -628,11 +736,19 @@ async fn list_messages(
     match sqlx::query_as::<_, AgentMessage>(
         "SELECT * FROM agentmessage \
          WHERE (from_agent_id=$1 OR to_agent_id=$1) AND id > $3 \
-         ORDER BY id ASC LIMIT $2"
+         ORDER BY id ASC LIMIT $2",
     )
-    .bind(agent_id).bind(limit).bind(since_id).fetch_all(&state.db).await {
+    .bind(agent_id)
+    .bind(limit)
+    .bind(since_id)
+    .fetch_all(&state.db)
+    .await
+    {
         Ok(msgs) => Json(msgs).into_response(),
-        Err(e) => { tracing::error!("list_messages: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("list_messages: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 

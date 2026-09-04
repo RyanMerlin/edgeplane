@@ -171,7 +171,10 @@ mod tests {
     #[test]
     fn display_uses_snake_case() {
         assert_eq!(ProgressEventType::PhaseStarted.to_string(), "phase_started");
-        assert_eq!(ProgressEventType::ArtifactProduced.to_string(), "artifact_produced");
+        assert_eq!(
+            ProgressEventType::ArtifactProduced.to_string(),
+            "artifact_produced"
+        );
         assert_eq!(ProgressEventType::Error.to_string(), "error");
     }
 

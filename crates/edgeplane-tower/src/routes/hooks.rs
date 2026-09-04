@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::State,
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::IntoResponse,
     routing::post,
-    Json, Router,
 };
 use chrono::Utc;
 use sqlx::Row;
@@ -87,7 +87,11 @@ async fn session_start(
     payload: serde_json::Value,
     capability: &str,
 ) -> impl IntoResponse {
-    let session_id = payload.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let session_id = payload
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let source = payload
         .get("source")
         .or_else(|| payload.get("hook_event_name"))
@@ -112,7 +116,11 @@ async fn session_start(
             // descriptor, but no DB row is created.
             let body = format!(
                 "[Edgeplane Session — {session_id}]\nAgent: {subject} (reserved, not persisted)\nCapabilities: {capability}",
-                session_id = if session_id.is_empty() { "unknown".to_string() } else { session_id.clone() },
+                session_id = if session_id.is_empty() {
+                    "unknown".to_string()
+                } else {
+                    session_id.clone()
+                },
             );
             return ([(header::CONTENT_TYPE, "text/plain")], body).into_response();
         }
@@ -155,7 +163,11 @@ async fn session_start(
 
     let body = format!(
         "[Edgeplane Session — {session_id}]\nAgent: {subject}\nSource: {source}\nRegistered: {ts}\nAgent ID: {agent_id}\nCapabilities: {capability}",
-        session_id = if session_id.is_empty() { "unknown".to_string() } else { session_id },
+        session_id = if session_id.is_empty() {
+            "unknown".to_string()
+        } else {
+            session_id
+        },
         ts = now.format("%Y-%m-%dT%H:%M:%SZ"),
     );
 
@@ -167,7 +179,11 @@ async fn session_end(
     subject: String,
     payload: serde_json::Value,
 ) -> impl IntoResponse {
-    let session_id = payload.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let session_id = payload
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let end_reason = payload
         .get("source")
         .or_else(|| payload.get("hook_event_name"))
@@ -177,26 +193,27 @@ async fn session_end(
     let now = Utc::now().naive_utc();
 
     if let Ok(Some(agent_id)) = find_or_create_agent(&state, &subject, "").await
-        && !session_id.is_empty() {
-            let result = sqlx::query(
-                "UPDATE agentsession SET ended_at=$3, end_reason=$4 \
+        && !session_id.is_empty()
+    {
+        let result = sqlx::query(
+            "UPDATE agentsession SET ended_at=$3, end_reason=$4 \
                  WHERE claude_session_id=$1 AND agent_id=$2 AND ended_at IS NULL",
-            )
-            .bind(&session_id)
-            .bind(agent_id)
-            .bind(now)
-            .bind(&end_reason)
-            .execute(&state.db)
-            .await;
+        )
+        .bind(&session_id)
+        .bind(agent_id)
+        .bind(now)
+        .bind(&end_reason)
+        .execute(&state.db)
+        .await;
 
-            if result.map(|r| r.rows_affected()).unwrap_or(0) > 0 {
-                let _ = sqlx::query("UPDATE agent SET status='offline', updated_at=$2 WHERE id=$1")
-                    .bind(agent_id)
-                    .bind(now)
-                    .execute(&state.db)
-                    .await;
-            }
+        if result.map(|r| r.rows_affected()).unwrap_or(0) > 0 {
+            let _ = sqlx::query("UPDATE agent SET status='offline', updated_at=$2 WHERE id=$1")
+                .bind(agent_id)
+                .bind(now)
+                .execute(&state.db)
+                .await;
         }
+    }
 
     Json(serde_json::json!({"ok": true}))
 }
@@ -206,9 +223,20 @@ async fn tool_audit(
     subject: String,
     payload: serde_json::Value,
 ) -> impl IntoResponse {
-    let session_id = payload.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let tool_name = payload.get("tool_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let tool_input = payload.get("tool_input").cloned().unwrap_or(serde_json::json!({}));
+    let session_id = payload
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let tool_name = payload
+        .get("tool_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let tool_input = payload
+        .get("tool_input")
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
 
     let entry = serde_json::json!({
         "ts": chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
@@ -222,17 +250,18 @@ async fn tool_audit(
     let entry_line = format!("{}\n", serde_json::to_string(&entry).unwrap_or_default());
 
     if let Ok(Some(agent_id)) = find_or_create_agent(&state, &subject, "").await
-        && !session_id.is_empty() {
-            let _ = sqlx::query(
-                "UPDATE agentsession SET audit_log = COALESCE(audit_log,'') || $3 \
+        && !session_id.is_empty()
+    {
+        let _ = sqlx::query(
+            "UPDATE agentsession SET audit_log = COALESCE(audit_log,'') || $3 \
                  WHERE claude_session_id=$1 AND agent_id=$2 AND ended_at IS NULL",
-            )
-            .bind(&session_id)
-            .bind(agent_id)
-            .bind(&entry_line)
-            .execute(&state.db)
-            .await;
-        }
+        )
+        .bind(&session_id)
+        .bind(agent_id)
+        .bind(&entry_line)
+        .execute(&state.db)
+        .await;
+    }
 
     Json(serde_json::json!({"ok": true}))
 }
@@ -243,15 +272,18 @@ async fn tool_audit(
 /// for unauthenticated callers, or anything under the `system:` prefix). The
 /// caller is expected to skip persistence in that case — see Phase 1 of
 /// docs/plans/edgeplane-agents-identity-spec.md for why.
-async fn find_or_create_agent(state: &Arc<AppState>, subject: &str, capability: &str) -> Result<Option<i32>, sqlx::Error> {
+async fn find_or_create_agent(
+    state: &Arc<AppState>,
+    subject: &str,
+    capability: &str,
+) -> Result<Option<i32>, sqlx::Error> {
     if is_reserved_agent_name(subject) {
         return Ok(None);
     }
-    if let Some(row) =
-        sqlx::query("SELECT id FROM agent WHERE name=$1")
-            .bind(subject)
-            .fetch_optional(&state.db)
-            .await?
+    if let Some(row) = sqlx::query("SELECT id FROM agent WHERE name=$1")
+        .bind(subject)
+        .fetch_optional(&state.db)
+        .await?
     {
         return Ok(Some(row.get("id")));
     }

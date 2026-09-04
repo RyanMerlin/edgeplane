@@ -27,7 +27,9 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use edgeplaned_acp::{Agent, ContentBlock, SessionUpdate, SpawnOpts, consts::PROTOCOL_VERSION, schema};
+use edgeplaned_acp::{
+    Agent, ContentBlock, SessionUpdate, SpawnOpts, consts::PROTOCOL_VERSION, schema,
+};
 use tokio::sync::broadcast::error::RecvError;
 
 /// Returns the CWD to use for the ACP test session.
@@ -60,7 +62,10 @@ fn skip_reason() -> Option<String> {
     }
     let cwd = profile_cwd();
     if !cwd.exists() {
-        return Some(format!("test CWD '{}' not present — set EP_MESH_ACP_CWD", cwd.display()));
+        return Some(format!(
+            "test CWD '{}' not present — set EP_MESH_ACP_CWD",
+            cwd.display()
+        ));
     }
     None
 }

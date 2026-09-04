@@ -125,8 +125,8 @@ impl Request {
                     pane_id: String,
                     text: String,
                 }
-                let p: P =
-                    serde_json::from_value(self.params.clone()).map_err(|e| invalid(e.to_string()))?;
+                let p: P = serde_json::from_value(self.params.clone())
+                    .map_err(|e| invalid(e.to_string()))?;
                 Ok(Call::Inject {
                     pane_id: p.pane_id,
                     text: p.text,
@@ -137,8 +137,8 @@ impl Request {
                 struct P {
                     pane_id: String,
                 }
-                let p: P =
-                    serde_json::from_value(self.params.clone()).map_err(|e| invalid(e.to_string()))?;
+                let p: P = serde_json::from_value(self.params.clone())
+                    .map_err(|e| invalid(e.to_string()))?;
                 Ok(Call::Cancel { pane_id: p.pane_id })
             }
             "read_scrollback" => {
@@ -148,8 +148,8 @@ impl Request {
                     #[serde(default)]
                     lines: Option<usize>,
                 }
-                let p: P =
-                    serde_json::from_value(self.params.clone()).map_err(|e| invalid(e.to_string()))?;
+                let p: P = serde_json::from_value(self.params.clone())
+                    .map_err(|e| invalid(e.to_string()))?;
                 Ok(Call::ReadScrollback {
                     pane_id: p.pane_id,
                     lines: p.lines,
@@ -160,8 +160,8 @@ impl Request {
                 struct P {
                     pane_id: String,
                 }
-                let p: P =
-                    serde_json::from_value(self.params.clone()).map_err(|e| invalid(e.to_string()))?;
+                let p: P = serde_json::from_value(self.params.clone())
+                    .map_err(|e| invalid(e.to_string()))?;
                 Ok(Call::Classify { pane_id: p.pane_id })
             }
             "list_agent_panes" => Ok(Call::ListAgentPanes),
@@ -232,7 +232,10 @@ pub enum PluginEvent {
     /// Pane layout changed; carries the affected terminal pane ids.
     PaneUpdate { panes: Vec<u32> },
     /// A command pane exited with an optional status code.
-    CommandPaneExited { pane_id: u32, exit_code: Option<i32> },
+    CommandPaneExited {
+        pane_id: u32,
+        exit_code: Option<i32>,
+    },
     /// A pane was closed.
     PaneClosed { pane_id: u32 },
 }
@@ -329,7 +332,11 @@ pub trait PaneOps {
     /// Interrupt (`send_sigint_to_pane_id`).
     fn cancel(&mut self, pane_id: &str) -> Result<(), String>;
     /// Read scrollback lines (`get_pane_scrollback`); `lines` caps the tail.
-    fn read_scrollback(&mut self, pane_id: &str, lines: Option<usize>) -> Result<Vec<String>, String>;
+    fn read_scrollback(
+        &mut self,
+        pane_id: &str,
+        lines: Option<usize>,
+    ) -> Result<Vec<String>, String>;
     /// Pane ids that look like hosted-agent panes (from the cached manifest).
     fn list_agent_panes(&mut self) -> Result<Vec<String>, String>;
 }
@@ -364,7 +371,10 @@ pub fn dispatch<O: PaneOps>(id: &str, call: Call, ops: &mut O) -> Response {
         Call::Classify { pane_id } => match ops.read_scrollback(&pane_id, None) {
             Ok(l) => {
                 let refs: Vec<&str> = l.iter().map(String::as_str).collect();
-                Response::ok(id, serde_json::json!({"state": classify_state(&refs).as_str()}))
+                Response::ok(
+                    id,
+                    serde_json::json!({"state": classify_state(&refs).as_str()}),
+                )
             }
             Err(e) => Response::error(id, e),
         },
@@ -400,7 +410,11 @@ mod tests {
             self.cancelled.push(pane_id.into());
             Ok(())
         }
-        fn read_scrollback(&mut self, _pane_id: &str, _lines: Option<usize>) -> Result<Vec<String>, String> {
+        fn read_scrollback(
+            &mut self,
+            _pane_id: &str,
+            _lines: Option<usize>,
+        ) -> Result<Vec<String>, String> {
             match &self.scrollback_err {
                 Some(e) => Err(e.clone()),
                 None => Ok(self.scrollback.clone()),
@@ -437,7 +451,12 @@ mod tests {
     #[test]
     fn cancel_constructor_round_trips() {
         let req = Request::cancel("2", "terminal_3");
-        assert_eq!(req.call().unwrap(), Call::Cancel { pane_id: "terminal_3".into() });
+        assert_eq!(
+            req.call().unwrap(),
+            Call::Cancel {
+                pane_id: "terminal_3".into()
+            }
+        );
     }
 
     #[test]
@@ -455,7 +474,12 @@ mod tests {
     #[test]
     fn classify_constructor_round_trips() {
         let req = Request::classify("4", "terminal_3");
-        assert_eq!(req.call().unwrap(), Call::Classify { pane_id: "terminal_3".into() });
+        assert_eq!(
+            req.call().unwrap(),
+            Call::Classify {
+                pane_id: "terminal_3".into()
+            }
+        );
     }
 
     #[test]
@@ -469,7 +493,10 @@ mod tests {
 
     #[test]
     fn parse_pane_ref_terminal() {
-        assert_eq!(parse_pane_ref("terminal_3").unwrap(), (PaneKind::Terminal, 3));
+        assert_eq!(
+            parse_pane_ref("terminal_3").unwrap(),
+            (PaneKind::Terminal, 3)
+        );
     }
 
     #[test]
@@ -498,10 +525,17 @@ mod tests {
     fn handle_inject_invokes_ops_and_returns_ok() {
         let mut ops = MockOps::default();
         let r = handle(
-            &req("i1", "inject", json!({"pane_id": "terminal_2", "text": "go"})),
+            &req(
+                "i1",
+                "inject",
+                json!({"pane_id": "terminal_2", "text": "go"}),
+            ),
             &mut ops,
         );
-        assert_eq!(ops.injected, vec![("terminal_2".to_string(), "go".to_string())]);
+        assert_eq!(
+            ops.injected,
+            vec![("terminal_2".to_string(), "go".to_string())]
+        );
         assert_eq!(r.id, "i1");
         assert!(r.ok);
     }
@@ -509,7 +543,10 @@ mod tests {
     #[test]
     fn handle_cancel_invokes_ops() {
         let mut ops = MockOps::default();
-        let r = handle(&req("c1", "cancel", json!({"pane_id": "terminal_2"})), &mut ops);
+        let r = handle(
+            &req("c1", "cancel", json!({"pane_id": "terminal_2"})),
+            &mut ops,
+        );
         assert_eq!(ops.cancelled, vec!["terminal_2".to_string()]);
         assert!(r.ok);
     }
@@ -521,7 +558,11 @@ mod tests {
             ..Default::default()
         };
         let r = handle(
-            &req("s1", "read_scrollback", json!({"pane_id": "terminal_2", "lines": 2})),
+            &req(
+                "s1",
+                "read_scrollback",
+                json!({"pane_id": "terminal_2", "lines": 2}),
+            ),
             &mut ops,
         );
         assert!(r.ok);
@@ -534,7 +575,10 @@ mod tests {
             scrollback: vec!["Running tool: foo".into(), "❯".into()],
             ..Default::default()
         };
-        let r = handle(&req("k1", "classify", json!({"pane_id": "terminal_2"})), &mut ops);
+        let r = handle(
+            &req("k1", "classify", json!({"pane_id": "terminal_2"})),
+            &mut ops,
+        );
         assert!(r.ok);
         assert_eq!(r.result.unwrap()["state"], "idle");
     }
@@ -545,9 +589,15 @@ mod tests {
             panes: vec!["terminal_0".into(), "terminal_3".into()],
             ..Default::default()
         };
-        let r = handle(&req("l1", "list_agent_panes", serde_json::Value::Null), &mut ops);
+        let r = handle(
+            &req("l1", "list_agent_panes", serde_json::Value::Null),
+            &mut ops,
+        );
         assert!(r.ok);
-        assert_eq!(r.result.unwrap()["panes"], json!(["terminal_0", "terminal_3"]));
+        assert_eq!(
+            r.result.unwrap()["panes"],
+            json!(["terminal_0", "terminal_3"])
+        );
     }
 
     #[test]
@@ -556,7 +606,10 @@ mod tests {
             scrollback_err: Some("pane gone".into()),
             ..Default::default()
         };
-        let r = handle(&req("s2", "read_scrollback", json!({"pane_id": "terminal_9"})), &mut ops);
+        let r = handle(
+            &req("s2", "read_scrollback", json!({"pane_id": "terminal_9"})),
+            &mut ops,
+        );
         assert!(!r.ok);
         assert_eq!(r.id, "s2");
         assert_eq!(r.error.as_deref(), Some("pane gone"));
@@ -575,7 +628,10 @@ mod tests {
     fn handle_invalid_params_returns_error_response() {
         let mut ops = MockOps::default();
         // inject missing `text`
-        let r = handle(&req("i2", "inject", json!({"pane_id": "terminal_2"})), &mut ops);
+        let r = handle(
+            &req("i2", "inject", json!({"pane_id": "terminal_2"})),
+            &mut ops,
+        );
         assert!(!r.ok);
         assert!(ops.injected.is_empty(), "must not inject on invalid params");
     }
@@ -818,7 +874,10 @@ mod tests {
 
     #[test]
     fn idle_returns_false_for_normal_output() {
-        assert!(!is_idle_screen(&["thinking...", "Running tool: web_search"]));
+        assert!(!is_idle_screen(&[
+            "thinking...",
+            "Running tool: web_search"
+        ]));
     }
 
     #[test]

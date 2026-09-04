@@ -56,9 +56,7 @@ pub async fn run_for_agent(
             backoff = BACKOFF_MIN;
         }
 
-        tracing::info!(
-            "Restarting Zellij bridge for {agent_id} in {backoff:?}"
-        );
+        tracing::info!("Restarting Zellij bridge for {agent_id} in {backoff:?}");
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(BACKOFF_MAX);
     }
@@ -70,9 +68,7 @@ async fn run_one_bridge(
     registry: &Arc<AttachRegistry>,
 ) -> Result<()> {
     if !session_is_alive(zellij_session) {
-        return Err(anyhow!(
-            "Zellij session '{zellij_session}' is not running"
-        ));
+        return Err(anyhow!("Zellij session '{zellij_session}' is not running"));
     }
 
     let zellij_bin = edgeplaned_runtimes::zellij_session::zellij_binary();
@@ -93,7 +89,10 @@ async fn run_one_bridge(
     cmd.env_remove("ZELLIJ_SESSION_NAME");
     cmd.env("TERM", "xterm-256color");
 
-    let mut child = pair.slave.spawn_command(cmd).context("spawn zellij attach")?;
+    let mut child = pair
+        .slave
+        .spawn_command(cmd)
+        .context("spawn zellij attach")?;
     drop(pair.slave);
 
     let mut master_reader = pair.master.try_clone_reader()?;
@@ -164,7 +163,13 @@ async fn run_one_bridge(
     });
 
     // Pump: fan-out PTY output to broadcast + render signals to PTY stdin.
-    let result = pump(&mut out_rx, &stdout_broadcast, &mut signal_rx, &signal_in_tx).await;
+    let result = pump(
+        &mut out_rx,
+        &stdout_broadcast,
+        &mut signal_rx,
+        &signal_in_tx,
+    )
+    .await;
 
     registry.unregister(agent_id).await;
 

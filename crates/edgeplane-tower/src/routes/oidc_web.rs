@@ -1,13 +1,13 @@
 //! OIDC authentication routes — device flow (RFC 8628), browser PKCE flow, CLI login.
 
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
-    Json, Router,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{Duration, Utc};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
@@ -68,8 +68,8 @@ impl OidcConfig {
         let client_id = std::env::var("OIDC_CLIENT_ID").unwrap_or_default();
         let client_secret = std::env::var("OIDC_CLIENT_SECRET").ok();
         let redirect_uri_override = std::env::var("OIDC_REDIRECT_URI").ok();
-        let scopes = std::env::var("OIDC_SCOPES")
-            .unwrap_or_else(|_| "openid profile email".to_string());
+        let scopes =
+            std::env::var("OIDC_SCOPES").unwrap_or_else(|_| "openid profile email".to_string());
         let device_interval = std::env::var("OIDC_DEVICE_INTERVAL_SECONDS")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -183,7 +183,10 @@ async fn fetch_userinfo(
 // ── OIDC discovery ────────────────────────────────────────────────────────────
 
 async fn fetch_discovery(issuer: &str) -> Result<serde_json::Value, String> {
-    let url = format!("{}/.well-known/openid-configuration", issuer.trim_end_matches('/'));
+    let url = format!(
+        "{}/.well-known/openid-configuration",
+        issuer.trim_end_matches('/')
+    );
     let client = reqwest::Client::new();
     let resp = client
         .get(&url)
@@ -416,14 +419,12 @@ async fn device_verify(
     let nonce = random_b64url(16);
 
     // Update the row with the verifier + nonce so the callback can use them.
-    if let Err(e) = sqlx::query(
-        "UPDATE oidcauthrequest SET code_verifier=$1, nonce=$2 WHERE id=$3",
-    )
-    .bind(&verifier)
-    .bind(&nonce)
-    .bind(&request_id)
-    .execute(&state.db)
-    .await
+    if let Err(e) = sqlx::query("UPDATE oidcauthrequest SET code_verifier=$1, nonce=$2 WHERE id=$3")
+        .bind(&verifier)
+        .bind(&nonce)
+        .bind(&request_id)
+        .execute(&state.db)
+        .await
     {
         tracing::error!("device_verify: update: {e}");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -441,8 +442,10 @@ async fn device_verify(
     let authorization_endpoint = match discovery["authorization_endpoint"].as_str() {
         Some(u) => u.to_string(),
         None => {
-            return Html(error_page("OIDC provider returned no authorization_endpoint."))
-                .into_response();
+            return Html(error_page(
+                "OIDC provider returned no authorization_endpoint.",
+            ))
+            .into_response();
         }
     };
 
@@ -465,7 +468,11 @@ async fn device_verify(
     );
 
     // Use the public issuer for the browser redirect.
-    let public_auth_endpoint = public_endpoint(&authorization_endpoint, &cfg.issuer_internal, &cfg.issuer_public);
+    let public_auth_endpoint = public_endpoint(
+        &authorization_endpoint,
+        &cfg.issuer_internal,
+        &cfg.issuer_public,
+    );
     let public_authorize_url = format!(
         "{public_auth_endpoint}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}&nonce={}&code_challenge={}&code_challenge_method=S256",
         urlencoded(&cfg.client_id),
@@ -493,31 +500,34 @@ async fn device_token(
 ) -> Response {
     let body_bytes: &[u8] = &body;
 
-    let (grant_type, device_code, user_agent_body): (Option<String>, Option<String>, Option<String>) =
-        if headers
-            .get(header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .map(|ct| ct.contains("application/json"))
-            .unwrap_or(false)
-        {
-            let v: serde_json::Value =
-                serde_json::from_slice(body_bytes).unwrap_or(serde_json::json!({}));
-            (
-                v["grant_type"].as_str().map(|s| s.to_string()),
-                v["device_code"].as_str().map(|s| s.to_string()),
-                v["user_agent"].as_str().map(|s| s.to_string()),
-            )
-        } else {
-            // form-encoded
-            let parsed: Vec<(String, String)> = form_urlencoded(body_bytes);
-            let get = |key: &str| {
-                parsed
-                    .iter()
-                    .find(|(k, _)| k == key)
-                    .map(|(_, v)| v.clone())
-            };
-            (get("grant_type"), get("device_code"), get("user_agent"))
+    let (grant_type, device_code, user_agent_body): (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = if headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.contains("application/json"))
+        .unwrap_or(false)
+    {
+        let v: serde_json::Value =
+            serde_json::from_slice(body_bytes).unwrap_or(serde_json::json!({}));
+        (
+            v["grant_type"].as_str().map(|s| s.to_string()),
+            v["device_code"].as_str().map(|s| s.to_string()),
+            v["user_agent"].as_str().map(|s| s.to_string()),
+        )
+    } else {
+        // form-encoded
+        let parsed: Vec<(String, String)> = form_urlencoded(body_bytes);
+        let get = |key: &str| {
+            parsed
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.clone())
         };
+        (get("grant_type"), get("device_code"), get("user_agent"))
+    };
 
     let grant_type = grant_type.unwrap_or_default();
     if grant_type != DEVICE_GRANT_TYPE {
@@ -544,12 +554,10 @@ async fn device_token(
     let now = Utc::now().naive_utc();
 
     // Check that the auth request exists and hasn't expired.
-    let auth_req = sqlx::query(
-        "SELECT id, expires_at FROM oidcauthrequest WHERE state=$1",
-    )
-    .bind(&device_code)
-    .fetch_optional(&state.db)
-    .await;
+    let auth_req = sqlx::query("SELECT id, expires_at FROM oidcauthrequest WHERE state=$1")
+        .bind(&device_code)
+        .fetch_optional(&state.db)
+        .await;
 
     match auth_req {
         Err(e) => {
@@ -617,24 +625,23 @@ async fn device_token(
     let cfg = OidcConfig::from_env();
 
     // Issue a session token.
-    let (token, _session_id, expires_at) =
-        match issue_session_token(
-            &state.db,
-            &subject,
-            email.as_deref().filter(|s| !s.is_empty()),
-            display_name.as_deref(),
-            &ua,
-            cfg.session_ttl_hours,
-            &groups,
-        )
-        .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!("device_token: issue_session: {e}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
+    let (token, _session_id, expires_at) = match issue_session_token(
+        &state.db,
+        &subject,
+        email.as_deref().filter(|s| !s.is_empty()),
+        display_name.as_deref(),
+        &ua,
+        cfg.session_ttl_hours,
+        &groups,
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("device_token: issue_session: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     // Mark grant as used.
     let _ = sqlx::query("UPDATE oidclogingrant SET used_at=$1 WHERE id=$2")
@@ -664,7 +671,8 @@ async fn device_token(
 // ─── GET /auth/oidc/device/success ───────────────────────────────────────────
 
 async fn device_success() -> impl IntoResponse {
-    Html(r#"<!DOCTYPE html>
+    Html(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -686,7 +694,8 @@ async fn device_success() -> impl IntoResponse {
     <p>Your device has been successfully authorized.<br>You can now close this window and return to your terminal.</p>
   </div>
 </body>
-</html>"#)
+</html>"#,
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -719,7 +728,12 @@ async fn cli_initiate(
 
     let auth_endpoint = match discovery["authorization_endpoint"].as_str() {
         Some(u) => u.to_string(),
-        None => return json_err(StatusCode::BAD_GATEWAY, "no authorization_endpoint in discovery"),
+        None => {
+            return json_err(
+                StatusCode::BAD_GATEWAY,
+                "no authorization_endpoint in discovery",
+            );
+        }
     };
 
     let verifier = generate_verifier();
@@ -730,7 +744,8 @@ async fn cli_initiate(
     let now = Utc::now().naive_utc();
     let expires_at = now + Duration::hours(cfg.session_ttl_hours);
     let redirect_path = sanitize_redirect_path(
-        &q.redirect_path.unwrap_or_else(|| "/auth/oidc/cli-success".to_string()),
+        &q.redirect_path
+            .unwrap_or_else(|| "/auth/oidc/cli-success".to_string()),
     );
 
     let result = sqlx::query(
@@ -759,7 +774,8 @@ async fn cli_initiate(
         .unwrap_or_else(|| "/auth/oidc/callback".to_string());
 
     // Replace internal issuer with public one for the browser URL.
-    let public_auth_endpoint = public_endpoint(&auth_endpoint, &cfg.issuer_internal, &cfg.issuer_public);
+    let public_auth_endpoint =
+        public_endpoint(&auth_endpoint, &cfg.issuer_internal, &cfg.issuer_public);
 
     let authorize_url = format!(
         "{public_auth_endpoint}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}&nonce={}&code_challenge={}&code_challenge_method=S256",
@@ -875,7 +891,10 @@ async fn oidc_start(
 
     let auth_endpoint = match discovery["authorization_endpoint"].as_str() {
         Some(u) => u.to_string(),
-        None => return Html(error_page("No authorization_endpoint in OIDC discovery.")).into_response(),
+        None => {
+            return Html(error_page("No authorization_endpoint in OIDC discovery."))
+                .into_response();
+        }
     };
 
     let verifier = generate_verifier();
@@ -885,7 +904,9 @@ async fn oidc_start(
     let now = Utc::now().naive_utc();
     let expires_at = now + Duration::hours(cfg.session_ttl_hours);
     let redirect_path = sanitize_redirect_path(
-        &q.redirect.or(q.redirect_path).unwrap_or_else(|| "/ui/".to_string()),
+        &q.redirect
+            .or(q.redirect_path)
+            .unwrap_or_else(|| "/ui/".to_string()),
     );
 
     let result = sqlx::query(
@@ -912,7 +933,8 @@ async fn oidc_start(
         .redirect_uri_override
         .unwrap_or_else(|| "/auth/oidc/callback".to_string());
 
-    let public_auth_endpoint = public_endpoint(&auth_endpoint, &cfg.issuer_internal, &cfg.issuer_public);
+    let public_auth_endpoint =
+        public_endpoint(&auth_endpoint, &cfg.issuer_internal, &cfg.issuer_public);
 
     let authorize_url = format!(
         "{public_auth_endpoint}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}&nonce={}&code_challenge={}&code_challenge_method=S256",
@@ -994,7 +1016,9 @@ async fn oidc_callback(
             tracing::error!("oidc_callback: db lookup: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
-        Ok(None) => return Html(error_page("Unknown auth request — may have expired.")).into_response(),
+        Ok(None) => {
+            return Html(error_page("Unknown auth request — may have expired.")).into_response();
+        }
         Ok(Some(r)) => r,
     };
 
@@ -1020,7 +1044,9 @@ async fn oidc_callback(
         Some(u) => u.to_string(),
         None => return Html(error_page("No token_endpoint in OIDC discovery.")).into_response(),
     };
-    let userinfo_endpoint = discovery["userinfo_endpoint"].as_str().map(|s| s.to_string());
+    let userinfo_endpoint = discovery["userinfo_endpoint"]
+        .as_str()
+        .map(|s| s.to_string());
 
     let redirect_uri = cfg
         .redirect_uri_override
@@ -1039,11 +1065,7 @@ async fn oidc_callback(
     }
 
     let http_client = reqwest::Client::new();
-    let token_resp = http_client
-        .post(&token_endpoint)
-        .form(&params)
-        .send()
-        .await;
+    let token_resp = http_client.post(&token_endpoint).form(&params).send().await;
 
     let token_resp = match token_resp {
         Ok(r) => r,
@@ -1080,18 +1102,18 @@ async fn oidc_callback(
     };
 
     let claims = match userinfo_endpoint {
-        Some(ref endpoint) => {
-            match fetch_userinfo(&access_token, endpoint).await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::error!("oidc_callback: userinfo fetch failed: {e}");
-                    return Html(error_page("Failed to fetch user info from OIDC provider."))
-                        .into_response();
-                }
+        Some(ref endpoint) => match fetch_userinfo(&access_token, endpoint).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("oidc_callback: userinfo fetch failed: {e}");
+                return Html(error_page("Failed to fetch user info from OIDC provider."))
+                    .into_response();
             }
-        }
+        },
         None => {
-            tracing::error!("oidc_callback: no userinfo_endpoint in OIDC discovery — cannot verify identity");
+            tracing::error!(
+                "oidc_callback: no userinfo_endpoint in OIDC discovery — cannot verify identity"
+            );
             return Html(error_page(
                 "OIDC provider does not expose a userinfo endpoint. Cannot verify identity.",
             ))
@@ -1099,10 +1121,7 @@ async fn oidc_callback(
         }
     };
 
-    let subject = claims["sub"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let subject = claims["sub"].as_str().unwrap_or("").to_string();
     // #77: the OIDC email is privilege-bearing — admin is derived from it via
     // auth::is_admin_email — so only trust it when the IdP asserts the address
     // is verified. An unverified/absent email_verified claim drops the email:
@@ -1132,7 +1151,10 @@ async fn oidc_callback(
 
     if subject.is_empty() {
         tracing::error!("oidc_callback: empty subject in userinfo claims");
-        return Html(error_page("Could not extract subject from userinfo response.")).into_response();
+        return Html(error_page(
+            "Could not extract subject from userinfo response.",
+        ))
+        .into_response();
     }
 
     // Mark auth request used.
@@ -1195,24 +1217,23 @@ async fn oidc_callback(
 
     // display_name was computed above (shared with the grant insert for the
     // CLI/device exchange paths).
-    let (token, _session_id, token_expires_at) =
-        match issue_session_token(
-            &state.db,
-            &subject,
-            (!email.is_empty()).then_some(email.as_str()),
-            display_name.as_deref(),
-            &ua,
-            cfg.session_ttl_hours,
-            &groups,
-        )
-        .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!("oidc_callback: issue_session: {e}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
+    let (token, _session_id, token_expires_at) = match issue_session_token(
+        &state.db,
+        &subject,
+        (!email.is_empty()).then_some(email.as_str()),
+        display_name.as_deref(),
+        &ua,
+        cfg.session_ttl_hours,
+        &groups,
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("oidc_callback: issue_session: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     // Mark grant used immediately (browser consumed it).
     let _ = sqlx::query("UPDATE oidclogingrant SET used_at=$1 WHERE id=$2")
@@ -1222,7 +1243,11 @@ async fn oidc_callback(
         .await;
 
     let cookie = session_cookie(&token, token_expires_at, cfg.session_cookie_secure);
-    let target = if redirect_path.is_empty() { "/".to_string() } else { redirect_path };
+    let target = if redirect_path.is_empty() {
+        "/".to_string()
+    } else {
+        redirect_path
+    };
     // Sanitize the stored redirect_path before using it: it was already
     // sanitized on write, but re-validate here as defence-in-depth.
     let target = sanitize_redirect_path(&target);
@@ -1254,7 +1279,8 @@ struct CliSuccessQuery {
 
 async fn cli_success_page(Query(q): Query<CliSuccessQuery>) -> impl IntoResponse {
     let grant_id = html_escape(&q.grant_id.unwrap_or_else(|| "(unknown)".to_string()));
-    let html = format!(r#"<!DOCTYPE html>
+    let html = format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -1325,7 +1351,8 @@ async fn cli_success_page(Query(q): Query<CliSuccessQuery>) -> impl IntoResponse
     }}
   </script>
 </body>
-</html>"#);
+</html>"#
+    );
     Html(html)
 }
 
@@ -1393,18 +1420,28 @@ async fn exchange_grant(
         .unwrap_or("")
         .to_string();
 
-    let ttl = body.ttl_hours
+    let ttl = body
+        .ttl_hours
         .filter(|&h| h > 0 && h <= 87_600) // up to 10 years; matches CLI MAX_SESSION_TTL_HOURS
         .unwrap_or(cfg.session_ttl_hours);
 
-    let (token, _session_id, expires_at) =
-        match issue_session_token(&state.db, &subject, email.as_deref().filter(|s| !s.is_empty()), display_name.as_deref(), &ua, ttl, &groups).await {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!("exchange_grant: issue_session: {e}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
+    let (token, _session_id, expires_at) = match issue_session_token(
+        &state.db,
+        &subject,
+        email.as_deref().filter(|s| !s.is_empty()),
+        display_name.as_deref(),
+        &ua,
+        ttl,
+        &groups,
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("exchange_grant: issue_session: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     // Mark grant used.
     let _ = sqlx::query("UPDATE oidclogingrant SET used_at=$1 WHERE id=$2")
@@ -1439,8 +1476,9 @@ fn urlencoded(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
-            | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => {
                 out.push('%');
                 out.push_str(&format!("{b:02X}"));
@@ -1469,13 +1507,15 @@ fn pct_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len()
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
             && let Ok(hi) = hex_digit(bytes[i + 1])
-                && let Ok(lo) = hex_digit(bytes[i + 2]) {
-                    out.push((hi << 4) | lo);
-                    i += 3;
-                    continue;
-                }
+            && let Ok(lo) = hex_digit(bytes[i + 2])
+        {
+            out.push((hi << 4) | lo);
+            i += 3;
+            continue;
+        }
         out.push(bytes[i]);
         i += 1;
     }
@@ -1493,7 +1533,8 @@ fn hex_digit(b: u8) -> Result<u8, ()> {
 
 /// Simple error HTML page.
 fn error_page(message: &str) -> String {
-    format!(r#"<!DOCTYPE html>
+    format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -1514,7 +1555,8 @@ fn error_page(message: &str) -> String {
     <p><a href="/auth/oidc/start">Try again</a></p>
   </div>
 </body>
-</html>"#)
+</html>"#
+    )
 }
 
 // ── Redirect path sanitizer ───────────────────────────────────────────────────
@@ -1568,14 +1610,20 @@ mod tests {
     #[test]
     fn trusts_email_when_email_verified_is_bool_true() {
         let claims = json!({ "email": "admin@example.com", "email_verified": true });
-        assert_eq!(verified_email(&claims).as_deref(), Some("admin@example.com"));
+        assert_eq!(
+            verified_email(&claims).as_deref(),
+            Some("admin@example.com")
+        );
     }
 
     #[test]
     fn trusts_email_when_email_verified_is_string_true() {
         // Some IdPs encode email_verified as the string "true" rather than a bool.
         let claims = json!({ "email": "admin@example.com", "email_verified": "true" });
-        assert_eq!(verified_email(&claims).as_deref(), Some("admin@example.com"));
+        assert_eq!(
+            verified_email(&claims).as_deref(),
+            Some("admin@example.com")
+        );
     }
 
     #[test]

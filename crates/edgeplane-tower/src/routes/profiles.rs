@@ -1,11 +1,11 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{NaiveDateTime, Utc};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -19,7 +19,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/me/profiles", get(list_profiles).post(create_profile))
         .route(
             "/me/profiles/{name}",
-            get(get_profile).put(replace_profile).patch(patch_profile).delete(delete_profile),
+            get(get_profile)
+                .put(replace_profile)
+                .patch(patch_profile)
+                .delete(delete_profile),
         )
         .route("/me/profiles/{name}/download", get(download_profile))
         .route("/me/profiles/{name}/activate", post(activate_profile))
@@ -28,21 +31,33 @@ pub fn router() -> Router<Arc<AppState>> {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 fn conflict(msg: &str) -> axum::response::Response {
-    (StatusCode::CONFLICT, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::CONFLICT,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 fn bad_request(msg: &str) -> axum::response::Response {
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 fn row_to_profile(row: &sqlx::postgres::PgRow, include_tarball: bool) -> serde_json::Value {
     let manifest_json_str: String = row.try_get("manifest_json").unwrap_or_default();
-    let manifest: serde_json::Value = serde_json::from_str(&manifest_json_str)
-        .unwrap_or(serde_json::json!([]));
+    let manifest: serde_json::Value =
+        serde_json::from_str(&manifest_json_str).unwrap_or(serde_json::json!([]));
 
     let mut v = serde_json::json!({
         "id": row.get::<i32, _>("id"),
@@ -162,14 +177,13 @@ async fn create_profile(
     };
 
     // Check name uniqueness for this owner
-    let exists: Option<i32> = sqlx::query_scalar(
-        "SELECT 1 FROM userprofile WHERE owner_subject=$1 AND name=$2",
-    )
-    .bind(&principal.subject)
-    .bind(&body.name)
-    .fetch_optional(&state.db)
-    .await
-    .unwrap_or(None);
+    let exists: Option<i32> =
+        sqlx::query_scalar("SELECT 1 FROM userprofile WHERE owner_subject=$1 AND name=$2")
+            .bind(&principal.subject)
+            .bind(&body.name)
+            .fetch_optional(&state.db)
+            .await
+            .unwrap_or(None);
 
     if exists.is_some() {
         return conflict("A profile with this name already exists");
@@ -228,13 +242,11 @@ async fn get_profile(
     principal: Principal,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    match sqlx::query(
-        "SELECT * FROM userprofile WHERE owner_subject=$1 AND name=$2",
-    )
-    .bind(&principal.subject)
-    .bind(&name)
-    .fetch_optional(&state.db)
-    .await
+    match sqlx::query("SELECT * FROM userprofile WHERE owner_subject=$1 AND name=$2")
+        .bind(&principal.subject)
+        .bind(&name)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(row)) => Json(row_to_profile(&row, false)).into_response(),
         Ok(None) => not_found("Profile not found"),
@@ -252,13 +264,11 @@ async fn replace_profile(
     Json(body): Json<CreateProfileBody>,
 ) -> impl IntoResponse {
     // Verify ownership
-    let existing = sqlx::query(
-        "SELECT * FROM userprofile WHERE owner_subject=$1 AND name=$2",
-    )
-    .bind(&principal.subject)
-    .bind(&name)
-    .fetch_optional(&state.db)
-    .await;
+    let existing = sqlx::query("SELECT * FROM userprofile WHERE owner_subject=$1 AND name=$2")
+        .bind(&principal.subject)
+        .bind(&name)
+        .fetch_optional(&state.db)
+        .await;
 
     match existing {
         Ok(None) => return not_found("Profile not found"),
@@ -276,9 +286,10 @@ async fn replace_profile(
 
     // Check expected_sha256 if provided
     if let Some(expected) = &body.expected_sha256
-        && *expected != sha256 {
-            return conflict("SHA256 mismatch: tarball does not match expected_sha256");
-        }
+        && *expected != sha256
+    {
+        return conflict("SHA256 mismatch: tarball does not match expected_sha256");
+    }
 
     let description = body.description.unwrap_or_default();
     let manifest_json = match &body.manifest {
@@ -331,13 +342,11 @@ async fn patch_profile(
     Path(name): Path<String>,
     Json(body): Json<PatchProfileBody>,
 ) -> impl IntoResponse {
-    let existing = sqlx::query(
-        "SELECT * FROM userprofile WHERE owner_subject=$1 AND name=$2",
-    )
-    .bind(&principal.subject)
-    .bind(&name)
-    .fetch_optional(&state.db)
-    .await;
+    let existing = sqlx::query("SELECT * FROM userprofile WHERE owner_subject=$1 AND name=$2")
+        .bind(&principal.subject)
+        .bind(&name)
+        .fetch_optional(&state.db)
+        .await;
 
     let row = match existing {
         Ok(Some(r)) => r,
@@ -369,9 +378,10 @@ async fn patch_profile(
             Ok((h, s)) => {
                 // Check expected_sha256 if provided
                 if let Some(expected) = &body.expected_sha256
-                    && *expected != h {
-                        return conflict("SHA256 mismatch: tarball does not match expected_sha256");
-                    }
+                    && *expected != h
+                {
+                    return conflict("SHA256 mismatch: tarball does not match expected_sha256");
+                }
                 (tb.clone(), h, s)
             }
             Err(e) => return bad_request(&e),
@@ -430,13 +440,11 @@ async fn delete_profile(
     principal: Principal,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let result = sqlx::query(
-        "DELETE FROM userprofile WHERE owner_subject=$1 AND name=$2",
-    )
-    .bind(&principal.subject)
-    .bind(&name)
-    .execute(&state.db)
-    .await;
+    let result = sqlx::query("DELETE FROM userprofile WHERE owner_subject=$1 AND name=$2")
+        .bind(&principal.subject)
+        .bind(&name)
+        .execute(&state.db)
+        .await;
 
     match result {
         Ok(r) if r.rows_affected() == 0 => not_found("Profile not found"),
@@ -453,13 +461,11 @@ async fn download_profile(
     principal: Principal,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    match sqlx::query(
-        "SELECT * FROM userprofile WHERE owner_subject=$1 AND name=$2",
-    )
-    .bind(&principal.subject)
-    .bind(&name)
-    .fetch_optional(&state.db)
-    .await
+    match sqlx::query("SELECT * FROM userprofile WHERE owner_subject=$1 AND name=$2")
+        .bind(&principal.subject)
+        .bind(&name)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(row)) => {
             let tarball: Option<String> = row.try_get("tarball_b64").ok().flatten();
@@ -482,13 +488,11 @@ async fn activate_profile(
     Path(name): Path<String>,
 ) -> impl IntoResponse {
     // Verify profile exists and is owned
-    let existing = sqlx::query(
-        "SELECT id FROM userprofile WHERE owner_subject=$1 AND name=$2",
-    )
-    .bind(&principal.subject)
-    .bind(&name)
-    .fetch_optional(&state.db)
-    .await;
+    let existing = sqlx::query("SELECT id FROM userprofile WHERE owner_subject=$1 AND name=$2")
+        .bind(&principal.subject)
+        .bind(&name)
+        .fetch_optional(&state.db)
+        .await;
 
     match existing {
         Ok(None) => return not_found("Profile not found"),

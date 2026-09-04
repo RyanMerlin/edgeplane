@@ -66,7 +66,10 @@ impl CredentialKind {
                     format!("{dir}/{secret_name}")
                 };
                 let mut query = format!("env={environment}");
-                if let Some(project_id) = project_id.as_deref().filter(|project_id| !project_id.is_empty()) {
+                if let Some(project_id) = project_id
+                    .as_deref()
+                    .filter(|project_id| !project_id.is_empty())
+                {
                     query.push_str(&format!("&project={project_id}"));
                 }
                 Some(format!("secret://infisical/{path}?{query}"))
@@ -118,38 +121,32 @@ mod tests {
 
     #[test]
     fn as_secret_ref_rejects_unsafe_components() {
-        assert!(
-            CredentialKind::Infisical {
-                secret_name: "a/b".to_string(),
-                project_id: None,
-                environment: "prod".to_string(),
-                secret_path: "/".to_string(),
-            }
-            .as_secret_ref()
-            .is_none()
-        );
+        assert!(CredentialKind::Infisical {
+            secret_name: "a/b".to_string(),
+            project_id: None,
+            environment: "prod".to_string(),
+            secret_path: "/".to_string(),
+        }
+        .as_secret_ref()
+        .is_none());
 
-        assert!(
-            CredentialKind::Infisical {
-                secret_name: "KE?Y".to_string(),
-                project_id: None,
-                environment: "prod".to_string(),
-                secret_path: "/".to_string(),
-            }
-            .as_secret_ref()
-            .is_none()
-        );
+        assert!(CredentialKind::Infisical {
+            secret_name: "KE?Y".to_string(),
+            project_id: None,
+            environment: "prod".to_string(),
+            secret_path: "/".to_string(),
+        }
+        .as_secret_ref()
+        .is_none());
 
-        assert!(
-            CredentialKind::Infisical {
-                secret_name: "KEY".to_string(),
-                project_id: None,
-                environment: "prod&x".to_string(),
-                secret_path: "/".to_string(),
-            }
-            .as_secret_ref()
-            .is_none()
-        );
+        assert!(CredentialKind::Infisical {
+            secret_name: "KEY".to_string(),
+            project_id: None,
+            environment: "prod&x".to_string(),
+            secret_path: "/".to_string(),
+        }
+        .as_secret_ref()
+        .is_none());
 
         assert_eq!(
             CredentialKind::Infisical {

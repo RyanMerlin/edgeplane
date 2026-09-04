@@ -2,11 +2,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use edgeplaned_packs::{
-    evaluate_policy, Backend, Decision, ExecutionContext, PackRegistry,
-    PolicyBundle,
+    Backend, Decision, ExecutionContext, PackRegistry, PolicyBundle, evaluate_policy,
 };
 use edgeplaned_receipts::{Receipt, ReceiptStore};
-use edgeplaned_secrets::{resolve_credentials_with_registry, SessionStore};
+use edgeplaned_secrets::{SessionStore, resolve_credentials_with_registry};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -251,12 +250,9 @@ impl CapabilityDispatcher {
 
         let run_result = match &manifest.backend {
             Backend::Subprocess { command, args } => {
-                run_subprocess(command, args, &req.args, &credential_env, timeout)
-                    .await
+                run_subprocess(command, args, &req.args, &credential_env, timeout).await
             }
-            Backend::Builtin { name } => {
-                run_builtin(name, &req.args, timeout).await
-            }
+            Backend::Builtin { name } => run_builtin(name, &req.args, timeout).await,
             Backend::Remote { url } => {
                 tracing::warn!(capability = %req.full_name, %url, "remote backend not yet implemented");
                 Err(format!("remote backend not implemented (url={})", url))
@@ -375,13 +371,21 @@ async fn run_subprocess(
         Ok::<_, String>((text, exit_code))
     };
 
-    tokio::time::timeout(timeout, run)
-        .await
-        .map_err(|_| format!("command '{}' timed out after {}s", command, timeout.as_secs()))?
+    tokio::time::timeout(timeout, run).await.map_err(|_| {
+        format!(
+            "command '{}' timed out after {}s",
+            command,
+            timeout.as_secs()
+        )
+    })?
 }
 
 /// Run a builtin capability (simple in-process implementations).
-async fn run_builtin(name: &str, input_args: &Value, _timeout: Duration) -> Result<(String, i32), String> {
+async fn run_builtin(
+    name: &str,
+    input_args: &Value,
+    _timeout: Duration,
+) -> Result<(String, i32), String> {
     match name {
         "echo" => {
             let msg = input_args
@@ -438,7 +442,10 @@ mod tests {
             "hint should mention 'not found'"
         );
         // Receipt ID is always generated, even on error.
-        assert!(!result.receipt_id.is_empty(), "receipt_id must always be set");
+        assert!(
+            !result.receipt_id.is_empty(),
+            "receipt_id must always be set"
+        );
     }
 
     /// Dry-run with a known capability returns ok=true and no subprocess is launched.
@@ -454,14 +461,25 @@ mod tests {
 
         let result = dispatcher.dispatch(req).await;
 
-        assert!(result.ok, "dry_run should return ok=true: hint={:?}", result.hint);
+        assert!(
+            result.ok,
+            "dry_run should return ok=true: hint={:?}",
+            result.hint
+        );
         assert_eq!(result.exit_code, 0);
         assert!(
-            result.data.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false),
+            result
+                .data
+                .get("dry_run")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             "data should contain dry_run=true"
         );
         // Verify no actual subprocess was launched (no blocking, no side effects).
-        assert_eq!(result.execution_time_ms, 0, "dry_run must not run the subprocess");
+        assert_eq!(
+            result.execution_time_ms, 0,
+            "dry_run must not run the subprocess"
+        );
     }
 
     /// A deny-all policy causes every capability to return ok=false.
@@ -481,7 +499,10 @@ mod tests {
             "hint should contain 'denied', got: {:?}",
             result.hint
         );
-        assert!(!result.receipt_id.is_empty(), "receipt_id must always be set");
+        assert!(
+            !result.receipt_id.is_empty(),
+            "receipt_id must always be set"
+        );
     }
 
     /// An explicit deny rule targeting a specific capability returns ok=false.
@@ -634,11 +655,8 @@ mod tests {
             std::env::remove_var(output_var);
         }
 
-        let dispatcher = CapabilityDispatcher::new(
-            Arc::new(registry),
-            PolicyBundle::allow_all(),
-            None,
-        );
+        let dispatcher =
+            CapabilityDispatcher::new(Arc::new(registry), PolicyBundle::allow_all(), None);
 
         let req = base_request("testpack.ref-secret-fail");
         let result = dispatcher.dispatch(req).await;
@@ -648,6 +666,9 @@ mod tests {
             std::env::remove_var(output_var);
         }
 
-        assert!(!result.ok, "dispatcher should fail closed without a secrets registry");
+        assert!(
+            !result.ok,
+            "dispatcher should fail closed without a secrets registry"
+        );
     }
 }

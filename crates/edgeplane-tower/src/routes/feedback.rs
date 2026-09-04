@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, patch, post},
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -75,8 +75,7 @@ struct SummaryQuery {
 
 fn row_to_feedback(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     let metadata: serde_json::Value =
-        serde_json::from_str(row.get::<&str, _>("metadata_json"))
-            .unwrap_or(serde_json::json!({}));
+        serde_json::from_str(row.get::<&str, _>("metadata_json")).unwrap_or(serde_json::json!({}));
     serde_json::json!({
         // feedbackentry.id is `integer` (i32) in Postgres — decoding as i64 panics
         // via `Row::get`, crashing the request with an empty reply.
@@ -134,10 +133,8 @@ async fn create_feedback(
     body: FeedbackCreate,
 ) -> axum::response::Response {
     let now = Utc::now().naive_utc();
-    let metadata_json = serde_json::to_string(
-        &body.metadata.unwrap_or(serde_json::json!({})),
-    )
-    .unwrap_or_else(|_| "{}".into());
+    let metadata_json = serde_json::to_string(&body.metadata.unwrap_or(serde_json::json!({})))
+        .unwrap_or_else(|_| "{}".into());
 
     match sqlx::query(
         "INSERT INTO feedbackentry \
@@ -272,12 +269,10 @@ async fn feedback_summary(
     {
         return resp;
     }
-    let rows = match sqlx::query(
-        "SELECT * FROM feedbackentry WHERE domain_id=$1",
-    )
-    .bind(&q.domain_id)
-    .fetch_all(&state.db)
-    .await
+    let rows = match sqlx::query("SELECT * FROM feedbackentry WHERE domain_id=$1")
+        .bind(&q.domain_id)
+        .fetch_all(&state.db)
+        .await
     {
         Ok(r) => r,
         Err(e) => {

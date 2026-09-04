@@ -1,8 +1,8 @@
 use axum::{
+    Json, Router,
     extract::{Query, State},
     response::IntoResponse,
     routing::get,
-    Json, Router,
 };
 use serde::Deserialize;
 use sqlx::Row;
@@ -65,7 +65,10 @@ async fn search_tasks(
     }
 
     // Filter by readable domains
-    let mission_ids: Vec<String> = rows.iter().map(|r| r.get::<String, _>("mission_id")).collect();
+    let mission_ids: Vec<String> = rows
+        .iter()
+        .map(|r| r.get::<String, _>("mission_id"))
+        .collect();
     if mission_ids.is_empty() {
         return Json(serde_json::json!({"results": []})).into_response();
     }
@@ -197,8 +200,9 @@ async fn search_missions(
                     Some(did) => {
                         let owners: String =
                             r.get::<Option<String>, _>("d_owners").unwrap_or_default();
-                        let contributors: String =
-                            r.get::<Option<String>, _>("d_contributors").unwrap_or_default();
+                        let contributors: String = r
+                            .get::<Option<String>, _>("d_contributors")
+                            .unwrap_or_default();
                         crate::auth::authorized_for(&did, &owners, &contributors, &principal)
                     }
                     None => false,
@@ -258,8 +262,9 @@ async fn readable_mission_ids(
             match domain_id {
                 Some(did) => {
                     let owners: String = r.get::<Option<String>, _>("owners").unwrap_or_default();
-                    let contributors: String =
-                        r.get::<Option<String>, _>("contributors").unwrap_or_default();
+                    let contributors: String = r
+                        .get::<Option<String>, _>("contributors")
+                        .unwrap_or_default();
                     crate::auth::authorized_for(&did, &owners, &contributors, principal)
                 }
                 None => false,
@@ -276,7 +281,10 @@ async fn get_readable_task_ids(
     principal: &Principal,
     rows: &[sqlx::postgres::PgRow],
 ) -> std::collections::HashSet<String> {
-    let mission_ids: Vec<String> = rows.iter().map(|r| r.get::<String, _>("mission_id")).collect();
+    let mission_ids: Vec<String> = rows
+        .iter()
+        .map(|r| r.get::<String, _>("mission_id"))
+        .collect();
     if mission_ids.is_empty() {
         return std::collections::HashSet::new();
     }
@@ -294,7 +302,10 @@ async fn get_readable_doc_ids(
     principal: &Principal,
     rows: &[sqlx::postgres::PgRow],
 ) -> std::collections::HashSet<i32> {
-    let mission_ids: Vec<String> = rows.iter().map(|r| r.get::<String, _>("mission_id")).collect();
+    let mission_ids: Vec<String> = rows
+        .iter()
+        .map(|r| r.get::<String, _>("mission_id"))
+        .collect();
     if mission_ids.is_empty() {
         return std::collections::HashSet::new();
     }

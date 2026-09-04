@@ -1,7 +1,4 @@
-use crate::{
-    config::EdgeplaneConfig,
-    ep_info, ep_ok,
-};
+use crate::{config::EdgeplaneConfig, ep_info, ep_ok};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -251,7 +248,11 @@ pub fn codex_paths(profile: &str) -> CodexPaths {
     }
 }
 
-fn inspect_profile(profile: &str, config: &EdgeplaneConfig, repair: bool) -> Result<CodexDoctorReport> {
+fn inspect_profile(
+    profile: &str,
+    config: &EdgeplaneConfig,
+    repair: bool,
+) -> Result<CodexDoctorReport> {
     let mut issues = Vec::<CodexDoctorIssue>::new();
     let mut repaired_actions = Vec::<String>::new();
     let mut repaired = false;
@@ -627,9 +628,10 @@ fn run_codex_process(
     cmd.env("EP_AGENT_PROFILE", profile);
     cmd.env("EP_BASE_URL", config.base_url.as_str());
     if let Some(token) = &config.token
-        && !token.trim().is_empty() {
-            cmd.env("EP_AGENT_TOKEN", token);
-        }
+        && !token.trim().is_empty()
+    {
+        cmd.env("EP_AGENT_TOKEN", token);
+    }
 
     cmd.status().context("failed to execute codex")
 }
@@ -671,9 +673,10 @@ pub fn launch_codex_blocking(
         cmd.env("EP_TASK_MD_PATH", p);
     }
     if let Some(token) = &config.token
-        && !token.trim().is_empty() {
-            cmd.env("EP_AGENT_TOKEN", token);
-        }
+        && !token.trim().is_empty()
+    {
+        cmd.env("EP_AGENT_TOKEN", token);
+    }
     cmd.status().context("failed to execute codex")
 }
 

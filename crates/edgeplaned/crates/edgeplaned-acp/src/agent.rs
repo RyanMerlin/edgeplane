@@ -123,9 +123,7 @@ enum ActorCommand {
     /// Send a notification (no response expected).
     Notification { msg: RawMessage },
     /// Initiate graceful shutdown: close stdin, wait, SIGTERM, wait, SIGKILL.
-    Shutdown {
-        reply: oneshot::Sender<Result<i32>>,
-    },
+    Shutdown { reply: oneshot::Sender<Result<i32>> },
 }
 
 impl Agent {
@@ -158,12 +156,14 @@ impl Agent {
         cmd.kill_on_drop(true);
 
         let mut child = cmd.spawn().map_err(AcpError::Io)?;
-        let stdin = child.stdin.take().ok_or_else(|| {
-            AcpError::other("child stdin not piped (logic error in spawn)")
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            AcpError::other("child stdout not piped (logic error in spawn)")
-        })?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| AcpError::other("child stdin not piped (logic error in spawn)"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| AcpError::other("child stdout not piped (logic error in spawn)"))?;
         let stderr = child.stderr.take();
 
         let (cmd_tx, cmd_rx) = mpsc::channel::<ActorCommand>(64);
@@ -300,11 +300,9 @@ impl Agent {
                 request_id: Some(id),
             })?;
 
-        let raw = reply_rx
-            .await
-            .map_err(|_| AcpError::ConnectionClosed {
-                request_id: Some(id),
-            })??;
+        let raw = reply_rx.await.map_err(|_| AcpError::ConnectionClosed {
+            request_id: Some(id),
+        })??;
         serde_json::from_value(raw).map_err(|e| AcpError::MalformedResponse {
             method: method.to_string(),
             detail: e.to_string(),
@@ -401,8 +399,9 @@ async fn actor_loop(
 }
 
 async fn wait_with_grace(child: &mut Child) -> i32 {
-    if let Ok(Some(status)) =
-        tokio::time::timeout(STDIN_CLOSE_GRACE, child.wait()).await.map(|r| r.ok())
+    if let Ok(Some(status)) = tokio::time::timeout(STDIN_CLOSE_GRACE, child.wait())
+        .await
+        .map(|r| r.ok())
     {
         return status.code().unwrap_or(-1);
     }
@@ -452,9 +451,11 @@ fn handle_inbound_notification(
     notifications_tx: &broadcast::Sender<wire::SessionNotification>,
 ) {
     if method == client_methods::SESSION_UPDATE {
-        match params.ok_or_else(|| AcpError::other("session/update missing params"))
-            .and_then(|p| serde_json::from_value::<wire::SessionNotification>(p).map_err(Into::into))
-        {
+        match params
+            .ok_or_else(|| AcpError::other("session/update missing params"))
+            .and_then(|p| {
+                serde_json::from_value::<wire::SessionNotification>(p).map_err(Into::into)
+            }) {
             Ok(notif) => {
                 // Send error is fine — means no subscribers.
                 let _ = notifications_tx.send(notif);

@@ -65,7 +65,11 @@ fn os_string() -> String {
         if let Some(name) = pretty {
             // Append kernel version.
             let kernel = uname_r();
-            return if kernel.is_empty() { name } else { format!("{name} ({kernel})") };
+            return if kernel.is_empty() {
+                name
+            } else {
+                format!("{name} ({kernel})")
+            };
         }
     }
     // macOS / fallback
@@ -77,7 +81,11 @@ fn os_string() -> String {
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| std::env::consts::OS.to_string());
     let release = uname_r();
-    if release.is_empty() { sysname } else { format!("{sysname} {release}") }
+    if release.is_empty() {
+        sysname
+    } else {
+        format!("{sysname} {release}")
+    }
 }
 
 fn uname_r() -> String {
@@ -94,11 +102,15 @@ fn cpu_cores() -> u32 {
     // Try nproc, then /proc/cpuinfo, then sysctl (macOS).
     if let Ok(out) = std::process::Command::new("nproc").output()
         && let Ok(s) = String::from_utf8(out.stdout)
-            && let Ok(n) = s.trim().parse::<u32>() {
-                return n;
-            }
+        && let Ok(n) = s.trim().parse::<u32>()
+    {
+        return n;
+    }
     if let Ok(contents) = std::fs::read_to_string("/proc/cpuinfo") {
-        let count = contents.lines().filter(|l| l.starts_with("processor")).count();
+        let count = contents
+            .lines()
+            .filter(|l| l.starts_with("processor"))
+            .count();
         if count > 0 {
             return count as u32;
         }
@@ -125,9 +137,10 @@ fn ram_gb() -> f64 {
         .args(["-n", "hw.memsize"])
         .output()
         && let Ok(s) = String::from_utf8(out.stdout)
-            && let Ok(bytes) = s.trim().parse::<u64>() {
-                return (bytes as f64) / 1_073_741_824.0;
-            }
+        && let Ok(bytes) = s.trim().parse::<u64>()
+    {
+        return (bytes as f64) / 1_073_741_824.0;
+    }
     0.0
 }
 
@@ -138,15 +151,16 @@ fn disk_free_gb(path: &std::path::Path) -> f64 {
         .arg(path)
         .output();
     if let Ok(o) = out
-        && let Ok(s) = String::from_utf8(o.stdout) {
-            // Output is header + value
-            let bytes: u64 = s
-                .lines()
-                .nth(1)
-                .and_then(|l| l.trim().parse().ok())
-                .unwrap_or(0);
-            return (bytes as f64) / 1_073_741_824.0;
-        }
+        && let Ok(s) = String::from_utf8(o.stdout)
+    {
+        // Output is header + value
+        let bytes: u64 = s
+            .lines()
+            .nth(1)
+            .and_then(|l| l.trim().parse().ok())
+            .unwrap_or(0);
+        return (bytes as f64) / 1_073_741_824.0;
+    }
     0.0
 }
 
@@ -158,7 +172,13 @@ fn detect_tailscale() -> (Option<String>, Option<String>) {
         .args(["ip", "--4"])
         .output()
         .ok()
-        .and_then(|o| if o.status.success() { Some(o.stdout) } else { None })
+        .and_then(|o| {
+            if o.status.success() {
+                Some(o.stdout)
+            } else {
+                None
+            }
+        })
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .map(|s| s.lines().next().unwrap_or("").trim().to_string())
         .filter(|s| !s.is_empty());
@@ -168,7 +188,13 @@ fn detect_tailscale() -> (Option<String>, Option<String>) {
         .args(["status", "--json"])
         .output()
         .ok()
-        .and_then(|o| if o.status.success() { Some(o.stdout) } else { None })
+        .and_then(|o| {
+            if o.status.success() {
+                Some(o.stdout)
+            } else {
+                None
+            }
+        })
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .and_then(|v| {
             v.get("Self")
@@ -184,28 +210,29 @@ fn detect_tailscale() -> (Option<String>, Option<String>) {
 /// Probe a set of well-known CLIs and capture their versions.
 fn detect_tools() -> Vec<ToolInfo> {
     let probes: &[(&str, &[&str])] = &[
-        ("claude",  &["--version"]),
-        ("codex",   &["--version"]),
-        ("gemini",  &["version"]),
-        ("git",     &["--version"]),
-        ("cargo",   &["--version"]),
-        ("rustc",   &["--version"]),
+        ("claude", &["--version"]),
+        ("codex", &["--version"]),
+        ("gemini", &["version"]),
+        ("git", &["--version"]),
+        ("cargo", &["--version"]),
+        ("rustc", &["--version"]),
         ("python3", &["--version"]),
-        ("node",    &["--version"]),
-        ("docker",     &["--version"]),
-        ("kubectl",    &["version", "--client", "--short"]),
-        ("tailscale",  &["version"]),
+        ("node", &["--version"]),
+        ("docker", &["--version"]),
+        ("kubectl", &["version", "--client", "--short"]),
+        ("tailscale", &["version"]),
     ];
 
     probes
         .iter()
         .filter_map(|(name, args)| {
-            let out = std::process::Command::new(name)
-                .args(*args)
-                .output()
-                .ok()?;
+            let out = std::process::Command::new(name).args(*args).output().ok()?;
             // Some tools write version to stderr (e.g. git on some systems).
-            let raw = if out.stdout.is_empty() { out.stderr } else { out.stdout };
+            let raw = if out.stdout.is_empty() {
+                out.stderr
+            } else {
+                out.stdout
+            };
             let version = String::from_utf8_lossy(&raw)
                 .lines()
                 .next()

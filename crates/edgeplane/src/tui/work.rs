@@ -18,12 +18,19 @@ pub enum WorkRequest {
     /// Fetch missions for a domain.
     ListMissions { domain_id: String, job_id: JobId },
     /// Fetch tasks for a mission using the canonical authenticated path.
-    ListTasks { domain_id: String, mission_id: String, job_id: JobId },
+    ListTasks {
+        domain_id: String,
+        mission_id: String,
+        job_id: JobId,
+    },
     /// Health-ping the backend; used for the status bar.
     Ping { job_id: JobId },
     /// Subscribe to the agent-feed SSE endpoint. The spawned thread streams
     /// events until the result channel closes or the connection drops.
-    SubscribeFeed { base_url: String, token: Option<String> },
+    SubscribeFeed {
+        base_url: String,
+        token: Option<String>,
+    },
     /// List subfolder names at an Infisical path.
     LoadSecretFolders {
         job_id: JobId,
@@ -49,7 +56,11 @@ pub enum WorkRequest {
     /// Clear an agent's context — controlplane stamps metadata; the runtime acts.
     ClearAgentContext { job_id: JobId, agent_id: String },
     /// Run the full OIDC browser-based login flow in-TUI.
-    OidcFlow { job_id: JobId, base_url: String, ttl_hours: u64 },
+    OidcFlow {
+        job_id: JobId,
+        base_url: String,
+        ttl_hours: u64,
+    },
     /// Ping a URL to test connectivity (unauthenticated GET {url}/health).
     PingUrl { job_id: JobId, url: String },
     /// Resolve the current token to a subject via /auth/whoami.
@@ -89,15 +100,38 @@ pub enum WorkResult {
     /// The feed SSE connection was lost; the caller should re-subscribe.
     FeedDisconnected { error: Option<String> },
     /// Subfolder names returned for a path.
-    SecretFoldersLoaded { job_id: JobId, folders: Vec<String>, error: Option<String> },
+    SecretFoldersLoaded {
+        job_id: JobId,
+        folders: Vec<String>,
+        error: Option<String>,
+    },
     /// Secret names returned for a path.
-    SecretNamesLoaded { job_id: JobId, names: Vec<String>, error: Option<String> },
+    SecretNamesLoaded {
+        job_id: JobId,
+        names: Vec<String>,
+        error: Option<String>,
+    },
     /// Agents listed from the backend.
-    AgentsListed { job_id: JobId, agents: Vec<super::data::AgentSummary>, error: Option<String> },
+    AgentsListed {
+        job_id: JobId,
+        agents: Vec<super::data::AgentSummary>,
+        error: Option<String>,
+    },
     /// Agent delete completed.
-    AgentDeleted { job_id: JobId, agent_id: String, ok: bool, error: Option<String> },
+    AgentDeleted {
+        job_id: JobId,
+        agent_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
     /// Agent op (restart / clear-context) completed.
-    AgentOpCompleted { job_id: JobId, agent_id: String, op: &'static str, ok: bool, error: Option<String> },
+    AgentOpCompleted {
+        job_id: JobId,
+        agent_id: String,
+        op: &'static str,
+        ok: bool,
+        error: Option<String>,
+    },
     /// An event from the in-TUI OIDC login flow.
     OidcFlow(OidcFlowEvent),
     /// Result of a PingUrl work item.
@@ -110,15 +144,27 @@ pub enum WorkResult {
         error: Option<String>,
     },
     /// Subject resolved from /auth/whoami for a token-authenticated session.
-    WhoamiComplete { job_id: JobId, subject: Option<String> },
+    WhoamiComplete {
+        job_id: JobId,
+        subject: Option<String>,
+    },
 }
 
 /// Events emitted during an in-TUI OIDC browser login flow.
 pub enum OidcFlowEvent {
     /// Server accepted initiation; browser URL is ready to display / open.
-    Initiated { job_id: JobId, authorize_url: String },
+    Initiated {
+        job_id: JobId,
+        authorize_url: String,
+    },
     /// Browser flow completed and session token saved.
-    Complete { job_id: JobId, token: String, subject: String, expires_at: String, email: Option<String> },
+    Complete {
+        job_id: JobId,
+        token: String,
+        subject: String,
+        expires_at: String,
+        email: Option<String>,
+    },
     /// Polling for browser completion timed out (60 s).
     TimedOut { job_id: JobId },
     /// Any unrecoverable error during the flow.
@@ -135,7 +181,10 @@ pub struct WorkPool {
 impl WorkPool {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();
-        Self { result_tx: tx, result_rx: rx }
+        Self {
+            result_tx: tx,
+            result_rx: rx,
+        }
     }
 
     /// Dispatch a work request onto a background std::thread.
@@ -168,7 +217,11 @@ impl WorkPool {
                 WorkRequest::ListDomains { job_id } => {
                     match handle.block_on(client.list_domains()) {
                         Ok(domains) => {
-                            let _ = tx.send(WorkResult::DomainsListed { job_id, domains, error: None });
+                            let _ = tx.send(WorkResult::DomainsListed {
+                                job_id,
+                                domains,
+                                error: None,
+                            });
                         }
                         Err(e) => {
                             let _ = tx.send(WorkResult::DomainsListed {
@@ -182,88 +235,165 @@ impl WorkPool {
                 WorkRequest::ListMissions { domain_id, job_id } => {
                     match handle.block_on(client.list_missions(&domain_id)) {
                         Ok(missions) => {
-                            let _ = tx.send(WorkResult::MissionsListed { job_id, domain_id, missions, error: None });
+                            let _ = tx.send(WorkResult::MissionsListed {
+                                job_id,
+                                domain_id,
+                                missions,
+                                error: None,
+                            });
                         }
                         Err(e) => {
                             let _ = tx.send(WorkResult::MissionsListed {
-                                job_id, domain_id, missions: vec![], error: Some(e.to_string()),
+                                job_id,
+                                domain_id,
+                                missions: vec![],
+                                error: Some(e.to_string()),
                             });
                         }
                     }
                 }
-                WorkRequest::ListTasks { domain_id, mission_id, job_id } => {
-                    match handle.block_on(client.list_tasks(&domain_id, &mission_id)) {
-                        Ok(tasks) => {
-                            let _ = tx.send(WorkResult::TasksListed { job_id, mission_id, tasks, error: None });
-                        }
-                        Err(e) => {
-                            let _ = tx.send(WorkResult::TasksListed {
-                                job_id, mission_id, tasks: vec![], error: Some(e.to_string()),
-                            });
-                        }
+                WorkRequest::ListTasks {
+                    domain_id,
+                    mission_id,
+                    job_id,
+                } => match handle.block_on(client.list_tasks(&domain_id, &mission_id)) {
+                    Ok(tasks) => {
+                        let _ = tx.send(WorkResult::TasksListed {
+                            job_id,
+                            mission_id,
+                            tasks,
+                            error: None,
+                        });
                     }
-                }
-                WorkRequest::LoadSecretFolders { job_id, project_id, environment, path, cfg } => {
+                    Err(e) => {
+                        let _ = tx.send(WorkResult::TasksListed {
+                            job_id,
+                            mission_id,
+                            tasks: vec![],
+                            error: Some(e.to_string()),
+                        });
+                    }
+                },
+                WorkRequest::LoadSecretFolders {
+                    job_id,
+                    project_id,
+                    environment,
+                    path,
+                    cfg,
+                } => {
                     // Infisical API requires no trailing slash except for root "/"
-                    let api_path = if path == "/" { path.clone() } else { path.trim_end_matches('/').to_string() };
+                    let api_path = if path == "/" {
+                        path.clone()
+                    } else {
+                        path.trim_end_matches('/').to_string()
+                    };
                     let infisical = edgeplaned_secrets::InfisicalClient::new(&cfg);
                     match infisical {
                         Err(e) => {
                             let _ = tx.send(WorkResult::SecretFoldersLoaded {
-                                job_id, folders: vec![], error: Some(e.to_string()),
+                                job_id,
+                                folders: vec![],
+                                error: Some(e.to_string()),
                             });
                         }
                         Ok(c) => {
-                            match handle.block_on(c.list_folders(&project_id, &environment, &api_path)) {
+                            match handle.block_on(c.list_folders(
+                                &project_id,
+                                &environment,
+                                &api_path,
+                            )) {
                                 Ok(folders) => {
-                                    let _ = tx.send(WorkResult::SecretFoldersLoaded { job_id, folders, error: None });
+                                    let _ = tx.send(WorkResult::SecretFoldersLoaded {
+                                        job_id,
+                                        folders,
+                                        error: None,
+                                    });
                                 }
                                 Err(e) => {
                                     let _ = tx.send(WorkResult::SecretFoldersLoaded {
-                                        job_id, folders: vec![], error: Some(e.to_string()),
+                                        job_id,
+                                        folders: vec![],
+                                        error: Some(e.to_string()),
                                     });
                                 }
                             }
                         }
                     }
                 }
-                WorkRequest::LoadSecretNames { job_id, project_id, environment, path, cfg } => {
+                WorkRequest::LoadSecretNames {
+                    job_id,
+                    project_id,
+                    environment,
+                    path,
+                    cfg,
+                } => {
                     // Infisical API requires no trailing slash except for root "/"
-                    let api_path = if path == "/" { path.clone() } else { path.trim_end_matches('/').to_string() };
+                    let api_path = if path == "/" {
+                        path.clone()
+                    } else {
+                        path.trim_end_matches('/').to_string()
+                    };
                     let infisical = edgeplaned_secrets::InfisicalClient::new(&cfg);
                     match infisical {
                         Err(e) => {
                             let _ = tx.send(WorkResult::SecretNamesLoaded {
-                                job_id, names: vec![], error: Some(e.to_string()),
+                                job_id,
+                                names: vec![],
+                                error: Some(e.to_string()),
                             });
                         }
                         Ok(c) => {
-                            match handle.block_on(c.list_secrets(&project_id, &environment, &api_path)) {
+                            match handle.block_on(c.list_secrets(
+                                &project_id,
+                                &environment,
+                                &api_path,
+                            )) {
                                 Ok(names) => {
-                                    let _ = tx.send(WorkResult::SecretNamesLoaded { job_id, names, error: None });
+                                    let _ = tx.send(WorkResult::SecretNamesLoaded {
+                                        job_id,
+                                        names,
+                                        error: None,
+                                    });
                                 }
                                 Err(e) => {
                                     let _ = tx.send(WorkResult::SecretNamesLoaded {
-                                        job_id, names: vec![], error: Some(e.to_string()),
+                                        job_id,
+                                        names: vec![],
+                                        error: Some(e.to_string()),
                                     });
                                 }
                             }
                         }
                     }
                 }
-                WorkRequest::ListAgents { job_id } => {
-                    match handle.block_on(client.list_agents()) {
-                        Ok(agents) => { let _ = tx.send(WorkResult::AgentsListed { job_id, agents, error: None }); }
-                        Err(e) => { let _ = tx.send(WorkResult::AgentsListed { job_id, agents: vec![], error: Some(e.to_string()) }); }
+                WorkRequest::ListAgents { job_id } => match handle.block_on(client.list_agents()) {
+                    Ok(agents) => {
+                        let _ = tx.send(WorkResult::AgentsListed {
+                            job_id,
+                            agents,
+                            error: None,
+                        });
                     }
-                }
+                    Err(e) => {
+                        let _ = tx.send(WorkResult::AgentsListed {
+                            job_id,
+                            agents: vec![],
+                            error: Some(e.to_string()),
+                        });
+                    }
+                },
                 WorkRequest::DeleteAgent { job_id, agent_id } => {
                     let res = handle.block_on(client.delete_agent(&agent_id));
                     let (ok, error) = match res {
                         Ok(()) => (true, None),
                         Err(e) => (false, Some(e.to_string())),
                     };
-                    let _ = tx.send(WorkResult::AgentDeleted { job_id, agent_id, ok, error });
+                    let _ = tx.send(WorkResult::AgentDeleted {
+                        job_id,
+                        agent_id,
+                        ok,
+                        error,
+                    });
                 }
                 WorkRequest::RestartAgent { job_id, agent_id } => {
                     let res = handle.block_on(client.restart_agent(&agent_id));
@@ -271,7 +401,13 @@ impl WorkPool {
                         Ok(()) => (true, None),
                         Err(e) => (false, Some(e.to_string())),
                     };
-                    let _ = tx.send(WorkResult::AgentOpCompleted { job_id, agent_id, op: "restart", ok, error });
+                    let _ = tx.send(WorkResult::AgentOpCompleted {
+                        job_id,
+                        agent_id,
+                        op: "restart",
+                        ok,
+                        error,
+                    });
                 }
                 WorkRequest::ClearAgentContext { job_id, agent_id } => {
                     let res = handle.block_on(client.clear_agent_context(&agent_id));
@@ -279,9 +415,19 @@ impl WorkPool {
                         Ok(()) => (true, None),
                         Err(e) => (false, Some(e.to_string())),
                     };
-                    let _ = tx.send(WorkResult::AgentOpCompleted { job_id, agent_id, op: "clear-context", ok, error });
+                    let _ = tx.send(WorkResult::AgentOpCompleted {
+                        job_id,
+                        agent_id,
+                        op: "clear-context",
+                        ok,
+                        error,
+                    });
                 }
-                WorkRequest::OidcFlow { job_id, base_url, ttl_hours } => {
+                WorkRequest::OidcFlow {
+                    job_id,
+                    base_url,
+                    ttl_hours,
+                } => {
                     handle.block_on(oidc_flow_worker(job_id, base_url, ttl_hours, tx));
                 }
                 WorkRequest::PingUrl { job_id, url } => {
@@ -292,7 +438,11 @@ impl WorkPool {
                             .build()
                             .map_err(|e| e.to_string())?;
                         let health_url = format!("{}/health", url.trim_end_matches('/'));
-                        let resp = ping_client.get(&health_url).send().await.map_err(|e| e.to_string())?;
+                        let resp = ping_client
+                            .get(&health_url)
+                            .send()
+                            .await
+                            .map_err(|e| e.to_string())?;
                         let status = resp.status();
                         if status.is_success() {
                             let body: serde_json::Value = resp.json().await.unwrap_or_default();
@@ -336,7 +486,9 @@ impl WorkPool {
 }
 
 impl Default for WorkPool {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Run the full OIDC browser-based login flow: initiate → open browser → poll
@@ -438,9 +590,10 @@ async fn oidc_flow_worker(
             Ok(r) if r.status().is_success() => {
                 if let Ok(v) = r.json::<serde_json::Value>().await
                     && v["status"].as_str() == Some("ready")
-                        && let Some(gid) = v["grant_id"].as_str() {
-                            break gid.to_string();
-                        }
+                    && let Some(gid) = v["grant_id"].as_str()
+                {
+                    break gid.to_string();
+                }
             }
             _ => {} // transient error or still pending — keep polling
         }
@@ -485,7 +638,10 @@ async fn oidc_flow_worker(
         }
     };
 
-    let token = match resp_json["token"].as_str().or_else(|| resp_json["access_token"].as_str()) {
+    let token = match resp_json["token"]
+        .as_str()
+        .or_else(|| resp_json["access_token"].as_str())
+    {
         Some(t) => t.to_string(),
         None => {
             let _ = tx.send(WorkResult::OidcFlow(OidcFlowEvent::Failed {
@@ -495,7 +651,10 @@ async fn oidc_flow_worker(
             return;
         }
     };
-    let subject = resp_json["subject"].as_str().unwrap_or("unknown").to_string();
+    let subject = resp_json["subject"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
     let email = resp_json["email"].as_str().map(|s| s.to_string());
     let expires_at = resp_json["expires_at"].as_str().unwrap_or("").to_string();
     let session_id = resp_json["session_id"].as_i64();
@@ -529,7 +688,11 @@ async fn oidc_flow_worker(
 /// channel closes or the connection drops.  Sends WorkResult::FeedConnected on
 /// first successful connect, then one WorkResult::FeedEvent per parsed event,
 /// then WorkResult::FeedDisconnected on disconnect.
-async fn stream_feed(base_url: String, token: Option<String>, tx: std::sync::mpsc::Sender<WorkResult>) {
+async fn stream_feed(
+    base_url: String,
+    token: Option<String>,
+    tx: std::sync::mpsc::Sender<WorkResult>,
+) {
     use futures_util::StreamExt;
 
     let url = format!("{}/sse", base_url.trim_end_matches('/'));
@@ -539,7 +702,9 @@ async fn stream_feed(base_url: String, token: Option<String>, tx: std::sync::mps
     {
         Ok(c) => c,
         Err(e) => {
-            let _ = tx.send(WorkResult::FeedDisconnected { error: Some(e.to_string()) });
+            let _ = tx.send(WorkResult::FeedDisconnected {
+                error: Some(e.to_string()),
+            });
             return;
         }
     };
@@ -558,7 +723,9 @@ async fn stream_feed(base_url: String, token: Option<String>, tx: std::sync::mps
             return;
         }
         Err(e) => {
-            let _ = tx.send(WorkResult::FeedDisconnected { error: Some(e.to_string()) });
+            let _ = tx.send(WorkResult::FeedDisconnected {
+                error: Some(e.to_string()),
+            });
             return;
         }
     };
@@ -574,7 +741,9 @@ async fn stream_feed(base_url: String, token: Option<String>, tx: std::sync::mps
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => {
-                let _ = tx.send(WorkResult::FeedDisconnected { error: Some(e.to_string()) });
+                let _ = tx.send(WorkResult::FeedDisconnected {
+                    error: Some(e.to_string()),
+                });
                 return;
             }
         };
@@ -589,8 +758,7 @@ async fn stream_feed(base_url: String, token: Option<String>, tx: std::sync::mps
                 // Empty line = dispatch event
                 if !current_data.is_empty() {
                     let ts = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
-                    let (agent_id, domain_id, evdata) =
-                        parse_feed_data(&current_data);
+                    let (agent_id, domain_id, evdata) = parse_feed_data(&current_data);
                     let ev = super::screens::agent_feed::FeedEvent {
                         ts,
                         agent_id,
@@ -619,11 +787,22 @@ async fn stream_feed(base_url: String, token: Option<String>, tx: std::sync::mps
 /// Try to parse agent_id / domain_id from the SSE data payload (expected to be JSON).
 fn parse_feed_data(data: &str) -> (Option<String>, Option<String>, String) {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-        let agent_id = v.get("agent_id").and_then(|x| x.as_str()).map(str::to_string)
+        let agent_id = v
+            .get("agent_id")
+            .and_then(|x| x.as_str())
+            .map(str::to_string)
             .or_else(|| v.get("agent").and_then(|x| x.as_str()).map(str::to_string));
-        let domain_id = v.get("domain_id").and_then(|x| x.as_str()).map(str::to_string);
-        let summary = v.get("message").or_else(|| v.get("data")).or_else(|| v.get("summary"))
-            .and_then(|x| x.as_str()).unwrap_or(data).to_string();
+        let domain_id = v
+            .get("domain_id")
+            .and_then(|x| x.as_str())
+            .map(str::to_string);
+        let summary = v
+            .get("message")
+            .or_else(|| v.get("data"))
+            .or_else(|| v.get("summary"))
+            .and_then(|x| x.as_str())
+            .unwrap_or(data)
+            .to_string();
         (agent_id, domain_id, summary)
     } else {
         (None, None, data.to_string())
@@ -633,7 +812,7 @@ fn parse_feed_data(data: &str) -> (Option<String>, Option<String>, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::data::{DataClient, FixtureDataClient, DomainSummary};
+    use crate::tui::data::{DataClient, DomainSummary, FixtureDataClient};
     use std::sync::Arc;
 
     #[tokio::test]
@@ -642,10 +821,14 @@ mod tests {
         let client: Arc<dyn DataClient> = Arc::new(FixtureDataClient::default());
         let job_id = next_job_id();
         pool.dispatch(client, WorkRequest::Ping { job_id });
-        let result = pool.result_rx.recv_timeout(std::time::Duration::from_secs(5));
+        let result = pool
+            .result_rx
+            .recv_timeout(std::time::Duration::from_secs(5));
         assert!(result.is_ok(), "no result arrived");
         match result.unwrap() {
-            WorkResult::Pinged { job_id: jid, ok, .. } => {
+            WorkResult::Pinged {
+                job_id: jid, ok, ..
+            } => {
                 assert_eq!(jid, job_id);
                 assert!(ok);
             }
@@ -665,7 +848,9 @@ mod tests {
         });
         let job_id = next_job_id();
         pool.dispatch(client, WorkRequest::ListDomains { job_id });
-        let result = pool.result_rx.recv_timeout(std::time::Duration::from_secs(5));
+        let result = pool
+            .result_rx
+            .recv_timeout(std::time::Duration::from_secs(5));
         assert!(result.is_ok());
         match result.unwrap() {
             WorkResult::DomainsListed { domains, error, .. } => {

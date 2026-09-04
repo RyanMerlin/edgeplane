@@ -24,13 +24,18 @@ pub struct TokenCache {
 }
 
 impl TokenCache {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Return a cached token for the given identity, if still valid.
     pub fn get(&self, site_url: &str, client_id: &str) -> Option<String> {
         let guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         let key = (site_url.to_string(), client_id.to_string());
-        guard.get(&key).filter(|t| t.is_valid()).map(|t| t.token.clone())
+        guard
+            .get(&key)
+            .filter(|t| t.is_valid())
+            .map(|t| t.token.clone())
     }
 
     /// Store a token with a TTL (in seconds).  Stores `ttl - 60` to refresh
@@ -38,8 +43,7 @@ impl TokenCache {
     pub fn store(&self, site_url: &str, client_id: &str, token: String, ttl_secs: u64) {
         let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         let key = (site_url.to_string(), client_id.to_string());
-        let expires_at = Instant::now()
-            + Duration::from_secs(ttl_secs.saturating_sub(60).max(30));
+        let expires_at = Instant::now() + Duration::from_secs(ttl_secs.saturating_sub(60).max(30));
         guard.insert(key, CachedToken { token, expires_at });
     }
 
@@ -63,7 +67,10 @@ mod tests {
     fn cache_hit_after_store() {
         let cache = TokenCache::new();
         cache.store("https://app.infisical.com", "id1", "tok123".into(), 3600);
-        assert_eq!(cache.get("https://app.infisical.com", "id1").unwrap(), "tok123");
+        assert_eq!(
+            cache.get("https://app.infisical.com", "id1").unwrap(),
+            "tok123"
+        );
     }
 
     #[test]
@@ -81,6 +88,9 @@ mod tests {
         let cache = TokenCache::new();
         // TTL of 1 sec → effective 30 s (min), token should still be valid right now
         cache.store("https://app.infisical.com", "id1", "tok_short".into(), 1);
-        assert_eq!(cache.get("https://app.infisical.com", "id1").unwrap(), "tok_short");
+        assert_eq!(
+            cache.get("https://app.infisical.com", "id1").unwrap(),
+            "tok_short"
+        );
     }
 }

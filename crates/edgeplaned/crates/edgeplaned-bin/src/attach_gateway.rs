@@ -74,7 +74,10 @@ pub async fn run(runtimes: RuntimeMap, registry: Arc<AttachRegistry>) -> Result<
 }
 
 #[cfg(not(unix))]
-pub async fn run(_runtimes: RuntimeMap, _registry: Arc<crate::attach_registry::AttachRegistry>) -> Result<()> {
+pub async fn run(
+    _runtimes: RuntimeMap,
+    _registry: Arc<crate::attach_registry::AttachRegistry>,
+) -> Result<()> {
     tracing::warn!("attach gateway is only supported on Unix-like hosts");
     futures::future::pending::<()>().await;
     #[allow(unreachable_code)]
@@ -137,9 +140,7 @@ async fn handle_connection(
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!(
-                            "attach viewer for {agent_id_for_log} lagged {n} chunks"
-                        );
+                        tracing::warn!("attach viewer for {agent_id_for_log} lagged {n} chunks");
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }

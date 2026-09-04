@@ -2,7 +2,7 @@ mod common;
 
 use axum_test::TestServer;
 use common::{seed_ingestion_job, setup};
-use edgeplane_tower::{build_app, AppConfig};
+use edgeplane_tower::{AppConfig, build_app};
 
 fn server(pool: sqlx::PgPool) -> TestServer {
     TestServer::new(build_app(pool, AppConfig::default()))
@@ -71,7 +71,10 @@ async fn feedback_summary_denied_for_outsider() {
     };
     let (h, v) = bearer(&ctx.outsider_sa_token);
     let res = server(pool)
-        .get(&format!("/api/feedback/summary?domain_id={}", ctx.domain_id))
+        .get(&format!(
+            "/api/feedback/summary?domain_id={}",
+            ctx.domain_id
+        ))
         .add_header(h, v)
         .await;
     assert_eq!(

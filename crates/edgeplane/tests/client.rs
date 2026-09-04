@@ -1,7 +1,7 @@
-use httpmock::Method::GET;
-use httpmock::MockServer;
 use edgeplane::client::EdgeplaneClient;
 use edgeplane::config::EdgeplaneConfig;
+use httpmock::Method::GET;
+use httpmock::MockServer;
 use serde_json::json;
 
 fn build_config(base_url: &str) -> EdgeplaneConfig {

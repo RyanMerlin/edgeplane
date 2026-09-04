@@ -232,9 +232,9 @@ fn render_json_mcp_entry(
         && let Some(env_obj) = full
             .pointer_mut("/mcpServers/edgeplane/env")
             .and_then(|v| v.as_object_mut())
-        {
-            env_obj.remove("EP_AGENT_TOKEN");
-        }
+    {
+        env_obj.remove("EP_AGENT_TOKEN");
+    }
     full["mcpServers"]["edgeplane"].clone()
 }
 
@@ -362,10 +362,9 @@ pub async fn run_driver_agent(
     let base_mc_home = ep_home_dir();
     fs::create_dir_all(&base_mc_home)?;
 
-    let profile_name =
-        resolve_profile_name(&profile, Some(selected_agent.config_key()), client)
-            .await
-            .unwrap_or_else(|_| "default".to_string());
+    let profile_name = resolve_profile_name(&profile, Some(selected_agent.config_key()), client)
+        .await
+        .unwrap_or_else(|_| "default".to_string());
 
     let runtime_session_id = format!("rs_{}", Uuid::new_v4().simple());
     let instance_home = edgeplaned_paths::instances_dir().join(&runtime_session_id);
@@ -392,15 +391,13 @@ pub async fn run_driver_agent(
     ) {
         ep_warn!("could not write edgeplane/context.json: {}", e);
     }
-    upsert_launch_session(
-        LaunchSessionRecord {
-            runtime_session_id: runtime_session_id.clone(),
-            agent: selected_agent.config_key().to_string(),
-            profile: profile_name.clone(),
-            instance_home: instance_home.display().to_string(),
-            created_at: chrono::Utc::now().to_rfc3339(),
-        },
-    )?;
+    upsert_launch_session(LaunchSessionRecord {
+        runtime_session_id: runtime_session_id.clone(),
+        agent: selected_agent.config_key().to_string(),
+        profile: profile_name.clone(),
+        instance_home: instance_home.display().to_string(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    })?;
 
     let driver = selected_agent.driver();
 
@@ -566,9 +563,7 @@ async fn mcp_connectivity_preflight(client: &EdgeplaneClient) {
     // Health check.
     if let Err(e) = client.get_json("/mcp/health").await {
         ep_warn!("MCP preflight: backend unreachable ({})", e);
-        ep_warn!(
-            "MCP preflight: tools will load once backend is available (retry loop active)"
-        );
+        ep_warn!("MCP preflight: tools will load once backend is available (retry loop active)");
         return;
     }
 
@@ -1173,7 +1168,10 @@ mod tests {
     #[test]
     fn parse_agent_kind_accepts_only_driver_agents() {
         assert!(matches!(parse_agent_kind("gemini"), Ok(AgentKind::Gemini)));
-        assert!(matches!(parse_agent_kind("openclaw"), Ok(AgentKind::Openclaw)));
+        assert!(matches!(
+            parse_agent_kind("openclaw"),
+            Ok(AgentKind::Openclaw)
+        ));
         assert!(matches!(parse_agent_kind("custom"), Ok(AgentKind::Custom)));
         // Native runtimes are handled by `edgeplane run` directly, never here.
         assert!(parse_agent_kind("claude").is_err());

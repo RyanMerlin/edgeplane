@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -34,7 +34,11 @@ struct ListQuery {
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 fn row_to_job(row: &sqlx::postgres::PgRow) -> serde_json::Value {
@@ -136,12 +140,10 @@ async fn list_jobs(
         if let Err(resp) = authz_mission(&state.db, &principal, mission_id).await {
             return resp;
         }
-        sqlx::query(
-            "SELECT * FROM ingestionjob WHERE mission_id=$1 ORDER BY updated_at DESC",
-        )
-        .bind(mission_id)
-        .fetch_all(&state.db)
-        .await
+        sqlx::query("SELECT * FROM ingestionjob WHERE mission_id=$1 ORDER BY updated_at DESC")
+            .bind(mission_id)
+            .fetch_all(&state.db)
+            .await
     } else {
         // No mission filter would dump every tenant's jobs. Require a mission_id
         // for ordinary callers; only an admin may list across all missions.

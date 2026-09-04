@@ -45,13 +45,17 @@ pub fn write_task_md(path: &Path, fm: &TaskFrontMatter) -> Result<()> {
 pub fn read_task_md(path: &Path) -> Result<(TaskFrontMatter, String)> {
     let content = std::fs::read_to_string(path)?;
     if let Some(rest) = content.strip_prefix("---\n")
-        && let Some(sep) = rest.find("\n---\n") {
-            let yaml_part = &rest[..sep];
-            let body = &rest[sep + 5..];
-            let fm: TaskFrontMatter = serde_yaml::from_str(yaml_part)?;
-            return Ok((fm, body.to_string()));
-        }
-    anyhow::bail!("TASK.md at {} is missing YAML front-matter delimiters", path.display())
+        && let Some(sep) = rest.find("\n---\n")
+    {
+        let yaml_part = &rest[..sep];
+        let body = &rest[sep + 5..];
+        let fm: TaskFrontMatter = serde_yaml::from_str(yaml_part)?;
+        return Ok((fm, body.to_string()));
+    }
+    anyhow::bail!(
+        "TASK.md at {} is missing YAML front-matter delimiters",
+        path.display()
+    )
 }
 
 #[cfg(test)]

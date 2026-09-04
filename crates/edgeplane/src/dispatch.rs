@@ -157,7 +157,14 @@ impl EdgeplaneDispatch {
                 send_jsonrpc_unix(&socket_path, "capabilities.list", params).await?
             }
             RouteMode::Remote { host, port } => {
-                send_jsonrpc_tcp(host, *port, self.session_token.as_deref(), "capabilities.list", params).await?
+                send_jsonrpc_tcp(
+                    host,
+                    *port,
+                    self.session_token.as_deref(),
+                    "capabilities.list",
+                    params,
+                )
+                .await?
             }
             RouteMode::Backend | RouteMode::Auto => {
                 anyhow::bail!("daemon not reachable: no socket or remote host configured")
@@ -203,18 +210,21 @@ impl EdgeplaneDispatch {
                 send_jsonrpc_unix(&socket_path, "dispatch", params).await
             }
             RouteMode::Remote { host, port } => {
-                send_jsonrpc_tcp(host, *port, self.session_token.as_deref(), "dispatch", params).await
+                send_jsonrpc_tcp(
+                    host,
+                    *port,
+                    self.session_token.as_deref(),
+                    "dispatch",
+                    params,
+                )
+                .await
             }
             RouteMode::Backend => {
-                anyhow::bail!(
-                    "backend route not yet implemented; set EP_MESH_SOCKET or use --host"
-                )
+                anyhow::bail!("backend route not yet implemented; set EP_MESH_SOCKET or use --host")
             }
             RouteMode::Auto => {
                 // Auto resolution failed to narrow down — default to backend stub.
-                anyhow::bail!(
-                    "backend route not yet implemented; set EP_MESH_SOCKET or use --host"
-                )
+                anyhow::bail!("backend route not yet implemented; set EP_MESH_SOCKET or use --host")
             }
         }
     }
@@ -222,9 +232,10 @@ impl EdgeplaneDispatch {
     /// Resolve Auto: check EP_MESH_SOCKET → Local; otherwise Backend.
     fn resolve_auto(&self) -> RouteMode {
         if let Ok(sock) = std::env::var("EP_MESH_SOCKET")
-            && std::path::Path::new(&sock).exists() {
-                return RouteMode::Local;
-            }
+            && std::path::Path::new(&sock).exists()
+        {
+            return RouteMode::Local;
+        }
         RouteMode::Backend
     }
 }
@@ -234,11 +245,7 @@ impl EdgeplaneDispatch {
 // ---------------------------------------------------------------------------
 
 #[cfg(unix)]
-async fn send_jsonrpc_unix(
-    socket_path: &str,
-    method: &str,
-    params: Value,
-) -> Result<Value> {
+async fn send_jsonrpc_unix(socket_path: &str, method: &str, params: Value) -> Result<Value> {
     use tokio::net::UnixStream;
 
     let stream = UnixStream::connect(socket_path)
@@ -249,11 +256,7 @@ async fn send_jsonrpc_unix(
 }
 
 #[cfg(not(unix))]
-async fn send_jsonrpc_unix(
-    _socket_path: &str,
-    _method: &str,
-    _params: Value,
-) -> Result<Value> {
+async fn send_jsonrpc_unix(_socket_path: &str, _method: &str, _params: Value) -> Result<Value> {
     anyhow::bail!("Unix socket routing is not supported on Windows")
 }
 
@@ -335,8 +338,7 @@ where
         .await
         .context("read JSON-RPC response")?;
 
-    let response: Value =
-        serde_json::from_str(line.trim()).context("parse JSON-RPC response")?;
+    let response: Value = serde_json::from_str(line.trim()).context("parse JSON-RPC response")?;
 
     if let Some(err) = response.get("error") {
         anyhow::bail!("JSON-RPC error: {err}");

@@ -1,6 +1,6 @@
+pub mod client;
 pub mod error;
 pub mod types;
-pub mod client;
 
 pub use client::SyncClient;
 pub use error::SyncError;

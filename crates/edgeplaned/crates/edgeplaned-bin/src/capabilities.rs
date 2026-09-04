@@ -220,8 +220,8 @@ pub fn parse_required_capabilities(raw: &str) -> anyhow::Result<Vec<String>> {
         return Ok(vec![]);
     }
 
-    let value: serde_json::Value =
-        serde_json::from_str(trimmed).map_err(|e| anyhow::anyhow!("required_capabilities is not valid JSON: {e}"))?;
+    let value: serde_json::Value = serde_json::from_str(trimmed)
+        .map_err(|e| anyhow::anyhow!("required_capabilities is not valid JSON: {e}"))?;
 
     match value {
         serde_json::Value::Array(arr) => {
@@ -232,7 +232,7 @@ pub fn parse_required_capabilities(raw: &str) -> anyhow::Result<Vec<String>> {
                     other => {
                         return Err(anyhow::anyhow!(
                             "required_capabilities[{i}] must be a string, got: {other}"
-                        ))
+                        ));
                     }
                 }
             }
@@ -251,9 +251,7 @@ pub fn parse_required_capabilities(raw: &str) -> anyhow::Result<Vec<String>> {
 /// Returns `Err` if any capability name is not in the v1 vocabulary.
 /// An empty input list is valid and produces an empty `AllowedTools`
 /// (meaning no tools are allowed — tasks can still produce output via stdout).
-pub fn translate_capabilities(
-    capabilities: &[String],
-) -> anyhow::Result<AllowedTools> {
+pub fn translate_capabilities(capabilities: &[String]) -> anyhow::Result<AllowedTools> {
     let vocab = capability_vocabulary();
     let mut fragments: HashSet<String> = HashSet::new();
 
@@ -327,7 +325,10 @@ mod tests {
     fn parse_required_capabilities_valid_json_array() {
         let raw = r#"["fs:read","shell:write"]"#;
         let result = parse_required_capabilities(raw).unwrap();
-        assert_eq!(result, vec!["fs:read".to_string(), "shell:write".to_string()]);
+        assert_eq!(
+            result,
+            vec!["fs:read".to_string(), "shell:write".to_string()]
+        );
     }
 
     #[test]
@@ -361,10 +362,7 @@ mod tests {
     #[test]
     fn parse_required_capabilities_array_with_non_string_element_returns_err() {
         let err = parse_required_capabilities(r#"["fs:read", 42]"#).unwrap_err();
-        assert!(
-            err.to_string().contains("must be a string"),
-            "got: {err}"
-        );
+        assert!(err.to_string().contains("must be a string"), "got: {err}");
     }
 
     #[test]
@@ -392,7 +390,8 @@ mod tests {
         let caps = vec!["fs:read".to_string(), "made_up:thing".to_string()];
         let err = translate_capabilities(&caps).unwrap_err();
         assert!(
-            err.to_string().contains("unknown capability: made_up:thing"),
+            err.to_string()
+                .contains("unknown capability: made_up:thing"),
             "got: {err}"
         );
     }
@@ -401,13 +400,9 @@ mod tests {
     fn translate_subsuming_capability_dedupes() {
         // vault:write already includes all vault:read fragments.
         // Requesting both should produce the same set as vault:write alone.
-        let both = translate_capabilities(&[
-            "vault:read".to_string(),
-            "vault:write".to_string(),
-        ])
-        .unwrap();
-        let write_only =
-            translate_capabilities(&["vault:write".to_string()]).unwrap();
+        let both =
+            translate_capabilities(&["vault:read".to_string(), "vault:write".to_string()]).unwrap();
+        let write_only = translate_capabilities(&["vault:write".to_string()]).unwrap();
 
         assert_eq!(
             both.fragments, write_only.fragments,
@@ -427,17 +422,29 @@ mod tests {
         let tools = translate_capabilities(&["edgeplane:write".to_string()]).unwrap();
         let cli = tools.to_cli_string();
         // edgeplane:read fragment that should be subsumed
-        assert!(cli.contains("Bash(edgeplane agent ls *)"), "missing edgeplane:read fragment in: {cli}");
+        assert!(
+            cli.contains("Bash(edgeplane agent ls *)"),
+            "missing edgeplane:read fragment in: {cli}"
+        );
         // edgeplane:write-specific fragment
-        assert!(cli.contains("Bash(edgeplane agent signal *)"), "missing edgeplane:write fragment in: {cli}");
+        assert!(
+            cli.contains("Bash(edgeplane agent signal *)"),
+            "missing edgeplane:write fragment in: {cli}"
+        );
     }
 
     #[test]
     fn translate_gh_write_includes_gh_read_fragments() {
         let tools = translate_capabilities(&["gh:write".to_string()]).unwrap();
         let cli = tools.to_cli_string();
-        assert!(cli.contains("Bash(gh issue list *)"), "missing gh:read fragment in: {cli}");
-        assert!(cli.contains("Bash(gh pr create *)"), "missing gh:write fragment in: {cli}");
+        assert!(
+            cli.contains("Bash(gh issue list *)"),
+            "missing gh:read fragment in: {cli}"
+        );
+        assert!(
+            cli.contains("Bash(gh pr create *)"),
+            "missing gh:write fragment in: {cli}"
+        );
     }
 
     // ── build_allowed_tools_flag_joins_with_commas ─────────────────────────────
@@ -483,7 +490,10 @@ mod tests {
         assert!(cli.contains("Read"), "missing Read fallback in: {cli}");
         assert!(cli.contains("Glob"), "missing Glob fallback in: {cli}");
         // Must NOT include any shell fragments
-        assert!(!cli.contains("Bash("), "unexpected Bash fragment in fallback: {cli}");
+        assert!(
+            !cli.contains("Bash("),
+            "unexpected Bash fragment in fallback: {cli}"
+        );
     }
 
     #[test]
@@ -495,7 +505,10 @@ mod tests {
         let cli = tools.to_cli_string();
         assert!(cli.contains("WebFetch"), "missing WebFetch in: {cli}");
         // Read should NOT appear — defaults are bypassed.
-        assert!(!cli.contains("Read"), "unexpected Read from defaults in: {cli}");
+        assert!(
+            !cli.contains("Read"),
+            "unexpected Read from defaults in: {cli}"
+        );
     }
 
     #[test]

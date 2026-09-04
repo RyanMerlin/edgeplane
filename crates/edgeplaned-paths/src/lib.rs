@@ -205,23 +205,50 @@ mod tests {
     #[test]
     fn ep_home_overrides_all_buckets_ignoring_xdg() {
         // EP_HOME present → every bucket under that one root, XDG ignored.
-        assert_eq!(resolve_bucket(Some("/srv/ep"), Some("/x/cfg"), "config"), PathBuf::from("/srv/ep/config"));
-        assert_eq!(resolve_bucket(Some("/srv/ep"), None, "state"), PathBuf::from("/srv/ep/state"));
-        assert_eq!(resolve_bucket(Some("/srv/ep"), None, "run"), PathBuf::from("/srv/ep/run"));
-        assert_eq!(resolve_bucket(Some("/srv/ep"), None, "work"), PathBuf::from("/srv/ep/work"));
+        assert_eq!(
+            resolve_bucket(Some("/srv/ep"), Some("/x/cfg"), "config"),
+            PathBuf::from("/srv/ep/config")
+        );
+        assert_eq!(
+            resolve_bucket(Some("/srv/ep"), None, "state"),
+            PathBuf::from("/srv/ep/state")
+        );
+        assert_eq!(
+            resolve_bucket(Some("/srv/ep"), None, "run"),
+            PathBuf::from("/srv/ep/run")
+        );
+        assert_eq!(
+            resolve_bucket(Some("/srv/ep"), None, "work"),
+            PathBuf::from("/srv/ep/work")
+        );
     }
 
     #[test]
     fn buckets_are_children_of_home() {
-        assert_eq!(resolve_bucket(Some("/tmp/ep-test-home"), None, "config"), PathBuf::from("/tmp/ep-test-home/config"));
-        assert_eq!(resolve_bucket(Some("/tmp/ep-test-home"), None, "state"), PathBuf::from("/tmp/ep-test-home/state"));
-        assert_eq!(resolve_bucket(Some("/tmp/ep-test-home"), None, "run"), PathBuf::from("/tmp/ep-test-home/run"));
-        assert_eq!(resolve_bucket(Some("/tmp/ep-test-home"), None, "work"), PathBuf::from("/tmp/ep-test-home/work"));
+        assert_eq!(
+            resolve_bucket(Some("/tmp/ep-test-home"), None, "config"),
+            PathBuf::from("/tmp/ep-test-home/config")
+        );
+        assert_eq!(
+            resolve_bucket(Some("/tmp/ep-test-home"), None, "state"),
+            PathBuf::from("/tmp/ep-test-home/state")
+        );
+        assert_eq!(
+            resolve_bucket(Some("/tmp/ep-test-home"), None, "run"),
+            PathBuf::from("/tmp/ep-test-home/run")
+        );
+        assert_eq!(
+            resolve_bucket(Some("/tmp/ep-test-home"), None, "work"),
+            PathBuf::from("/tmp/ep-test-home/work")
+        );
     }
 
     #[test]
     fn xdg_sets_bucket_when_ep_home_absent() {
-        assert_eq!(resolve_bucket(None, Some("/x/cfg"), "config"), PathBuf::from("/x/cfg/edgeplane"));
+        assert_eq!(
+            resolve_bucket(None, Some("/x/cfg"), "config"),
+            PathBuf::from("/x/cfg/edgeplane")
+        );
     }
 
     #[test]
@@ -233,13 +260,22 @@ mod tests {
     #[test]
     fn ep_home_tilde_is_expanded() {
         if let Some(home) = dirs::home_dir() {
-            assert_eq!(resolve_bucket(Some("~/ep"), None, "config"), home.join("ep").join("config"));
+            assert_eq!(
+                resolve_bucket(Some("~/ep"), None, "config"),
+                home.join("ep").join("config")
+            );
         }
     }
 
     #[test]
     fn profile_secrets_path_composes_under_state_profiles() {
-        assert_eq!(profile_secrets_path("work"), state_dir().join("profiles").join("work").join("secrets.json"));
+        assert_eq!(
+            profile_secrets_path("work"),
+            state_dir()
+                .join("profiles")
+                .join("work")
+                .join("secrets.json")
+        );
     }
 
     #[test]
@@ -255,7 +291,10 @@ mod tests {
         // it resolves to "<xdg>/edgeplane" (see resolve_bucket), so a suffix
         // check is env-fragile and fails in CI where XDG_CONFIG_HOME is set.
         // This form is env-independent and non-flaky (no process-global env mutation).
-        assert_eq!(super::node_credential_path(), super::config_dir().join("node.json"));
+        assert_eq!(
+            super::node_credential_path(),
+            super::config_dir().join("node.json")
+        );
     }
 
     #[test]

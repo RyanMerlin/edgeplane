@@ -109,10 +109,7 @@ where
                     break;
                 }
                 let _ = hb_client
-                    .post_json(
-                        &format!("/work/agents/{hb_agent_id}/heartbeat"),
-                        &json!({}),
-                    )
+                    .post_json(&format!("/work/agents/{hb_agent_id}/heartbeat"), &json!({}))
                     .await;
             }
         });
@@ -135,7 +132,11 @@ where
 
     // 7. Transition run to completed or failed.
     if let Some(ref rid) = run_id {
-        let terminal = if status.success() { "completed" } else { "failed" };
+        let terminal = if status.success() {
+            "completed"
+        } else {
+            "failed"
+        };
         let _ = client
             .post_json(&format!("/runs/{rid}/{terminal}"), &json!({}))
             .await;
@@ -172,7 +173,10 @@ where
         "profile": {"name": profile_name},
     });
     let enroll_resp = client
-        .post_json(&format!("/work/domains/{domain_id}/agents/enroll"), &enroll_body)
+        .post_json(
+            &format!("/work/domains/{domain_id}/agents/enroll"),
+            &enroll_body,
+        )
         .await
         .context("failed to enroll mesh agent")?;
     let agent_id = enroll_resp
@@ -183,7 +187,10 @@ where
     if agent_id.is_empty() {
         anyhow::bail!("backend returned empty agent id during enroll");
     }
-    eprintln!("edgeplane: work loop enrolled as agent {} (domain {})", agent_id, domain_id);
+    eprintln!(
+        "edgeplane: work loop enrolled as agent {} (domain {})",
+        agent_id, domain_id
+    );
 
     // ---- 2. Heartbeat thread ----
     let hb_client = client.clone();
@@ -224,13 +231,13 @@ where
                 && let Ok(tasks) = client
                     .get_json(&format!("/work/missions/{kid}/tasks?status=ready"))
                     .await
-                {
-                    for t in tasks.as_array().unwrap_or(&vec![]) {
-                        if let Some(tid) = t["id"].as_str() {
-                            ready_queue.push_back(tid.to_string());
-                        }
+            {
+                for t in tasks.as_array().unwrap_or(&vec![]) {
+                    if let Some(tid) = t["id"].as_str() {
+                        ready_queue.push_back(tid.to_string());
                     }
                 }
+            }
         }
     }
 
@@ -252,7 +259,10 @@ where
     stop_flag.store(true, Ordering::Relaxed);
     let _ = hb_thread.join();
     let _ = client
-        .post_json(&format!("/work/agents/{agent_id}/status?status=offline"), &json!({}))
+        .post_json(
+            &format!("/work/agents/{agent_id}/status?status=offline"),
+            &json!({}),
+        )
         .await;
     eprintln!("edgeplane: work loop agent {} offline", agent_id);
 
@@ -296,13 +306,18 @@ where
                         Ok(Message::Text(text)) => {
                             if let Ok(event) = serde_json::from_str::<Value>(&text)
                                 && event["event"].as_str() == Some("task_ready")
-                                    && let Some(tid) = event["task_id"].as_str() {
-                                        ready_queue.push_back(tid.to_string());
-                                    }
+                                && let Some(tid) = event["task_id"].as_str()
+                            {
+                                ready_queue.push_back(tid.to_string());
+                            }
                             // Process one task per iteration to stay responsive to the stream.
                             if let Some(task_id) = ready_queue.pop_front() {
                                 attempt_claim_and_run(
-                                    client, agent_id, &task_id, &work_dir, &task_launch_fn,
+                                    client,
+                                    agent_id,
+                                    &task_id,
+                                    &work_dir,
+                                    &task_launch_fn,
                                 )
                                 .await;
                             }
@@ -359,7 +374,10 @@ async fn attempt_claim_and_run<F>(
 
     let claim_lease_id = claim["claim_lease_id"].as_str().unwrap_or("").to_string();
     let task_title = claim["title"].as_str().unwrap_or(task_id).to_string();
-    let task_owner = claim["created_by_subject"].as_str().unwrap_or("").to_string();
+    let task_owner = claim["created_by_subject"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     let depends_on: Vec<String> = claim["depends_on"]
         .as_array()
         .unwrap_or(&vec![])

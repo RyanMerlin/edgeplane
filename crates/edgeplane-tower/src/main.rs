@@ -1,5 +1,5 @@
-use edgeplane_tower::{build_app, AppConfig};
 use clap::{Parser, Subcommand};
+use edgeplane_tower::{AppConfig, build_app};
 
 #[derive(Parser, Debug)]
 #[command(name = "edgeplane-tower", version, about = "Edgeplane API server")]
@@ -54,7 +54,9 @@ async fn main() -> anyhow::Result<()> {
 
     if !cli.no_migrate {
         tracing::info!("running database migrations");
-        sqlx::migrate!("./migrations").run(&db).await
+        sqlx::migrate!("./migrations")
+            .run(&db)
+            .await
             .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
         tracing::info!("migrations complete");
     }
@@ -125,14 +127,21 @@ async fn shutdown_signal() {
 }
 
 async fn backfill_home_domains(db: &sqlx::PgPool) -> anyhow::Result<()> {
-    let rows = sqlx::query("SELECT id, name FROM agent WHERE home_domain_id IS NULL AND archived_at IS NULL")
-        .fetch_all(db).await?;
-    if rows.is_empty() { return Ok(()); }
+    let rows = sqlx::query(
+        "SELECT id, name FROM agent WHERE home_domain_id IS NULL AND archived_at IS NULL",
+    )
+    .fetch_all(db)
+    .await?;
+    if rows.is_empty() {
+        return Ok(());
+    }
     tracing::info!("backfilling home domains for {} agent(s)", rows.len());
     for row in rows {
         let agent_id: i32 = sqlx::Row::get(&row, "id");
         let name: String = sqlx::Row::get(&row, "name");
-        if let Err(e) = edgeplane_tower::routes::agents::provision_home_domain(db, agent_id, &name).await {
+        if let Err(e) =
+            edgeplane_tower::routes::agents::provision_home_domain(db, agent_id, &name).await
+        {
             tracing::warn!("backfill home domain for agent {agent_id} ({name}): {e}");
         }
     }
@@ -140,16 +149,16 @@ async fn backfill_home_domains(db: &sqlx::PgPool) -> anyhow::Result<()> {
 }
 
 async fn bucket_init() -> anyhow::Result<()> {
-    use s3::{Bucket, BucketConfiguration};
     use s3::creds::Credentials;
     use s3::region::Region;
+    use s3::{Bucket, BucketConfiguration};
 
     let endpoint = std::env::var("EP_OBJECT_STORAGE_ENDPOINT")
         .unwrap_or_else(|_| "http://localhost:9000".into());
-    let region_name = std::env::var("EP_OBJECT_STORAGE_REGION")
-        .unwrap_or_else(|_| "us-east-1".into());
-    let bucket_name = std::env::var("EP_OBJECT_STORAGE_BUCKET")
-        .unwrap_or_else(|_| "edgeplane".into());
+    let region_name =
+        std::env::var("EP_OBJECT_STORAGE_REGION").unwrap_or_else(|_| "us-east-1".into());
+    let bucket_name =
+        std::env::var("EP_OBJECT_STORAGE_BUCKET").unwrap_or_else(|_| "edgeplane".into());
     let access_key = std::env::var("EP_OBJECT_STORAGE_ACCESS_KEY")
         .map_err(|_| anyhow::anyhow!("EP_OBJECT_STORAGE_ACCESS_KEY not set"))?;
     let secret_key = std::env::var("EP_OBJECT_STORAGE_ACCESS_SECRET")
@@ -169,7 +178,10 @@ async fn bucket_init() -> anyhow::Result<()> {
         .with_path_style();
 
     // Check if bucket already exists by listing (empty prefix, delimiter /)
-    let exists = bucket.list("".to_string(), Some("/".to_string())).await.is_ok();
+    let exists = bucket
+        .list("".to_string(), Some("/".to_string()))
+        .await
+        .is_ok();
 
     if exists {
         tracing::info!(bucket = %bucket_name, "bucket already exists");
@@ -188,10 +200,18 @@ async fn bucket_init() -> anyhow::Result<()> {
         Ok(_) => tracing::info!(bucket = %bucket_name, "bucket created"),
         Err(e) => {
             // Handle race condition: another process may have created it concurrently
-            if bucket.list("".to_string(), Some("/".to_string())).await.is_ok() {
+            if bucket
+                .list("".to_string(), Some("/".to_string()))
+                .await
+                .is_ok()
+            {
                 tracing::info!(bucket = %bucket_name, "bucket created by concurrent process");
             } else {
-                return Err(anyhow::anyhow!("failed to create bucket '{}': {}", bucket_name, e));
+                return Err(anyhow::anyhow!(
+                    "failed to create bucket '{}': {}",
+                    bucket_name,
+                    e
+                ));
             }
         }
     }

@@ -39,8 +39,10 @@ pub fn run(cfg: TuiConfig) -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
 
-    let data_client: Arc<dyn data::DataClient> =
-        Arc::new(RemoteDataClient::new(cfg.base_url.clone(), resolved_token.clone())?);
+    let data_client: Arc<dyn data::DataClient> = Arc::new(RemoteDataClient::new(
+        cfg.base_url.clone(),
+        resolved_token.clone(),
+    )?);
     let mut app = App::new(
         cfg.base_url,
         resolved_token,
@@ -68,15 +70,18 @@ fn event_loop<B: ratatui::backend::Backend>(
         app.draw(terminal)?;
 
         if event::poll(Duration::from_millis(50))?
-            && let Event::Key(key) = event::read()? {
-                // Hard-stop: Ctrl+C always quits
-                if key.code == KeyCode::Char('c')
-                    && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
-                {
-                    break;
-                }
-                app.handle_key(key);
+            && let Event::Key(key) = event::read()?
+        {
+            // Hard-stop: Ctrl+C always quits
+            if key.code == KeyCode::Char('c')
+                && key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL)
+            {
+                break;
             }
+            app.handle_key(key);
+        }
 
         if app.should_quit {
             break;

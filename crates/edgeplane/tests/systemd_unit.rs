@@ -30,7 +30,11 @@ fn uses_ep_home_single_root() {
 #[test]
 fn has_calibrated_hardening() {
     let dirs = active(UNIT);
-    for d in ["NoNewPrivileges=yes", "ProtectSystem=strict", "ProtectHome=yes"] {
+    for d in [
+        "NoNewPrivileges=yes",
+        "ProtectSystem=strict",
+        "ProtectHome=yes",
+    ] {
         assert!(dirs.contains(&d), "missing {d}");
     }
 }

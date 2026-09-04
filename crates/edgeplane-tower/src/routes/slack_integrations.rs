@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{delete, post},
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -105,7 +105,7 @@ fn verify_slack(headers: &HeaderMap, body: &[u8]) -> VerifyResult {
                     "code": "slack_signature_invalid",
                     "reason": "internal_hmac_error"
                 }),
-            )
+            );
         }
     };
     mac.update(basestring.as_bytes());
@@ -128,12 +128,7 @@ fn verify_slack(headers: &HeaderMap, body: &[u8]) -> VerifyResult {
 // Idempotency helpers
 // ---------------------------------------------------------------------------
 
-fn inbound_event_key(
-    event_type: &str,
-    body: &[u8],
-    domain_id: &str,
-    channel_id: &str,
-) -> String {
+fn inbound_event_key(event_type: &str, body: &[u8], domain_id: &str, channel_id: &str) -> String {
     let raw_hash = sha256_hex(body);
     format!("slack:{event_type}:{domain_id}:{channel_id}:{raw_hash}")
 }
@@ -374,7 +369,7 @@ async fn slack_events(
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({"detail": "Invalid Slack payload"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -437,7 +432,7 @@ async fn slack_events(
 
     match record_receipt(&state.db, &event_key, "event").await {
         Ok(false) => {
-            return Json(serde_json::json!({"ok": true, "duplicate": true})).into_response()
+            return Json(serde_json::json!({"ok": true, "duplicate": true})).into_response();
         }
         Err(e) => {
             tracing::error!("slack_events insert receipt: {e}");
@@ -483,12 +478,14 @@ fn urlencoding_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len()
-            && let (Some(h), Some(l)) = (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2])) {
-                out.push((h << 4) | l);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(h), Some(l)) = (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2]))
+        {
+            out.push((h << 4) | l);
+            i += 3;
+            continue;
+        }
         out.push(bytes[i]);
         i += 1;
     }
@@ -537,9 +534,7 @@ async fn slack_commands(
         && !channel_id.is_empty()
         && !binding_exists(&state.db, "slack", &domain_id, &channel_id).await
     {
-        let msg = format!(
-            "Channel `{channel_id}` is not bound to domain `{domain_id}`."
-        );
+        let msg = format!("Channel `{channel_id}` is not bound to domain `{domain_id}`.");
         return Json(slack_ephemeral_response(&msg)).into_response();
     }
 
@@ -549,7 +544,7 @@ async fn slack_commands(
             return Json(slack_ephemeral_response(
                 "Duplicate command received. Ignoring replay.",
             ))
-            .into_response()
+            .into_response();
         }
         Err(e) => {
             tracing::error!("slack_commands insert receipt: {e}");
@@ -617,7 +612,7 @@ async fn slack_interactions(
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({"detail": "Invalid Slack interaction payload"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -657,7 +652,7 @@ async fn slack_interactions(
     let event_key = inbound_event_key(&interaction_type, body.as_ref(), &domain_id, &channel_id);
     match record_receipt(&state.db, &event_key, "interaction").await {
         Ok(false) => {
-            return Json(serde_json::json!({"ok": true, "duplicate": true})).into_response()
+            return Json(serde_json::json!({"ok": true, "duplicate": true})).into_response();
         }
         Err(e) => {
             tracing::error!("slack_interactions insert receipt: {e}");

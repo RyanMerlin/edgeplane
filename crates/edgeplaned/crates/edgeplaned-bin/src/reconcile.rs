@@ -102,10 +102,7 @@ pub type RunningAgents = Arc<Mutex<HashMap<String, RunningAgent>>>;
 /// - When looking up a desired spec in `running`, also try the alias key.
 /// - When computing `to_remove`, exclude any running key that appears as a
 ///   `local_alias_id` in the desired list.
-pub fn diff_specs(
-    desired: &[AgentSpec],
-    running: &HashMap<String, RunningAgent>,
-) -> ReconcilePlan {
+pub fn diff_specs(desired: &[AgentSpec], running: &HashMap<String, RunningAgent>) -> ReconcilePlan {
     // Canonical id → spec lookup.
     let desired_by_id: HashMap<&str, &AgentSpec> =
         desired.iter().map(|s| (s.agent_id.as_str(), s)).collect();
@@ -135,13 +132,13 @@ pub fn diff_specs(
     for spec in desired {
         // Look up by canonical id first, then by local_alias_id (for federated
         // specs whose controlplane id differs from the already-running local id).
-        let matched_by_alias = running
-            .get(&spec.agent_id)
-            .is_none()
-            && spec.local_alias_id.is_some();
-        let running_agent = running
-            .get(&spec.agent_id)
-            .or_else(|| spec.local_alias_id.as_deref().and_then(|alias| running.get(alias)));
+        let matched_by_alias =
+            running.get(&spec.agent_id).is_none() && spec.local_alias_id.is_some();
+        let running_agent = running.get(&spec.agent_id).or_else(|| {
+            spec.local_alias_id
+                .as_deref()
+                .and_then(|alias| running.get(alias))
+        });
 
         match running_agent {
             None => to_spawn.push(spec.clone()),
@@ -527,8 +524,14 @@ mod tests {
             "federated spec aliased to a running local agent should be a no-op; \
              got to_remove={:?} to_spawn={:?} to_restart={:?}",
             plan.to_remove,
-            plan.to_spawn.iter().map(|s| &s.agent_id).collect::<Vec<_>>(),
-            plan.to_restart.iter().map(|s| &s.agent_id).collect::<Vec<_>>(),
+            plan.to_spawn
+                .iter()
+                .map(|s| &s.agent_id)
+                .collect::<Vec<_>>(),
+            plan.to_restart
+                .iter()
+                .map(|s| &s.agent_id)
+                .collect::<Vec<_>>(),
         );
     }
 
@@ -623,7 +626,10 @@ mod tests {
         assert!(plan.is_noop(), "should be a no-op for the running map");
         assert_eq!(
             plan.alias_registrations,
-            vec![("my-agent-engineer-708650f1".to_string(), "engineer".to_string())],
+            vec![(
+                "my-agent-engineer-708650f1".to_string(),
+                "engineer".to_string()
+            )],
             "must emit alias registration for attach-registry wiring"
         );
     }
@@ -816,7 +822,10 @@ mod tests {
             plan.to_spawn.len(),
             6,
             "exactly 6 to_spawn after dedup; got {:?}",
-            plan.to_spawn.iter().map(|s| &s.agent_id).collect::<Vec<_>>()
+            plan.to_spawn
+                .iter()
+                .map(|s| &s.agent_id)
+                .collect::<Vec<_>>()
         );
         assert!(plan.to_remove.is_empty(), "no agents to remove at boot");
         assert!(plan.to_restart.is_empty(), "no agents to restart at boot");
@@ -878,7 +887,13 @@ mod tests {
                 name: Some(format!("my-agent-{name}")),
                 local_alias_id: Some(name.to_string()),
             };
-            running.insert(opaque_id, RunningAgent { spec, handles: vec![] });
+            running.insert(
+                opaque_id,
+                RunningAgent {
+                    spec,
+                    handles: vec![],
+                },
+            );
         }
 
         // Desired: same 6 opaque-id specs (what persist_and_resolve_specs returns
@@ -890,8 +905,14 @@ mod tests {
             plan.is_noop(),
             "steady-state poll must be a no-op; got: remove={:?} spawn={:?} restart={:?}",
             plan.to_remove,
-            plan.to_spawn.iter().map(|s| &s.agent_id).collect::<Vec<_>>(),
-            plan.to_restart.iter().map(|s| &s.agent_id).collect::<Vec<_>>(),
+            plan.to_spawn
+                .iter()
+                .map(|s| &s.agent_id)
+                .collect::<Vec<_>>(),
+            plan.to_restart
+                .iter()
+                .map(|s| &s.agent_id)
+                .collect::<Vec<_>>(),
         );
     }
 }

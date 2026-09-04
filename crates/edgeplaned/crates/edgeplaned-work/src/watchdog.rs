@@ -59,9 +59,7 @@ impl Watchdog {
             ConnectivityState::Degraded { since } => {
                 let elapsed = (Utc::now() - since).num_seconds().unsigned_abs();
                 if elapsed >= self.grace_secs {
-                    let _ = self
-                        .state_tx
-                        .send(ConnectivityState::Offline { since });
+                    let _ = self.state_tx.send(ConnectivityState::Offline { since });
                 }
             }
             ConnectivityState::Offline { .. } => {}
@@ -147,6 +145,9 @@ mod tests {
     #[test]
     fn autonomous_policy_stored_correctly() {
         let wd = Watchdog::new(OfflinePolicy::Autonomous { max_ttl_secs: 300 }, 30);
-        assert!(matches!(wd.policy(), OfflinePolicy::Autonomous { max_ttl_secs: 300 }));
+        assert!(matches!(
+            wd.policy(),
+            OfflinePolicy::Autonomous { max_ttl_secs: 300 }
+        ));
     }
 }

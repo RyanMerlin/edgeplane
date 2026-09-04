@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Json, Router,
 };
 use chrono::Utc;
 use serde::Deserialize;
@@ -126,19 +126,14 @@ fn row_to_publication_record(row: &sqlx::postgres::PgRow) -> serde_json::Value {
 }
 
 /// Check if the principal is an owner of a domain (for policy endpoints).
-async fn is_domain_owner(
-    db: &sqlx::PgPool,
-    principal: &Principal,
-    domain_id: &str,
-) -> bool {
+async fn is_domain_owner(db: &sqlx::PgPool, principal: &Principal, domain_id: &str) -> bool {
     if principal.is_admin {
         return true;
     }
-    if let Ok(Some(row)) =
-        sqlx::query("SELECT owners FROM domain WHERE id=$1")
-            .bind(domain_id)
-            .fetch_optional(db)
-            .await
+    if let Ok(Some(row)) = sqlx::query("SELECT owners FROM domain WHERE id=$1")
+        .bind(domain_id)
+        .fetch_optional(db)
+        .await
     {
         let owners: String = row.get("owners");
         let sub = principal.subject.to_lowercase();
@@ -259,12 +254,10 @@ async fn list_bindings(
     State(state): State<Arc<AppState>>,
     principal: Principal,
 ) -> impl IntoResponse {
-    match sqlx::query(
-        "SELECT * FROM repobinding WHERE owner_subject=$1 ORDER BY updated_at DESC",
-    )
-    .bind(&principal.subject)
-    .fetch_all(&state.db)
-    .await
+    match sqlx::query("SELECT * FROM repobinding WHERE owner_subject=$1 ORDER BY updated_at DESC")
+        .bind(&principal.subject)
+        .fetch_all(&state.db)
+        .await
     {
         Ok(rows) => {
             let bindings: Vec<serde_json::Value> = rows.iter().map(row_to_binding).collect();
@@ -302,12 +295,10 @@ async fn create_binding(
     }
 
     // Verify connection exists and belongs to principal
-    let conn_row = match sqlx::query(
-        "SELECT id, owner_subject FROM repoconnection WHERE id=$1",
-    )
-    .bind(connection_id)
-    .fetch_optional(&state.db)
-    .await
+    let conn_row = match sqlx::query("SELECT id, owner_subject FROM repoconnection WHERE id=$1")
+        .bind(connection_id)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(r)) => r,
         Ok(None) => {
@@ -315,7 +306,7 @@ async fn create_binding(
                 StatusCode::NOT_FOUND,
                 Json(json!({"detail": "connection not found"})),
             )
-                .into_response()
+                .into_response();
         }
         Err(e) => {
             tracing::error!("create_binding fetch connection: {e}");
@@ -383,12 +374,10 @@ async fn get_policy(
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    let policy_row = match sqlx::query(
-        "SELECT * FROM domainpersistencepolicy WHERE domain_id=$1",
-    )
-    .bind(&domain_id)
-    .fetch_optional(&state.db)
-    .await
+    let policy_row = match sqlx::query("SELECT * FROM domainpersistencepolicy WHERE domain_id=$1")
+        .bind(&domain_id)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(r) => r,
         Err(e) => {
@@ -498,10 +487,7 @@ async fn put_policy(
             .unwrap_or("")
             .trim()
             .to_string();
-        let binding_id = item
-            .get("binding_id")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as i32;
+        let binding_id = item.get("binding_id").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
         let branch_override = item
             .get("branch_override")
             .and_then(|v| v.as_str())
@@ -518,10 +504,7 @@ async fn put_policy(
             .and_then(|v| v.as_str())
             .unwrap_or("json_v1")
             .to_string();
-        let active = item
-            .get("active")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let active = item.get("active").and_then(|v| v.as_bool()).unwrap_or(true);
 
         if let Err(e) = sqlx::query(
             r#"INSERT INTO domainpersistenceroute
@@ -587,23 +570,26 @@ async fn resolve_publish_plan_inner(
     .await
     .map_err(|e| format!("db_error: {e}"))?;
 
-    let (binding_id, path_tpl, format_str, route_branch) = if let Some(ref r) = route_row {
-        (
-            r.get::<i32, _>("binding_id"),
-            r.get::<String, _>("path_template"),
-            r.get::<String, _>("format"),
-            r.try_get::<String, _>("branch_override").ok().filter(|s| !s.is_empty()),
-        )
-    } else {
-        // Fallback to policy default binding
-        let policy = sqlx::query(
-            "SELECT default_binding_id FROM domainpersistencepolicy WHERE domain_id=$1",
-        )
-        .bind(domain_id)
-        .fetch_optional(db)
-        .await
-        .map_err(|e| format!("db_error: {e}"))?;
-        let bid = policy
+    let (binding_id, path_tpl, format_str, route_branch) =
+        if let Some(ref r) = route_row {
+            (
+                r.get::<i32, _>("binding_id"),
+                r.get::<String, _>("path_template"),
+                r.get::<String, _>("format"),
+                r.try_get::<String, _>("branch_override")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+            )
+        } else {
+            // Fallback to policy default binding
+            let policy = sqlx::query(
+                "SELECT default_binding_id FROM domainpersistencepolicy WHERE domain_id=$1",
+            )
+            .bind(domain_id)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| format!("db_error: {e}"))?;
+            let bid = policy
             .as_ref()
             .and_then(|p| p.try_get::<Option<i32>, _>("default_binding_id").ok().flatten())
             .ok_or_else(|| {
@@ -612,8 +598,8 @@ async fn resolve_publish_plan_inner(
                     domain_id, entity_kind, event_kind
                 )
             })?;
-        (bid, String::new(), "json_v1".to_string(), None)
-    };
+            (bid, String::new(), "json_v1".to_string(), None)
+        };
 
     // Load binding
     let binding = sqlx::query("SELECT * FROM repobinding WHERE id=$1")
@@ -626,7 +612,10 @@ async fn resolve_publish_plan_inner(
     let b_owner: String = binding.get("owner_subject");
     let b_active: bool = binding.get("active");
     if !b_active || b_owner != owner_subject {
-        return Err(format!("binding '{}' is not available for current principal", binding_id));
+        return Err(format!(
+            "binding '{}' is not available for current principal",
+            binding_id
+        ));
     }
     let b_name: String = binding.get("name");
     let connection_id: i32 = binding.get("connection_id");
@@ -643,7 +632,10 @@ async fn resolve_publish_plan_inner(
 
     let c_owner: String = connection.get("owner_subject");
     if c_owner != owner_subject {
-        return Err(format!("connection '{}' is not available for current principal", connection_id));
+        return Err(format!(
+            "connection '{}' is not available for current principal",
+            connection_id
+        ));
     }
     let host: String = connection.get("host");
     let repo_path: String = connection.get("repo_path");
@@ -653,7 +645,13 @@ async fn resolve_publish_plan_inner(
 
     // Resolve branch
     let branch = route_branch
-        .or_else(|| if b_branch.is_empty() { None } else { Some(b_branch.clone()) })
+        .or_else(|| {
+            if b_branch.is_empty() {
+                None
+            } else {
+                Some(b_branch.clone())
+            }
+        })
         .unwrap_or_else(|| default_branch.clone());
 
     // Resolve path template — default: "{base_path}/{domain_id}/{entity_kind}/{entity_id}.json"
@@ -695,7 +693,10 @@ fn resolve_git_url(plan: &PublishPlan) -> String {
     if token.is_empty() {
         format!("https://{}/{}", plan.host, plan.repo_path)
     } else {
-        format!("https://x-access-token:{}@{}/{}", token, plan.host, plan.repo_path)
+        format!(
+            "https://x-access-token:{}@{}/{}",
+            token, plan.host, plan.repo_path
+        )
     }
 }
 
@@ -704,12 +705,36 @@ async fn publish_plan(
     principal: Principal,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let domain_id = payload.get("domain_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-    let entity_kind = payload.get("entity_kind").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-    let event_kind = payload.get("event_kind").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-    let entity_id = payload.get("entity_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let domain_id = payload
+        .get("domain_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let entity_kind = payload
+        .get("entity_kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let event_kind = payload
+        .get("event_kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let entity_id = payload
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
 
-    if domain_id.is_empty() || entity_kind.is_empty() || event_kind.is_empty() || entity_id.is_empty() {
+    if domain_id.is_empty()
+        || entity_kind.is_empty()
+        || event_kind.is_empty()
+        || entity_id.is_empty()
+    {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"detail": "domain_id, entity_kind, event_kind, entity_id are required"})),
@@ -754,11 +779,24 @@ async fn publish_execute(
     principal: Principal,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let domain_id = payload.get("domain_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-    let limit = payload.get("limit").and_then(|v| v.as_i64()).unwrap_or(500).clamp(1, 500);
+    let domain_id = payload
+        .get("domain_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let limit = payload
+        .get("limit")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(500)
+        .clamp(1, 500);
 
     if domain_id.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(json!({"detail": "domain_id is required"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"detail": "domain_id is required"})),
+        )
+            .into_response();
     }
     if !is_domain_owner(&state.db, &principal, &domain_id).await {
         return StatusCode::FORBIDDEN.into_response();
@@ -818,15 +856,36 @@ async fn publish_execute(
     let repo_dir = tmpdir.path().to_string_lossy().to_string();
 
     let clone_ok = std::process::Command::new("git")
-        .args(["clone", "--depth=1", "--branch", &plan.branch, &repo_url, &repo_dir])
+        .args([
+            "clone",
+            "--depth=1",
+            "--branch",
+            &plan.branch,
+            &repo_url,
+            &repo_dir,
+        ])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
     if !clone_ok {
-        return (StatusCode::CONFLICT, Json(json!({"detail": "git clone failed"}))).into_response();
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({"detail": "git clone failed"})),
+        )
+            .into_response();
     }
-    let _ = std::process::Command::new("git").args(["-C", &repo_dir, "config", "user.email", "edgeplane-tower@localhost"]).output();
-    let _ = std::process::Command::new("git").args(["-C", &repo_dir, "config", "user.name", "edgeplane-tower"]).output();
+    let _ = std::process::Command::new("git")
+        .args([
+            "-C",
+            &repo_dir,
+            "config",
+            "user.email",
+            "edgeplane-tower@localhost",
+        ])
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["-C", &repo_dir, "config", "user.name", "edgeplane-tower"])
+        .output();
 
     let now = Utc::now().naive_utc();
     for event in &events {
@@ -835,7 +894,8 @@ async fn publish_execute(
         let entity_id: String = event.get("entity_id");
         let payload_json: String = event.try_get("payload_json").unwrap_or_default();
 
-        let rel = plan.path_template
+        let rel = plan
+            .path_template
             .replace("{domain_id}", &domain_id)
             .replace("{entity_kind}", &entity_kind)
             .replace("{entity_id}", &entity_id)
@@ -843,7 +903,8 @@ async fn publish_execute(
             .trim_start_matches('/')
             .to_string();
 
-        let mut doc: serde_json::Value = serde_json::from_str(&payload_json).unwrap_or(serde_json::json!({}));
+        let mut doc: serde_json::Value =
+            serde_json::from_str(&payload_json).unwrap_or(serde_json::json!({}));
         doc["published_at"] = serde_json::json!(now.to_string());
         doc["published_by"] = serde_json::json!(principal.subject);
         doc["publication"] = serde_json::json!({
@@ -858,12 +919,25 @@ async fn publish_execute(
         }
         let content = serde_json::to_string_pretty(&doc).unwrap_or_default();
         let _ = std::fs::write(&full_path, content.as_bytes());
-        let _ = std::process::Command::new("git").args(["-C", &repo_dir, "add", &rel]).output();
+        let _ = std::process::Command::new("git")
+            .args(["-C", &repo_dir, "add", &rel])
+            .output();
     }
 
-    let commit_msg = format!("edgeplane-tower: publish {} ledger events for {}", events.len(), domain_id);
+    let commit_msg = format!(
+        "edgeplane-tower: publish {} ledger events for {}",
+        events.len(),
+        domain_id
+    );
     let _ = std::process::Command::new("git")
-        .args(["-C", &repo_dir, "commit", "--allow-empty", "-m", &commit_msg])
+        .args([
+            "-C",
+            &repo_dir,
+            "commit",
+            "--allow-empty",
+            "-m",
+            &commit_msg,
+        ])
         .output();
     let commit_sha = std::process::Command::new("git")
         .args(["-C", &repo_dir, "rev-parse", "HEAD"])
@@ -904,7 +978,8 @@ async fn publish_execute(
         let entity_kind: String = event.get("entity_type");
         let entity_id: String = event.get("entity_id");
         let event_kind: String = event.get("action");
-        let rel = plan.path_template
+        let rel = plan
+            .path_template
             .replace("{domain_id}", &domain_id)
             .replace("{entity_kind}", &entity_kind)
             .replace("{entity_id}", &entity_id)
@@ -1017,7 +1092,7 @@ async fn get_publication_record(
                 StatusCode::NOT_FOUND,
                 Json(json!({"detail": "publication record not found"})),
             )
-                .into_response()
+                .into_response();
         }
         Err(e) => {
             tracing::error!("get_publication_record: {e}");
@@ -1035,11 +1110,15 @@ async fn get_publication_record(
     }
 
     // If record has a domain_id, verify ownership
-    let domain_id: Option<String> = row.try_get("domain_id").ok().and_then(|v: Option<String>| v);
+    let domain_id: Option<String> = row
+        .try_get("domain_id")
+        .ok()
+        .and_then(|v: Option<String>| v);
     if let Some(ref mid) = domain_id
-        && !is_domain_owner(&state.db, &principal, mid).await {
-            return StatusCode::FORBIDDEN.into_response();
-        }
+        && !is_domain_owner(&state.db, &principal, mid).await
+    {
+        return StatusCode::FORBIDDEN.into_response();
+    }
 
     Json(json!({"record": row_to_publication_record(&row)})).into_response()
 }

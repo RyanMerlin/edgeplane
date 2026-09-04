@@ -2,7 +2,7 @@ mod common;
 
 use axum_test::TestServer;
 use common::{mint_session_with_groups, seed_control_plane_agent, setup};
-use edgeplane_tower::{build_app, AppConfig};
+use edgeplane_tower::{AppConfig, build_app};
 
 fn server(pool: sqlx::PgPool) -> TestServer {
     TestServer::new(build_app(pool, AppConfig::default()))
@@ -215,9 +215,13 @@ async fn attach_domain_allowed_for_admin() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
-    let token =
-        mint_session_with_groups(&pool, "sub-admin", "admin@example.com", &["EdgePlane Admins"])
-            .await;
+    let token = mint_session_with_groups(
+        &pool,
+        "sub-admin",
+        "admin@example.com",
+        &["EdgePlane Admins"],
+    )
+    .await;
     let agent = seed_control_plane_agent(&pool, &ctx.domain_id).await;
     let (h, v) = bearer(&token);
     let res = server_with_admin_groups(pool, &["EdgePlane Admins"])

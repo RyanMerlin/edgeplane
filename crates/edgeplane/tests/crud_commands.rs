@@ -6,13 +6,13 @@
 //! All mutation operations (show/update/delete for missions; create/show/update/delete
 //! for tasks) require --domain-id because tower only serves domain-scoped paths.
 
+use edgeplane::booster::AgentBooster;
+use edgeplane::client::EdgeplaneClient;
+use edgeplane::commands::{DomainCommand, EdgeplaneCommand, MissionCommand, TaskCommand, run};
+use edgeplane::config::EdgeplaneConfig;
+use edgeplane::output::OutputMode;
 use httpmock::Method::{DELETE, GET, PATCH, POST};
 use httpmock::MockServer;
-use edgeplane::client::EdgeplaneClient;
-use edgeplane::config::EdgeplaneConfig;
-use edgeplane::booster::AgentBooster;
-use edgeplane::commands::{run, DomainCommand, EdgeplaneCommand, MissionCommand, TaskCommand};
-use edgeplane::output::OutputMode;
 use serde_json::json;
 use std::process::Command;
 
@@ -179,7 +179,9 @@ async fn mission_list_with_domain_uses_domain_path() {
     let (client, booster) = build_client_and_booster(&server.url(""));
     let config = build_config(&server.url(""));
     run(
-        EdgeplaneCommand::Mission(MissionCommand::List { domain_id: Some("dom-xyz".into()) }),
+        EdgeplaneCommand::Mission(MissionCommand::List {
+            domain_id: Some("dom-xyz".into()),
+        }),
         client,
         booster,
         config,
@@ -334,7 +336,9 @@ async fn task_list_uses_mission_shortcut_path() {
     let (client, booster) = build_client_and_booster(&server.url(""));
     let config = build_config(&server.url(""));
     run(
-        EdgeplaneCommand::Task(TaskCommand::List { mission_id: "mis-xyz".into() }),
+        EdgeplaneCommand::Task(TaskCommand::List {
+            mission_id: "mis-xyz".into(),
+        }),
         client,
         booster,
         config,
@@ -418,7 +422,8 @@ async fn task_update_patches_task_via_domain_scoped_path() {
 async fn task_delete_sends_delete_via_domain_scoped_path() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
-        when.method(DELETE).path("/api/domains/dom-1/m/mis-2/t/task-7");
+        when.method(DELETE)
+            .path("/api/domains/dom-1/m/mis-2/t/task-7");
         then.status(204);
     });
 
@@ -448,13 +453,11 @@ async fn task_delete_sends_delete_via_domain_scoped_path() {
 async fn domain_create_sends_optional_fields() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
-        when.method(POST)
-            .path("/api/domains")
-            .json_body(json!({
-                "name": "my-domain",
-                "description": "a description",
-                "owners": "alice,bob"
-            }));
+        when.method(POST).path("/api/domains").json_body(json!({
+            "name": "my-domain",
+            "description": "a description",
+            "owners": "alice,bob"
+        }));
         then.status(200)
             .json_body(json!({ "id": "dom-new", "name": "my-domain" }));
     });

@@ -42,7 +42,9 @@ impl ReceiptStore {
         )?;
 
         debug!(path = %path.display(), "ReceiptStore opened");
-        Ok(Self { conn: std::sync::Mutex::new(conn) })
+        Ok(Self {
+            conn: std::sync::Mutex::new(conn),
+        })
     }
 
     /// Insert a receipt record. Duplicate IDs are silently ignored (audit integrity).
@@ -79,7 +81,8 @@ impl ReceiptStore {
              LIMIT ?1",
         )?;
         let rows = stmt.query_map([limit as i64], row_to_receipt)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(ReceiptsError::Db)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(ReceiptsError::Db)
     }
 
     /// Fetch a single receipt by id; returns `None` if not found.
@@ -109,10 +112,22 @@ impl ReceiptStore {
         let mut capability_val: Option<String> = None;
         let mut since_val: Option<String> = None;
 
-        if f.domain_id.is_some() { conditions.push("domain_id = ?1"); domain_id_val = f.domain_id; }
-        if f.agent_id.is_some() { conditions.push("agent_id = ?2"); agent_id_val = f.agent_id; }
-        if f.capability.is_some() { conditions.push("capability = ?3"); capability_val = f.capability; }
-        if f.since.is_some() { conditions.push("created_at >= ?4"); since_val = f.since.map(|dt| dt.to_rfc3339()); }
+        if f.domain_id.is_some() {
+            conditions.push("domain_id = ?1");
+            domain_id_val = f.domain_id;
+        }
+        if f.agent_id.is_some() {
+            conditions.push("agent_id = ?2");
+            agent_id_val = f.agent_id;
+        }
+        if f.capability.is_some() {
+            conditions.push("capability = ?3");
+            capability_val = f.capability;
+        }
+        if f.since.is_some() {
+            conditions.push("created_at >= ?4");
+            since_val = f.since.map(|dt| dt.to_rfc3339());
+        }
 
         let where_clause = if conditions.is_empty() {
             String::new()
@@ -140,7 +155,8 @@ impl ReceiptStore {
             row_to_receipt,
         )?;
 
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 }
 
@@ -148,11 +164,9 @@ fn row_to_receipt(row: &Row<'_>) -> rusqlite::Result<Receipt> {
     let s: String = row.get(8)?;
     let created_at = DateTime::parse_from_rfc3339(&s)
         .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-            8,
-            rusqlite::types::Type::Text,
-            Box::new(e),
-        ))?;
+        .map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(e))
+        })?;
     let execution_time_ms: i64 = row.get(5)?;
     Ok(Receipt {
         id: row.get(0)?,

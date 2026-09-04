@@ -76,21 +76,22 @@ impl SchemaPack {
         };
 
         if let Some(entity_key) = entity_type
-            && let Some(spec) = self.entities.get(&entity_key) {
-                let missing: Vec<String> = spec
-                    .required
-                    .iter()
-                    .filter(|field| payload_map.get(*field).map(is_missing).unwrap_or(true))
-                    .cloned()
-                    .collect();
-                if missing.is_empty() {
-                    return Ok(());
-                }
-                return Err(SchemaValidationError {
-                    entity: entity_key,
-                    fields: missing,
-                });
+            && let Some(spec) = self.entities.get(&entity_key)
+        {
+            let missing: Vec<String> = spec
+                .required
+                .iter()
+                .filter(|field| payload_map.get(*field).map(is_missing).unwrap_or(true))
+                .cloned()
+                .collect();
+            if missing.is_empty() {
+                return Ok(());
             }
+            return Err(SchemaValidationError {
+                entity: entity_key,
+                fields: missing,
+            });
+        }
         Ok(())
     }
 }

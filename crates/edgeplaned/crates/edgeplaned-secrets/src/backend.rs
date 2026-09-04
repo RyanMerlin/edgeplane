@@ -10,11 +10,7 @@ use crate::{BackendCapabilities, BackendError, ResolveCtx, SecretRef, SecretValu
 pub trait SecretsBackend: Send + Sync {
     fn scheme(&self) -> &str;
 
-    async fn resolve(
-        &self,
-        r: &SecretRef,
-        ctx: &ResolveCtx,
-    ) -> Result<SecretValue, BackendError>;
+    async fn resolve(&self, r: &SecretRef, ctx: &ResolveCtx) -> Result<SecretValue, BackendError>;
 
     async fn health(&self) -> Result<(), BackendError>;
 

@@ -2,7 +2,7 @@ mod common;
 
 use axum_test::TestServer;
 use common::setup;
-use edgeplane_tower::{build_app, AppConfig};
+use edgeplane_tower::{AppConfig, build_app};
 
 fn server(pool: sqlx::PgPool) -> TestServer {
     TestServer::new(build_app(pool, AppConfig::default()))

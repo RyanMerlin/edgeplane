@@ -1,6 +1,6 @@
 pub mod error;
-pub mod types;
 pub mod jail;
+pub mod types;
 
 #[cfg(target_os = "linux")]
 pub mod linux;
@@ -13,8 +13,10 @@ mod stub;
 pub mod seccomp;
 
 pub use error::{Result, SandboxError};
+pub use jail::{
+    discover_lib_deps, enter_jail, resolve_and_hash_binary, verify_binary_hash, JailConfig,
+};
 pub use types::{CgroupLimits, FsPolicy, NetworkPolicy, SideEffectClass};
-pub use jail::{JailConfig, discover_lib_deps, enter_jail, resolve_and_hash_binary, verify_binary_hash};
 
 /// Apply OS-level sandbox restrictions to the current process.
 ///
@@ -22,7 +24,10 @@ pub use jail::{JailConfig, discover_lib_deps, enter_jail, resolve_and_hash_binar
 /// On macOS: no-op (sandboxing is applied per-subprocess via sandbox-exec).
 /// On other platforms: no-op with a warning.
 pub fn apply_sandbox(allowed_executables: &[impl AsRef<str>]) -> Result<()> {
-    let paths: Vec<String> = allowed_executables.iter().map(|s| s.as_ref().to_string()).collect();
+    let paths: Vec<String> = allowed_executables
+        .iter()
+        .map(|s| s.as_ref().to_string())
+        .collect();
     #[cfg(target_os = "linux")]
     return linux::apply_sandbox(&paths);
     #[cfg(target_os = "macos")]

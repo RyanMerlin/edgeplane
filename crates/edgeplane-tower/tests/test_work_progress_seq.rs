@@ -55,12 +55,15 @@ async fn post_progress_assigns_sequential_seq() {
         res.assert_status_ok();
     }
 
-    let seqs: Vec<i32> = sqlx::query_scalar(
-        "SELECT seq FROM meshprogressevent WHERE task_id = $1 ORDER BY id",
-    )
-    .bind(&task_id)
-    .fetch_all(&pool)
-    .await
-    .expect("fetch progress events");
-    assert_eq!(seqs, vec![0, 1, 2], "seq must be sequential per task, not stuck at 0");
+    let seqs: Vec<i32> =
+        sqlx::query_scalar("SELECT seq FROM meshprogressevent WHERE task_id = $1 ORDER BY id")
+            .bind(&task_id)
+            .fetch_all(&pool)
+            .await
+            .expect("fetch progress events");
+    assert_eq!(
+        seqs,
+        vec![0, 1, 2],
+        "seq must be sequential per task, not stuck at 0"
+    );
 }

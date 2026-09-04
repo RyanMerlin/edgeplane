@@ -83,7 +83,11 @@ pub async fn run_list(args: ListArgs) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&resp)?);
         return Ok(());
     }
-    let agents = resp.get("agents").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let agents = resp
+        .get("agents")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     if agents.is_empty() {
         println!("(no supervised agents)");
         return Ok(());
@@ -94,9 +98,15 @@ pub async fn run_list(args: ListArgs) -> Result<()> {
     );
     for a in agents {
         let id = a.get("agent_id").and_then(|v| v.as_str()).unwrap_or("?");
-        let svc = a.get("systemd_service").and_then(|v| v.as_str()).unwrap_or("-");
+        let svc = a
+            .get("systemd_service")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
         let state = a.get("unit_state").and_then(|v| v.as_str()).unwrap_or("?");
-        let paused = a.get("supervise_paused").and_then(|v| v.as_bool()).unwrap_or(false);
+        let paused = a
+            .get("supervise_paused")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let paused_s = if paused { "YES" } else { "no" };
         let source = a.get("source").and_then(|v| v.as_str()).unwrap_or("-");
         println!("{id:<24} {svc:<22} {state:<10} {paused_s:<8} {source}");
@@ -120,16 +130,34 @@ pub async fn run_status(args: StatusArgs) -> Result<()> {
     println!("unit_state:      {}", str_or(&resp, "unit_state", "?"));
     println!(
         "supervise_paused:{} {}",
-        if resp.get("supervise_paused").and_then(|v| v.as_bool()).unwrap_or(false) { "" } else { "  " },
-        resp.get("supervise_paused").and_then(|v| v.as_bool()).map(|b| b.to_string()).unwrap_or_else(|| "?".into())
+        if resp
+            .get("supervise_paused")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            ""
+        } else {
+            "  "
+        },
+        resp.get("supervise_paused")
+            .and_then(|v| v.as_bool())
+            .map(|b| b.to_string())
+            .unwrap_or_else(|| "?".into())
     );
     println!("\nrecent restarts (last {}):", args.limit);
-    let history = resp.get("history").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let history = resp
+        .get("history")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     if history.is_empty() {
         println!("  (none)");
     } else {
         for h in history {
-            let when = h.get("triggered_at").and_then(|v| v.as_str()).unwrap_or("?");
+            let when = h
+                .get("triggered_at")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
             let reason = h.get("reason").and_then(|v| v.as_str()).unwrap_or("?");
             let result = h.get("result").and_then(|v| v.as_str()).unwrap_or("?");
             let exit = h
@@ -139,9 +167,10 @@ pub async fn run_status(args: StatusArgs) -> Result<()> {
                 .unwrap_or_else(|| "-".into());
             println!("  {when}  reason={reason:<8} result={result:<10} {exit}");
             if let Some(notes) = h.get("notes").and_then(|v| v.as_str())
-                && !notes.is_empty() {
-                    println!("    {notes}");
-                }
+                && !notes.is_empty()
+            {
+                println!("    {notes}");
+            }
         }
     }
     Ok(())
@@ -206,7 +235,11 @@ pub async fn run_history(args: HistoryArgs) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&resp)?);
         return Ok(());
     }
-    let rows = resp.get("restarts").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let rows = resp
+        .get("restarts")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     if rows.is_empty() {
         println!("(no restart events recorded)");
         return Ok(());
@@ -216,7 +249,10 @@ pub async fn run_history(args: HistoryArgs) -> Result<()> {
         "TRIGGERED_AT", "AGENT", "REASON", "RESULT"
     );
     for r in rows {
-        let when = r.get("triggered_at").and_then(|v| v.as_str()).unwrap_or("?");
+        let when = r
+            .get("triggered_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
         let id = r.get("agent_id").and_then(|v| v.as_str()).unwrap_or("?");
         let reason = r.get("reason").and_then(|v| v.as_str()).unwrap_or("?");
         let result = r.get("result").and_then(|v| v.as_str()).unwrap_or("?");
@@ -241,12 +277,14 @@ fn str_or<'a>(v: &'a Value, key: &str, fallback: &'a str) -> &'a str {
 /// channel issues a fatal lag signal.
 pub async fn run_events(args: EventsArgs) -> Result<()> {
     let path = mgmt_socket_path();
-    let stream = tokio::net::UnixStream::connect(&path).await.with_context(|| {
-        format!(
-            "connect to edgeplaned mgmt socket {} (is edgeplaned running?)",
-            path.display()
-        )
-    })?;
+    let stream = tokio::net::UnixStream::connect(&path)
+        .await
+        .with_context(|| {
+            format!(
+                "connect to edgeplaned mgmt socket {} (is edgeplaned running?)",
+                path.display()
+            )
+        })?;
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
 
@@ -259,7 +297,10 @@ pub async fn run_events(args: EventsArgs) -> Result<()> {
     });
     let mut bytes = serde_json::to_vec(&request).context("serialize subscribe")?;
     bytes.push(b'\n');
-    write_half.write_all(&bytes).await.context("write subscribe")?;
+    write_half
+        .write_all(&bytes)
+        .await
+        .context("write subscribe")?;
 
     // Read ack — fails fast if the gateway returns an error (e.g. unit-health
     // loop not running).
@@ -269,7 +310,10 @@ pub async fn run_events(args: EventsArgs) -> Result<()> {
         .with_context(|| format!("parse ack: {}", ack_line.trim()))?;
     if let Some(err) = ack.get("error") {
         let code = err.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
-        let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown");
+        let msg = err
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown");
         bail!("mgmt-gateway error {code}: {msg}");
     }
     if !args.json {
@@ -338,12 +382,14 @@ fn mgmt_socket_path() -> std::path::PathBuf {
 
 async fn call_mgmt(method: &str, params: Value) -> Result<Value> {
     let path = mgmt_socket_path();
-    let stream = tokio::net::UnixStream::connect(&path).await.with_context(|| {
-        format!(
-            "connect to edgeplaned mgmt socket {} (is edgeplaned running?)",
-            path.display()
-        )
-    })?;
+    let stream = tokio::net::UnixStream::connect(&path)
+        .await
+        .with_context(|| {
+            format!(
+                "connect to edgeplaned mgmt socket {} (is edgeplaned running?)",
+                path.display()
+            )
+        })?;
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
 
@@ -355,17 +401,23 @@ async fn call_mgmt(method: &str, params: Value) -> Result<Value> {
     });
     let mut bytes = serde_json::to_vec(&request).context("serialize request")?;
     bytes.push(b'\n');
-    write_half.write_all(&bytes).await.context("write request")?;
+    write_half
+        .write_all(&bytes)
+        .await
+        .context("write request")?;
 
     let mut line = String::new();
     reader.read_line(&mut line).await.context("read response")?;
 
-    let parsed: Value =
-        serde_json::from_str(line.trim()).with_context(|| format!("parse mgmt response: {}", line.trim()))?;
+    let parsed: Value = serde_json::from_str(line.trim())
+        .with_context(|| format!("parse mgmt response: {}", line.trim()))?;
 
     if let Some(err) = parsed.get("error") {
         let code = err.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
-        let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
+        let msg = err
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error");
         bail!("mgmt-gateway error {code}: {msg}");
     }
 

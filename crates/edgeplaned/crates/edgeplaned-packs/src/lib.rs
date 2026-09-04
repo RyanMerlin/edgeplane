@@ -6,7 +6,9 @@ pub mod registry;
 
 pub use error::{PacksError, Result};
 pub use manifest::{Backend, CapabilityManifest, PackManifest, RiskLevel, SandboxProfile};
-pub use policy::{Decision, ExecutionContext, PolicyAction, PolicyBundle, PolicyRule, evaluate_policy};
+pub use policy::{
+    evaluate_policy, Decision, ExecutionContext, PolicyAction, PolicyBundle, PolicyRule,
+};
 pub use registry::{CapabilitySummary, PackRegistry};
 
 #[cfg(test)]

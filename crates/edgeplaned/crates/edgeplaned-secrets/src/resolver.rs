@@ -1,8 +1,8 @@
 use crate::client::InfisicalClient;
 use crate::config::{InfisicalConfig, InfisicalProfileMap};
 use crate::error::{Result, SecretsError};
-use crate::{BackendRegistry, ResolveCtx, SecretRef};
 use crate::types::{CredentialKind, CredentialSource, ResolvedCredentials};
+use crate::{BackendRegistry, ResolveCtx, SecretRef};
 
 /// Resolve a list of credential sources using a multi-profile map.
 ///
@@ -49,15 +49,13 @@ pub async fn resolve_credentials_with_registry(
             CredentialKind::Literal { value } => value.clone(),
 
             CredentialKind::Env { env_var } => {
-                std::env::var(env_var)
-                    .map_err(|_| SecretsError::EnvVarMissing(env_var.clone()))?
+                std::env::var(env_var).map_err(|_| SecretsError::EnvVarMissing(env_var.clone()))?
             }
 
             CredentialKind::Ref { .. } | CredentialKind::Infisical { .. } => {
-                let raw = source
-                    .source
-                    .as_secret_ref()
-                    .ok_or_else(|| SecretsError::InvalidRef("unresolvable credential kind".into()))?;
+                let raw = source.source.as_secret_ref().ok_or_else(|| {
+                    SecretsError::InvalidRef("unresolvable credential kind".into())
+                })?;
                 let sr = SecretRef::parse(&raw)?;
                 let ctx = ResolveCtx {
                     agent_id: None,
@@ -92,8 +90,7 @@ async fn resolve_credentials_with_config(
             CredentialKind::Literal { value } => value.clone(),
 
             CredentialKind::Env { env_var } => {
-                std::env::var(env_var)
-                    .map_err(|_| SecretsError::EnvVarMissing(env_var.clone()))?
+                std::env::var(env_var).map_err(|_| SecretsError::EnvVarMissing(env_var.clone()))?
             }
 
             CredentialKind::Ref { .. } => {
@@ -121,7 +118,8 @@ async fn resolve_credentials_with_config(
                     .as_deref()
                     .or(cfg.default_project_id.as_deref())
                     .unwrap_or("");
-                c.fetch_secret(secret_name, proj, environment, secret_path).await?
+                c.fetch_secret(secret_name, proj, environment, secret_path)
+                    .await?
             }
         };
 
@@ -180,7 +178,9 @@ mod tests {
                 env_var: var.to_string(),
             },
         }];
-        let err = resolve_credentials(&sources, &default_cfg()).await.unwrap_err();
+        let err = resolve_credentials(&sources, &default_cfg())
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, SecretsError::EnvVarMissing(_)),
             "expected EnvVarMissing, got: {err}"
@@ -201,7 +201,9 @@ mod tests {
             },
         }];
         // default config has empty service_token
-        let err = resolve_credentials(&sources, &default_cfg()).await.unwrap_err();
+        let err = resolve_credentials(&sources, &default_cfg())
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, SecretsError::TokenMissing),
             "expected TokenMissing, got: {err}"
@@ -242,7 +244,9 @@ mod tests {
                 secret_ref: "secret://env/EP_SECRETS_T6".to_string(),
             },
         }];
-        let out = resolve_credentials_with_registry(&sources, &reg).await.unwrap();
+        let out = resolve_credentials_with_registry(&sources, &reg)
+            .await
+            .unwrap();
         assert_eq!(out.env_vars.get("OUT").unwrap(), "via-ref");
         std::env::remove_var("EP_SECRETS_T6");
     }
@@ -254,6 +258,9 @@ mod tests {
         let cs: CredentialSource = serde_json::from_str(yaml).unwrap();
         // normalizes to a SecretRef pointing at infisical
         let sr = cs.source.as_secret_ref().unwrap();
-        assert_eq!(sr, "secret://infisical/providers/openai/OPENAI_API_KEY?env=prod");
+        assert_eq!(
+            sr,
+            "secret://infisical/providers/openai/OPENAI_API_KEY?env=prod"
+        );
     }
 }

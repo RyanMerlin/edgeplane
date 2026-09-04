@@ -1,21 +1,24 @@
 use axum::{
-    extract::{Path, Query, State},
+    Json, Router,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    http::{header, StatusCode},
+    extract::{Path, Query, State},
+    http::{StatusCode, header},
     response::IntoResponse,
     routing::{delete, get, post},
-    Json, Router,
 };
-use std::collections::HashMap;
-use std::sync::OnceLock;
-use tokio::sync::{broadcast, Mutex as TokioMutex};
 use base64::Engine;
 use chrono::Utc;
 use sqlx::Row;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::OnceLock;
+use tokio::sync::{Mutex as TokioMutex, broadcast};
 use uuid::Uuid;
 
-use crate::{auth::{invalidate_node_scope_cache, Principal}, state::AppState};
+use crate::{
+    auth::{Principal, invalidate_node_scope_cache},
+    state::AppState,
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -47,7 +50,11 @@ fn config_hash(config: &serde_json::Value) -> String {
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 fn attach_token_prefix() -> String {
@@ -222,13 +229,11 @@ async fn mutate_node_spec_state(
     let now = Utc::now().naive_utc();
 
     // Fetch node and verify ownership
-    let node_row = match sqlx::query(
-        "SELECT * FROM runtimenode WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&node_id)
-    .bind(&subject)
-    .fetch_optional(&state.db)
-    .await
+    let node_row = match sqlx::query("SELECT * FROM runtimenode WHERE id=$1 AND owner_subject=$2")
+        .bind(&node_id)
+        .bind(&subject)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(r)) => r,
         Ok(None) => return not_found("node not found"),
@@ -267,14 +272,13 @@ async fn mutate_node_spec_state(
     let spec_id: i32 = spec_row.get("id");
 
     // Update drain_state
-    if let Err(e) = sqlx::query(
-        "UPDATE runtimenodespec SET drain_state=$1, updated_at=$2 WHERE id=$3",
-    )
-    .bind(drain_state)
-    .bind(now)
-    .bind(spec_id)
-    .execute(&state.db)
-    .await
+    if let Err(e) =
+        sqlx::query("UPDATE runtimenodespec SET drain_state=$1, updated_at=$2 WHERE id=$3")
+            .bind(drain_state)
+            .bind(now)
+            .bind(spec_id)
+            .execute(&state.db)
+            .await
     {
         tracing::error!("mutate_node_spec_state update: {e}");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -464,27 +468,24 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/runtime/join-tokens", post(create_join_token))
         .route("/runtime/tokens/{token_id}", get(get_join_token))
         .route("/runtime/join-tokens/{token_id}", get(get_join_token))
-        .route(
-            "/runtime/tokens/{token_id}/rotate",
-            post(rotate_join_token),
-        )
+        .route("/runtime/tokens/{token_id}/rotate", post(rotate_join_token))
         .route(
             "/runtime/join-tokens/{token_id}/rotate",
             post(rotate_join_token),
         )
         // Releases
         .route("/runtime/releases/latest.json", get(get_release_manifest))
-        .route(
-            "/runtime/releases/latest/download",
-            get(download_release),
-        )
+        .route("/runtime/releases/latest/download", get(download_release))
         // Channels
         .route("/runtime/channels", get(list_channels))
         // Node operations — static route BEFORE dynamic {node_id} routes
         .route("/runtime/nodes/register", post(register_node))
         .route("/runtime/nodes", get(list_nodes))
         .route("/runtime/nodes/{node_id}", delete(delete_node))
-        .route("/runtime/nodes/{node_id}/rotate-token", post(rotate_node_token))
+        .route(
+            "/runtime/nodes/{node_id}/rotate-token",
+            post(rotate_node_token),
+        )
         .route("/runtime/nodes/{node_id}/heartbeat", post(heartbeat_node))
         .route("/runtime/nodes/{node_id}/config", get(get_node_config))
         .route(
@@ -499,18 +500,12 @@ pub fn router() -> Router<Arc<AppState>> {
             "/runtime/nodes/{node_id}/install-script",
             get(get_node_install_script),
         )
-        .route(
-            "/runtime/nodes/{node_id}/reconcile",
-            post(reconcile_node),
-        )
+        .route("/runtime/nodes/{node_id}/reconcile", post(reconcile_node))
         .route("/runtime/nodes/{node_id}/cordon", post(cordon_node))
         .route("/runtime/nodes/{node_id}/drain", post(drain_node))
         .route("/runtime/nodes/{node_id}/upgrade", post(upgrade_node))
         // Node leases
-        .route(
-            "/runtime/nodes/{node_id}/leases/claim",
-            post(claim_lease),
-        )
+        .route("/runtime/nodes/{node_id}/leases/claim", post(claim_lease))
         // Jobs
         .route("/runtime/jobs", get(list_jobs).post(create_job))
         .route("/runtime/jobs/{job_id}/leases", post(create_lease))
@@ -520,10 +515,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/runtime/leases/{lease_id}/status",
             post(update_lease_status),
         )
-        .route(
-            "/runtime/leases/{lease_id}/complete",
-            post(complete_lease),
-        )
+        .route("/runtime/leases/{lease_id}/complete", post(complete_lease))
         .route("/runtime/leases/{lease_id}/logs", post(append_lease_logs))
         // Execution sessions
         .route(
@@ -566,10 +558,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // `agent.unassigned` / `agent.reassigned` notifications for their
         // node, so they can rebalance supervisors live without polling or
         // restart.
-        .route(
-            "/runtime/nodes/{node_id}/notify",
-            get(node_notify_ws),
-        )
+        .route("/runtime/nodes/{node_id}/notify", get(node_notify_ws))
 }
 
 // ── Join tokens ───────────────────────────────────────────────────────────────
@@ -636,13 +625,11 @@ async fn get_join_token(
     principal: Principal,
     Path(token_id): Path<String>,
 ) -> impl IntoResponse {
-    match sqlx::query(
-        "SELECT * FROM runtimejointoken WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&token_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
+    match sqlx::query("SELECT * FROM runtimejointoken WHERE id=$1 AND owner_subject=$2")
+        .bind(&token_id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(row)) => Json(row_to_join_token(&row)).into_response(),
         Ok(None) => not_found("join token not found"),
@@ -668,21 +655,20 @@ async fn rotate_join_token(
     let now = Utc::now().naive_utc();
 
     // Fetch existing token
-    let existing = match sqlx::query(
-        "SELECT * FROM runtimejointoken WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&token_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return not_found("join token not found"),
-        Err(e) => {
-            tracing::error!("rotate_join_token fetch: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let existing =
+        match sqlx::query("SELECT * FROM runtimejointoken WHERE id=$1 AND owner_subject=$2")
+            .bind(&token_id)
+            .bind(&principal.subject)
+            .fetch_optional(&state.db)
+            .await
+        {
+            Ok(Some(r)) => r,
+            Ok(None) => return not_found("join token not found"),
+            Err(e) => {
+                tracing::error!("rotate_join_token fetch: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
 
     let rotation_count: i32 = existing.get("rotation_count");
     let new_token = make_token_local();
@@ -715,13 +701,11 @@ async fn rotate_join_token(
 // ── Release / channel endpoints ───────────────────────────────────────────────
 
 async fn get_release_manifest() -> impl IntoResponse {
-    let version = std::env::var("EP_RUNTIME_RELEASE_VERSION")
-        .unwrap_or_else(|_| "0.2.0".to_string());
-    let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL")
-        .unwrap_or_else(|_| {
-            "https://github.com/RyanMerlin/edgeplane/releases/latest/download"
-                .to_string()
-        });
+    let version =
+        std::env::var("EP_RUNTIME_RELEASE_VERSION").unwrap_or_else(|_| "0.2.0".to_string());
+    let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL").unwrap_or_else(|_| {
+        "https://github.com/RyanMerlin/edgeplane/releases/latest/download".to_string()
+    });
     Json(serde_json::json!({
         "version": version,
         "files": [
@@ -731,11 +715,9 @@ async fn get_release_manifest() -> impl IntoResponse {
 }
 
 async fn download_release() -> impl IntoResponse {
-    let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL")
-        .unwrap_or_else(|_| {
-            "https://github.com/RyanMerlin/edgeplane/releases/latest/download"
-                .to_string()
-        });
+    let base_url = std::env::var("EP_RUNTIME_RELEASE_BASE_URL").unwrap_or_else(|_| {
+        "https://github.com/RyanMerlin/edgeplane/releases/latest/download".to_string()
+    });
     axum::response::Redirect::temporary(&format!("{base_url}/edgeplane-linux-x86_64"))
 }
 
@@ -768,19 +750,18 @@ async fn register_node(
     // 1. Hash the bootstrap token and look it up (no owner_subject filter —
     //    the token is self-authenticating; its owner becomes the node's owner).
     let token_hash = hash_token_local(&body.bootstrap_token);
-    let token_row = match sqlx::query(
-        "SELECT * FROM runtimejointoken WHERE token_hash=$1 AND status='active'",
-    )
-    .bind(&token_hash)
-    .fetch_optional(&state.db)
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!("register_node token lookup: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let token_row =
+        match sqlx::query("SELECT * FROM runtimejointoken WHERE token_hash=$1 AND status='active'")
+            .bind(&token_hash)
+            .fetch_optional(&state.db)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("register_node token lookup: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
 
     let token_row = match token_row {
         Some(r) => r,
@@ -789,20 +770,21 @@ async fn register_node(
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({"detail": "Invalid bootstrap token"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
     // 2. Check expiry
     let expires_at: Option<chrono::NaiveDateTime> = token_row.get("expires_at");
     if let Some(exp) = expires_at
-        && exp < now {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"detail": "Bootstrap token expired"})),
-            )
-                .into_response();
-        }
+        && exp < now
+    {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"detail": "Bootstrap token expired"})),
+        )
+            .into_response();
+    }
 
     // 3. Check already used
     let used_at: Option<chrono::NaiveDateTime> = token_row.get("used_at");
@@ -828,7 +810,7 @@ async fn register_node(
                 StatusCode::CONFLICT,
                 Json(serde_json::json!({"detail": "node_name already in use"})),
             )
-                .into_response()
+                .into_response();
         }
         Ok(None) => {}
         Err(e) => {
@@ -841,8 +823,8 @@ async fn register_node(
     let node_id = Uuid::new_v4().to_string();
     let labels_json = json_dump(&body.labels);
     let capacity_json = json_dump(&body.capacity);
-    let capabilities_json = serde_json::to_string(&body.capabilities)
-        .unwrap_or_else(|_| "[]".to_string());
+    let capabilities_json =
+        serde_json::to_string(&body.capabilities).unwrap_or_else(|_| "[]".to_string());
     // Mint a per-node attach secret. Returned plaintext once; stored in DB for
     // the controlplane proxy to sign short-lived HMAC tokens when dialing this
     // node's attach-WS endpoint. Not included in list/get node responses.
@@ -917,13 +899,14 @@ async fn register_node(
     .await;
 
     // 9. Issue RS256 node JWT (24-h TTL; see NODE_JWT_TTL_DAYS).
-    let (node_jwt, jti) = match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, NODE_JWT_TTL_DAYS) {
-        Ok(pair) => pair,
-        Err(e) => {
-            tracing::error!("register_node jwt sign: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let (node_jwt, jti) =
+        match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, NODE_JWT_TTL_DAYS) {
+            Ok(pair) => pair,
+            Err(e) => {
+                tracing::error!("register_node jwt sign: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
     let jwt_expires = now + chrono::Duration::days(NODE_JWT_TTL_DAYS);
     let _ = sqlx::query(
         "INSERT INTO nodetoken (jti, node_id, revoked, issued_at, expires_at) VALUES ($1,$2,false,$3,$4)",
@@ -985,13 +968,14 @@ async fn rotate_node_token(
     .execute(&state.db)
     .await;
 
-    let (node_jwt, jti) = match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, NODE_JWT_TTL_DAYS) {
-        Ok(pair) => pair,
-        Err(e) => {
-            tracing::error!("rotate_node_token jwt sign: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let (node_jwt, jti) =
+        match crate::jwt::sign_node_jwt(&node_id, &state.jwt_encoding_key, NODE_JWT_TTL_DAYS) {
+            Ok(pair) => pair,
+            Err(e) => {
+                tracing::error!("rotate_node_token jwt sign: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
     let jwt_expires = now + chrono::Duration::days(NODE_JWT_TTL_DAYS);
     let _ = sqlx::query(
         "INSERT INTO nodetoken (jti, node_id, revoked, issued_at, expires_at) VALUES ($1,$2,false,$3,$4)",
@@ -1003,7 +987,11 @@ async fn rotate_node_token(
     .execute(&state.db)
     .await;
 
-    (StatusCode::OK, Json(serde_json::json!({"node_jwt": node_jwt}))).into_response()
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"node_jwt": node_jwt})),
+    )
+        .into_response()
 }
 
 async fn list_nodes(
@@ -1051,13 +1039,11 @@ async fn heartbeat_node(
     let now = Utc::now().naive_utc();
 
     // Verify ownership
-    match sqlx::query(
-        "SELECT id FROM runtimenode WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&node_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
+    match sqlx::query("SELECT id FROM runtimenode WHERE id=$1 AND owner_subject=$2")
+        .bind(&node_id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(None) => return not_found("node not found"),
         Err(e) => {
@@ -1135,13 +1121,11 @@ async fn get_node_config(
     principal: Principal,
     Path(node_id): Path<String>,
 ) -> impl IntoResponse {
-    let node_row = match sqlx::query(
-        "SELECT * FROM runtimenode WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&node_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
+    let node_row = match sqlx::query("SELECT * FROM runtimenode WHERE id=$1 AND owner_subject=$2")
+        .bind(&node_id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(r)) => r,
         Ok(None) => return not_found("node not found"),
@@ -1181,9 +1165,12 @@ async fn get_node_config(
     let spec = row_to_spec(&spec_row);
     let mut config = spec["config"].clone();
     if let serde_json::Value::Object(ref mut m) = config {
-        m.entry("node_name").or_insert(serde_json::Value::String(node_name));
-        m.entry("hostname").or_insert(serde_json::Value::String(hostname));
-        m.entry("trust_tier").or_insert(serde_json::Value::String(trust_tier));
+        m.entry("node_name")
+            .or_insert(serde_json::Value::String(node_name));
+        m.entry("hostname")
+            .or_insert(serde_json::Value::String(hostname));
+        m.entry("trust_tier")
+            .or_insert(serde_json::Value::String(trust_tier));
         m.entry("labels").or_insert(
             serde_json::from_str::<serde_json::Value>(&labels_json)
                 .unwrap_or(serde_json::json!({})),
@@ -1289,13 +1276,11 @@ async fn get_node_install_bundle(
         "https://github.com/RyanMerlin/edgeplane/releases/latest/download".to_string()
     });
 
-    let node_row = match sqlx::query(
-        "SELECT * FROM runtimenode WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&node_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
+    let node_row = match sqlx::query("SELECT * FROM runtimenode WHERE id=$1 AND owner_subject=$2")
+        .bind(&node_id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(r)) => r,
         Ok(None) => return not_found("node not found"),
@@ -1403,13 +1388,11 @@ async fn get_node_install_script(
         "https://github.com/RyanMerlin/edgeplane/releases/latest/download".to_string()
     });
 
-    let node_row = match sqlx::query(
-        "SELECT * FROM runtimenode WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&node_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
+    let node_row = match sqlx::query("SELECT * FROM runtimenode WHERE id=$1 AND owner_subject=$2")
+        .bind(&node_id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(r)) => r,
         Ok(None) => {
@@ -1418,7 +1401,7 @@ async fn get_node_install_script(
                 [(header::CONTENT_TYPE, "text/plain")],
                 "node not found",
             )
-                .into_response()
+                .into_response();
         }
         Err(e) => {
             tracing::error!("get_node_install_script: {e}");
@@ -1504,13 +1487,11 @@ async fn reconcile_node(
 ) -> impl IntoResponse {
     let now = Utc::now().naive_utc();
 
-    let node_row = match sqlx::query(
-        "SELECT * FROM runtimenode WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&node_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
+    let node_row = match sqlx::query("SELECT * FROM runtimenode WHERE id=$1 AND owner_subject=$2")
+        .bind(&node_id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(r)) => r,
         Ok(None) => return not_found("node not found"),
@@ -1697,12 +1678,11 @@ async fn delete_node(
     // 1. Verify node exists and caller is authorised (owner or admin only — no node-self).
     //    Uses the same plain-equality comparison as `require_node_owner` and the
     //    owner branch of `is_authorized_for_node` (both use `==`, case-sensitive).
-    let owner_check = sqlx::query_scalar::<_, String>(
-        "SELECT owner_subject FROM runtimenode WHERE id = $1",
-    )
-    .bind(&node_id)
-    .fetch_optional(&state.db)
-    .await;
+    let owner_check =
+        sqlx::query_scalar::<_, String>("SELECT owner_subject FROM runtimenode WHERE id = $1")
+            .bind(&node_id)
+            .fetch_optional(&state.db)
+            .await;
 
     let owner = match owner_check {
         Ok(Some(o)) => o,
@@ -1715,7 +1695,11 @@ async fn delete_node(
     // Node-self JWTs (auth_type == "node") are intentionally excluded: an
     // irreversible DELETE must not be reachable from a leaked node credential.
     if !(principal.is_admin || principal.subject == owner) {
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"detail": "node does not belong to you"}))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "node does not belong to you"})),
+        )
+            .into_response();
     }
 
     // 2. Count active meshagent rows for this node.
@@ -2306,13 +2290,11 @@ async fn create_lease(
     let now = Utc::now().naive_utc();
 
     // Verify job ownership
-    match sqlx::query(
-        "SELECT id FROM runtimejob WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&job_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
+    match sqlx::query("SELECT id FROM runtimejob WHERE id=$1 AND owner_subject=$2")
+        .bind(&job_id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(None) => return not_found("job not found"),
         Err(e) => {
@@ -2371,13 +2353,11 @@ async fn claim_lease(
     let now = Utc::now().naive_utc();
 
     // Verify node ownership
-    match sqlx::query(
-        "SELECT id FROM runtimenode WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&node_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await
+    match sqlx::query("SELECT id FROM runtimenode WHERE id=$1 AND owner_subject=$2")
+        .bind(&node_id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(None) => return not_found("node not found"),
         Err(e) => {
@@ -2464,10 +2444,7 @@ async fn update_lease_status(
     Json(body): Json<LeaseStatus>,
 ) -> impl IntoResponse {
     let now = Utc::now().naive_utc();
-    let heartbeat_at = body
-        .heartbeat_at
-        .map(|t| t.naive_utc())
-        .unwrap_or(now);
+    let heartbeat_at = body.heartbeat_at.map(|t| t.naive_utc()).unwrap_or(now);
     let started_at = body.started_at.map(|t| t.naive_utc());
 
     // Verify ownership via job
@@ -2582,14 +2559,12 @@ async fn complete_lease(
     let job_id: String = row.get("job_id");
 
     // Also update the job status
-    let _ = sqlx::query(
-        "UPDATE runtimejob SET status=$1, updated_at=$2 WHERE id=$3",
-    )
-    .bind(status)
-    .bind(now)
-    .bind(&job_id)
-    .execute(&state.db)
-    .await;
+    let _ = sqlx::query("UPDATE runtimejob SET status=$1, updated_at=$2 WHERE id=$3")
+        .bind(status)
+        .bind(now)
+        .bind(&job_id)
+        .execute(&state.db)
+        .await;
 
     let payload = json_dump(
         &serde_json::json!({"exit_code": body.exit_code, "error_message": body.error_message}),
@@ -2636,15 +2611,13 @@ async fn append_lease_logs(
     }
 
     // Fetch node_id for event
-    let node_id = sqlx::query_scalar::<_, String>(
-        "SELECT node_id FROM joblease WHERE id=$1",
-    )
-    .bind(&lease_id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten()
-    .unwrap_or_default();
+    let node_id = sqlx::query_scalar::<_, String>("SELECT node_id FROM joblease WHERE id=$1")
+        .bind(&lease_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
 
     let payload = json_dump(&serde_json::json!({"logs": body.logs}));
     let _ = sqlx::query(
@@ -2821,7 +2794,9 @@ async fn execution_session_pty(
 
     // Verify token and session ownership before upgrading
     let allowed = async {
-        if token.is_empty() { return false; }
+        if token.is_empty() {
+            return false;
+        }
         let hash = hash_token_local(&token);
         let row = sqlx::query(
             "SELECT es.id FROM executionsession es \
@@ -2879,9 +2854,10 @@ async fn handle_pty_ws(socket: WebSocket, session_id: String, conn_id: String) {
         // Cleanup empty sessions
         let mut reg = pty_registry().lock().await;
         if let Some(tx) = reg.get(&session_id_clean)
-            && tx.receiver_count() == 0 {
-                reg.remove(&session_id_clean);
-            }
+            && tx.receiver_count() == 0
+        {
+            reg.remove(&session_id_clean);
+        }
     });
 
     // Write task: forward broadcast messages (from other clients) to this WebSocket
@@ -2889,7 +2865,9 @@ async fn handle_pty_ws(socket: WebSocket, session_id: String, conn_id: String) {
         loop {
             match receiver.recv().await {
                 Ok((src_conn_id, msg)) => {
-                    if src_conn_id == conn_id { continue; } // skip own messages
+                    if src_conn_id == conn_id {
+                        continue;
+                    } // skip own messages
                     if sink.send(Message::Text(msg.into())).await.is_err() {
                         break;
                     }
@@ -2950,7 +2928,10 @@ async fn agent_attach_proxy(
     let ip: Option<String> = row.try_get("tailscale_ip").ok();
     // The fqdn/ip presence is the attachability gate: a node that registered
     // neither has no reachable address, so refuse before dialing.
-    let tailnet_host = match fqdn.filter(|s| !s.is_empty()).or(ip.filter(|s| !s.is_empty())) {
+    let tailnet_host = match fqdn
+        .filter(|s| !s.is_empty())
+        .or(ip.filter(|s| !s.is_empty()))
+    {
         Some(h) => h,
         None => {
             return (
@@ -3021,10 +3002,7 @@ fn sign_attach_token(secret: &str, agent_id: &str, exp: i64) -> String {
     hex::encode(mac.finalize().into_bytes())
 }
 
-async fn run_attach_proxy(
-    browser_socket: WebSocket,
-    mesh_url: String,
-) -> anyhow::Result<()> {
+async fn run_attach_proxy(browser_socket: WebSocket, mesh_url: String) -> anyhow::Result<()> {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message as TgMessage;
 
@@ -3138,12 +3116,11 @@ async fn list_node_agents(
     Path(node_id): Path<String>,
 ) -> impl IntoResponse {
     // Verify the node exists and the caller owns it (or is admin).
-    let owner_check = sqlx::query_scalar::<_, String>(
-        "SELECT owner_subject FROM runtimenode WHERE id = $1",
-    )
-    .bind(&node_id)
-    .fetch_optional(&state.db)
-    .await;
+    let owner_check =
+        sqlx::query_scalar::<_, String>("SELECT owner_subject FROM runtimenode WHERE id = $1")
+            .bind(&node_id)
+            .fetch_optional(&state.db)
+            .await;
 
     let owner = match owner_check {
         Ok(Some(o)) => o,
@@ -3177,10 +3154,8 @@ async fn list_node_agents(
                 .iter()
                 .map(|r| {
                     let mut v = crate::routes::work::row_to_agent(r);
-                    v["domain_name"] =
-                        serde_json::Value::String(r.get::<String, _>("domain_name"));
-                    v["domain_kind"] =
-                        serde_json::Value::String(r.get::<String, _>("domain_kind"));
+                    v["domain_name"] = serde_json::Value::String(r.get::<String, _>("domain_name"));
+                    v["domain_kind"] = serde_json::Value::String(r.get::<String, _>("domain_kind"));
                     v
                 })
                 .collect();
@@ -3209,12 +3184,11 @@ async fn node_notify_ws(
     Path(node_id): Path<String>,
 ) -> impl IntoResponse {
     // Owner check up-front; on failure, refuse the upgrade with a 403.
-    let owner_check = sqlx::query_scalar::<_, String>(
-        "SELECT owner_subject FROM runtimenode WHERE id = $1",
-    )
-    .bind(&node_id)
-    .fetch_optional(&state.db)
-    .await;
+    let owner_check =
+        sqlx::query_scalar::<_, String>("SELECT owner_subject FROM runtimenode WHERE id = $1")
+            .bind(&node_id)
+            .fetch_optional(&state.db)
+            .await;
     match owner_check {
         Ok(Some(owner)) => {
             if !is_authorized_for_node(&principal, &node_id, &owner) {
@@ -3297,8 +3271,15 @@ mod install_script_tests {
         assert!(!s.contains("edgeplane node run"));
         assert!(!s.contains("User=root"));
         // userns-jail-breaking directives must not be emitted as active config
-        for forbidden in ["\nRestrictNamespaces", "\nPrivateUsers", "\nSystemCallFilter"] {
-            assert!(!s.contains(forbidden), "emitted forbidden directive: {forbidden}");
+        for forbidden in [
+            "\nRestrictNamespaces",
+            "\nPrivateUsers",
+            "\nSystemCallFilter",
+        ] {
+            assert!(
+                !s.contains(forbidden),
+                "emitted forbidden directive: {forbidden}"
+            );
         }
         // token row id must never be passed as the join-token credential
         assert!(!s.contains("--join-token \"${EP_NODE_TOKEN_ID}\""));
@@ -3379,7 +3360,11 @@ mod node_self_auth_tests {
     #[test]
     fn admin_always_allowed() {
         let p = make_principal("admin@example.com", true, "session");
-        assert!(is_authorized_for_node(&p, "node-A", "someone-else@example.com"));
+        assert!(is_authorized_for_node(
+            &p,
+            "node-A",
+            "someone-else@example.com"
+        ));
     }
 
     // ── agent JWT cannot satisfy node-self ───────────────────────────────────

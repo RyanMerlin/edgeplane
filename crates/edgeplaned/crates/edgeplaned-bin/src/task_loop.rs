@@ -18,12 +18,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use futures::StreamExt;
 use edgeplaned_core::client::BackendClient;
 use edgeplaned_core::types::{AgentHandle, AgentSignal, PendingPeerMessage, TaskSpec};
+use edgeplaned_work::task::TaskError;
 use edgeplaned_work::watchdog::{ConnectivityState, OfflinePolicy};
 use edgeplaned_work::{claim, task};
-use edgeplaned_work::task::TaskError;
+use futures::StreamExt;
 
 use crate::attach_registry::AttachRegistry;
 
@@ -97,7 +97,13 @@ pub async fn run_for_agent(
                         "Watchdog strict offline: failing in-flight task {tid} for agent {agent_id}"
                     );
                     // Best-effort: can't reach backend, but record locally.
-                    let _ = task::fail_task(&client, &tid, current_lease_id.as_deref(), "watchdog: offline (strict)").await;
+                    let _ = task::fail_task(
+                        &client,
+                        &tid,
+                        current_lease_id.as_deref(),
+                        "watchdog: offline (strict)",
+                    )
+                    .await;
                     current_lease_id = None;
                 }
                 tracing::warn!("Watchdog strict offline: pausing task loop for agent {agent_id}");
@@ -107,7 +113,9 @@ pub async fn run_for_agent(
             }
             // SafeReadonly: pause claiming but don't actively fail tasks.
             (OfflinePolicy::SafeReadonly, ConnectivityState::Offline { .. }) => {
-                tracing::info!("Watchdog safe-readonly offline: suspending claims for agent {agent_id}");
+                tracing::info!(
+                    "Watchdog safe-readonly offline: suspending claims for agent {agent_id}"
+                );
                 tokio::time::sleep(poll_interval).await;
                 poll_interval = (poll_interval * 2).min(POLL_INTERVAL_MAX);
                 continue;
@@ -120,7 +128,13 @@ pub async fn run_for_agent(
                         "Watchdog autonomous TTL {max_ttl_secs}s exceeded for agent {agent_id}: stopping"
                     );
                     if let Some(tid) = current_task_id.take() {
-                        let _ = task::fail_task(&client, &tid, current_lease_id.as_deref(), "watchdog: autonomous TTL exceeded").await;
+                        let _ = task::fail_task(
+                            &client,
+                            &tid,
+                            current_lease_id.as_deref(),
+                            "watchdog: autonomous TTL exceeded",
+                        )
+                        .await;
                         current_lease_id = None;
                     }
                     tokio::time::sleep(poll_interval).await;
@@ -137,7 +151,10 @@ pub async fn run_for_agent(
 
         // Heartbeat the agent itself.
         if let Err(e) = client
-            .raw_post(&format!("/agents/{agent_id}/heartbeat"), &serde_json::json!({}))
+            .raw_post(
+                &format!("/agents/{agent_id}/heartbeat"),
+                &serde_json::json!({}),
+            )
             .await
         {
             tracing::warn!("Agent heartbeat failed: {e}");
@@ -209,18 +226,20 @@ pub async fn run_for_agent(
             .await;
 
         // Fetch agent profile and domain roster for context injection.
-        let agent_profile = client.get_agent(&agent_id).await
+        let agent_profile = client
+            .get_agent(&agent_id)
+            .await
             .ok()
             .and_then(|v| v.get("profile").cloned())
             .filter(|v| !v.is_null());
 
-        let domain_roster = client.get_domain_roster(&domain_id).await
+        let domain_roster = client
+            .get_domain_roster(&domain_id)
+            .await
             .unwrap_or_default()
             .into_iter()
             // Exclude this agent from the roster it sees (it knows itself already).
-            .filter(|entry| {
-                entry.get("id").and_then(|v| v.as_str()) != Some(&agent_id)
-            })
+            .filter(|entry| entry.get("id").and_then(|v| v.as_str()) != Some(&agent_id))
             .collect::<Vec<_>>();
 
         // Fetch terminal summaries from upstream dependencies, if any. This
@@ -263,7 +282,13 @@ pub async fn run_for_agent(
             Ok(s) => s,
             Err(e) => {
                 tracing::error!("inject_task failed: {e}");
-                let _ = task::fail_task(&client, &task_record.id, lease_id.as_deref(), &e.to_string()).await;
+                let _ = task::fail_task(
+                    &client,
+                    &task_record.id,
+                    lease_id.as_deref(),
+                    &e.to_string(),
+                )
+                .await;
                 drop(handle);
                 set_agent_idle(&client, &agent_id).await;
                 continue;
@@ -272,15 +297,26 @@ pub async fn run_for_agent(
         drop(handle);
 
         // Forward progress events with lease heartbeat.
-        let result =
-            stream_and_heartbeat(stream, &client, &task_record.id, &agent_id, lease_id.as_deref()).await;
+        let result = stream_and_heartbeat(
+            stream,
+            &client,
+            &task_record.id,
+            &agent_id,
+            lease_id.as_deref(),
+        )
+        .await;
 
         match result {
             Ok(success) => {
                 if success {
-                    match task::complete_task(&client, &task_record.id, lease_id.as_deref(), None).await {
+                    match task::complete_task(&client, &task_record.id, lease_id.as_deref(), None)
+                        .await
+                    {
                         Err(TaskError::LeaseMismatch) => {
-                            tracing::warn!("lease mismatch or stolen, abandoning task {}", task_record.id);
+                            tracing::warn!(
+                                "lease mismatch or stolen, abandoning task {}",
+                                task_record.id
+                            );
                         }
                         Err(TaskError::Other(e)) => {
                             tracing::error!("complete_task error: {e}");
@@ -288,9 +324,19 @@ pub async fn run_for_agent(
                         Ok(()) => {}
                     }
                 } else {
-                    match task::fail_task(&client, &task_record.id, lease_id.as_deref(), "agent reported failure").await {
+                    match task::fail_task(
+                        &client,
+                        &task_record.id,
+                        lease_id.as_deref(),
+                        "agent reported failure",
+                    )
+                    .await
+                    {
                         Err(TaskError::LeaseMismatch) => {
-                            tracing::warn!("lease mismatch or stolen, abandoning task {}", task_record.id);
+                            tracing::warn!(
+                                "lease mismatch or stolen, abandoning task {}",
+                                task_record.id
+                            );
                         }
                         Err(TaskError::Other(e)) => {
                             tracing::error!("fail_task error: {e}");
@@ -301,7 +347,13 @@ pub async fn run_for_agent(
             }
             Err(e) => {
                 tracing::error!("stream_and_heartbeat error: {e}");
-                let _ = task::fail_task(&client, &task_record.id, lease_id.as_deref(), &e.to_string()).await;
+                let _ = task::fail_task(
+                    &client,
+                    &task_record.id,
+                    lease_id.as_deref(),
+                    &e.to_string(),
+                )
+                .await;
             }
         }
 
@@ -361,9 +413,7 @@ async fn stream_and_heartbeat(
 
 /// Get all mission ids for a domain.
 async fn get_domain_missions(client: &BackendClient, domain_id: &str) -> Result<Vec<String>> {
-    let resp: serde_json::Value = client
-        .get(&format!("/domains/{domain_id}/m"))
-        .await?;
+    let resp: serde_json::Value = client.get(&format!("/domains/{domain_id}/m")).await?;
 
     // Backend returns an array of mission objects with an "id" field.
     let ids = resp
@@ -444,9 +494,10 @@ pub async fn run_message_relay(
         for msg in msgs {
             // Track the highest seen id so we don't re-deliver.
             if let Some(id) = msg.get("id").and_then(|v| v.as_i64())
-                && id > last_id {
-                    last_id = id;
-                }
+                && id > last_id
+            {
+                last_id = id;
+            }
 
             // from_agent_id may be an integer (agent table id) or a string public_id.
             let from_agent_id = msg
@@ -479,7 +530,9 @@ pub async fn run_message_relay(
                     if let Some(content) = msg.get("content").and_then(|v| v.as_str()) {
                         serde_json::json!({"text": content})
                     } else {
-                        msg.get("body_json").cloned().unwrap_or(serde_json::json!({}))
+                        msg.get("body_json")
+                            .cloned()
+                            .unwrap_or(serde_json::json!({}))
                     }
                 });
 
@@ -497,15 +550,16 @@ pub async fn run_message_relay(
             // for live PTY/ACP delivery.
             let mut delivered = false;
             if let Some(ref reg) = registry
-                && let Some(endpoints) = reg.get(&agent_id).await {
-                    if let Err(e) = endpoints.signal_tx().send(signal.clone()).await {
-                        tracing::debug!(
-                            "Session supervisor not ready for {agent_id}, falling back: {e}"
-                        );
-                    } else {
-                        delivered = true;
-                    }
+                && let Some(endpoints) = reg.get(&agent_id).await
+            {
+                if let Err(e) = endpoints.signal_tx().send(signal.clone()).await {
+                    tracing::debug!(
+                        "Session supervisor not ready for {agent_id}, falling back: {e}"
+                    );
+                } else {
+                    delivered = true;
                 }
+            }
 
             if !delivered {
                 // Task-mode agents: buffer for the next task inject. Single-shot
@@ -547,11 +601,7 @@ pub async fn run_message_relay(
 /// `edgeplane channel claude webhook --listen-port <N>`) translates the POST into a
 /// `notifications/claude/channel` MCP notification, which claude delivers as a
 /// `session/prompt`. No competing claude process is spawned.
-pub async fn run_webhook_relay(
-    client: Arc<BackendClient>,
-    agent_id: String,
-    webhook_url: String,
-) {
+pub async fn run_webhook_relay(client: Arc<BackendClient>, agent_id: String, webhook_url: String) {
     let http = reqwest::Client::new();
     let mut last_id: i64 = 0;
     let mut startup_drain = true;
@@ -586,9 +636,10 @@ pub async fn run_webhook_relay(
 
         for msg in &msgs {
             if let Some(id) = msg.get("id").and_then(|v| v.as_i64())
-                && id > last_id {
-                    last_id = id;
-                }
+                && id > last_id
+            {
+                last_id = id;
+            }
 
             let text = msg
                 .get("content")
@@ -608,7 +659,11 @@ pub async fn run_webhook_relay(
 
             let from = msg
                 .get("from_agent_id")
-                .map(|v| v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))
+                .map(|v| {
+                    v.as_str()
+                        .map(String::from)
+                        .unwrap_or_else(|| v.to_string())
+                })
                 .unwrap_or_else(|| "unknown".to_string());
             let channel = msg
                 .get("channel")
@@ -623,10 +678,9 @@ pub async fn run_webhook_relay(
             let payload = serde_json::json!({"text": text});
             match http.post(&webhook_url).json(&payload).send().await {
                 Ok(resp) if resp.status().is_success() => {}
-                Ok(resp) => tracing::warn!(
-                    "Webhook delivery returned {} for {agent_id}",
-                    resp.status()
-                ),
+                Ok(resp) => {
+                    tracing::warn!("Webhook delivery returned {} for {agent_id}", resp.status())
+                }
                 Err(e) => tracing::warn!("Webhook delivery failed for {agent_id}: {e}"),
             }
         }
@@ -665,21 +719,24 @@ async fn run_notify_ws(
         // attempts uses the current credential rather than the one captured
         // at task-loop start.
         let token = client.current_token();
-        let request = match tungstenite::client::IntoClientRequest::into_client_request(url.as_str()) {
-            Ok(mut req) => {
-                req.headers_mut().insert(
-                    "Authorization",
-                    format!("Bearer {token}").parse().expect("valid header value"),
-                );
-                req
-            }
-            Err(e) => {
-                tracing::warn!("notify WS: failed to build request for {agent_id}: {e}");
-                tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(MAX_BACKOFF);
-                continue;
-            }
-        };
+        let request =
+            match tungstenite::client::IntoClientRequest::into_client_request(url.as_str()) {
+                Ok(mut req) => {
+                    req.headers_mut().insert(
+                        "Authorization",
+                        format!("Bearer {token}")
+                            .parse()
+                            .expect("valid header value"),
+                    );
+                    req
+                }
+                Err(e) => {
+                    tracing::warn!("notify WS: failed to build request for {agent_id}: {e}");
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(MAX_BACKOFF);
+                    continue;
+                }
+            };
 
         match connect_async(request).await {
             Ok((mut ws, _)) => {
@@ -690,9 +747,10 @@ async fn run_notify_ws(
                     match ws.next().await {
                         Some(Ok(tungstenite::Message::Text(txt))) => {
                             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt)
-                                && v.get("type").and_then(|t| t.as_str()) == Some("task_available") {
-                                    let _ = wake_tx.send(true);
-                                }
+                                && v.get("type").and_then(|t| t.as_str()) == Some("task_available")
+                            {
+                                let _ = wake_tx.send(true);
+                            }
                         }
                         Some(Ok(_)) => {} // ping/binary frames ignored
                         Some(Err(e)) => {

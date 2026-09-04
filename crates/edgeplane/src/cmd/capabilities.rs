@@ -34,13 +34,13 @@ pub enum CapabilitiesCmd {
 // Entry point
 // ---------------------------------------------------------------------------
 
-pub async fn run(
-    cmd: CapabilitiesCmd,
-    host: Option<String>,
-    route: Option<String>,
-) -> Result<()> {
+pub async fn run(cmd: CapabilitiesCmd, host: Option<String>, route: Option<String>) -> Result<()> {
     match cmd {
-        CapabilitiesCmd::List { tag, json, route: route_override } => {
+        CapabilitiesCmd::List {
+            tag,
+            json,
+            route: route_override,
+        } => {
             // The --route on the subcommand takes precedence over the top-level --route.
             let effective_route = route_override.or(route);
             run_list(tag.as_deref(), json, host, effective_route).await
@@ -140,22 +140,33 @@ mod tests {
 
     #[test]
     fn describe_known_capability_returns_json() {
-        let registry = PackRegistry::load_builtin()
-            .expect("built-in packs should load");
+        let registry = PackRegistry::load_builtin().expect("built-in packs should load");
 
         // Pick the first capability from the registry as the known capability.
-        let first = registry.capabilities(None).into_iter().next()
+        let first = registry
+            .capabilities(None)
+            .into_iter()
+            .next()
             .expect("built-in packs should have at least one capability");
 
         let cap = registry.get_by_full_name(&first.full_name);
-        assert!(cap.is_some(), "get_by_full_name should find a known capability");
+        assert!(
+            cap.is_some(),
+            "get_by_full_name should find a known capability"
+        );
 
         let cap = cap.unwrap();
         // The capability name stored in the manifest is the short name (without pack prefix).
         // The full_name in CapabilitySummary is "<pack>.<cap_name>".
-        let short_name = first.full_name.split_once('.').map(|x| x.1)
+        let short_name = first
+            .full_name
+            .split_once('.')
+            .map(|x| x.1)
             .unwrap_or(&first.full_name);
-        assert_eq!(cap.name, short_name, "manifest name should match the short capability name");
+        assert_eq!(
+            cap.name, short_name,
+            "manifest name should match the short capability name"
+        );
 
         let serialized = serde_json::to_string(cap).expect("should serialize");
         assert!(!serialized.is_empty());
@@ -164,16 +175,14 @@ mod tests {
 
     #[test]
     fn describe_unknown_capability_returns_none() {
-        let registry = PackRegistry::load_builtin()
-            .expect("built-in packs should load");
+        let registry = PackRegistry::load_builtin().expect("built-in packs should load");
         let result = registry.get_by_full_name("nonexistent.nope");
         assert!(result.is_none(), "unknown capability should return None");
     }
 
     #[test]
     fn list_with_tag_filters_correctly() {
-        let registry = PackRegistry::load_builtin()
-            .expect("built-in packs should load");
+        let registry = PackRegistry::load_builtin().expect("built-in packs should load");
 
         let kubernetes_caps = registry.capabilities(Some("kubernetes"));
         let all_caps = registry.capabilities(None);
@@ -193,8 +202,7 @@ mod tests {
 
     #[test]
     fn list_all_returns_nonempty() {
-        let registry = PackRegistry::load_builtin()
-            .expect("built-in packs should load");
+        let registry = PackRegistry::load_builtin().expect("built-in packs should load");
         let all = registry.capabilities(None);
         assert!(!all.is_empty(), "built-in packs should have capabilities");
     }

@@ -37,7 +37,11 @@ pub struct AgentFeedState {
 
 impl AgentFeedState {
     pub fn new() -> Self {
-        Self { max_events: 500, live: false, ..Default::default() }
+        Self {
+            max_events: 500,
+            live: false,
+            ..Default::default()
+        }
     }
 
     pub fn push_event(&mut self, event: FeedEvent) {
@@ -57,22 +61,35 @@ impl AgentFeedState {
     }
 
     pub fn visible_events(&self) -> Vec<&FeedEvent> {
-        self.events.iter().filter(|ev| {
-            if self.alerts_only && !is_alert(&ev.event_type) {
-                return false;
-            }
-            if !self.filter.is_empty() {
-                let q = self.filter.to_lowercase();
-                let matches = ev.agent_id.as_deref().unwrap_or("").to_lowercase().contains(&q)
-                    || ev.domain_id.as_deref().unwrap_or("").to_lowercase().contains(&q)
-                    || ev.event_type.to_lowercase().contains(&q)
-                    || ev.data.to_lowercase().contains(&q);
-                if !matches {
+        self.events
+            .iter()
+            .filter(|ev| {
+                if self.alerts_only && !is_alert(&ev.event_type) {
                     return false;
                 }
-            }
-            true
-        }).collect()
+                if !self.filter.is_empty() {
+                    let q = self.filter.to_lowercase();
+                    let matches = ev
+                        .agent_id
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&q)
+                        || ev
+                            .domain_id
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&q)
+                        || ev.event_type.to_lowercase().contains(&q)
+                        || ev.data.to_lowercase().contains(&q);
+                    if !matches {
+                        return false;
+                    }
+                }
+                true
+            })
+            .collect()
     }
 
     pub fn handle_key(&mut self, key: crossterm::event::KeyCode) -> bool {
@@ -81,9 +98,15 @@ impl AgentFeedState {
         // Filter input mode — swallow all keys so Tab can't escape to global nav
         if self.filter_active {
             match key {
-                Char(c) => { self.filter.push(c); }
-                Backspace => { self.filter.pop(); }
-                Esc => { self.filter_active = false; }
+                Char(c) => {
+                    self.filter.push(c);
+                }
+                Backspace => {
+                    self.filter.pop();
+                }
+                Esc => {
+                    self.filter_active = false;
+                }
                 _ => {}
             }
             return true;
@@ -92,7 +115,9 @@ impl AgentFeedState {
         match key {
             Char('p') => {
                 self.paused = !self.paused;
-                if !self.paused { self.buffered_while_paused = 0; }
+                if !self.paused {
+                    self.buffered_while_paused = 0;
+                }
                 true
             }
             Char('c') => {
@@ -126,12 +151,16 @@ impl AgentFeedState {
                 false
             }
             Up => {
-                if self.selection > 0 { self.selection -= 1; }
+                if self.selection > 0 {
+                    self.selection -= 1;
+                }
                 true
             }
             Down => {
                 let visible_len = self.visible_events().len();
-                if self.selection + 1 < visible_len { self.selection += 1; }
+                if self.selection + 1 < visible_len {
+                    self.selection += 1;
+                }
                 true
             }
             _ => false,
@@ -175,14 +204,22 @@ impl<'a> Widget for AgentFeed<'a> {
 
 fn render_filter_bar(buf: &mut Buffer, area: Rect, state: &AgentFeedState) {
     let live_span = if state.live && !state.paused {
-        Span::styled("● LIVE", Style::default().fg(theme::OK).add_modifier(Modifier::BOLD))
+        Span::styled(
+            "● LIVE",
+            Style::default().fg(theme::OK).add_modifier(Modifier::BOLD),
+        )
     } else if state.paused {
         let buf_count = if state.buffered_while_paused > 0 {
             format!("PAUSED (+{})", state.buffered_while_paused)
         } else {
             "PAUSED".to_string()
         };
-        Span::styled(buf_count, Style::default().fg(theme::WARN).add_modifier(Modifier::BOLD))
+        Span::styled(
+            buf_count,
+            Style::default()
+                .fg(theme::WARN)
+                .add_modifier(Modifier::BOLD),
+        )
     } else {
         Span::styled("CONNECTING", Style::default().fg(theme::TEXT_DIM))
     };
@@ -196,7 +233,12 @@ fn render_filter_bar(buf: &mut Buffer, area: Rect, state: &AgentFeedState) {
     };
 
     let alerts_span = if state.alerts_only {
-        Span::styled("  ⚠ Alerts only", Style::default().fg(theme::WARN).add_modifier(Modifier::BOLD))
+        Span::styled(
+            "  ⚠ Alerts only",
+            Style::default()
+                .fg(theme::WARN)
+                .add_modifier(Modifier::BOLD),
+        )
     } else {
         Span::styled("  [w alerts]", theme::dim())
     };
@@ -204,14 +246,23 @@ fn render_filter_bar(buf: &mut Buffer, area: Rect, state: &AgentFeedState) {
     let count = format!("  {} events", state.visible_events().len());
 
     let line = Line::from(vec![
-        Span::styled(format!("  {filter_display}"), if state.filter_active { theme::accent() } else { theme::muted() }),
+        Span::styled(
+            format!("  {filter_display}"),
+            if state.filter_active {
+                theme::accent()
+            } else {
+                theme::muted()
+            },
+        ),
         Span::styled("  Errors  Artifacts  Heartbeat", theme::dim()),
         alerts_span,
         Span::styled("  ", theme::dim()),
         live_span,
         Span::styled(count, theme::dim()),
     ]);
-    Paragraph::new(line).style(theme::normal()).render(area, buf);
+    Paragraph::new(line)
+        .style(theme::normal())
+        .render(area, buf);
 }
 
 fn render_feed(buf: &mut Buffer, area: Rect, state: &AgentFeedState) {
@@ -227,38 +278,50 @@ fn render_feed(buf: &mut Buffer, area: Rect, state: &AgentFeedState) {
     let visible = state.visible_events();
 
     if visible.is_empty() {
-        let msg = if state.live { "waiting for events…" } else { "connecting to backend…" };
+        let msg = if state.live {
+            "waiting for events…"
+        } else {
+            "connecting to backend…"
+        };
         Paragraph::new(Span::styled(msg, theme::dim()))
             .style(theme::normal())
             .render(inner, buf);
         return;
     }
 
-    let items: Vec<ListItem> = visible.iter().enumerate().map(|(i, ev)| {
-        let selected = i == state.selection;
-        let style = if selected { theme::selected() } else { theme::normal() };
-        let agent = ev.agent_id.as_deref().unwrap_or("?");
-        let context = ev.domain_id.as_deref().unwrap_or("—");
-        let (type_style, type_str) = event_style(&ev.event_type);
+    let items: Vec<ListItem> = visible
+        .iter()
+        .enumerate()
+        .map(|(i, ev)| {
+            let selected = i == state.selection;
+            let style = if selected {
+                theme::selected()
+            } else {
+                theme::normal()
+            };
+            let agent = ev.agent_id.as_deref().unwrap_or("?");
+            let context = ev.domain_id.as_deref().unwrap_or("—");
+            let (type_style, type_str) = event_style(&ev.event_type);
 
-        // Alert margin prefix
-        let (margin, margin_style) = if matches!(ev.event_type.as_str(), "step_error") {
-            ("▎ ", Style::default().fg(theme::ERR))
-        } else if matches!(ev.event_type.as_str(), "overlap_detected") {
-            ("▎ ", Style::default().fg(theme::WARN))
-        } else {
-            ("  ", theme::dim())
-        };
+            // Alert margin prefix
+            let (margin, margin_style) = if matches!(ev.event_type.as_str(), "step_error") {
+                ("▎ ", Style::default().fg(theme::ERR))
+            } else if matches!(ev.event_type.as_str(), "overlap_detected") {
+                ("▎ ", Style::default().fg(theme::WARN))
+            } else {
+                ("  ", theme::dim())
+            };
 
-        ListItem::new(Line::from(vec![
-            Span::styled(margin, margin_style),
-            Span::styled(format!("{:<10} ", truncate(&ev.ts, 8)), theme::dim()),
-            Span::styled(format!("{:<12} ", truncate(agent, 10)), theme::muted()),
-            Span::styled(format!("{:<20} ", truncate(context, 18)), theme::dim()),
-            Span::styled(format!("{:<16} ", truncate(type_str, 14)), type_style),
-            Span::styled(truncate(&ev.data, 40), style),
-        ]))
-    }).collect();
+            ListItem::new(Line::from(vec![
+                Span::styled(margin, margin_style),
+                Span::styled(format!("{:<10} ", truncate(&ev.ts, 8)), theme::dim()),
+                Span::styled(format!("{:<12} ", truncate(agent, 10)), theme::muted()),
+                Span::styled(format!("{:<20} ", truncate(context, 18)), theme::dim()),
+                Span::styled(format!("{:<16} ", truncate(type_str, 14)), type_style),
+                Span::styled(truncate(&ev.data, 40), style),
+            ]))
+        })
+        .collect();
 
     let mut ls = ListState::default().with_selected(Some(state.selection));
     ratatui::widgets::StatefulWidget::render(
@@ -288,16 +351,28 @@ fn render_detail_panel(buf: &mut Buffer, area: Rect, state: &AgentFeedState) {
     };
 
     let mut lines: Vec<Line> = vec![
-        Line::from(vec![Span::styled("Time    ", theme::muted()), Span::styled(ev.ts.clone(), theme::normal())]),
+        Line::from(vec![
+            Span::styled("Time    ", theme::muted()),
+            Span::styled(ev.ts.clone(), theme::normal()),
+        ]),
         Line::from(vec![
             Span::styled("Agent   ", theme::muted()),
-            Span::styled(ev.agent_id.as_deref().unwrap_or("—").to_string(), theme::accent()),
+            Span::styled(
+                ev.agent_id.as_deref().unwrap_or("—").to_string(),
+                theme::accent(),
+            ),
         ]),
         Line::from(vec![
             Span::styled("Domain ", theme::muted()),
-            Span::styled(ev.domain_id.as_deref().unwrap_or("—").to_string(), theme::normal()),
+            Span::styled(
+                ev.domain_id.as_deref().unwrap_or("—").to_string(),
+                theme::normal(),
+            ),
         ]),
-        Line::from(vec![Span::styled("Type    ", theme::muted()), Span::styled(ev.event_type.clone(), theme::muted())]),
+        Line::from(vec![
+            Span::styled("Type    ", theme::muted()),
+            Span::styled(ev.event_type.clone(), theme::muted()),
+        ]),
         Line::from(""),
         Line::from(Span::styled("Data", theme::muted())),
         Line::from(""),
@@ -325,7 +400,12 @@ fn event_style(event_type: &str) -> (ratatui::style::Style, &str) {
         "step_started" => (theme::accent(), "step_started"),
         "step_finished" => (theme::ok(), "step_finished"),
         "step_error" => (theme::err(), "step_error"),
-        "task_finished" => (Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD), "task_finished"),
+        "task_finished" => (
+            Style::default()
+                .fg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD),
+            "task_finished",
+        ),
         "artifact_produced" => (theme::purple(), "artifact_produced"),
         "task_claimed" => (theme::ok(), "task_claimed"),
         "heartbeat" => (theme::dim(), "heartbeat"),

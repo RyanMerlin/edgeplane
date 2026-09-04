@@ -121,17 +121,18 @@ pub async fn run(command: UpdateCommand, config: &EdgeplaneConfig) -> Result<()>
             .with_context(|| format!("failed to download {}", file.bin))?;
 
         if !args.skip_verify
-            && let Some(expected) = &file.sha256 {
-                let mut hasher = Sha256::new();
-                hasher.update(&bytes);
-                let digest = hex::encode(hasher.finalize());
-                if &digest != expected {
-                    bail!(
-                        "checksum mismatch for {}: expected {expected}, got {digest}",
-                        file.bin
-                    );
-                }
+            && let Some(expected) = &file.sha256
+        {
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            let digest = hex::encode(hasher.finalize());
+            if &digest != expected {
+                bail!(
+                    "checksum mismatch for {}: expected {expected}, got {digest}",
+                    file.bin
+                );
             }
+        }
 
         // Skip the write when the installed binary is already byte-identical, so a
         // no-op run leaves mtimes untouched and a watcher (the update timer) sees no

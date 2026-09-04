@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -37,14 +37,12 @@ pub async fn run(
     trust_tier: Option<String>,
 ) -> anyhow::Result<()> {
     let endpoint = endpoint.trim_end_matches('/').to_string();
-    let node_name = node_name
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| {
-            hostname::get()
-                .ok()
-                .and_then(|h| h.into_string().ok())
-                .unwrap_or_else(|| "edgeplaned-node".to_string())
-        });
+    let node_name = node_name.filter(|s| !s.is_empty()).unwrap_or_else(|| {
+        hostname::get()
+            .ok()
+            .and_then(|h| h.into_string().ok())
+            .unwrap_or_else(|| "edgeplaned-node".to_string())
+    });
     let hostname_str = hostname::get()
         .ok()
         .and_then(|h| h.into_string().ok())
@@ -111,7 +109,10 @@ pub async fn run(
 /// Used both by `register::run` (initial enrollment) and by
 /// `config::write_node_credential_token` (live rotation). Exposed as `pub`
 /// so `config.rs` can call it without duplicating the atomic-write logic.
-pub fn write_node_credential_file(cred: &NodeCredential, path: &std::path::Path) -> anyhow::Result<()> {
+pub fn write_node_credential_file(
+    cred: &NodeCredential,
+    path: &std::path::Path,
+) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;

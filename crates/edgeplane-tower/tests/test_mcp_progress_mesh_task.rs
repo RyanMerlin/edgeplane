@@ -53,12 +53,15 @@ async fn progress_mesh_task_inserts_sequential_events() {
         assert_eq!(body["ok"], true, "iteration {i}: response body: {body}");
     }
 
-    let seqs: Vec<i32> = sqlx::query_scalar(
-        "SELECT seq FROM meshprogressevent WHERE task_id = $1 ORDER BY seq",
-    )
-    .bind(&task_id)
-    .fetch_all(&pool)
-    .await
-    .expect("fetch progress events");
-    assert_eq!(seqs, vec![0, 1, 2], "seq must be sequential per task, not null/duplicated");
+    let seqs: Vec<i32> =
+        sqlx::query_scalar("SELECT seq FROM meshprogressevent WHERE task_id = $1 ORDER BY seq")
+            .bind(&task_id)
+            .fetch_all(&pool)
+            .await
+            .expect("fetch progress events");
+    assert_eq!(
+        seqs,
+        vec![0, 1, 2],
+        "seq must be sequential per task, not null/duplicated"
+    );
 }

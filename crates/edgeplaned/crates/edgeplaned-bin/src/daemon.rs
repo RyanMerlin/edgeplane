@@ -6,18 +6,15 @@ use edgeplaned_core::client::BackendClient;
 use edgeplaned_core::machine::MachineInfo;
 use edgeplaned_core::paths;
 use edgeplaned_packs::{PackRegistry, PolicyBundle};
+use edgeplaned_receipts::ReceiptStore;
+use edgeplaned_runtimes::{
+    claude_agent_acp::ClaudeAgentAcpRuntime, claude_code::ClaudeCodeRuntime, codex::CodexRuntime,
+    gemini::GeminiRuntime, zellij_hosted::ZellijHostedRuntime,
+};
 use edgeplaned_secrets::{
     BackendRegistry, EnvBackend, InfisicalBackend, InfisicalConfig, InfisicalProfileMap,
     SessionStore,
 };
-use edgeplaned_runtimes::{
-    claude_agent_acp::ClaudeAgentAcpRuntime,
-    claude_code::ClaudeCodeRuntime,
-    codex::CodexRuntime,
-    gemini::GeminiRuntime,
-    zellij_hosted::ZellijHostedRuntime,
-};
-use edgeplaned_receipts::ReceiptStore;
 use edgeplaned_work::watchdog::{OfflinePolicy, Watchdog};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -199,9 +196,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
 
     let client = Arc::new(
         BackendClient::new(&cfg.backend_url, &cfg.token)
-            .with_api_prefix(
-                std::env::var("EP_API_PREFIX").unwrap_or_else(|_| "/api".to_string()),
-            ),
+            .with_api_prefix(std::env::var("EP_API_PREFIX").unwrap_or_else(|_| "/api".to_string())),
     );
 
     // Self-heal `attach_secret` (the browser-attach HMAC key).
@@ -301,8 +296,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     ));
 
     // Runtime map for the attach gateway: agent_id → runtime
-    let runtime_map: attach_gateway::RuntimeMap =
-        Arc::new(Mutex::new(HashMap::new()));
+    let runtime_map: attach_gateway::RuntimeMap = Arc::new(Mutex::new(HashMap::new()));
 
     // Process-wide registry of live persistent-session endpoints.
     // Populated by `session_supervisor`; consumed by attach gateway and the
@@ -654,16 +648,20 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
             }
         });
         let receipts_path = paths::receipts_db_path();
-        let receipt_store = ReceiptStore::open(&receipts_path)
-            .map_err(|e| anyhow::anyhow!("failed to open receipt store at {}: {e}", receipts_path.display()))?;
+        let receipt_store = ReceiptStore::open(&receipts_path).map_err(|e| {
+            anyhow::anyhow!(
+                "failed to open receipt store at {}: {e}",
+                receipts_path.display()
+            )
+        })?;
         let dispatcher = Arc::new(
             CapabilityDispatcher::new(
                 Arc::clone(&registry),
                 PolicyBundle::allow_all(),
                 Some(secrets_registry),
             )
-                .with_receipt_store(Arc::new(receipt_store))
-                .with_session_store(Arc::clone(&session_store), secrets_socket),
+            .with_receipt_store(Arc::new(receipt_store))
+            .with_session_store(Arc::clone(&session_store), secrets_socket),
         );
         // Phase 3 daemon-absorption: wire the supervisor + runtime_map +
         // registry path so the new `agent.local.*` and
@@ -708,7 +706,7 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
         tokio::spawn(async move {
             crate::unit_health::gc_task(
                 unit_gc_registry_path,
-                30, // history_days — match cron defaults
+                30,  // history_days — match cron defaults
                 500, // max_rows_per_agent
                 60,  // gc interval minutes
             )
@@ -779,7 +777,10 @@ pub async fn run(cli: CliOverrides) -> Result<()> {
     // checkpoint. paths::receipts_db_path() == edgeplaned_paths::receipts_db_path()
     // — both resolve to state/receipts.db after the bucket migration.
     if let Err(e) = edgeplaned_paths::checkpoint_truncate(&shutdown_registry) {
-        tracing::debug!("shutdown wal checkpoint {}: {e}", shutdown_registry.display());
+        tracing::debug!(
+            "shutdown wal checkpoint {}: {e}",
+            shutdown_registry.display()
+        );
     }
     let receipts_path = paths::receipts_db_path();
     if let Err(e) = edgeplaned_paths::checkpoint_truncate(&receipts_path) {
@@ -856,13 +857,14 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<Option<String>> {
                     // Active profile wins over yaml for all identity fields.
                     if let (Some(yaml_node_id), Some(profile_node_id)) =
                         (cfg.node_id.as_ref(), profile.node_id.as_ref())
-                        && yaml_node_id != profile_node_id {
-                            tracing::warn!(
-                                "yaml has node_id={yaml_node_id} but active state profile has {}; \
+                        && yaml_node_id != profile_node_id
+                    {
+                        tracing::warn!(
+                            "yaml has node_id={yaml_node_id} but active state profile has {}; \
                                  state wins. Remove node_id from yaml.",
-                                profile_node_id
-                            );
-                        }
+                            profile_node_id
+                        );
+                    }
                     if cfg.attach_secret.is_some() {
                         tracing::warn!(
                             "yaml carries an `attach_secret`; state file is the source of truth — \
@@ -889,7 +891,8 @@ async fn merge_state_file(cfg: &mut DaemonConfig) -> Result<Option<String>> {
         None => {
             // No state file. If yaml carries legacy identity fields, migrate them
             // so the next start uses the v2 state file directly.
-            if let (Some(node_id), Some(secret)) = (cfg.node_id.clone(), cfg.attach_secret.clone()) {
+            if let (Some(node_id), Some(secret)) = (cfg.node_id.clone(), cfg.attach_secret.clone())
+            {
                 tracing::warn!(
                     "Migrating node_id + attach_secret from yaml to state file at {}. \
                      Remove these fields from your config.yaml — a future release will hard-fail on them.",
@@ -954,7 +957,9 @@ async fn persist_and_resolve_specs(
     let db_path = match LocalRegistry::default_path() {
         Ok(p) => p,
         Err(e) => {
-            tracing::warn!("persist_and_resolve: registry path unavailable: {e:#}. Using in-memory specs.");
+            tracing::warn!(
+                "persist_and_resolve: registry path unavailable: {e:#}. Using in-memory specs."
+            );
             return specs;
         }
     };
@@ -983,7 +988,9 @@ async fn persist_and_resolve_specs(
             return specs;
         }
         Err(e) => {
-            tracing::warn!("persist_and_resolve: read task panicked: {e:#}. Using in-memory specs.");
+            tracing::warn!(
+                "persist_and_resolve: read task panicked: {e:#}. Using in-memory specs."
+            );
             return specs;
         }
     };
@@ -1037,9 +1044,7 @@ async fn persist_and_resolve_specs(
                 );
             }
             Err(e) => {
-                tracing::warn!(
-                    "persist_and_resolve: launch context query panicked: {e:#}."
-                );
+                tracing::warn!("persist_and_resolve: launch context query panicked: {e:#}.");
             }
         }
     }
@@ -1071,8 +1076,12 @@ fn apply_runtime_overrides(specs: &mut [AgentSpec], local_overrides: &[(String, 
             Some(a) if !a.is_empty() => a,
             _ => continue,
         };
-        let Some(&local_rt) = override_map.get(alias) else { continue };
-        if local_rt == spec.runtime_kind { continue; }
+        let Some(&local_rt) = override_map.get(alias) else {
+            continue;
+        };
+        if local_rt == spec.runtime_kind {
+            continue;
+        }
 
         tracing::info!(
             "apply_runtime_overrides: overriding runtime_kind for '{}' (alias='{}') \
@@ -1088,10 +1097,12 @@ fn apply_runtime_overrides(specs: &mut [AgentSpec], local_overrides: &[(String, 
         spec.launch_overrides.zellij_session = None;
 
         // ACP supervisor uses profile_path as cwd so claude loads the right CLAUDE.md.
-        if local_rt == "claude_agent_acp" && spec.profile_path.is_none()
-            && let Some(StateDirSpec::Persistent { path }) = &spec.launch_overrides.state_dir_spec {
-                spec.profile_path = Some(path.clone());
-            }
+        if local_rt == "claude_agent_acp"
+            && spec.profile_path.is_none()
+            && let Some(StateDirSpec::Persistent { path }) = &spec.launch_overrides.state_dir_spec
+        {
+            spec.profile_path = Some(path.clone());
+        }
     }
 }
 
@@ -1181,8 +1192,7 @@ pub(crate) fn merge_federated_overrides(
             .filter(|ctx| {
                 let profile_id = ctx.agent_id.as_str();
                 cp_key == profile_id
-                    || (allow_suffix
-                        && cp_key.strip_suffix(&format!("-{profile_id}")).is_some())
+                    || (allow_suffix && cp_key.strip_suffix(&format!("-{profile_id}")).is_some())
             })
             .collect();
 
@@ -1337,19 +1347,20 @@ impl Spawner {
         // systemd/tmux sessions. We relay messages to them via HTTP webhook
         // instead of spawning a competing ACP process.
         if spec.session_mode == SessionMode::Persistent
-            && let Some(ref webhook_url) = spec.webhook_url {
-                tracing::info!(
-                    "Agent {} is persistent with webhook_url={webhook_url}; \
+            && let Some(ref webhook_url) = spec.webhook_url
+        {
+            tracing::info!(
+                "Agent {} is persistent with webhook_url={webhook_url}; \
                      using webhook relay (no ACP spawn)",
-                    spec.agent_id
-                );
-                let relay_jh = tokio::spawn(task_loop::run_webhook_relay(
-                    self.client.clone(),
-                    spec.agent_id.clone(),
-                    webhook_url.clone(),
-                ));
-                return Some(RunningAgent::new(spec.clone(), vec![relay_jh]));
-            }
+                spec.agent_id
+            );
+            let relay_jh = tokio::spawn(task_loop::run_webhook_relay(
+                self.client.clone(),
+                spec.agent_id.clone(),
+                webhook_url.clone(),
+            ));
+            return Some(RunningAgent::new(spec.clone(), vec![relay_jh]));
+        }
 
         let extra_caps: Vec<edgeplaned_core::types::Capability> = spec
             .capabilities
@@ -1360,51 +1371,49 @@ impl Spawner {
 
         let mut acp_spawn_opts: Option<edgeplaned_acp::SpawnOpts> = None;
 
-        let rt: Arc<edgeplaned_core::agent_runtime::DynAgentRuntime> = match spec
-            .runtime_kind
-            .as_str()
-        {
-            "claude_code" => Arc::new(Box::new(ClaudeCodeRuntime::with_extra_capabilities(
-                extra_caps,
-            ))),
-            "claude_agent_acp" => {
-                let concrete = ClaudeAgentAcpRuntime::with_extra_capabilities(extra_caps);
-                if let Err(e) = std::fs::create_dir_all(&work_dir) {
-                    tracing::error!("failed to create work dir for {}: {e}", spec.agent_id);
-                    return None;
-                }
-                if let Err(e) = concrete.ensure_installed().await {
-                    tracing::error!(
-                        "ensure_installed failed for ACP agent {}: {e:#}. Skipping.",
-                        spec.agent_id
-                    );
-                    return None;
-                }
-                match concrete.spawn_opts(&work_dir) {
-                    Ok(opts) => acp_spawn_opts = Some(opts),
-                    Err(e) => {
+        let rt: Arc<edgeplaned_core::agent_runtime::DynAgentRuntime> =
+            match spec.runtime_kind.as_str() {
+                "claude_code" => Arc::new(Box::new(ClaudeCodeRuntime::with_extra_capabilities(
+                    extra_caps,
+                ))),
+                "claude_agent_acp" => {
+                    let concrete = ClaudeAgentAcpRuntime::with_extra_capabilities(extra_caps);
+                    if let Err(e) = std::fs::create_dir_all(&work_dir) {
+                        tracing::error!("failed to create work dir for {}: {e}", spec.agent_id);
+                        return None;
+                    }
+                    if let Err(e) = concrete.ensure_installed().await {
                         tracing::error!(
-                            "could not resolve ACP spawn opts for {}: {e:#}. Skipping.",
+                            "ensure_installed failed for ACP agent {}: {e:#}. Skipping.",
                             spec.agent_id
                         );
                         return None;
                     }
+                    match concrete.spawn_opts(&work_dir) {
+                        Ok(opts) => acp_spawn_opts = Some(opts),
+                        Err(e) => {
+                            tracing::error!(
+                                "could not resolve ACP spawn opts for {}: {e:#}. Skipping.",
+                                spec.agent_id
+                            );
+                            return None;
+                        }
+                    }
+                    Arc::new(Box::new(concrete))
                 }
-                Arc::new(Box::new(concrete))
-            }
-            "codex" => Arc::new(Box::new(CodexRuntime::with_extra_capabilities(extra_caps))),
-            "gemini" => Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(extra_caps))),
-            "zellij_hosted" => Arc::new(Box::new(
-                ZellijHostedRuntime::with_extra_capabilities(extra_caps),
-            )),
-            other => {
-                tracing::warn!(
-                    "Unknown runtime kind '{other}', skipping agent {}",
-                    spec.agent_id
-                );
-                return None;
-            }
-        };
+                "codex" => Arc::new(Box::new(CodexRuntime::with_extra_capabilities(extra_caps))),
+                "gemini" => Arc::new(Box::new(GeminiRuntime::with_extra_capabilities(extra_caps))),
+                "zellij_hosted" => Arc::new(Box::new(
+                    ZellijHostedRuntime::with_extra_capabilities(extra_caps),
+                )),
+                other => {
+                    tracing::warn!(
+                        "Unknown runtime kind '{other}', skipping agent {}",
+                        spec.agent_id
+                    );
+                    return None;
+                }
+            };
 
         if let Err(e) = rt.ensure_installed().await {
             tracing::error!(
@@ -1436,22 +1445,21 @@ impl Spawner {
         // mint endpoint resolves the agent's domain via the meshagent table
         // where they have no row. Skipping keeps those agents on the shared
         // daemon token exactly as before. (See issue #57.)
-        let agent_token: Option<String> =
-            if matches!(spec.runtime_kind.as_str(), "claude_code") {
-                match self.client.mint_agent_token(&spec.agent_id).await {
-                    Ok(tok) => Some(tok),
-                    Err(e) => {
-                        tracing::warn!(
-                            "mint_agent_token failed for {}: {e:#}. \
+        let agent_token: Option<String> = if matches!(spec.runtime_kind.as_str(), "claude_code") {
+            match self.client.mint_agent_token(&spec.agent_id).await {
+                Ok(tok) => Some(tok),
+                Err(e) => {
+                    tracing::warn!(
+                        "mint_agent_token failed for {}: {e:#}. \
                              Falling back to shared daemon EP_AGENT_TOKEN.",
-                            spec.agent_id
-                        );
-                        None
-                    }
+                        spec.agent_id
+                    );
+                    None
                 }
-            } else {
-                None
-            };
+            }
+        } else {
+            None
+        };
 
         if let Err(e) = self
             .supervisor
@@ -1777,10 +1785,7 @@ async fn base_agent_specs(
     yaml_specs(cfg)
 }
 
-pub async fn fetch_node_agents(
-    client: &BackendClient,
-    node_id: &str,
-) -> Result<Vec<AgentSpec>> {
+pub async fn fetch_node_agents(client: &BackendClient, node_id: &str) -> Result<Vec<AgentSpec>> {
     let path = format!("/runtime/nodes/{node_id}/agents");
     let rows: Vec<serde_json::Value> = client.get(&path).await?;
     let mut out = Vec::with_capacity(rows.len());
@@ -1993,7 +1998,10 @@ mod tests {
         let s = agent_spec_from_json(&v).unwrap();
         assert_eq!(s.session_mode, SessionMode::Persistent);
         assert_eq!(s.capabilities, vec!["code.read", "code.edit"]);
-        assert_eq!(s.profile_path.as_deref().unwrap().to_str().unwrap(), "/home/x/profile");
+        assert_eq!(
+            s.profile_path.as_deref().unwrap().to_str().unwrap(),
+            "/home/x/profile"
+        );
     }
 
     #[test]
@@ -2082,7 +2090,10 @@ mod tests {
     /// is set to "engineer".
     #[test]
     fn merge_federated_overrides_sets_zellij_session_and_alias() {
-        let mut specs = vec![cp_zellij_spec("my-agent-engineer-abc12345", "my-agent-engineer")];
+        let mut specs = vec![cp_zellij_spec(
+            "my-agent-engineer-abc12345",
+            "my-agent-engineer",
+        )];
         let ctxs = vec![fleet_ctx("engineer", "my-agent-engineer")];
         merge_federated_overrides(&mut specs, &ctxs);
 
@@ -2250,7 +2261,10 @@ mod tests {
     /// The public_id parser itself: prefix + hex stripped, middle is the profile.
     #[test]
     fn profile_from_public_id_extracts_middle_segment() {
-        assert_eq!(profile_from_public_id("pfx-research-22e6cd17"), Some("research"));
+        assert_eq!(
+            profile_from_public_id("pfx-research-22e6cd17"),
+            Some("research")
+        );
         assert_eq!(profile_from_public_id("pfx-work-c5ff410a"), Some("work"));
         assert_eq!(profile_from_public_id("pfx-foo-bar-9f3c"), Some("foo-bar"));
         assert_eq!(profile_from_public_id("pfx-onlyhex"), None);
@@ -2499,10 +2513,7 @@ mod tests {
             Some("foo-bar-session"),
             "unambiguous hyphenated profile name must match"
         );
-        assert_eq!(
-            specs[0].local_alias_id.as_deref(),
-            Some("foo-bar")
-        );
+        assert_eq!(specs[0].local_alias_id.as_deref(), Some("foo-bar"));
     }
 
     /// Multiple fleet contexts: only the matching one is applied.
@@ -2559,7 +2570,10 @@ mod tests {
             systemd_service: Some("my-agent-engineer.service".to_string()),
             supervise_paused: false,
         };
-        let mut specs = vec![cp_zellij_spec("my-agent-engineer-abc12345", "my-agent-engineer")];
+        let mut specs = vec![cp_zellij_spec(
+            "my-agent-engineer-abc12345",
+            "my-agent-engineer",
+        )];
         merge_federated_overrides(&mut specs, &[custom_ctx]);
 
         assert_eq!(
@@ -2666,10 +2680,16 @@ mod tests {
             local_alias_id: Some("work".to_string()),
         }];
 
-        apply_runtime_overrides(&mut specs, &[("work".to_string(), "claude_agent_acp".to_string())]);
+        apply_runtime_overrides(
+            &mut specs,
+            &[("work".to_string(), "claude_agent_acp".to_string())],
+        );
 
         let spec = &specs[0];
-        assert_eq!(spec.runtime_kind, "claude_agent_acp", "runtime_kind must be flipped");
+        assert_eq!(
+            spec.runtime_kind, "claude_agent_acp",
+            "runtime_kind must be flipped"
+        );
         assert!(
             spec.launch_overrides.zellij_session.is_none(),
             "zellij_session must be cleared when overriding to a non-zellij runtime"
@@ -2703,10 +2723,16 @@ mod tests {
         }];
 
         // Override list targets "work", not "operator" — no match expected.
-        apply_runtime_overrides(&mut specs, &[("work".to_string(), "claude_agent_acp".to_string())]);
+        apply_runtime_overrides(
+            &mut specs,
+            &[("work".to_string(), "claude_agent_acp".to_string())],
+        );
 
         let spec = &specs[0];
-        assert_eq!(spec.runtime_kind, "zellij_hosted", "runtime_kind must be unchanged");
+        assert_eq!(
+            spec.runtime_kind, "zellij_hosted",
+            "runtime_kind must be unchanged"
+        );
         assert_eq!(
             spec.launch_overrides.zellij_session.as_deref(),
             Some("my-agent-operator"),

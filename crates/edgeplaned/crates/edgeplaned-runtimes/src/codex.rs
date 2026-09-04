@@ -3,9 +3,8 @@
 /// Codex CLI does not emit structured JSON; it streams plain text to stdout.
 /// We run `codex --approval-mode full-auto --quiet "<prompt>"` and map each
 /// stdout line to a typed ProgressEvent. Exit code determines success/failure.
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
-use futures::stream::BoxStream;
 use edgeplaned_core::agent_runtime::AgentRuntime;
 use edgeplaned_core::paths;
 use edgeplaned_core::progress::{ProgressEvent, ProgressEventType};
@@ -13,6 +12,7 @@ use edgeplaned_core::types::{
     AgentHandle, AgentSignal, Capability, LaunchContext, PtySession, RuntimeKind, TaskResult,
     TaskSpec,
 };
+use futures::stream::BoxStream;
 
 use crate::shared::merge_capabilities;
 use std::sync::OnceLock;
@@ -46,8 +46,7 @@ impl CodexRuntime {
     }
 
     fn render_harness(&self) -> Result<()> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow!("cannot determine HOME directory"))?;
+        let home = dirs::home_dir().ok_or_else(|| anyhow!("cannot determine HOME directory"))?;
         let target = home.join(".codex").join("instructions.md");
         crate::harness::write_capabilities_block(&target)
             .with_context(|| format!("rendering codex harness to {}", target.display()))?;
@@ -93,7 +92,10 @@ fn classify_line(line: &str) -> Option<ProgressEvent> {
         return Some(ProgressEvent {
             event_type: ProgressEventType::StepStarted,
             phase: Some("running".into()),
-            step: Some(format!("shell:{}", cmd.split_whitespace().next().unwrap_or("?"))),
+            step: Some(format!(
+                "shell:{}",
+                cmd.split_whitespace().next().unwrap_or("?")
+            )),
             summary: format!("running: {}", truncate(cmd, 120)),
             payload: serde_json::json!({ "command": cmd }),
         });
@@ -115,7 +117,8 @@ fn classify_line(line: &str) -> Option<ProgressEvent> {
     }
 
     // Explicit error markers
-    if trimmed.to_lowercase().starts_with("error:") || trimmed.to_lowercase().starts_with("fatal:") {
+    if trimmed.to_lowercase().starts_with("error:") || trimmed.to_lowercase().starts_with("fatal:")
+    {
         return Some(ProgressEvent::error(
             truncate(trimmed, 200),
             serde_json::json!({ "line": trimmed }),
@@ -211,7 +214,10 @@ impl AgentRuntime for CodexRuntime {
         // Inject edgeplane binary dir so agents can invoke `edgeplane` without an absolute path.
         let ep_dir = crate::shared::ep_bin_dir();
         if !ep_dir.is_empty() {
-            cmd.env("PATH", crate::shared::prepend_to_path(&ep_dir, &std::env::var("PATH").unwrap_or_default()));
+            cmd.env(
+                "PATH",
+                crate::shared::prepend_to_path(&ep_dir, &std::env::var("PATH").unwrap_or_default()),
+            );
         }
 
         let mut child = cmd.spawn()?;
@@ -335,10 +341,12 @@ impl AgentRuntime for CodexRuntime {
                 .arg("--version")
                 .output()
                 .await
-                .map_err(|e| anyhow!(
-                    "codex CLI not found and npm check failed ({e}). \
+                .map_err(|e| {
+                    anyhow!(
+                        "codex CLI not found and npm check failed ({e}). \
                      Install Node.js (https://nodejs.org) first."
-                ))?;
+                    )
+                })?;
 
             tracing::info!("codex not found — installing via npm…");
             let out = tokio::process::Command::new("npm")

@@ -44,7 +44,9 @@ struct Inner<T: Clone + Send + 'static> {
 
 impl<T: Clone + Send + 'static> Clone for ReplayBroadcast<T> {
     fn clone(&self) -> Self {
-        Self { inner: Arc::clone(&self.inner) }
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
     }
 }
 

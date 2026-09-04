@@ -14,7 +14,9 @@ pub struct SessionStore {
 
 impl Default for SessionStore {
     fn default() -> Self {
-        Self { inner: Mutex::new(HashMap::new()) }
+        Self {
+            inner: Mutex::new(HashMap::new()),
+        }
     }
 }
 
@@ -67,8 +69,10 @@ mod tests {
     #[test]
     fn sessions_are_isolated() {
         let store = SessionStore::new();
-        let mut a = HashMap::new(); a.insert("K".to_string(), "v_a".to_string());
-        let mut b = HashMap::new(); b.insert("K".to_string(), "v_b".to_string());
+        let mut a = HashMap::new();
+        a.insert("K".to_string(), "v_a".to_string());
+        let mut b = HashMap::new();
+        b.insert("K".to_string(), "v_b".to_string());
         let id_a = store.create(a);
         let id_b = store.create(b);
 

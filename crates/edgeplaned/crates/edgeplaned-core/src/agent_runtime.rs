@@ -1,5 +1,8 @@
 use crate::progress::ProgressEvent;
-use crate::types::{AgentHandle, AgentSignal, Capability, LaunchContext, PtySession, RuntimeKind, TaskResult, TaskSpec};
+use crate::types::{
+    AgentHandle, AgentSignal, Capability, LaunchContext, PtySession, RuntimeKind, TaskResult,
+    TaskSpec,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::stream::BoxStream;

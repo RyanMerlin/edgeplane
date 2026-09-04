@@ -1,7 +1,7 @@
 pub mod agents;
-pub(crate) mod authz;
 pub mod artifacts;
 pub mod auth;
+pub(crate) mod authz;
 pub mod budgets;
 pub mod chat_integrations;
 pub mod docs;

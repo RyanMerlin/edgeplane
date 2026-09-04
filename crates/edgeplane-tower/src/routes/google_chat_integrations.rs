@@ -1,10 +1,4 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::post,
-    Json, Router,
-};
+use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
 use std::sync::Arc;
 
 use crate::state::AppState;
@@ -32,7 +26,10 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.bytes()
+        .zip(b.bytes())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 // --- signature verification ---
@@ -121,7 +118,7 @@ async fn google_chat_events(
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({"detail": "Invalid Google Chat payload"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -173,7 +170,11 @@ async fn google_chat_events(
         }
     }
 
-    let et = if event_type.is_empty() { "event".to_string() } else { event_type.clone() };
+    let et = if event_type.is_empty() {
+        "event".to_string()
+    } else {
+        event_type.clone()
+    };
     let dedupe_key = format!(
         "google_chat:{}:{}:{}:{}",
         et,

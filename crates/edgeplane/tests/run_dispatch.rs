@@ -19,7 +19,10 @@ fn unknown_runtime_is_rejected_with_helpful_message() {
         .args(["run", "definitely-not-a-runtime"])
         .output()
         .expect("spawn edgeplane");
-    assert!(!out.status.success(), "expected non-zero exit for unknown runtime");
+    assert!(
+        !out.status.success(),
+        "expected non-zero exit for unknown runtime"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         stderr.contains("unknown runtime") && stderr.contains("openclaw"),
@@ -33,7 +36,10 @@ fn launch_command_is_removed() {
         .args(["launch", "gemini"])
         .output()
         .expect("spawn edgeplane");
-    assert!(!out.status.success(), "`edgeplane launch` should no longer exist");
+    assert!(
+        !out.status.success(),
+        "`edgeplane launch` should no longer exist"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         stderr.contains("unrecognized subcommand"),
@@ -43,7 +49,10 @@ fn launch_command_is_removed() {
 
 #[test]
 fn run_help_lists_all_five_runtimes() {
-    let out = edgeplane().args(["run", "--help"]).output().expect("spawn edgeplane");
+    let out = edgeplane()
+        .args(["run", "--help"])
+        .output()
+        .expect("spawn edgeplane");
     assert!(out.status.success(), "`run --help` should succeed");
     let combined = format!(
         "{}{}",
@@ -60,7 +69,10 @@ fn run_help_lists_all_five_runtimes() {
 
 #[test]
 fn top_level_help_exposes_run_and_not_launch() {
-    let out = edgeplane().args(["--help"]).output().expect("spawn edgeplane");
+    let out = edgeplane()
+        .args(["--help"])
+        .output()
+        .expect("spawn edgeplane");
     let combined = format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
@@ -68,7 +80,9 @@ fn top_level_help_exposes_run_and_not_launch() {
     );
     assert!(combined.contains("run"), "top-level help should list `run`");
     assert!(
-        !combined.lines().any(|l| l.trim_start().starts_with("launch")),
+        !combined
+            .lines()
+            .any(|l| l.trim_start().starts_with("launch")),
         "`launch` should not be listed as a subcommand, got:\n{combined}"
     );
 }

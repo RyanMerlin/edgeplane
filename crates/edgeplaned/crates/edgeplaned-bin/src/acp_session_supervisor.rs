@@ -35,10 +35,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use futures::StreamExt;
 use edgeplaned_acp::SpawnOpts;
 use edgeplaned_core::types::AgentSignal;
 use edgeplaned_runtimes::claude_agent_acp::AcpSession;
+use futures::StreamExt;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::attach_registry::{AcpAttachEndpoints, AttachEndpoints, AttachRegistry};
@@ -94,10 +94,7 @@ pub async fn run_for_agent(cfg: AcpSupervisorConfig, registry: Arc<AttachRegistr
             backoff = BACKOFF_MIN;
         }
 
-        tracing::info!(
-            "Restarting ACP session for {} in {backoff:?}",
-            cfg.agent_id
-        );
+        tracing::info!("Restarting ACP session for {} in {backoff:?}", cfg.agent_id);
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(BACKOFF_MAX);
     }
@@ -117,9 +114,13 @@ async fn run_one_session(
         .await
         .with_context(|| format!("creating session cwd {}", cfg.cwd.display()))?;
 
-    let session = AcpSession::open(cfg.spawn_opts.clone(), cfg.cwd.clone(), cfg.remote_control_prefix.clone())
-        .await
-        .context("acp session open")?;
+    let session = AcpSession::open(
+        cfg.spawn_opts.clone(),
+        cfg.cwd.clone(),
+        cfg.remote_control_prefix.clone(),
+    )
+    .await
+    .context("acp session open")?;
     tracing::info!("ACP session started for agent {}", cfg.agent_id);
 
     let updates_broadcast: ReplayBroadcast<edgeplaned_acp::wire::SessionNotification> =
@@ -236,18 +237,11 @@ async fn handle_signal(session: &AcpSession, sig: AgentSignal) -> anyhow::Result
                 serde_json::Value::String(s) => s,
                 v => v.to_string(),
             };
-            let prompt = format!(
-                "[PEER MESSAGE from {from_agent_id} on {channel}]\n{body_str}"
-            );
+            let prompt = format!("[PEER MESSAGE from {from_agent_id} on {channel}]\n{body_str}");
             run_prompt(session, prompt).await;
             Ok(())
         }
-        AgentSignal::Cancel => {
-            session
-                .cancel()
-                .await
-                .context("acp session/cancel")
-        }
+        AgentSignal::Cancel => session.cancel().await.context("acp session/cancel"),
     }
 }
 

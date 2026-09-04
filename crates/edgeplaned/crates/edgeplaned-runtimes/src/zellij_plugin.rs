@@ -70,7 +70,9 @@ impl PluginRouting {
     /// Read routing from the environment (see module docs).
     pub fn from_env() -> Self {
         Self::from_parts(
-            std::env::var("EDGEPLANE_ZRPC_SESSIONS").as_deref().unwrap_or(""),
+            std::env::var("EDGEPLANE_ZRPC_SESSIONS")
+                .as_deref()
+                .unwrap_or(""),
             std::env::var("EDGEPLANE_ZRPC_PLUGIN_PATH").ok(),
         )
     }
@@ -206,12 +208,7 @@ impl ZellijPluginClient {
                 // Abort the task if still running (kill already sent to the process).
                 let stderr_hint = if let Some(handle) = stderr_drain {
                     // Give the drain task a brief moment to flush after kill.
-                    match tokio::time::timeout(
-                        Duration::from_millis(200),
-                        handle,
-                    )
-                    .await
-                    {
+                    match tokio::time::timeout(Duration::from_millis(200), handle).await {
                         Ok(Ok(buf)) if !buf.is_empty() => {
                             format!(" stderr: {}", buf.trim())
                         }
@@ -233,7 +230,9 @@ impl ZellijPluginClient {
 
     /// Focus-free inject of `text` into `pane_id`.
     pub async fn inject(&self, pane_id: &str, text: &str) -> Result<()> {
-        let resp = self.request(Request::inject(new_id(), pane_id, text)).await?;
+        let resp = self
+            .request(Request::inject(new_id(), pane_id, text))
+            .await?;
         into_unit(resp)
     }
 
@@ -420,7 +419,10 @@ fn into_unit(resp: Response) -> Result<()> {
     if resp.ok {
         Ok(())
     } else {
-        bail!("zrpc error: {}", resp.error.unwrap_or_else(|| "unknown".into()))
+        bail!(
+            "zrpc error: {}",
+            resp.error.unwrap_or_else(|| "unknown".into())
+        )
     }
 }
 
@@ -566,7 +568,12 @@ mod tests {
     fn parse_event_line_pane_update() {
         let line = r#"{"event":"pane_update","panes":[1,2,3]}"#;
         let ev = parse_event_line(line).expect("should parse");
-        assert_eq!(ev, PluginEvent::PaneUpdate { panes: vec![1, 2, 3] });
+        assert_eq!(
+            ev,
+            PluginEvent::PaneUpdate {
+                panes: vec![1, 2, 3]
+            }
+        );
     }
 
     #[test]
@@ -611,7 +618,9 @@ mod tests {
             ZRPC_EVENT_PIPE_NAME.into(),
         ];
         assert_eq!(argv[4], "zrpc-events");
-        assert!(!argv.iter().any(|a| a == "--plugin"),
-            "event pipe must not use --plugin (same constraint as control pipe)");
+        assert!(
+            !argv.iter().any(|a| a == "--plugin"),
+            "event pipe must not use --plugin (same constraint as control pipe)"
+        );
     }
 }

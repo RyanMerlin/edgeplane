@@ -2,7 +2,7 @@ mod common;
 
 use axum_test::TestServer;
 use common::{mint_session, seed_doc, seed_domain, seed_mission_in_domain, seed_task_titled};
-use edgeplane_tower::{build_app, AppConfig};
+use edgeplane_tower::{AppConfig, build_app};
 
 fn server(pool: sqlx::PgPool) -> TestServer {
     TestServer::new(build_app(pool, AppConfig::default()))
@@ -203,7 +203,9 @@ async fn search_public_mission_visible_to_non_member() {
     let task_body: serde_json::Value = task_res.json();
     let task_results = task_body["results"].as_array().expect("results array");
     assert!(
-        task_results.iter().any(|r| r["title"] == "public otter task"),
+        task_results
+            .iter()
+            .any(|r| r["title"] == "public otter task"),
         "non-member must see a task in a public domain, got {task_results:?}"
     );
 }

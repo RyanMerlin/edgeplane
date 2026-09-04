@@ -168,7 +168,12 @@ impl CronLoop {
     async fn process_tick(&self) {
         let cfg_guard = self.config.lock().await;
         let timezone = cfg_guard.timezone.clone();
-        let jobs: Vec<CronJob> = cfg_guard.jobs.iter().filter(|j| j.enabled).cloned().collect();
+        let jobs: Vec<CronJob> = cfg_guard
+            .jobs
+            .iter()
+            .filter(|j| j.enabled)
+            .cloned()
+            .collect();
         drop(cfg_guard);
 
         let tz: Tz = match timezone.parse() {
@@ -250,15 +255,20 @@ impl CronLoop {
         let dispatch_result = match job.dispatch.as_str() {
             "signal" => self.dispatch_signal(job).await,
             "bash" => self.dispatch_bash(job).await,
-            other => Err(anyhow::anyhow!("unknown dispatch {other:?} for job {:?}", job.name)),
+            other => Err(anyhow::anyhow!(
+                "unknown dispatch {other:?} for job {:?}",
+                job.name
+            )),
         };
         let duration_ms = start.elapsed().as_millis() as i64;
 
         let fired_at = Utc::now().to_rfc3339();
         let (status, error_message) = match &dispatch_result {
             Ok(()) => ("ok", None),
-            Err(e) if e.to_string().contains("not registered")
-                  || e.to_string().contains("not supervised") => {
+            Err(e)
+                if e.to_string().contains("not registered")
+                    || e.to_string().contains("not supervised") =>
+            {
                 ("agent-not-supervised", Some(format!("{e:#}")))
             }
             Err(e) => ("error", Some(format!("{e:#}"))),
@@ -312,9 +322,8 @@ impl CronLoop {
                 )
             })
             .await;
-        let (runtime, handle) = lookup.ok_or_else(|| {
-            anyhow::anyhow!("agent {:?} is not supervised locally", job.session)
-        })?;
+        let (runtime, handle) = lookup
+            .ok_or_else(|| anyhow::anyhow!("agent {:?} is not supervised locally", job.session))?;
         runtime
             .signal(
                 &handle,
@@ -425,10 +434,7 @@ impl CronLoop {
 
 /// Background GC task. Runs every `cfg.retention.gc_interval_minutes`,
 /// drops fire-log rows beyond `history_days` or `max_rows_per_job`.
-pub async fn gc_task(
-    config: Arc<tokio::sync::Mutex<CronConfig>>,
-    registry_path: PathBuf,
-) {
+pub async fn gc_task(config: Arc<tokio::sync::Mutex<CronConfig>>, registry_path: PathBuf) {
     loop {
         let (interval_min, history_days, max_rows) = {
             let cfg = config.lock().await;
@@ -521,7 +527,10 @@ mod tests {
             .with_timezone(&tz);
         assert!(next > now, "next-fire {next} should be after now {now}");
         // Specifically: next fire should be tomorrow 09:00 Denver.
-        assert_eq!(next.format("%Y-%m-%d %H:%M").to_string(), "2026-05-21 09:00");
+        assert_eq!(
+            next.format("%Y-%m-%d %H:%M").to_string(),
+            "2026-05-21 09:00"
+        );
     }
 
     /// Regression: a 05:30 daily job whose anchor is daemon_start at 14:20
@@ -537,7 +546,10 @@ mod tests {
             .unwrap()
             .with_timezone(&tz);
         let next = cron.find_next_occurrence(&anchor, false).unwrap();
-        assert_eq!(next.format("%Y-%m-%d %H:%M").to_string(), "2026-05-18 05:30");
+        assert_eq!(
+            next.format("%Y-%m-%d %H:%M").to_string(),
+            "2026-05-18 05:30"
+        );
         // At 07:00 the next morning, next_fire <= now should hold.
         let now: DateTime<Tz> = "2026-05-18T13:00:00+00:00"
             .parse::<DateTime<chrono::FixedOffset>>()

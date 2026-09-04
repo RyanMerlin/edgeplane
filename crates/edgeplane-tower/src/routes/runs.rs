@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use chrono::Utc;
 use sqlx::Row;
@@ -34,7 +34,11 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 // ── Runs ──────────────────────────────────────────────────────────────────────
@@ -77,13 +81,12 @@ async fn start_run(
 ) -> impl IntoResponse {
     // Idempotency: return existing run if key matches
     if let Some(ref key) = body.idempotency_key {
-        let existing = sqlx::query(
-            "SELECT * FROM agentrun WHERE owner_subject=$1 AND idempotency_key=$2",
-        )
-        .bind(&principal.subject)
-        .bind(key)
-        .fetch_optional(&state.db)
-        .await;
+        let existing =
+            sqlx::query("SELECT * FROM agentrun WHERE owner_subject=$1 AND idempotency_key=$2")
+                .bind(&principal.subject)
+                .bind(key)
+                .fetch_optional(&state.db)
+                .await;
         if let Ok(Some(row)) = existing {
             return Json(row_to_run(&row)).into_response();
         }
@@ -178,13 +181,11 @@ async fn resume_run(
     Path(run_id): Path<String>,
     Json(body): Json<ResumeRequest>,
 ) -> impl IntoResponse {
-    let run_row = sqlx::query(
-        "SELECT * FROM agentrun WHERE id=$1 AND owner_subject=$2",
-    )
-    .bind(&run_id)
-    .bind(&principal.subject)
-    .fetch_optional(&state.db)
-    .await;
+    let run_row = sqlx::query("SELECT * FROM agentrun WHERE id=$1 AND owner_subject=$2")
+        .bind(&run_id)
+        .bind(&principal.subject)
+        .fetch_optional(&state.db)
+        .await;
 
     let run_row = match run_row {
         Ok(Some(r)) => r,
@@ -204,15 +205,14 @@ async fn resume_run(
             .into_response();
     }
 
-    let last_cp = sqlx::query(
-        "SELECT * FROM runcheckpoint WHERE run_id=$1 ORDER BY seq DESC LIMIT 1",
-    )
-    .bind(&run_id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten()
-    .map(|r| row_to_checkpoint(&r));
+    let last_cp =
+        sqlx::query("SELECT * FROM runcheckpoint WHERE run_id=$1 ORDER BY seq DESC LIMIT 1")
+            .bind(&run_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .map(|r| row_to_checkpoint(&r));
 
     Json(serde_json::json!({
         "run": row_to_run(&run_row),
@@ -294,13 +294,11 @@ async fn create_checkpoint(
     .await;
 
     // Also bump last_checkpoint_at on the run
-    let _ = sqlx::query(
-        "UPDATE agentrun SET last_checkpoint_at=$2, updated_at=$2 WHERE id=$1",
-    )
-    .bind(&run_id)
-    .bind(now)
-    .execute(&state.db)
-    .await;
+    let _ = sqlx::query("UPDATE agentrun SET last_checkpoint_at=$2, updated_at=$2 WHERE id=$1")
+        .bind(&run_id)
+        .bind(now)
+        .execute(&state.db)
+        .await;
 
     match result {
         Ok(row) => (StatusCode::OK, Json(row_to_checkpoint(&row))).into_response(),

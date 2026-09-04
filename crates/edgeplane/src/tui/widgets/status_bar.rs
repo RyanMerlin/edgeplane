@@ -15,7 +15,11 @@ pub struct StatusBar {
 
 impl StatusBar {
     pub fn new(version: impl Into<String>, base_url: impl Into<String>) -> Self {
-        Self { version: version.into(), base_url: base_url.into(), extra: None }
+        Self {
+            version: version.into(),
+            base_url: base_url.into(),
+            extra: None,
+        }
     }
 
     pub fn with_extra(mut self, extra: impl Into<String>) -> Self {
@@ -43,7 +47,10 @@ impl Widget for StatusBar {
         let mut spans: Vec<Span> = vec![
             Span::styled(
                 format!(" edgeplane {}", self.version),
-                Style::default().fg(accent).bg(bg).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(accent)
+                    .bg(bg)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" · ", Style::default().fg(sep).bg(bg)),
             Span::styled(self.base_url.clone(), Style::default().fg(fg).bg(bg)),

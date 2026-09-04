@@ -2,9 +2,8 @@
 ///
 /// Uses `--output-format stream-json` for structured real-time output.
 /// Each JSONL line is parsed into a typed `ProgressEvent`.
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
-use futures::stream::BoxStream;
 use edgeplaned_core::agent_runtime::AgentRuntime;
 use edgeplaned_core::paths;
 use edgeplaned_core::progress::{ProgressEvent, ProgressEventType};
@@ -12,6 +11,7 @@ use edgeplaned_core::types::{
     AgentHandle, AgentSignal, Capability, LaunchContext, PtySession, RuntimeKind, TaskResult,
     TaskSpec,
 };
+use futures::stream::BoxStream;
 
 use crate::shared::merge_capabilities;
 use std::sync::OnceLock;
@@ -67,8 +67,7 @@ impl ClaudeCodeRuntime {
     }
 
     fn render_harness(&self) -> Result<()> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow!("cannot determine HOME directory"))?;
+        let home = dirs::home_dir().ok_or_else(|| anyhow!("cannot determine HOME directory"))?;
         let target = home.join(".claude").join("CLAUDE.md");
         crate::harness::write_capabilities_block(&target)
             .with_context(|| format!("rendering claude harness to {}", target.display()))?;
@@ -119,29 +118,30 @@ fn parse_stream_line(line: &str) -> Vec<ProgressEvent> {
     match kind {
         "system" => {
             // Session init — emit phase_started
-            vec![ProgressEvent::phase_started("running", "claude session started")]
+            vec![ProgressEvent::phase_started(
+                "running",
+                "claude session started",
+            )]
         }
         "assistant" => {
             // Extract text content from the message.
             let mut events = vec![];
-            if let Some(content) = v
-                .pointer("/message/content")
-                .and_then(|c| c.as_array())
-            {
+            if let Some(content) = v.pointer("/message/content").and_then(|c| c.as_array()) {
                 for item in content {
                     let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
                     match item_type {
                         "text" => {
                             if let Some(text) = item.get("text").and_then(|t| t.as_str())
-                                && !text.trim().is_empty() {
-                                    events.push(ProgressEvent {
-                                        event_type: ProgressEventType::StepStarted,
-                                        phase: Some("running".into()),
-                                        step: Some("thinking".into()),
-                                        summary: truncate(text, 200),
-                                        payload: serde_json::json!({ "text": text }),
-                                    });
-                                }
+                                && !text.trim().is_empty()
+                            {
+                                events.push(ProgressEvent {
+                                    event_type: ProgressEventType::StepStarted,
+                                    phase: Some("running".into()),
+                                    step: Some("thinking".into()),
+                                    summary: truncate(text, 200),
+                                    payload: serde_json::json!({ "text": text }),
+                                });
+                            }
                         }
                         "tool_use" => {
                             let tool_name = item
@@ -175,15 +175,13 @@ fn parse_stream_line(line: &str) -> Vec<ProgressEvent> {
                     serde_json::json!({ "detail": result_text }),
                 )]
             } else {
-                vec![
-                    ProgressEvent {
-                        event_type: ProgressEventType::PhaseFinished,
-                        phase: Some("running".into()),
-                        step: None,
-                        summary: truncate(&result_text, 200),
-                        payload: serde_json::json!({ "result": result_text }),
-                    },
-                ]
+                vec![ProgressEvent {
+                    event_type: ProgressEventType::PhaseFinished,
+                    phase: Some("running".into()),
+                    step: None,
+                    summary: truncate(&result_text, 200),
+                    payload: serde_json::json!({ "result": result_text }),
+                }]
             }
         }
         _ => vec![],
@@ -265,7 +263,10 @@ impl AgentRuntime for ClaudeCodeRuntime {
         let work_dir = paths::mcd_work_dir().join(&agent_id);
         std::fs::create_dir_all(&work_dir)?;
 
-        tracing::info!("claude-code injecting task {task_id}: {}", &prompt[..prompt.len().min(80)]);
+        tracing::info!(
+            "claude-code injecting task {task_id}: {}",
+            &prompt[..prompt.len().min(80)]
+        );
 
         // If RTK compression was requested, attempt to install hooks before spawning.
         // The OnceLock ensures we only run the subprocess once per runtime instance.
@@ -288,7 +289,10 @@ impl AgentRuntime for ClaudeCodeRuntime {
             }
             let hooks_dir = dirs::home_dir().unwrap().join(".claude").join("hooks");
             if let Err(e) = std::fs::create_dir_all(&hooks_dir) {
-                tracing::warn!("RTK: could not create hooks dir {}: {e}", hooks_dir.display());
+                tracing::warn!(
+                    "RTK: could not create hooks dir {}: {e}",
+                    hooks_dir.display()
+                );
                 break 'rtk_setup;
             }
             match crate::shared::ensure_rtk_hooks().await {
@@ -300,7 +304,9 @@ impl AgentRuntime for ClaudeCodeRuntime {
                     tracing::debug!("RTK hooks already present in {}", hooks_dir.display());
                     self.rtk_hooks_done.set(()).ok();
                 }
-                Err(e) => tracing::warn!("RTK hooks setup failed, running without compression: {e:#}"),
+                Err(e) => {
+                    tracing::warn!("RTK hooks setup failed, running without compression: {e:#}")
+                }
             }
         }
 
@@ -340,7 +346,10 @@ impl AgentRuntime for ClaudeCodeRuntime {
         // Inject edgeplane binary dir so agents can invoke `edgeplane` without an absolute path.
         let ep_dir = crate::shared::ep_bin_dir();
         if !ep_dir.is_empty() {
-            cmd.env("PATH", crate::shared::prepend_to_path(&ep_dir, &std::env::var("PATH").unwrap_or_default()));
+            cmd.env(
+                "PATH",
+                crate::shared::prepend_to_path(&ep_dir, &std::env::var("PATH").unwrap_or_default()),
+            );
         }
 
         let mut child = cmd.spawn()?;
@@ -401,7 +410,11 @@ impl AgentRuntime for ClaudeCodeRuntime {
 
     async fn signal(&self, handle: &AgentHandle, signal: AgentSignal) -> Result<()> {
         // claude -p is single-shot; signals are delivered via the next inject_task call.
-        tracing::info!("Signal to claude-code agent {}: {:?}", handle.agent_id, signal);
+        tracing::info!(
+            "Signal to claude-code agent {}: {:?}",
+            handle.agent_id,
+            signal
+        );
         Ok(())
     }
 
@@ -419,7 +432,10 @@ impl AgentRuntime for ClaudeCodeRuntime {
         let work_dir = paths::mcd_work_dir().join(&handle.agent_id);
         std::fs::create_dir_all(&work_dir)?;
         let session = crate::shared::spawn_interactive_pty("claude", &work_dir, 24, 80)?;
-        tracing::info!("PTY session opened for claude-code agent {}", handle.agent_id);
+        tracing::info!(
+            "PTY session opened for claude-code agent {}",
+            handle.agent_id
+        );
         Ok(session)
     }
 
@@ -448,10 +464,12 @@ impl AgentRuntime for ClaudeCodeRuntime {
                 .arg("--version")
                 .output()
                 .await
-                .map_err(|e| anyhow!(
-                    "claude CLI not found and npm check failed ({e}). \
+                .map_err(|e| {
+                    anyhow!(
+                        "claude CLI not found and npm check failed ({e}). \
                      Install Node.js (https://nodejs.org) then re-run the daemon."
-                ))?;
+                    )
+                })?;
 
             tracing::info!("claude not found — installing via npm…");
             let out = tokio::process::Command::new("npm")
@@ -493,7 +511,8 @@ mod tests {
 
     #[test]
     fn assistant_text_emits_step_started() {
-        let line = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Thinking…"}]}}"#;
+        let line =
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Thinking…"}]}}"#;
         let events = parse_stream_line(line);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, ProgressEventType::StepStarted);
@@ -506,7 +525,13 @@ mod tests {
         let events = parse_stream_line(line);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, ProgressEventType::StepStarted);
-        assert!(events[0].step.as_deref().unwrap_or("").contains("read_file"));
+        assert!(
+            events[0]
+                .step
+                .as_deref()
+                .unwrap_or("")
+                .contains("read_file")
+        );
     }
 
     #[test]
@@ -571,5 +596,4 @@ mod tests {
         assert!(result.starts_with("abcde"));
         assert!(result.contains('…'));
     }
-
 }

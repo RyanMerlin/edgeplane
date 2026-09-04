@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Json, Router,
 };
 use chrono::{NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -93,7 +93,10 @@ const TASK_COLUMNS: &str = "id, public_id, mission_id, domain_id, parent_task_id
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/domains/{domain_id}/m/{mission_id}/t", get(list_tasks).post(create_task))
+        .route(
+            "/domains/{domain_id}/m/{mission_id}/t",
+            get(list_tasks).post(create_task),
+        )
         .route(
             "/domains/{domain_id}/m/{mission_id}/t/{task_id}",
             get(get_task).patch(update_task).delete(delete_task),
@@ -107,7 +110,11 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 fn not_found(msg: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": msg}))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"detail": msg})),
+    )
+        .into_response()
 }
 
 /// Blank `claim_lease_id` for callers who aren't full-trust/admin/the task's
@@ -120,7 +127,10 @@ fn not_found(msg: &str) -> axum::response::Response {
 /// authenticated principal in a public domain, not just members). Mirrors
 /// `mcp.rs::get_mesh_task`'s `is_owner` blanking for the claimable side.
 fn redact_lease(principal: &Principal, mut task: AssignedTask) -> AssignedTask {
-    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+    let subject_id = principal
+        .subject
+        .strip_prefix("agent:")
+        .unwrap_or(&principal.subject);
     let is_owner = crate::auth::is_full_trust(principal)
         || principal.is_admin
         || task.owner.as_str() == subject_id;
@@ -142,14 +152,22 @@ async fn verify_mission_domain(
     domain_id: &str,
 ) -> Result<(), axum::response::Response> {
     let k: Option<i32> = sqlx::query_scalar("SELECT 1 FROM mission WHERE id=$1 AND domain_id=$2")
-        .bind(mission_id).bind(domain_id)
-        .fetch_optional(db).await.unwrap_or(None);
-    if k.is_none() { return Err(not_found("Mission not found")); }
+        .bind(mission_id)
+        .bind(domain_id)
+        .fetch_optional(db)
+        .await
+        .unwrap_or(None);
+    if k.is_none() {
+        return Err(not_found("Mission not found"));
+    }
     Ok(())
 }
 
 #[derive(Deserialize)]
-struct ListQuery { status: Option<String>, limit: Option<i64> }
+struct ListQuery {
+    status: Option<String>,
+    limit: Option<i64>,
+}
 
 async fn list_tasks(
     State(state): State<Arc<AppState>>,
@@ -157,8 +175,14 @@ async fn list_tasks(
     Path((domain_id, mission_id)): Path<(String, String)>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
-    if let Err(r) = crate::routes::authz::authz_domain_readable(&state.db, &principal, &domain_id).await { return r; }
-    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await { return r; }
+    if let Err(r) =
+        crate::routes::authz::authz_domain_readable(&state.db, &principal, &domain_id).await
+    {
+        return r;
+    }
+    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await {
+        return r;
+    }
     let limit = q.limit.unwrap_or(100).min(500);
     let rows = if let Some(s) = &q.status {
         sqlx::query_as::<_, AssignedTask>(
@@ -172,8 +196,17 @@ async fn list_tasks(
         .bind(&mission_id).bind(limit).fetch_all(&state.db).await
     };
     match rows {
-        Ok(tasks) => Json(tasks.into_iter().map(|t| redact_lease(&principal, t)).collect::<Vec<_>>()).into_response(),
-        Err(e) => { tracing::error!("list_tasks: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Ok(tasks) => Json(
+            tasks
+                .into_iter()
+                .map(|t| redact_lease(&principal, t))
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(e) => {
+            tracing::error!("list_tasks: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -195,7 +228,9 @@ struct TaskCreate {
     #[serde(default, rename = "related_artifacts")]
     pub related_artifacts_note: String,
 }
-fn default_initial_status() -> String { INITIAL_STATUS.to_string() }
+fn default_initial_status() -> String {
+    INITIAL_STATUS.to_string()
+}
 
 async fn create_task(
     State(state): State<Arc<AppState>>,
@@ -203,10 +238,18 @@ async fn create_task(
     Path((domain_id, mission_id)): Path<(String, String)>,
     Json(payload): Json<TaskCreate>,
 ) -> impl IntoResponse {
-    if let Err(r) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await { return r; }
-    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await { return r; }
+    if let Err(r) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
+        return r;
+    }
+    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await {
+        return r;
+    }
     if payload.title.trim().is_empty() {
-        return (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({"detail": "title is required"}))).into_response();
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({"detail": "title is required"})),
+        )
+            .into_response();
     }
 
     let id = Uuid::new_v4().to_string();
@@ -240,17 +283,23 @@ async fn fetch_assigned_task(
     task_id: &str,
     mission_id: &str,
 ) -> Result<Option<AssignedTask>, sqlx::Error> {
-    let by_public_id = sqlx::query_as::<_, AssignedTask>(
-        &format!("SELECT {TASK_COLUMNS} FROM task WHERE public_id=$1 AND mission_id=$2 AND kind='assigned'")
-    )
-    .bind(task_id).bind(mission_id).fetch_optional(db).await?;
+    let by_public_id = sqlx::query_as::<_, AssignedTask>(&format!(
+        "SELECT {TASK_COLUMNS} FROM task WHERE public_id=$1 AND mission_id=$2 AND kind='assigned'"
+    ))
+    .bind(task_id)
+    .bind(mission_id)
+    .fetch_optional(db)
+    .await?;
     if by_public_id.is_some() {
         return Ok(by_public_id);
     }
-    sqlx::query_as::<_, AssignedTask>(
-        &format!("SELECT {TASK_COLUMNS} FROM task WHERE id=$1 AND mission_id=$2 AND kind='assigned'")
-    )
-    .bind(task_id).bind(mission_id).fetch_optional(db).await
+    sqlx::query_as::<_, AssignedTask>(&format!(
+        "SELECT {TASK_COLUMNS} FROM task WHERE id=$1 AND mission_id=$2 AND kind='assigned'"
+    ))
+    .bind(task_id)
+    .bind(mission_id)
+    .fetch_optional(db)
+    .await
 }
 
 async fn get_task(
@@ -258,13 +307,22 @@ async fn get_task(
     principal: Principal,
     Path((domain_id, mission_id, task_id)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
-    if let Err(r) = crate::routes::authz::authz_domain_readable(&state.db, &principal, &domain_id).await { return r; }
-    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await { return r; }
+    if let Err(r) =
+        crate::routes::authz::authz_domain_readable(&state.db, &principal, &domain_id).await
+    {
+        return r;
+    }
+    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await {
+        return r;
+    }
 
     match fetch_assigned_task(&state.db, &task_id, &mission_id).await {
         Ok(Some(t)) => Json(redact_lease(&principal, t)).into_response(),
         Ok(None) => not_found("Task not found"),
-        Err(e) => { tracing::error!("get_task: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("get_task: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -289,23 +347,32 @@ async fn update_task(
     Path((domain_id, mission_id, task_id)): Path<(String, String, String)>,
     Json(payload): Json<TaskUpdate>,
 ) -> impl IntoResponse {
-    if let Err(r) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await { return r; }
-    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await { return r; }
+    if let Err(r) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
+        return r;
+    }
+    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await {
+        return r;
+    }
 
     let task = match fetch_assigned_task(&state.db, &task_id, &mission_id).await {
         Ok(Some(t)) => t,
         Ok(None) => return not_found("Task not found"),
-        Err(e) => { tracing::error!("update_task fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("update_task fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
-    let title                = payload.title.unwrap_or(task.title);
-    let description          = payload.description.unwrap_or(task.description);
-    let status               = payload.status.unwrap_or_else(|| task.status.clone());
-    let owner                = payload.owner.unwrap_or(task.owner);
-    let contributors         = payload.contributors.unwrap_or(task.contributors);
-    let dependencies_note    = payload.dependencies_note.unwrap_or(task.dependencies_note);
-    let done_criteria        = payload.done_criteria.unwrap_or(task.done_criteria);
-    let related_artifacts_note = payload.related_artifacts_note.unwrap_or(task.related_artifacts_note);
+    let title = payload.title.unwrap_or(task.title);
+    let description = payload.description.unwrap_or(task.description);
+    let status = payload.status.unwrap_or_else(|| task.status.clone());
+    let owner = payload.owner.unwrap_or(task.owner);
+    let contributors = payload.contributors.unwrap_or(task.contributors);
+    let dependencies_note = payload.dependencies_note.unwrap_or(task.dependencies_note);
+    let done_criteria = payload.done_criteria.unwrap_or(task.done_criteria);
+    let related_artifacts_note = payload
+        .related_artifacts_note
+        .unwrap_or(task.related_artifacts_note);
 
     // Completion-token unification (migration 0014's design point): mint a
     // claim_lease_id the moment this task's status first moves away from its
@@ -334,20 +401,32 @@ async fn update_task(
         task.finalized_at
     };
 
-    match sqlx::query_as::<_, AssignedTask>(
-        &format!(
-            "UPDATE task SET title=$2, description=$3, status=$4, owner=$5, contributors=$6, \
+    match sqlx::query_as::<_, AssignedTask>(&format!(
+        "UPDATE task SET title=$2, description=$3, status=$4, owner=$5, contributors=$6, \
              dependencies_note=$7, done_criteria=$8, related_artifacts_note=$9, \
              claim_lease_id=$10, finalized_at=$11, updated_at=$12 WHERE id=$1 \
              RETURNING {TASK_COLUMNS}"
-        )
-    )
-    .bind(&task.id).bind(&title).bind(&description).bind(&status).bind(&owner)
-    .bind(&contributors).bind(&dependencies_note).bind(&done_criteria)
-    .bind(&related_artifacts_note).bind(&claim_lease_id).bind(finalized_at).bind(now)
-    .fetch_one(&state.db).await {
+    ))
+    .bind(&task.id)
+    .bind(&title)
+    .bind(&description)
+    .bind(&status)
+    .bind(&owner)
+    .bind(&contributors)
+    .bind(&dependencies_note)
+    .bind(&done_criteria)
+    .bind(&related_artifacts_note)
+    .bind(&claim_lease_id)
+    .bind(finalized_at)
+    .bind(now)
+    .fetch_one(&state.db)
+    .await
+    {
         Ok(t) => Json(t).into_response(),
-        Err(e) => { tracing::error!("update_task: {e}"); StatusCode::INTERNAL_SERVER_ERROR.into_response() }
+        Err(e) => {
+            tracing::error!("update_task: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -356,22 +435,39 @@ async fn delete_task(
     principal: Principal,
     Path((domain_id, mission_id, task_id)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
-    if let Err(r) = crate::routes::authz::authz_domain_owner(&state.db, &principal, &domain_id).await { return r; }
-    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await { return r; }
+    if let Err(r) =
+        crate::routes::authz::authz_domain_owner(&state.db, &principal, &domain_id).await
+    {
+        return r;
+    }
+    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await {
+        return r;
+    }
 
     let task = match fetch_assigned_task(&state.db, &task_id, &mission_id).await {
         Ok(Some(t)) => t,
         Ok(None) => return not_found("Task not found"),
-        Err(e) => { tracing::error!("delete_task fetch: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("delete_task fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
     // taskassignment: dropped by migration 0014 (write-dead — no INSERT/UPDATE/
     // SELECT anywhere in the Rust codebase, only this cleanup DELETE, which is
     // removed along with the table).
     let _ = sqlx::query("DELETE FROM overlapsuggestion WHERE task_id=$1 OR candidate_task_id=$1")
-        .bind(&task.id).execute(&state.db).await;
-    let _ = sqlx::query("UPDATE agentmessage SET task_id=NULL WHERE task_id=$1").bind(&task.id).execute(&state.db).await;
-    let _ = sqlx::query("DELETE FROM task WHERE id=$1").bind(&task.id).execute(&state.db).await;
+        .bind(&task.id)
+        .execute(&state.db)
+        .await;
+    let _ = sqlx::query("UPDATE agentmessage SET task_id=NULL WHERE task_id=$1")
+        .bind(&task.id)
+        .execute(&state.db)
+        .await;
+    let _ = sqlx::query("DELETE FROM task WHERE id=$1")
+        .bind(&task.id)
+        .execute(&state.db)
+        .await;
 
     Json(serde_json::json!({"ok": true, "deleted_id": task.public_id})).into_response()
 }
@@ -409,13 +505,22 @@ async fn list_overlaps(
     Path((domain_id, mission_id, task_id)): Path<(String, String, String)>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
-    if let Err(r) = crate::routes::authz::authz_domain_readable(&state.db, &principal, &domain_id).await { return r; }
-    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await { return r; }
+    if let Err(r) =
+        crate::routes::authz::authz_domain_readable(&state.db, &principal, &domain_id).await
+    {
+        return r;
+    }
+    if let Err(r) = verify_mission_domain(&state.db, &mission_id, &domain_id).await {
+        return r;
+    }
 
     let task = match fetch_assigned_task(&state.db, &task_id, &mission_id).await {
         Ok(Some(t)) => t,
         Ok(None) => return not_found("Task not found"),
-        Err(e) => { tracing::error!("list_overlaps fetch task: {e}"); return StatusCode::INTERNAL_SERVER_ERROR.into_response(); }
+        Err(e) => {
+            tracing::error!("list_overlaps fetch task: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
     let limit = q.limit.unwrap_or(20).min(100);

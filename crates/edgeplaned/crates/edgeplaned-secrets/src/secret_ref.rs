@@ -13,21 +13,23 @@ pub struct SecretRef {
 
 impl SecretRef {
     pub fn parse(input: &str) -> Result<Self, SecretsError> {
-        let rest = input
-            .strip_prefix("secret://")
-            .ok_or_else(|| SecretsError::InvalidRef(format!("missing `secret://` prefix: {input}")))?;
+        let rest = input.strip_prefix("secret://").ok_or_else(|| {
+            SecretsError::InvalidRef(format!("missing `secret://` prefix: {input}"))
+        })?;
 
         let (locator, query_str) = match rest.split_once('?') {
             Some((l, q)) => (l, Some(q)),
             None => (rest, None),
         };
 
-        let (scheme, path) = locator
-            .split_once('/')
-            .ok_or_else(|| SecretsError::InvalidRef(format!("missing scheme/path separator: {input}")))?;
+        let (scheme, path) = locator.split_once('/').ok_or_else(|| {
+            SecretsError::InvalidRef(format!("missing scheme/path separator: {input}"))
+        })?;
 
         if scheme.is_empty() || path.is_empty() {
-            return Err(SecretsError::InvalidRef(format!("empty scheme or path: {input}")));
+            return Err(SecretsError::InvalidRef(format!(
+                "empty scheme or path: {input}"
+            )));
         }
 
         let mut query = BTreeMap::new();
@@ -38,7 +40,11 @@ impl SecretRef {
             }
         }
 
-        Ok(SecretRef { scheme: scheme.to_string(), path: path.to_string(), query })
+        Ok(SecretRef {
+            scheme: scheme.to_string(),
+            path: path.to_string(),
+            query,
+        })
     }
 }
 
@@ -67,7 +73,8 @@ mod tests {
 
     #[test]
     fn parses_query_params() {
-        let r = SecretRef::parse("secret://infisical/providers/x/KEY?env=prod&project=abc").unwrap();
+        let r =
+            SecretRef::parse("secret://infisical/providers/x/KEY?env=prod&project=abc").unwrap();
         assert_eq!(r.query.get("env").map(String::as_str), Some("prod"));
         assert_eq!(r.query.get("project").map(String::as_str), Some("abc"));
     }

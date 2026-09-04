@@ -1,6 +1,6 @@
+use anyhow::{Result, anyhow};
 use edgeplaned_core::client::BackendClient;
 use edgeplaned_core::types::{DependencyResult, MeshTaskRecord};
-use anyhow::{anyhow, Result};
 
 /// Result of a successful task claim.
 pub struct ClaimResult {
@@ -75,7 +75,10 @@ pub async fn claim_task(client: &BackendClient, task_id: &str) -> Result<ClaimRe
     // possible, otherwise fall back to a minimal record.
     let task: MeshTaskRecord = serde_json::from_value(resp).map_err(|e| anyhow!(e))?;
 
-    Ok(ClaimResult { task, claim_lease_id })
+    Ok(ClaimResult {
+        task,
+        claim_lease_id,
+    })
 }
 
 /// Send a heartbeat to renew the lease on a running task.
@@ -98,7 +101,8 @@ pub async fn heartbeat_task(
     if resp.status() == reqwest::StatusCode::CONFLICT {
         return Err(TaskError::LeaseMismatch);
     }
-    resp.error_for_status().map_err(|e| TaskError::Other(anyhow!(e)))?;
+    resp.error_for_status()
+        .map_err(|e| TaskError::Other(anyhow!(e)))?;
     Ok(())
 }
 
@@ -148,7 +152,8 @@ pub async fn complete_task(
     if resp.status() == reqwest::StatusCode::CONFLICT {
         return Err(TaskError::LeaseMismatch);
     }
-    resp.error_for_status().map_err(|e| TaskError::Other(anyhow!(e)))?;
+    resp.error_for_status()
+        .map_err(|e| TaskError::Other(anyhow!(e)))?;
     Ok(())
 }
 
@@ -226,7 +231,8 @@ pub async fn fail_task(
     if resp.status() == reqwest::StatusCode::CONFLICT {
         return Err(TaskError::LeaseMismatch);
     }
-    resp.error_for_status().map_err(|e| TaskError::Other(anyhow!(e)))?;
+    resp.error_for_status()
+        .map_err(|e| TaskError::Other(anyhow!(e)))?;
     Ok(())
 }
 
@@ -277,8 +283,16 @@ mod tests {
         let client = BackendClient::new(mock_server.uri(), "test-token");
         let result = poll_ready_tasks(&client, "m-1", &[]).await;
 
-        assert!(result.is_ok(), "poll_ready_tasks should succeed: {:?}", result.err());
-        assert_eq!(result.unwrap().len(), 1, "should return the one ready task from the mock");
+        assert!(
+            result.is_ok(),
+            "poll_ready_tasks should succeed: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            result.unwrap().len(),
+            1,
+            "should return the one ready task from the mock"
+        );
         mock_server.verify().await;
     }
 
@@ -295,7 +309,11 @@ mod tests {
         let client = BackendClient::new(mock_server.uri(), "test-token");
         let result = claim_task(&client, "t-1").await;
 
-        assert!(result.is_ok(), "claim_task should succeed against /work/tasks/{{id}}/claim: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "claim_task should succeed against /work/tasks/{{id}}/claim: {:?}",
+            result.err()
+        );
         assert_eq!(result.unwrap().claim_lease_id.as_deref(), Some("lease-abc"));
     }
 
@@ -312,7 +330,11 @@ mod tests {
         let client = BackendClient::new(mock_server.uri(), "test-token");
         let result = heartbeat_task(&client, "t-1", Some("lease-abc")).await;
 
-        assert!(result.is_ok(), "heartbeat_task should succeed against /work/tasks/{{id}}/heartbeat: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "heartbeat_task should succeed against /work/tasks/{{id}}/heartbeat: {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]
@@ -335,7 +357,11 @@ mod tests {
         };
         let result = post_progress(&client, "t-1", &event, "lease-abc").await;
 
-        assert!(result.is_ok(), "post_progress should succeed against /work/tasks/{{id}}/progress: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "post_progress should succeed against /work/tasks/{{id}}/progress: {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]
@@ -381,7 +407,11 @@ mod tests {
         let client = BackendClient::new(mock_server.uri(), "test-token");
         let result = complete_task(&client, "t-1", Some("lease-abc"), None).await;
 
-        assert!(result.is_ok(), "complete_task should succeed against /work/tasks/{{id}}/complete: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "complete_task should succeed against /work/tasks/{{id}}/complete: {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]
@@ -397,7 +427,11 @@ mod tests {
         let client = BackendClient::new(mock_server.uri(), "test-token");
         let result = fail_task(&client, "t-1", Some("lease-abc"), "test error").await;
 
-        assert!(result.is_ok(), "fail_task should succeed against /work/tasks/{{id}}/fail: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "fail_task should succeed against /work/tasks/{{id}}/fail: {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]
@@ -406,11 +440,13 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/work/tasks/dep-1/progress"))
             .and(query_param("since_seq", "0"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(vec![serde_json::json!({
-                "event_type": "phase_finished",
-                "summary": "done",
-                "occurred_at": "2026-07-16T00:00:00Z"
-            })]))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(vec![serde_json::json!({
+                    "event_type": "phase_finished",
+                    "summary": "done",
+                    "occurred_at": "2026-07-16T00:00:00Z"
+                })]),
+            )
             .expect(1)
             .mount(&mock_server)
             .await;
@@ -418,7 +454,11 @@ mod tests {
         let client = BackendClient::new(mock_server.uri(), "test-token");
         let results = fetch_dependency_results(&client, &["dep-1".to_string()]).await;
 
-        assert_eq!(results.len(), 1, "should surface the one phase_finished event from the mock");
+        assert_eq!(
+            results.len(),
+            1,
+            "should surface the one phase_finished event from the mock"
+        );
         assert_eq!(results[0].summary, "done");
     }
 }

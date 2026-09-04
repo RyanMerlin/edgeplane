@@ -183,7 +183,10 @@ mod tests {
         let ok = RawMessage::new_success(7, serde_json::json!({"protocolVersion": 1}));
         assert!(matches!(
             ok.classify().unwrap(),
-            Message::Response { id: 7, result: Ok(_) }
+            Message::Response {
+                id: 7,
+                result: Ok(_)
+            }
         ));
         let err = RawMessage::new_error(
             8,
@@ -195,7 +198,10 @@ mod tests {
         );
         assert!(matches!(
             err.classify().unwrap(),
-            Message::Response { id: 8, result: Err(_) }
+            Message::Response {
+                id: 8,
+                result: Err(_)
+            }
         ));
     }
 

@@ -50,9 +50,15 @@ impl Default for CgroupLimits {
     }
 }
 
-fn default_memory_mib() -> u64 { 512 }
-fn default_max_pids() -> u64 { 64 }
-fn default_cpu_weight() -> u64 { 100 }
+fn default_memory_mib() -> u64 {
+    512
+}
+fn default_max_pids() -> u64 {
+    64
+}
+fn default_cpu_weight() -> u64 {
+    100
+}
 
 /// Describes the side-effect class of a capability.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

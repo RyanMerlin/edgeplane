@@ -45,15 +45,14 @@ async fn main() -> anyhow::Result<()> {
     if token.is_some() {
         tracing::debug!("session token available from ~/.ep/session.json");
     }
-    let token = if let Some(raw) = token {
-        Some(
-            secrets::resolve_maybe_secret_ref(&raw)
-                .await
-                .map_err(|e| anyhow::anyhow!("failed to resolve EdgePlane token secret ref: {e}"))?,
-        )
-    } else {
-        None
-    };
+    let token =
+        if let Some(raw) = token {
+            Some(secrets::resolve_maybe_secret_ref(&raw).await.map_err(|e| {
+                anyhow::anyhow!("failed to resolve EdgePlane token secret ref: {e}")
+            })?)
+        } else {
+            None
+        };
 
     let config = EdgeplaneConfig::from_parts(
         &base_url,
@@ -76,5 +75,13 @@ async fn main() -> anyhow::Result<()> {
         OutputMode::Human
     };
 
-    edgeplane::commands::run(opts.command, client, booster, config, output_mode, opts.base_url).await
+    edgeplane::commands::run(
+        opts.command,
+        client,
+        booster,
+        config,
+        output_mode,
+        opts.base_url,
+    )
+    .await
 }

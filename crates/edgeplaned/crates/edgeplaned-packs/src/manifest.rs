@@ -1,6 +1,6 @@
-use serde::{Deserialize, Deserializer, Serialize};
 use edgeplaned_sandbox::types::{CgroupLimits, FsPolicy, NetworkPolicy, SideEffectClass};
 use edgeplaned_secrets::types::{CredentialKind, CredentialSource};
+use serde::{Deserialize, Deserializer, Serialize};
 
 // ─── Pack manifest (pack.yaml) ──────────────────────────────────────────────
 

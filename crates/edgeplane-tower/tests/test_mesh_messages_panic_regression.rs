@@ -24,7 +24,10 @@ async fn send_and_list_domain_messages_does_not_panic() {
         return;
     };
     let s = server(pool);
-    let auth = ("Authorization", format!("Bearer {}", ctx.owner_session_token));
+    let auth = (
+        "Authorization",
+        format!("Bearer {}", ctx.owner_session_token),
+    );
 
     let first = s
         .post(&format!("/api/work/domains/{}/messages", ctx.domain_id))

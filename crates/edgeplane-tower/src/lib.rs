@@ -6,4 +6,4 @@ pub mod openapi;
 pub mod routes;
 pub mod server;
 pub mod state;
-pub use server::{build_app, AppConfig};
+pub use server::{AppConfig, build_app};

@@ -23,8 +23,13 @@ pub struct ControlplaneEditForm {
 #[derive(Debug, Clone)]
 pub enum ControlplaneTestResult {
     Testing,
-    Ok { latency_ms: u64, version: Option<String> },
-    Failed { error: String },
+    Ok {
+        latency_ms: u64,
+        version: Option<String>,
+    },
+    Failed {
+        error: String,
+    },
 }
 
 // ── OIDC panel state ──────────────────────────────────────────────────────────
@@ -32,21 +37,24 @@ pub enum ControlplaneTestResult {
 #[derive(Debug, Clone)]
 pub enum OidcPanelState {
     Initiating,
-    AwaitingBrowser { authorize_url: String, started: std::time::Instant },
+    AwaitingBrowser {
+        authorize_url: String,
+        started: std::time::Instant,
+    },
     TimedOut,
-    Failed { error: String },
+    Failed {
+        error: String,
+    },
 }
 
 // ── Add-profile form ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum InfisicalAuthMode {
     #[default]
     UniversalAuth,
     ServiceToken,
 }
-
 
 #[derive(Debug, Default, Clone)]
 pub struct InfisicalAddForm {
@@ -92,8 +100,8 @@ pub struct ConfigScreenState {
 
     // Controlplane panel
     pub controlplane_edit: Option<ControlplaneEditForm>,
-    pub pending_url_test: Option<(String, String)>,   // (context_name, url)
-    pub pending_url_apply: Option<(String, String)>,  // (context_name, url)
+    pub pending_url_test: Option<(String, String)>, // (context_name, url)
+    pub pending_url_apply: Option<(String, String)>, // (context_name, url)
 
     // Auth panel
     pub auth_oidc_state: Option<OidcPanelState>,
@@ -122,7 +130,6 @@ pub enum DoctorStatus {
     Err,
     Unknown,
 }
-
 
 impl ConfigScreenState {
     pub fn take_pending_context_switch(&mut self) -> Option<String> {
@@ -156,7 +163,10 @@ impl ConfigScreenState {
     ) {
         if let Some(form) = &mut self.controlplane_edit {
             form.test_result = Some(if ok {
-                ControlplaneTestResult::Ok { latency_ms, version }
+                ControlplaneTestResult::Ok {
+                    latency_ms,
+                    version,
+                }
             } else {
                 ControlplaneTestResult::Failed {
                     error: error.unwrap_or_else(|| "unknown error".into()),
@@ -169,7 +179,8 @@ impl ConfigScreenState {
         let ctxs = crate::context::load_contexts();
         self.contexts = ctxs.contexts.into_iter().collect();
         self.contexts.sort_by(|a, b| a.0.cmp(&b.0));
-        self.context_selection = self.contexts
+        self.context_selection = self
+            .contexts
             .iter()
             .position(|(n, _)| n == &self.context_name)
             .unwrap_or(0);
@@ -179,10 +190,11 @@ impl ConfigScreenState {
         let path = Some(edgeplaned_paths::infisical_profiles_path());
         if let Some(path) = path
             && let Ok(s) = std::fs::read_to_string(&path)
-                && let Ok(map) = serde_json::from_str::<InfisicalProfileMap>(&s) {
-                    self.infisical_profiles = map;
-                    return;
-                }
+            && let Ok(map) = serde_json::from_str::<InfisicalProfileMap>(&s)
+        {
+            self.infisical_profiles = map;
+            return;
+        }
         self.infisical_profiles = InfisicalProfileMap::default();
     }
 
@@ -226,9 +238,17 @@ impl ConfigScreenState {
             Up => {
                 if self.content_focused {
                     match self.nav_selection {
-                        0 | 4 => { if self.context_selection > 0 { self.context_selection -= 1; } }
-                        1 => { self.auth_focus = 0; }
-                        5 if self.infisical_selection > 0 => { self.infisical_selection -= 1; }
+                        0 | 4 => {
+                            if self.context_selection > 0 {
+                                self.context_selection -= 1;
+                            }
+                        }
+                        1 => {
+                            self.auth_focus = 0;
+                        }
+                        5 if self.infisical_selection > 0 => {
+                            self.infisical_selection -= 1;
+                        }
                         _ => {}
                     }
                 } else {
@@ -306,9 +326,10 @@ impl ConfigScreenState {
                         0 => {
                             // Switch to selected context
                             if let Some((name, _)) = self.contexts.get(self.context_selection)
-                                && name != &self.context_name {
-                                    self.pending_context_switch = Some(name.clone());
-                                }
+                                && name != &self.context_name
+                            {
+                                self.pending_context_switch = Some(name.clone());
+                            }
                             true
                         }
                         1 => {
@@ -331,9 +352,10 @@ impl ConfigScreenState {
                         }
                         4 => {
                             if let Some((name, _)) = self.contexts.get(self.context_selection)
-                                && name != &self.context_name {
-                                    self.pending_context_switch = Some(name.clone());
-                                }
+                                && name != &self.context_name
+                            {
+                                self.pending_context_switch = Some(name.clone());
+                            }
                             true
                         }
                         5 => {
@@ -347,7 +369,9 @@ impl ConfigScreenState {
                 }
             }
             // Token input — active when auth panel is content-focused and token row selected
-            Backspace if self.content_focused && self.nav_selection == 1 && self.auth_focus == 1 => {
+            Backspace
+                if self.content_focused && self.nav_selection == 1 && self.auth_focus == 1 =>
+            {
                 self.token_input.pop();
                 true
             }
@@ -363,9 +387,15 @@ impl ConfigScreenState {
         use crossterm::event::KeyCode::*;
         let form = self.controlplane_edit.as_mut().unwrap();
         match key {
-            Tab => { form.focused_field = (form.focused_field + 1) % 3; }
+            Tab => {
+                form.focused_field = (form.focused_field + 1) % 3;
+            }
             BackTab => {
-                form.focused_field = if form.focused_field == 0 { 2 } else { form.focused_field - 1 };
+                form.focused_field = if form.focused_field == 0 {
+                    2
+                } else {
+                    form.focused_field - 1
+                };
             }
             Backspace if form.focused_field == 0 => {
                 form.url.pop();
@@ -377,7 +407,9 @@ impl ConfigScreenState {
             }
             Enter => {
                 match form.focused_field {
-                    0 => { form.focused_field = 1; }
+                    0 => {
+                        form.focused_field = 1;
+                    }
                     1 => {
                         // Test — signal app.rs
                         form.test_result = Some(ControlplaneTestResult::Testing);
@@ -395,7 +427,9 @@ impl ConfigScreenState {
                     _ => {}
                 }
             }
-            Esc => { self.controlplane_edit = None; }
+            Esc => {
+                self.controlplane_edit = None;
+            }
             _ => {}
         }
         true
@@ -405,7 +439,11 @@ impl ConfigScreenState {
         use crossterm::event::KeyCode::*;
         let form = self.infisical_form.as_mut().unwrap();
         // field indices: 0=name, 1=cred1, 2=cred2(UA only), 3=project_id, 4=environment
-        let cred_fields = if form.mode == InfisicalAuthMode::UniversalAuth { 2 } else { 1 };
+        let cred_fields = if form.mode == InfisicalAuthMode::UniversalAuth {
+            2
+        } else {
+            1
+        };
         let max_field = cred_fields + 2; // + project_id + environment
         let name_locked = form.is_edit;
         match key {
@@ -418,21 +456,38 @@ impl ConfigScreenState {
                 form.focused_field = form.focused_field.min(cred_fields + 2);
                 form.error = None;
             }
-            Tab => { form.focused_field = (form.focused_field + 1) % (max_field + 1); }
+            Tab => {
+                form.focused_field = (form.focused_field + 1) % (max_field + 1);
+            }
             BackTab => {
-                if form.focused_field == 0 { form.focused_field = max_field; }
-                else { form.focused_field -= 1; }
+                if form.focused_field == 0 {
+                    form.focused_field = max_field;
+                } else {
+                    form.focused_field -= 1;
+                }
             }
             Backspace => {
                 form.error = None;
                 let is_ua = form.mode == InfisicalAuthMode::UniversalAuth;
                 match form.focused_field {
-                    0 if !name_locked => { form.name.pop(); }
-                    1 if is_ua  => { form.client_id.pop(); }
-                    1           => { form.token.pop(); }
-                    2 if is_ua  => { form.client_secret.pop(); }
-                    f if f == cred_fields + 1 => { form.project_id.pop(); }
-                    _           => { form.environment.pop(); }
+                    0 if !name_locked => {
+                        form.name.pop();
+                    }
+                    1 if is_ua => {
+                        form.client_id.pop();
+                    }
+                    1 => {
+                        form.token.pop();
+                    }
+                    2 if is_ua => {
+                        form.client_secret.pop();
+                    }
+                    f if f == cred_fields + 1 => {
+                        form.project_id.pop();
+                    }
+                    _ => {
+                        form.environment.pop();
+                    }
                 }
             }
             Char(c) => {
@@ -440,11 +495,11 @@ impl ConfigScreenState {
                 let is_ua = form.mode == InfisicalAuthMode::UniversalAuth;
                 match form.focused_field {
                     0 if !name_locked => form.name.push(c),
-                    1 if is_ua  => form.client_id.push(c),
-                    1           => form.token.push(c),
-                    2 if is_ua  => form.client_secret.push(c),
+                    1 if is_ua => form.client_id.push(c),
+                    1 => form.token.push(c),
+                    2 if is_ua => form.client_secret.push(c),
                     f if f == cred_fields + 1 => form.project_id.push(c),
-                    _           => form.environment.push(c),
+                    _ => form.environment.push(c),
                 }
             }
             Enter => {
@@ -460,7 +515,9 @@ impl ConfigScreenState {
                     return true;
                 }
                 if project_id.is_empty() {
-                    form.error = Some("Project ID is required — find it in Infisical project settings".into());
+                    form.error = Some(
+                        "Project ID is required — find it in Infisical project settings".into(),
+                    );
                     form.focused_field = cred_fields + 1;
                     return true;
                 }
@@ -476,7 +533,13 @@ impl ConfigScreenState {
                             form.focused_field = 2;
                         } else {
                             self.infisical_form = None;
-                            self.save_infisical_ua_profile(name, id, secret, project_id, environment);
+                            self.save_infisical_ua_profile(
+                                name,
+                                id,
+                                secret,
+                                project_id,
+                                environment,
+                            );
                         }
                     }
                     InfisicalAuthMode::ServiceToken => {
@@ -491,13 +554,21 @@ impl ConfigScreenState {
                     }
                 }
             }
-            Esc => { self.infisical_form = None; }
+            Esc => {
+                self.infisical_form = None;
+            }
             _ => {}
         }
         true // always consume when form is active
     }
 
-    fn save_infisical_profile(&mut self, name: String, token: String, project_id: String, environment: String) {
+    fn save_infisical_profile(
+        &mut self,
+        name: String,
+        token: String,
+        project_id: String,
+        environment: String,
+    ) {
         let mut cfg = InfisicalConfig::with_service_token("https://app.infisical.com", &token);
         cfg.default_project_id = Some(project_id);
         cfg.default_environment = environment;
@@ -505,8 +576,16 @@ impl ConfigScreenState {
         self.save_infisical_map();
     }
 
-    fn save_infisical_ua_profile(&mut self, name: String, client_id: String, client_secret: String, project_id: String, environment: String) {
-        let mut cfg = InfisicalConfig::with_ua("https://app.infisical.com", client_id, client_secret);
+    fn save_infisical_ua_profile(
+        &mut self,
+        name: String,
+        client_id: String,
+        client_secret: String,
+        project_id: String,
+        environment: String,
+    ) {
+        let mut cfg =
+            InfisicalConfig::with_ua("https://app.infisical.com", client_id, client_secret);
         cfg.default_project_id = Some(project_id);
         cfg.default_environment = environment;
         self.infisical_profiles.upsert(name, cfg);
@@ -534,8 +613,12 @@ impl ConfigScreenState {
 
     fn edit_selected_infisical_profile(&mut self) {
         let names: Vec<String> = self.infisical_profiles.profiles.keys().cloned().collect();
-        let Some(name) = names.get(self.infisical_selection).cloned() else { return };
-        let Some(cfg) = self.infisical_profiles.profiles.get(&name).cloned() else { return };
+        let Some(name) = names.get(self.infisical_selection).cloned() else {
+            return;
+        };
+        let Some(cfg) = self.infisical_profiles.profiles.get(&name).cloned() else {
+            return;
+        };
         let mode = if cfg.service_token.is_some() {
             InfisicalAuthMode::ServiceToken
         } else {
@@ -558,12 +641,13 @@ impl ConfigScreenState {
     fn save_infisical_map(&self) {
         let path = Some(edgeplaned_paths::infisical_profiles_path());
         if let Some(path) = path
-            && let Ok(json) = serde_json::to_string_pretty(&self.infisical_profiles) {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent).ok();
-                }
-                std::fs::write(path, json).ok();
+            && let Ok(json) = serde_json::to_string_pretty(&self.infisical_profiles)
+        {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).ok();
             }
+            std::fs::write(path, json).ok();
+        }
     }
 }
 
@@ -622,18 +706,34 @@ fn render_nav(buf: &mut Buffer, area: Rect, state: &ConfigScreenState) {
             }
             items.push(ListItem::new(Line::from(Span::styled(
                 format!("  {group}"),
-                Style::default().fg(theme::TEXT_MUTED).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme::TEXT_MUTED)
+                    .add_modifier(Modifier::BOLD),
             ))));
             last_group = group;
         }
         let selected = i == state.nav_selection;
-        let style = if selected { theme::selected() } else { theme::normal() };
+        let style = if selected {
+            theme::selected()
+        } else {
+            theme::normal()
+        };
         let prefix = if selected { "▶ " } else { "  " };
 
         let suffix = match *item {
-            "Controlplane" => if state.connected { " ✓" } else { " ○" },
+            "Controlplane" => {
+                if state.connected {
+                    " ✓"
+                } else {
+                    " ○"
+                }
+            }
             "Infisical" => {
-                if state.infisical_profiles.active_profile().is_some() { " ✓" } else { " ○" }
+                if state.infisical_profiles.active_profile().is_some() {
+                    " ✓"
+                } else {
+                    " ○"
+                }
             }
             _ => "",
         };
@@ -666,8 +766,12 @@ fn render_content(buf: &mut Buffer, area: Rect, state: &ConfigScreenState) {
     let lines = match state.nav_selection {
         0 => panel_server(state),
         1 => panel_auth(state),
-        2 => panel_placeholder("Fleet node data is not yet loaded in the config panel.\n\nVisit the Domains tab to browse your fleet."),
-        3 => panel_placeholder("Agent runtime defaults are not yet configurable from the TUI.\n\nEdit ~/.ep/config.json to adjust defaults."),
+        2 => panel_placeholder(
+            "Fleet node data is not yet loaded in the config panel.\n\nVisit the Domains tab to browse your fleet.",
+        ),
+        3 => panel_placeholder(
+            "Agent runtime defaults are not yet configurable from the TUI.\n\nEdit ~/.ep/config.json to adjust defaults.",
+        ),
         4 => panel_profile(state),
         5 => panel_infisical(state),
         6 => panel_placeholder("Layout preferences are not yet implemented."),
@@ -677,7 +781,9 @@ fn render_content(buf: &mut Buffer, area: Rect, state: &ConfigScreenState) {
         _ => vec![],
     };
 
-    Paragraph::new(lines).style(theme::normal()).render(inner, buf);
+    Paragraph::new(lines)
+        .style(theme::normal())
+        .render(inner, buf);
 }
 
 // ── Panel renderers ───────────────────────────────────────────────────────────
@@ -693,15 +799,24 @@ fn panel_server(state: &ConfigScreenState) -> Vec<Line<'static>> {
     } else {
         (Style::default().fg(theme::ERR), "○ disconnected")
     };
-    let latency = state.latency_ms.map(|ms| format!("  {ms}ms")).unwrap_or_default();
+    let latency = state
+        .latency_ms
+        .map(|ms| format!("  {ms}ms"))
+        .unwrap_or_default();
 
     let mut lines = vec![Line::from("")];
 
     // Context list
     if state.contexts.is_empty() {
-        lines.push(Line::from(Span::styled("  No contexts configured.", theme::muted())));
+        lines.push(Line::from(Span::styled(
+            "  No contexts configured.",
+            theme::muted(),
+        )));
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("  edgeplane context add <name> --url <url>", theme::dim())));
+        lines.push(Line::from(Span::styled(
+            "  edgeplane context add <name> --url <url>",
+            theme::dim(),
+        )));
     } else {
         for (i, (name, entry)) in state.contexts.iter().enumerate() {
             let is_active = name == &state.context_name;
@@ -760,7 +875,13 @@ fn panel_server(state: &ConfigScreenState) -> Vec<Line<'static>> {
 }
 
 fn panel_server_edit(form: &ControlplaneEditForm) -> Vec<Line<'static>> {
-    let f = |i: usize| if form.focused_field == i { theme::selected() } else { theme::normal() };
+    let f = |i: usize| {
+        if form.focused_field == i {
+            theme::selected()
+        } else {
+            theme::normal()
+        }
+    };
     let cursor = |i: usize| if form.focused_field == i { "▌" } else { "" };
     let btn = |i: usize, label: &'static str| -> Line<'static> {
         if form.focused_field == i {
@@ -799,7 +920,10 @@ fn panel_server_edit(form: &ControlplaneEditForm) -> Vec<Line<'static>> {
         Some(ControlplaneTestResult::Testing) => {
             lines.push(Line::from(Span::styled("  ○ Testing…", theme::muted())));
         }
-        Some(ControlplaneTestResult::Ok { latency_ms, version }) => {
+        Some(ControlplaneTestResult::Ok {
+            latency_ms,
+            version,
+        }) => {
             let ver = version.as_deref().unwrap_or("?");
             lines.push(Line::from(Span::styled(
                 format!("  ● Connected — {latency_ms}ms   server v{ver}"),
@@ -831,10 +955,7 @@ fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
         "  Edgeplane Secure",
         theme::accent_bold(),
     )));
-    lines.push(Line::from(Span::styled(
-        "  Team Console",
-        theme::muted(),
-    )));
+    lines.push(Line::from(Span::styled("  Team Console", theme::muted())));
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "  ──────────────────────────────────────────",
@@ -907,10 +1028,7 @@ fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
                     };
                     lines.push(Line::from(vec![
                         Span::styled("  Token  ", theme::muted()),
-                        Span::styled(
-                            format!("[{display}▌]"),
-                            Style::default().fg(theme::ACCENT),
-                        ),
+                        Span::styled(format!("[{display}▌]"), Style::default().fg(theme::ACCENT)),
                     ]));
                     lines.push(Line::from(""));
                     lines.push(Line::from(Span::styled(
@@ -948,7 +1066,10 @@ fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
             )));
         }
 
-        Some(OidcPanelState::AwaitingBrowser { authorize_url, started }) => {
+        Some(OidcPanelState::AwaitingBrowser {
+            authorize_url,
+            started,
+        }) => {
             let elapsed = started.elapsed().as_secs();
             lines.push(Line::from(Span::styled(
                 "  ○ Waiting for browser authentication…",
@@ -981,7 +1102,10 @@ fn panel_auth(state: &ConfigScreenState) -> Vec<Line<'static>> {
                 format!("  Waiting… {elapsed}s   authentication completes automatically"),
                 theme::dim(),
             )));
-            lines.push(Line::from(Span::styled("  ← Esc to cancel", theme::muted())));
+            lines.push(Line::from(Span::styled(
+                "  ← Esc to cancel",
+                theme::muted(),
+            )));
         }
 
         Some(OidcPanelState::TimedOut) => {
@@ -1024,7 +1148,10 @@ fn panel_profile(state: &ConfigScreenState) -> Vec<Line<'static>> {
             Line::from(""),
             Line::from(Span::styled("  No contexts found.", theme::muted())),
             Line::from(""),
-            Line::from(Span::styled("  edgeplane context add <name> --url <url>", theme::dim())),
+            Line::from(Span::styled(
+                "  edgeplane context add <name> --url <url>",
+                theme::dim(),
+            )),
         ];
     }
 
@@ -1079,7 +1206,10 @@ fn panel_infisical(state: &ConfigScreenState) -> Vec<Line<'static>> {
     if profiles.is_empty() {
         return vec![
             Line::from(""),
-            Line::from(Span::styled("  No Infisical profiles configured.", theme::muted())),
+            Line::from(Span::styled(
+                "  No Infisical profiles configured.",
+                theme::muted(),
+            )),
             Line::from(""),
             Line::from(Span::styled(
                 "  Press n to add a profile with a service token.",
@@ -1116,7 +1246,10 @@ fn panel_infisical(state: &ConfigScreenState) -> Vec<Line<'static>> {
 
         lines.push(Line::from(vec![
             Span::styled(format!("  {row_prefix}"), name_style),
-            Span::styled(format!("{bullet}{name}  ", name = name.as_str()), name_style),
+            Span::styled(
+                format!("{bullet}{name}  ", name = name.as_str()),
+                name_style,
+            ),
             Span::styled(format!("({auth_kind})  "), theme::dim()),
             Span::styled(cfg.site_url.clone(), theme::dim()),
         ]));
@@ -1141,11 +1274,25 @@ fn panel_infisical(state: &ConfigScreenState) -> Vec<Line<'static>> {
 fn panel_infisical_form(form: &InfisicalAddForm) -> Vec<Line<'static>> {
     let is_ua = form.mode == InfisicalAuthMode::UniversalAuth;
 
-    let f = |i: usize| if form.focused_field == i { theme::selected() } else { theme::normal() };
+    let f = |i: usize| {
+        if form.focused_field == i {
+            theme::selected()
+        } else {
+            theme::normal()
+        }
+    };
     let c = |i: usize| if form.focused_field == i { "▌" } else { "" };
 
-    let mode_label = if is_ua { "Universal Auth (machine identity)" } else { "Service Token (legacy)" };
-    let mode_inactive = if is_ua { "  F2 switch to Service Token" } else { "  F2 switch to Universal Auth" };
+    let mode_label = if is_ua {
+        "Universal Auth (machine identity)"
+    } else {
+        "Service Token (legacy)"
+    };
+    let mode_inactive = if is_ua {
+        "  F2 switch to Service Token"
+    } else {
+        "  F2 switch to Universal Auth"
+    };
 
     let mut lines = vec![
         Line::from(""),
@@ -1187,16 +1334,26 @@ fn panel_infisical_form(form: &InfisicalAddForm) -> Vec<Line<'static>> {
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled("  Project ID", theme::muted()),
-        Span::styled(format!("[{}{}]", form.project_id, c(pid_field)), f(pid_field)),
+        Span::styled(
+            format!("[{}{}]", form.project_id, c(pid_field)),
+            f(pid_field),
+        ),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  Environment", theme::muted()),
-        Span::styled(format!("[{}{}]", form.environment, c(env_field)), f(env_field)),
+        Span::styled(
+            format!("[{}{}]", form.environment, c(env_field)),
+            f(env_field),
+        ),
         Span::styled("  (prod/dev/staging)", theme::dim()),
     ]));
 
     lines.push(Line::from(""));
-    let mode_hint = if form.is_edit { "" } else { "   F2 toggle mode" };
+    let mode_hint = if form.is_edit {
+        ""
+    } else {
+        "   F2 toggle mode"
+    };
     lines.push(Line::from(Span::styled(
         format!("  Tab next field   Enter save   Esc cancel{mode_hint}"),
         theme::dim(),
@@ -1295,12 +1452,13 @@ fn panel_doctor(state: &ConfigScreenState) -> Vec<Line<'static>> {
             Span::styled(c.detail.clone(), theme::dim()),
         ]));
         if let Some(hint) = c.hint.as_deref()
-            && !hint.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    format!("      → {hint}"),
-                    theme::muted(),
-                )));
-            }
+            && !hint.is_empty()
+        {
+            lines.push(Line::from(Span::styled(
+                format!("      → {hint}"),
+                theme::muted(),
+            )));
+        }
     }
 
     lines.push(Line::from(""));

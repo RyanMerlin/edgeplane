@@ -15,22 +15,36 @@ pub fn humanize_since(iso: &str) -> String {
             chrono::NaiveDateTime::parse_from_str(iso, "%Y-%m-%d %H:%M:%S%.f")
                 .map(|n| DateTime::<Utc>::from_naive_utc_and_offset(n, Utc))
         });
-    let Ok(t) = parsed else { return iso.to_string() };
+    let Ok(t) = parsed else {
+        return iso.to_string();
+    };
     let secs = (Utc::now() - t).num_seconds();
     if secs < 0 {
         // Clock skew or future timestamp — display raw.
         return iso.to_string();
     }
-    if secs < 5            { return "just now".to_string(); }
-    if secs < 60           { return format!("{}s ago", secs); }
+    if secs < 5 {
+        return "just now".to_string();
+    }
+    if secs < 60 {
+        return format!("{}s ago", secs);
+    }
     let mins = secs / 60;
-    if mins < 60           { return format!("{}m ago", mins); }
+    if mins < 60 {
+        return format!("{}m ago", mins);
+    }
     let hours = mins / 60;
-    if hours < 24          { return format!("{}h ago", hours); }
+    if hours < 24 {
+        return format!("{}h ago", hours);
+    }
     let days = hours / 24;
-    if days < 30           { return format!("{}d ago", days); }
+    if days < 30 {
+        return format!("{}d ago", days);
+    }
     let months = days / 30;
-    if months < 12         { return format!("{}mo ago", months); }
+    if months < 12 {
+        return format!("{}mo ago", months);
+    }
     format!("{}y ago", months / 12)
 }
 
@@ -72,7 +86,9 @@ fn id_to_string<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<String, 
     match v {
         serde_json::Value::String(s) => Ok(s),
         serde_json::Value::Number(n) => Ok(n.to_string()),
-        other => Err(D::Error::custom(format!("expected string or number for id, got {other}"))),
+        other => Err(D::Error::custom(format!(
+            "expected string or number for id, got {other}"
+        ))),
     }
 }
 
@@ -116,12 +132,24 @@ impl AgentSummary {
             Some(s) if !s.is_empty() && s != "{}" => s.clone(),
             _ => return,
         };
-        let Ok(meta) = serde_json::from_str::<serde_json::Value>(&raw) else { return };
-        if self.runtime.is_none() { self.runtime = meta["runtime"].as_str().map(String::from); }
-        if self.node_id.is_none() { self.node_id = meta["node_id"].as_str().map(String::from); }
-        if self.domain_name.is_none() { self.domain_name = meta["domain_name"].as_str().map(String::from); }
-        if self.current_task_title.is_none() { self.current_task_title = meta["current_task"].as_str().map(String::from); }
-        if self.last_seen.is_none() { self.last_seen = meta["last_seen"].as_str().map(String::from); }
+        let Ok(meta) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            return;
+        };
+        if self.runtime.is_none() {
+            self.runtime = meta["runtime"].as_str().map(String::from);
+        }
+        if self.node_id.is_none() {
+            self.node_id = meta["node_id"].as_str().map(String::from);
+        }
+        if self.domain_name.is_none() {
+            self.domain_name = meta["domain_name"].as_str().map(String::from);
+        }
+        if self.current_task_title.is_none() {
+            self.current_task_title = meta["current_task"].as_str().map(String::from);
+        }
+        if self.last_seen.is_none() {
+            self.last_seen = meta["last_seen"].as_str().map(String::from);
+        }
     }
 }
 
@@ -150,7 +178,9 @@ pub struct FixtureDataClient {
 
 #[async_trait::async_trait]
 impl DataClient for FixtureDataClient {
-    async fn ping(&self) -> Result<Option<String>> { Ok(None) }
+    async fn ping(&self) -> Result<Option<String>> {
+        Ok(None)
+    }
 
     async fn list_domains(&self) -> Result<Vec<DomainSummary>> {
         Ok(self.domains.clone())
@@ -209,7 +239,11 @@ impl RemoteDataClient {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .build()?;
-        Ok(Self { base_url: base_url.into(), token, client })
+        Ok(Self {
+            base_url: base_url.into(),
+            token,
+            client,
+        })
     }
 
     fn url(&self, path: &str) -> String {
@@ -237,7 +271,10 @@ impl RemoteDataClient {
 impl DataClient for RemoteDataClient {
     async fn ping(&self) -> Result<Option<String>> {
         let v = self.get::<serde_json::Value>("/health").await?;
-        let ver = v.get("version").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let ver = v
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         Ok(ver)
     }
 
@@ -251,7 +288,8 @@ impl DataClient for RemoteDataClient {
 
     // Uses the canonical auth-required path rather than the /missions/:id/t shortcut.
     async fn list_tasks(&self, domain_id: &str, mission_id: &str) -> Result<Vec<TaskSummary>> {
-        self.get(&format!("/domains/{domain_id}/m/{mission_id}/t")).await
+        self.get(&format!("/domains/{domain_id}/m/{mission_id}/t"))
+            .await
     }
 
     async fn list_agents(&self) -> Result<Vec<AgentSummary>> {
@@ -288,7 +326,9 @@ impl DataClient for RemoteDataClient {
     }
 
     async fn restart_agent(&self, agent_id: &str) -> Result<()> {
-        let mut req = self.client.post(self.url(&format!("/agents/{agent_id}/restart")));
+        let mut req = self
+            .client
+            .post(self.url(&format!("/agents/{agent_id}/restart")));
         if let Some(tok) = &self.token {
             req = req.bearer_auth(tok);
         }
@@ -302,7 +342,9 @@ impl DataClient for RemoteDataClient {
     }
 
     async fn clear_agent_context(&self, agent_id: &str) -> Result<()> {
-        let mut req = self.client.post(self.url(&format!("/agents/{agent_id}/clear-context")));
+        let mut req = self
+            .client
+            .post(self.url(&format!("/agents/{agent_id}/clear-context")));
         if let Some(tok) = &self.token {
             req = req.bearer_auth(tok);
         }

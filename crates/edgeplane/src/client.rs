@@ -1,4 +1,4 @@
-use crate::config::{load_server_list, EdgeplaneConfig};
+use crate::config::{EdgeplaneConfig, load_server_list};
 use anyhow::{Context, Result};
 use reqwest::{Client, Method, RequestBuilder};
 use serde_json::Value;
@@ -58,18 +58,21 @@ impl EdgeplaneClient {
             builder
         };
         if let Some(agent_id) = &self.agent_id
-            && !agent_id.trim().is_empty() {
-                request = request.header("x-edgeplane-agent-id", agent_id);
-            }
+            && !agent_id.trim().is_empty()
+        {
+            request = request.header("x-edgeplane-agent-id", agent_id);
+        }
         if let Some(runtime_session_id) = &self.runtime_session_id
-            && !runtime_session_id.trim().is_empty() {
-                request = request.header("x-edgeplane-runtime-session-id", runtime_session_id);
-                request = request.header("x-edgeplane-instance-id", runtime_session_id);
-            }
+            && !runtime_session_id.trim().is_empty()
+        {
+            request = request.header("x-edgeplane-runtime-session-id", runtime_session_id);
+            request = request.header("x-edgeplane-instance-id", runtime_session_id);
+        }
         if let Some(profile_name) = &self.profile_name
-            && !profile_name.trim().is_empty() {
-                request = request.header("x-edgeplane-agent-profile", profile_name);
-            }
+            && !profile_name.trim().is_empty()
+        {
+            request = request.header("x-edgeplane-agent-profile", profile_name);
+        }
         request
     }
 
@@ -288,19 +291,22 @@ impl MultiServerClient {
             builder
         };
         if let Some(id) = &self.agent_id
-            && !id.trim().is_empty() {
-                req = req.header("x-edgeplane-agent-id", id);
-            }
+            && !id.trim().is_empty()
+        {
+            req = req.header("x-edgeplane-agent-id", id);
+        }
         if let Some(rsid) = &self.runtime_session_id
-            && !rsid.trim().is_empty() {
-                req = req
-                    .header("x-edgeplane-runtime-session-id", rsid)
-                    .header("x-edgeplane-instance-id", rsid);
-            }
+            && !rsid.trim().is_empty()
+        {
+            req = req
+                .header("x-edgeplane-runtime-session-id", rsid)
+                .header("x-edgeplane-instance-id", rsid);
+        }
         if let Some(profile) = &self.profile_name
-            && !profile.trim().is_empty() {
-                req = req.header("x-edgeplane-agent-profile", profile);
-            }
+            && !profile.trim().is_empty()
+        {
+            req = req.header("x-edgeplane-agent-profile", profile);
+        }
         req
     }
 

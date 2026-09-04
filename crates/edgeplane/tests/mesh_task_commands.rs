@@ -9,13 +9,13 @@
 //!   2. httpmock round-trip tests via in-process `run(...)` — verify the CLI posts
 //!      the right `{"tool": ..., "args": ...}` envelope to `/mcp/call`.
 
-use httpmock::Method::POST;
-use httpmock::MockServer;
 use edgeplane::booster::AgentBooster;
 use edgeplane::client::EdgeplaneClient;
-use edgeplane::commands::{run, EdgeplaneCommand, MeshTaskCommand, TaskCommand};
+use edgeplane::commands::{EdgeplaneCommand, MeshTaskCommand, TaskCommand, run};
 use edgeplane::config::EdgeplaneConfig;
 use edgeplane::output::OutputMode;
+use httpmock::Method::POST;
+use httpmock::MockServer;
 use serde_json::json;
 use std::process::Command;
 
@@ -62,7 +62,15 @@ fn task_mesh_help_is_available() {
         String::from_utf8_lossy(&out.stderr),
     );
     for sub in [
-        "submit", "claim", "get", "list", "heartbeat", "progress", "complete", "fail", "block",
+        "submit",
+        "claim",
+        "get",
+        "list",
+        "heartbeat",
+        "progress",
+        "complete",
+        "fail",
+        "block",
     ] {
         assert!(
             combined.contains(sub),
@@ -103,12 +111,10 @@ fn task_mesh_submit_help_is_available() {
 async fn mesh_task_submit_posts_to_mcp_call() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
-        when.method(POST)
-            .path("/api/mcp/call")
-            .json_body(json!({
-                "tool": "submit_mesh_task",
-                "args": { "mission_id": "X", "title": "Y" }
-            }));
+        when.method(POST).path("/api/mcp/call").json_body(json!({
+            "tool": "submit_mesh_task",
+            "args": { "mission_id": "X", "title": "Y" }
+        }));
         then.status(200)
             .json_body(json!({ "task_id": "mt-1", "status": "pending" }));
     });
@@ -140,12 +146,10 @@ async fn mesh_task_submit_posts_to_mcp_call() {
 async fn mesh_task_claim_posts_to_mcp_call() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
-        when.method(POST)
-            .path("/api/mcp/call")
-            .json_body(json!({
-                "tool": "claim_mesh_task",
-                "args": { "task_id": "mt-1", "agent_id": "agent-a", "lease_seconds": 120 }
-            }));
+        when.method(POST).path("/api/mcp/call").json_body(json!({
+            "tool": "claim_mesh_task",
+            "args": { "task_id": "mt-1", "agent_id": "agent-a", "lease_seconds": 120 }
+        }));
         then.status(200)
             .json_body(json!({ "task_id": "mt-1", "claim_lease_id": "lease-1" }));
     });
@@ -174,16 +178,14 @@ async fn mesh_task_claim_posts_to_mcp_call() {
 async fn mesh_task_complete_posts_to_mcp_call() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
-        when.method(POST)
-            .path("/api/mcp/call")
-            .json_body(json!({
-                "tool": "complete_mesh_task",
-                "args": {
-                    "task_id": "mt-1",
-                    "claim_lease_id": "lease-1",
-                    "output_json": "{\"result\":\"ok\"}"
-                }
-            }));
+        when.method(POST).path("/api/mcp/call").json_body(json!({
+            "tool": "complete_mesh_task",
+            "args": {
+                "task_id": "mt-1",
+                "claim_lease_id": "lease-1",
+                "output_json": "{\"result\":\"ok\"}"
+            }
+        }));
         then.status(200)
             .json_body(json!({ "task_id": "mt-1", "status": "completed" }));
     });

@@ -1,6 +1,9 @@
 use edgeplane::client::MultiServerClient;
 use std::time::Duration;
-use wiremock::{matchers::{method, path}, Mock, MockServer, ResponseTemplate};
+use wiremock::{
+    Mock, MockServer, ResponseTemplate,
+    matchers::{method, path},
+};
 
 #[tokio::test]
 async fn test_client_uses_first_live_server() {
@@ -11,11 +14,7 @@ async fn test_client_uses_first_live_server() {
         .mount(&mock)
         .await;
 
-    let client = MultiServerClient::new(
-        vec![mock.uri()],
-        Duration::from_secs(5),
-    )
-    .unwrap();
+    let client = MultiServerClient::new(vec![mock.uri()], Duration::from_secs(5)).unwrap();
 
     let res = client.get_json("/health").await.unwrap();
     assert_eq!(res["status"], "ok");
@@ -78,11 +77,9 @@ async fn test_client_returns_4xx_immediately_without_trying_next() {
         .mount(&server_b)
         .await;
 
-    let client = MultiServerClient::new(
-        vec![server_a.uri(), server_b.uri()],
-        Duration::from_secs(5),
-    )
-    .unwrap();
+    let client =
+        MultiServerClient::new(vec![server_a.uri(), server_b.uri()], Duration::from_secs(5))
+            .unwrap();
 
     let res = client.get_json("/not-found").await;
     assert!(res.is_err());
@@ -106,11 +103,9 @@ async fn test_client_skips_5xx_and_tries_next() {
         .mount(&server_b)
         .await;
 
-    let client = MultiServerClient::new(
-        vec![server_a.uri(), server_b.uri()],
-        Duration::from_secs(5),
-    )
-    .unwrap();
+    let client =
+        MultiServerClient::new(vec![server_a.uri(), server_b.uri()], Duration::from_secs(5))
+            .unwrap();
 
     let res = client.get_json("/data").await.unwrap();
     assert_eq!(res["ok"], true);

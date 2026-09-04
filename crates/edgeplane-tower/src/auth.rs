@@ -59,7 +59,10 @@ pub(crate) fn invalidate_node_scope_cache(state: &AppState, raw_node_id: &str) {
         Ok(mut cache) => {
             cache.remove(raw_node_id);
         }
-        Err(_) => tracing::warn!(node_id = raw_node_id, "node scope cache poisoned during invalidation"),
+        Err(_) => tracing::warn!(
+            node_id = raw_node_id,
+            "node scope cache poisoned during invalidation"
+        ),
     }
 }
 
@@ -93,7 +96,10 @@ async fn resolve_node_domain_scope(state: &AppState, raw_node_id: &str) -> Vec<S
     if let Ok(mut cache) = state.node_scope_cache.as_ref().write() {
         cache.insert(raw_node_id.to_string(), (Instant::now(), scope.clone()));
     } else {
-        tracing::warn!(node_id = raw_node_id, "node scope cache poisoned during update");
+        tracing::warn!(
+            node_id = raw_node_id,
+            "node scope cache poisoned during update"
+        );
     }
 
     scope
@@ -202,7 +208,8 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                     if let Some(row) = row {
                         let revoked: bool = row.get("revoked");
                         if !revoked {
-                            let domain_scope = resolve_node_domain_scope(state, &claims.node_id).await;
+                            let domain_scope =
+                                resolve_node_domain_scope(state, &claims.node_id).await;
                             return Ok(Principal {
                                 subject: claims.sub,
                                 is_admin: false,
@@ -297,10 +304,8 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                     let email: Option<String> = row.get("email");
                     // IdP groups captured at login (JSON array). A malformed value
                     // parses to no groups → no group-based admin (fail-closed).
-                    let groups: Vec<String> = serde_json::from_str(
-                        &row.get::<String, _>("groups"),
-                    )
-                    .unwrap_or_default();
+                    let groups: Vec<String> =
+                        serde_json::from_str(&row.get::<String, _>("groups")).unwrap_or_default();
                     let session_id: i32 = row.get("id");
                     let db = state.db.clone();
                     let h = hash.clone();
@@ -426,12 +431,7 @@ pub fn split_csv(s: &str) -> Vec<String> {
 /// 1. Admin flag — unrestricted access everywhere.
 /// 2. domain_scope membership — explicit enrollment for agents and nodes.
 /// 3. Owners/contributors membership — lowercased subject match.
-pub fn authorized_for(
-    domain_id: &str,
-    owners: &str,
-    contributors: &str,
-    p: &Principal,
-) -> bool {
+pub fn authorized_for(domain_id: &str, owners: &str, contributors: &str, p: &Principal) -> bool {
     if p.is_admin {
         return true;
     }
@@ -491,7 +491,12 @@ mod authz_tests {
 
     #[test]
     fn admin_authorized_anywhere() {
-        assert!(authorized_for("d1", "", "", &principal("x@x.com", true, "session", &[])));
+        assert!(authorized_for(
+            "d1",
+            "",
+            "",
+            &principal("x@x.com", true, "session", &[])
+        ));
     }
     #[test]
     fn node_authorized_only_in_scope() {
@@ -526,7 +531,12 @@ mod authz_tests {
     }
     #[test]
     fn only_sessions_and_nodes_are_full_trust() {
-        assert!(!is_full_trust(&principal("sa:x", false, "service_account", &[])));
+        assert!(!is_full_trust(&principal(
+            "sa:x",
+            false,
+            "service_account",
+            &[]
+        )));
         assert!(!is_full_trust(&principal("agent:x", false, "agent", &[])));
         assert!(is_full_trust(&principal("u@x.com", false, "session", &[])));
         assert!(is_full_trust(&principal("node:n", false, "node", &[])));

@@ -370,7 +370,9 @@ fn tailscale_check_sync() -> DoctorCheck {
                 detail: format!("tailscale status failed: {err}"),
                 duration_ms: 0,
                 payload: None,
-                repair_hint: Some("Ensure tailscaled is running: sudo systemctl start tailscaled".into()),
+                repair_hint: Some(
+                    "Ensure tailscaled is running: sudo systemctl start tailscaled".into(),
+                ),
             };
         }
     };
@@ -389,7 +391,9 @@ fn tailscale_check_sync() -> DoctorCheck {
                 detail,
                 duration_ms: 0,
                 payload: None,
-                repair_hint: Some("Check tailscaled health: sudo systemctl status tailscaled".into()),
+                repair_hint: Some(
+                    "Check tailscaled health: sudo systemctl status tailscaled".into(),
+                ),
             };
         }
     };
@@ -462,10 +466,7 @@ fn perform_repairs(config: &EdgeplaneConfig) -> Vec<DoctorRepair> {
     match crate::config::ensure_mc_dirs() {
         Ok(()) => repairs.push(DoctorRepair::ok(
             "directories",
-            format!(
-                "Ensured EP_HOME={}",
-                crate::config::ep_home_dir().display(),
-            ),
+            format!("Ensured EP_HOME={}", crate::config::ep_home_dir().display(),),
         )),
         Err(err) => repairs.push(DoctorRepair::failed("directories", err.to_string())),
     }
