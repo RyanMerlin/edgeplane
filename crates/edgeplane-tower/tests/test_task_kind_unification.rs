@@ -4275,3 +4275,115 @@ async fn fencing_progress_concurrent_posts_get_sequential_seq_after_family_a_ref
         "8 genuinely concurrent posts must get 8 distinct, sequential seq values, no duplicates: {seqs:?}"
     );
 }
+
+#[tokio::test]
+async fn fencing_complete_still_routes_to_waiting_review_after_family_b_refactor() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO reviewgate (id, owner_subject, mesh_task_id, run_id, gate_type, \
+         required_approvals, status, created_at) \
+         VALUES ($1, 'harness', $2, NULL, 'manual', 'any', 'pending', now())",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "lease-a"}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+    let body: serde_json::Value = res.json();
+    assert_eq!(
+        body["status"], "waiting_review",
+        "the pending-gate CTE path must still route to waiting_review after the family-B refactor: {body}"
+    );
+    assert_eq!(body["pending_gates"].as_array().unwrap().len(), 1);
+    // The response shape stays exactly what it was pre-refactor — task_id +
+    // pending_gates only, not a full task row (parity with the pre-refactor
+    // handler, not a TransitionOutcome::WaitingReview implementation detail
+    // leaking through).
+    assert_eq!(body["task_id"], task_id);
+    assert_eq!(body.as_object().unwrap().len(), 3, "response shape must be exactly {{status, pending_gates, task_id}}: {body}");
+}
+
+#[tokio::test]
+async fn fencing_complete_still_unblocks_dependents_after_family_b_refactor() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let dependent_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "pending",
+        None,
+        1,
+    )
+    .await;
+    sqlx::query("UPDATE task SET depends_on=$2 WHERE id=$1")
+        .bind(&dependent_id)
+        .bind(serde_json::json!([task_id]).to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/complete"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "lease-a"}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["status"], "finished");
+    assert_eq!(
+        body["unblocked_tasks"].as_array().unwrap(),
+        &vec![serde_json::json!(dependent_id)],
+        "dependent-unblocking must still happen after the family-B refactor: {body}"
+    );
+}

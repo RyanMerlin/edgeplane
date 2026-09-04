@@ -262,6 +262,11 @@ pub enum TaskTransition<'a> {
         payload_json: &'a str,
         agent_run_id: Option<&'a str>,
     },
+    Complete {
+        claim_lease_id: Option<&'a str>,
+        agent_id: Option<&'a str>,
+        result_artifact_id: Option<i32>,
+    },
 }
 
 pub enum TransitionOutcome {
@@ -270,6 +275,10 @@ pub enum TransitionOutcome {
         unblocked_task_ids: Vec<String>,
     },
     Progress(serde_json::Value),
+    WaitingReview {
+        task: serde_json::Value,
+        pending_gate_ids: Vec<String>,
+    },
 }
 
 pub(crate) async fn execute_task_transition(
@@ -393,6 +402,98 @@ pub(crate) async fn execute_task_transition(
                 source: e,
             })?;
             Ok(TransitionOutcome::Progress(row_to_progress(&row)))
+        }
+        TaskTransition::Complete {
+            claim_lease_id,
+            agent_id,
+            result_artifact_id,
+        } => {
+            // See work.rs's original comment (still true here): the real
+            // edgeplaned-bin/task_worker.rs caller authenticates as a
+            // full-trust node and always sends {"agent_id": ...}; its own
+            // subject can never match claimed_by_agent_id, so ownership is
+            // read back the same on-behalf-of way claim_task wrote it,
+            // bypass-gated so a restricted caller can't spoof another
+            // agent's id via this field (Ruling C2).
+            let effective_id = if actor.is_bypass {
+                agent_id.unwrap_or(actor.subject_id)
+            } else {
+                actor.subject_id
+            };
+            let now = Utc::now().naive_utc();
+            let now_tz = Utc::now();
+            let row = sqlx::query(
+                "WITH gate_check AS ( \
+                   SELECT EXISTS ( \
+                     SELECT 1 FROM reviewgate WHERE mesh_task_id=$1 AND status='pending' \
+                   ) AS has_pending \
+                 ) \
+                 UPDATE task SET \
+                   status = CASE WHEN gate_check.has_pending THEN 'waiting_review' ELSE 'finished' END, \
+                   result_artifact_id = CASE WHEN gate_check.has_pending THEN task.result_artifact_id ELSE $2 END, \
+                   lease_expires_at = CASE WHEN gate_check.has_pending THEN task.lease_expires_at ELSE NULL END, \
+                   claim_lease_id = CASE WHEN gate_check.has_pending THEN task.claim_lease_id ELSE NULL END, \
+                   claimed_by_agent_id = CASE WHEN gate_check.has_pending THEN task.claimed_by_agent_id ELSE NULL END, \
+                   finalized_at = CASE WHEN gate_check.has_pending THEN task.finalized_at ELSE $3 END, \
+                   finalized_by_subject = CASE WHEN gate_check.has_pending THEN task.finalized_by_subject \
+                                                ELSE COALESCE(task.claimed_by_agent_id, $7) END, \
+                   updated_at = $4 \
+                 FROM gate_check \
+                 WHERE task.id = $1 \
+                   AND ( \
+                     (task.kind = 'claimable' AND task.status IN ('claimed','running','waiting_review') \
+                      AND (task.claimed_by_agent_id = $7 \
+                           OR ((task.claim_lease_id = $5 OR $6) \
+                               AND (task.claim_policy = 'broadcast' OR task.lease_expires_at >= $4)))) \
+                     OR \
+                     (task.kind = 'assigned' AND task.status NOT IN ('done','finished','failed','cancelled') \
+                      AND (task.owner = $7 OR task.claim_lease_id = $5 OR $6)) \
+                   ) \
+                 RETURNING task.*, gate_check.has_pending",
+            )
+            .bind(task_id)
+            .bind(result_artifact_id)
+            .bind(now_tz)
+            .bind(now)
+            .bind(claim_lease_id)
+            .bind(actor.is_bypass)
+            .bind(effective_id)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| TransitionError::Database {
+                operation: "complete update",
+                source: e,
+            })?;
+
+            let Some(r) = row else {
+                return Err(classify_fenced_rejection(db, actor, task_id, claim_lease_id, &["finished"]).await);
+            };
+
+            let has_pending: bool = r.get("has_pending");
+            if has_pending {
+                let gate_ids: Vec<String> = sqlx::query_scalar(
+                    "SELECT id FROM reviewgate WHERE mesh_task_id=$1 AND status='pending'",
+                )
+                .bind(task_id)
+                .fetch_all(db)
+                .await
+                .unwrap_or_default();
+                return Ok(TransitionOutcome::WaitingReview {
+                    task: crate::routes::work::row_to_task(&r),
+                    pending_gate_ids: gate_ids,
+                });
+            }
+
+            let mission_id: String = r.get("mission_id");
+            let domain_id: String = r.get("domain_id");
+            let unblocked = crate::routes::work::unblock_dependents(db, &mission_id, task_id).await;
+            for tid in &unblocked {
+                crate::routes::work::broadcast_task_available(&domain_id, &mission_id, tid).await;
+            }
+            Ok(TransitionOutcome::Task {
+                task: crate::routes::work::row_to_task(&r),
+                unblocked_task_ids: unblocked,
+            })
         }
     }
 }
