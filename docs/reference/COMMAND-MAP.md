@@ -3702,12 +3702,12 @@ Heartbeat an active mesh task claim to keep the lease alive
 
 Record a progress event against a claimed mesh task
 
-**Usage:** `edgeplane task mesh progress [OPTIONS] --task-id <TASK_ID>`
+**Usage:** `edgeplane task mesh progress [OPTIONS] --task-id <TASK_ID> --claim-lease-id <CLAIM_LEASE_ID>`
 
 ###### **Options:**
 
 * `--task-id <TASK_ID>` — Mesh task ID
-* `--claim-lease-id <CLAIM_LEASE_ID>`
+* `--claim-lease-id <CLAIM_LEASE_ID>` — The task's live claim lease (required — progress_mesh_task's server-side fence hard-rejects a call with no lease presented)
 * `--event-type <EVENT_TYPE>`
 * `--payload-json <PAYLOAD_JSON>` — Structured progress payload as a JSON string
 
