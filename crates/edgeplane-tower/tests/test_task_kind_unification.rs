@@ -4254,19 +4254,14 @@ async fn fencing_progress_concurrent_posts_get_sequential_seq_after_family_a_ref
                 .await;
             let status = res.status_code();
             let body = res.text();
-            if !status.is_success() {
-                eprintln!("Request {i} failed with status {status}: {}", body);
-            }
             (i, status, body)
         }));
     }
-    let mut results = vec![];
     for h in handles {
         let (i, status, body) = h.await.unwrap();
         if !status.is_success() {
             panic!("Request {i} failed with status {status}: {}", body);
         }
-        results.push((i, status));
     }
 
     let seqs: Vec<i32> = sqlx::query_scalar("SELECT seq FROM meshprogressevent WHERE task_id=$1 ORDER BY seq")

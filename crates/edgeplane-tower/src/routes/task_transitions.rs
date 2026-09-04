@@ -187,6 +187,52 @@ pub(crate) fn rest_transition_error(error: TransitionError) -> Response {
 }
 
 
+/// Family A fence: live claimable-lease ownership+freshness check, shared by
+/// Heartbeat and AppendProgress. Takes the row lock (`FOR UPDATE`) so the
+/// caller's subsequent write — whether to `task` itself (Heartbeat) or a
+/// different table (AppendProgress → `meshprogressevent`) — is atomic with
+/// respect to any concurrent writer of this same task row. Returns the
+/// locked row on success (unused by callers today beyond existence, but
+/// available for future fence families that need to read fields off it
+/// without a second round-trip).
+///
+/// Security invariant — do not change this predicate's parenthesization:
+/// `(claim_lease_id = $2 OR $3) AND (claim_policy = 'broadcast' OR
+/// lease_expires_at >= $4)`. Ownership (a matching `claim_lease_id`, or the
+/// bypass/full-trust escape hatch) is required UNCONDITIONALLY, for every
+/// caller, regardless of `claim_policy`; `claim_policy = 'broadcast'` waives
+/// ONLY the freshness sub-check. The first version of this predicate (before
+/// it was unified into this single shared helper) had `claim_policy =
+/// 'broadcast'` as a bare top-level `OR` disjunct spanning the ENTIRE
+/// ownership+lease clause — a CRITICAL bug, fixed in commit 37dca61a, that
+/// let any caller who merely knew a broadcast task's id bypass ownership
+/// entirely, not just staleness. That same bug shape was independently
+/// reintroduced once more in an early draft of `append_progress`'s own copy
+/// of this predicate and caught by a second review pass before merge — it
+/// keeps recurring under refactor pressure whenever the predicate is
+/// hand-derived per call site, which is exactly why it now lives in this one
+/// named function instead.
+async fn fence_claimable_live(
+    tx: &mut sqlx::PgConnection,
+    task_id: &str,
+    lease_id: Option<&str>,
+    is_bypass: bool,
+    now: chrono::NaiveDateTime,
+) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
+    sqlx::query(
+        "SELECT * FROM task WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
+         AND (claim_lease_id = $2 OR $3) \
+         AND (claim_policy = 'broadcast' OR lease_expires_at >= $4) \
+         FOR UPDATE",
+    )
+    .bind(task_id)
+    .bind(lease_id)
+    .bind(is_bypass)
+    .bind(now)
+    .fetch_optional(&mut *tx)
+    .await
+}
+
 fn row_to_progress(row: &sqlx::postgres::PgRow) -> serde_json::Value {
     serde_json::json!({
         "id": row.get::<i32, _>("id"),
@@ -239,22 +285,12 @@ pub(crate) async fn execute_task_transition(
                 operation: "heartbeat begin tx",
                 source: e,
             })?;
-            let locked = sqlx::query(
-                "SELECT * FROM task WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-                 AND (claim_lease_id = $2 OR $3) \
-                 AND (claim_policy = 'broadcast' OR lease_expires_at >= $4) \
-                 FOR UPDATE",
-            )
-            .bind(task_id)
-            .bind(claim_lease_id)
-            .bind(actor.is_bypass)
-            .bind(now)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| TransitionError::Database {
-                operation: "heartbeat fence",
-                source: e,
-            })?;
+            let locked = fence_claimable_live(&mut tx, task_id, claim_lease_id, actor.is_bypass, now)
+                .await
+                .map_err(|e| TransitionError::Database {
+                    operation: "heartbeat fence",
+                    source: e,
+                })?;
             if locked.is_none() {
                 let _ = tx.rollback().await;
                 return Err(classify_fenced_rejection(db, actor, task_id, claim_lease_id, &[]).await);
@@ -296,22 +332,13 @@ pub(crate) async fn execute_task_transition(
                 operation: "progress begin tx",
                 source: e,
             })?;
-            let locked = sqlx::query(
-                "SELECT * FROM task WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-                 AND (claim_lease_id = $2 OR $3) \
-                 AND (claim_policy = 'broadcast' OR lease_expires_at >= $4) \
-                 FOR UPDATE",
-            )
-            .bind(task_id)
-            .bind(Some(claim_lease_id))
-            .bind(actor.is_bypass)
-            .bind(now)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| TransitionError::Database {
-                operation: "progress fence",
-                source: e,
-            })?;
+            let locked =
+                fence_claimable_live(&mut tx, task_id, Some(claim_lease_id), actor.is_bypass, now)
+                    .await
+                    .map_err(|e| TransitionError::Database {
+                        operation: "progress fence",
+                        source: e,
+                    })?;
             if locked.is_none() {
                 let _ = tx.rollback().await;
                 return Err(
@@ -324,7 +351,11 @@ pub(crate) async fn execute_task_transition(
             // blocked on the same lock and just committed is visible here.
             // This is what closes the seq-duplication race a single-
             // statement CTE version of this fence could not (see Global
-            // Constraints).
+            // Constraints) — closed for the REST path only. MCP's
+            // `progress_mesh_task` (mcp.rs) still writes via the raw pool
+            // with no lock and remains unlocked until Task 6 migrates it
+            // onto this same `execute_task_transition` service; until then a
+            // REST post and an MCP post to the same task can still collide.
             let seq: i32 = sqlx::query_scalar(
                 "SELECT COALESCE(MAX(seq), -1) + 1 FROM meshprogressevent WHERE task_id=$1",
             )
