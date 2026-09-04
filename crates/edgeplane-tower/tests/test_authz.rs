@@ -633,7 +633,7 @@ async fn mcp_progress_mesh_task_denied_for_non_owner() {
         return;
     };
     let s = server(pool.clone());
-    // Enroll agent A (the real claimer) and agent B (the non-owner).
+    // Enroll agent A (the real claimer) and agent B (a different, non-owning caller).
     let (agent_a_id, _agent_a_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let (_agent_b_id, agent_b_token) =
@@ -641,7 +641,27 @@ async fn mcp_progress_mesh_task_denied_for_non_owner() {
     let task_id =
         common::seed_claimed_task(&pool, &ctx.mission_id, &ctx.domain_id, &agent_a_id).await;
 
-    // Agent B (domain peer, not the claimer) tries to post progress — must fail.
+    // progress_mesh_task's fence (Family A, shared with heartbeat_task via
+    // fence_claimable_live in task_transitions.rs) hard-requires a
+    // claim_lease_id argument now and authorizes purely on whether it
+    // matches the row's live lease — not on caller identity. Give the task a
+    // REAL, LIVE lease: without one, every caller (even one presenting the
+    // correct lease) would be rejected on freshness alone, which would prove
+    // nothing about ownership denial specifically.
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' \
+         WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Agent B presents a WRONG lease — the only shape that actually
+    // discriminates ownership denial here: presenting the task's real lease
+    // is legitimate for ANY caller in this transition family (by design, see
+    // fence_claimable_live's doc comment), so only a caller with a
+    // genuinely wrong lease should be denied.
     let res = s
         .post("/api/mcp/call")
         .add_header(
@@ -650,13 +670,23 @@ async fn mcp_progress_mesh_task_denied_for_non_owner() {
         )
         .json(&serde_json::json!({
             "tool": "progress_mesh_task",
-            "args": { "task_id": task_id, "event_type": "status" }
+            "args": { "task_id": task_id, "event_type": "status", "claim_lease_id": "not-agent-a-lease" }
         }))
         .await;
     let body: serde_json::Value = res.json();
     assert_eq!(
         body["ok"], false,
-        "non-owner must not post progress on another agent's task: {body}"
+        "a caller presenting the wrong lease must not be able to post progress on another agent's task: {body}"
+    );
+
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM meshprogressevent WHERE task_id=$1")
+            .bind(&task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0,
+        "no progress event must have been inserted by the rejected attempt"
     );
 }
 

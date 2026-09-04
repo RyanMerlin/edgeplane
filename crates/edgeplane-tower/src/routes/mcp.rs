@@ -62,7 +62,7 @@ async fn list_tools() -> impl IntoResponse {
         tool_def(
             "progress_mesh_task",
             "Post a typed progress event for a mesh task",
-            json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"},"event_type":{"type":"string"},"payload_json":{"type":"string"}}}),
+            json!({"type":"object","properties":{"task_id":{"type":"string"},"claim_lease_id":{"type":"string"},"event_type":{"type":"string"},"payload_json":{"type":"string"}},"required":["task_id","event_type","claim_lease_id"]}),
         ),
         tool_def(
             "complete_mesh_task",
@@ -730,7 +730,14 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                         "lease_expires_at": task.get("lease_expires_at").cloned().unwrap_or(Value::Null),
                     }))
                 }
-                Ok(_) => err_result("database_error"),
+                // Exhaustive, not a wildcard: if `execute_task_transition`
+                // ever grows a new variant, this arm must fail to compile
+                // until someone decides what it means for heartbeat, instead
+                // of silently mislabeling it "database_error" at runtime.
+                Ok(crate::routes::task_transitions::TransitionOutcome::Progress(_))
+                | Ok(crate::routes::task_transitions::TransitionOutcome::WaitingReview { .. }) => {
+                    err_result("unexpected_transition_outcome")
+                }
                 Err(e) => mcp_transition_error(e),
             }
         }
@@ -776,7 +783,12 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                         "event_type": event_type,
                     }))
                 }
-                Ok(_) => err_result("database_error"),
+                // Exhaustive, not a wildcard — see the matching comment on
+                // heartbeat_mesh_task's arm above.
+                Ok(crate::routes::task_transitions::TransitionOutcome::Task { .. })
+                | Ok(crate::routes::task_transitions::TransitionOutcome::WaitingReview { .. }) => {
+                    err_result("unexpected_transition_outcome")
+                }
                 Err(e) => mcp_transition_error(e),
             }
         }
@@ -819,7 +831,11 @@ async fn dispatch(state: &AppState, principal: &Principal, tool: &str, args: &Va
                 Ok(crate::routes::task_transitions::TransitionOutcome::WaitingReview { pending_gate_ids, .. }) => {
                     ok_result(json!({"task_id": task_id, "status": "waiting_review", "pending_gates": pending_gate_ids}))
                 }
-                Ok(_) => err_result("database_error"),
+                // Exhaustive, not a wildcard — see the matching comment on
+                // heartbeat_mesh_task's arm above.
+                Ok(crate::routes::task_transitions::TransitionOutcome::Progress(_)) => {
+                    err_result("unexpected_transition_outcome")
+                }
                 Err(e) => mcp_transition_error(e),
             }
         }

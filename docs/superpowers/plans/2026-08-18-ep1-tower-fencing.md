@@ -1859,6 +1859,14 @@ git commit -m "fix(tower,daemon): require+fence claim_lease_id on progress event
 
 ### Task 9: MCP mirror — `complete_mesh_task` / `fail_mesh_task` / `block_mesh_task`
 
+**SUPERSEDED by `docs/superpowers/plans/2026-08-28-shared-fenced-transition-primitive.md` —
+implemented via the shared `execute_task_transition` service (Task 6 of that plan), not this
+section's original design. The error strings below (`task_not_found`/`lease_conflict`/`forbidden`)
+do NOT match what shipped (`mcp_transition_error` maps `TransitionError` to different strings —
+see `mcp.rs`), and the unchecked `- [ ]` steps below were never executed as written. Do not
+implement this section's steps — read `mcp.rs`'s combined `complete_mesh_task`/`fail_mesh_task`/
+`block_mesh_task` arm and `task_transitions.rs` for the actual, current implementation instead.**
+
 **Files:**
 - Modify: `crates/edgeplane-tower/src/routes/mcp.rs:791-864` (the combined match arm inside `dispatch()`)
 - Test: `crates/edgeplane-tower/tests/test_task_kind_unification.rs`

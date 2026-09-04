@@ -367,11 +367,11 @@ pub(crate) async fn execute_task_transition(
             // blocked on the same lock and just committed is visible here.
             // This is what closes the seq-duplication race a single-
             // statement CTE version of this fence could not (see Global
-            // Constraints) — closed for the REST path only. MCP's
-            // `progress_mesh_task` (mcp.rs) still writes via the raw pool
-            // with no lock and remains unlocked until Task 6 migrates it
-            // onto this same `execute_task_transition` service; until then a
-            // REST post and an MCP post to the same task can still collide.
+            // Constraints). Task 6 migrated MCP's `progress_mesh_task`
+            // (mcp.rs) onto this same `execute_task_transition` service, so
+            // both REST and MCP now share this one locked transaction — a
+            // REST post and an MCP post to the same task can no longer
+            // collide on either surface.
             let seq: i32 = sqlx::query_scalar(
                 "SELECT COALESCE(MAX(seq), -1) + 1 FROM meshprogressevent WHERE task_id=$1",
             )
@@ -415,7 +415,8 @@ pub(crate) async fn execute_task_transition(
             agent_id,
             result_artifact_id,
         } => {
-            // See work.rs's original comment (still true here): the real
+            // On-behalf-of ephemeral agent id — see `CompleteBody::agent_id`'s
+            // doc comment in work.rs (still accurate): the real
             // edgeplaned-bin/task_worker.rs caller authenticates as a
             // full-trust node and always sends {"agent_id": ...}; its own
             // subject can never match claimed_by_agent_id, so ownership is
@@ -429,6 +430,20 @@ pub(crate) async fn execute_task_transition(
             };
             let now = Utc::now().naive_utc();
             let now_tz = Utc::now();
+            // Unlike Family A above (Heartbeat/AppendProgress's explicit
+            // `SELECT ... FOR UPDATE` followed by a separate mutation), this
+            // predicate is deliberately NOT split into a separate locked
+            // SELECT and then an UPDATE — doing so would reopen a race where
+            // a review gate is created by another caller between the SELECT
+            // and the UPDATE, letting this call finish the task straight to
+            // 'finished' after the SELECT observed no pending gate but before
+            // the UPDATE landed. The `gate_check` CTE and the CASE-driven
+            // mutation it gates commit atomically together in this one
+            // statement, so the pending-gate check and the finish/
+            // waiting_review decision can never be split across two separate
+            // points in time. This is the original work.rs rationale for
+            // keeping `gate_check` a single statement, carried forward into
+            // this shared primitive.
             let row = sqlx::query(
                 "WITH gate_check AS ( \
                    SELECT EXISTS ( \
@@ -506,13 +521,7 @@ pub(crate) async fn execute_task_transition(
             claim_lease_id,
             agent_id,
         } => {
-            // See work.rs's original comment (still true here): the real
-            // edgeplaned-bin/task_worker.rs caller authenticates as a
-            // full-trust node and always sends {"agent_id": ...}; its own
-            // subject can never match claimed_by_agent_id, so ownership is
-            // read back the same on-behalf-of way claim_task wrote it,
-            // bypass-gated so a restricted caller can't spoof another
-            // agent's id via this field (Ruling C2).
+            // Same on-behalf-of rationale as the Complete arm above (Ruling C2).
             let effective_id = if actor.is_bypass {
                 agent_id.unwrap_or(actor.subject_id)
             } else {

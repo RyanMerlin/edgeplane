@@ -1235,7 +1235,14 @@ async fn heartbeat_task(
         Ok(crate::routes::task_transitions::TransitionOutcome::Task { task, .. }) => {
             Json(task).into_response()
         }
-        Ok(_) => unreachable!("Heartbeat always yields TransitionOutcome::Task"),
+        // Exhaustive, not a wildcard: if `execute_task_transition` ever
+        // grows a new variant, this arm must fail to compile until someone
+        // decides what it means for Heartbeat, instead of silently panicking
+        // at runtime the way `Ok(_) => unreachable!()` would.
+        Ok(crate::routes::task_transitions::TransitionOutcome::Progress(_))
+        | Ok(crate::routes::task_transitions::TransitionOutcome::WaitingReview { .. }) => {
+            unreachable!("Heartbeat always yields TransitionOutcome::Task")
+        }
         Err(e) => crate::routes::task_transitions::rest_transition_error(e),
     }
 }
@@ -1281,7 +1288,12 @@ async fn append_progress(
         Ok(crate::routes::task_transitions::TransitionOutcome::Progress(event)) => {
             Json(event).into_response()
         }
-        Ok(_) => unreachable!("AppendProgress always yields TransitionOutcome::Progress"),
+        // Exhaustive, not a wildcard — see the matching comment on
+        // heartbeat_task's arm above.
+        Ok(crate::routes::task_transitions::TransitionOutcome::Task { .. })
+        | Ok(crate::routes::task_transitions::TransitionOutcome::WaitingReview { .. }) => {
+            unreachable!("AppendProgress always yields TransitionOutcome::Progress")
+        }
         Err(e) => crate::routes::task_transitions::rest_transition_error(e),
     }
 }
@@ -1336,7 +1348,11 @@ async fn complete_task(
             }))
             .into_response()
         }
-        Ok(_) => unreachable!("Complete only yields Task or WaitingReview"),
+        // Exhaustive, not a wildcard — see the matching comment on
+        // heartbeat_task's arm above.
+        Ok(crate::routes::task_transitions::TransitionOutcome::Progress(_)) => {
+            unreachable!("Complete only yields Task or WaitingReview")
+        }
         Err(e) => crate::routes::task_transitions::rest_transition_error(e),
     }
 }
@@ -1375,7 +1391,12 @@ async fn fail_task(
         Ok(crate::routes::task_transitions::TransitionOutcome::Task { task, .. }) => {
             Json(task).into_response()
         }
-        Ok(_) => unreachable!("Fail always yields TransitionOutcome::Task"),
+        // Exhaustive, not a wildcard — see the matching comment on
+        // heartbeat_task's arm above.
+        Ok(crate::routes::task_transitions::TransitionOutcome::Progress(_))
+        | Ok(crate::routes::task_transitions::TransitionOutcome::WaitingReview { .. }) => {
+            unreachable!("Fail always yields TransitionOutcome::Task")
+        }
         Err(e) => crate::routes::task_transitions::rest_transition_error(e),
     }
 }
@@ -1408,7 +1429,12 @@ async fn block_task(
         Ok(crate::routes::task_transitions::TransitionOutcome::Task { task, .. }) => {
             Json(task).into_response()
         }
-        Ok(_) => unreachable!("Block always yields TransitionOutcome::Task"),
+        // Exhaustive, not a wildcard — see the matching comment on
+        // heartbeat_task's arm above.
+        Ok(crate::routes::task_transitions::TransitionOutcome::Progress(_))
+        | Ok(crate::routes::task_transitions::TransitionOutcome::WaitingReview { .. }) => {
+            unreachable!("Block always yields TransitionOutcome::Task")
+        }
         Err(e) => crate::routes::task_transitions::rest_transition_error(e),
     }
 }
