@@ -1704,15 +1704,6 @@ async fn create_gate(
     Path(task_id): Path<String>,
     Json(body): Json<GateCreate>,
 ) -> impl IntoResponse {
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await
-        .unwrap_or(None);
-    if exists.is_none() {
-        return not_found("Task not found");
-    }
-
     let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
         Ok(d) => d,
         Err(resp) => return resp,
@@ -1720,21 +1711,42 @@ async fn create_gate(
     if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
-    // Change 10: only the task's claimer (or full-trust/admin) may attach a blocking gate.
-    if let Err(resp) =
-        crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
-    {
-        return resp;
-    }
 
+    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
+    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
     let gate_id = Uuid::new_v4().to_string();
     let now = Utc::now().naive_utc();
 
+    // Fences the ownership check (Change 10: only the task's claimer, or
+    // full-trust/admin, may attach a gate) AND a "still gate-attachable"
+    // status check into the INSERT itself, closing the check-then-insert
+    // TOCTOU the old separate authz_task_owner precheck left open: a caller
+    // who owned the task at check-time but has since lost ownership
+    // (reclaimed, completed, cancelled) could otherwise still attach a
+    // pending gate. "Gate-attachable" mirrors complete_task's own
+    // non-terminal predicate (task_transitions.rs's Complete arm) — a gate
+    // only makes sense before the task reaches a status complete_task
+    // itself would treat as terminal. See
+    // docs/superpowers/plans/2026-08-18-ep1-tower-fencing.md Roadmap,
+    // "create_gate is check-then-insert with no fencing on the insert
+    // itself".
     let row = sqlx::query(
         "INSERT INTO reviewgate (id, owner_subject, mesh_task_id, run_id, gate_type, \
          required_approvals, status, approval_request_id, ai_pending_action_id, policy_rule_id, \
          created_at, resolved_at) \
-         VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,NULL,NULL,$8,NULL) RETURNING *",
+         SELECT $1,$2,$3,$4,$5,$6,'pending',$7,NULL,NULL,$8,NULL \
+         WHERE EXISTS ( \
+           SELECT 1 FROM task \
+           WHERE task.id = $3 \
+             AND ( \
+               (task.kind = 'claimable' AND task.status IN ('claimed','running','waiting_review') \
+                AND (task.claimed_by_agent_id = $9 OR $10)) \
+               OR \
+               (task.kind = 'assigned' AND task.status NOT IN ('done','finished','failed','cancelled') \
+                AND (task.owner = $9 OR $10)) \
+             ) \
+         ) \
+         RETURNING *",
     )
     .bind(&gate_id)
     .bind(&principal.subject)
@@ -1744,16 +1756,38 @@ async fn create_gate(
     .bind(&body.required_approvals)
     .bind(&body.approval_request_id)
     .bind(now)
-    .fetch_one(&state.db)
+    .bind(subject_id)
+    .bind(is_bypass)
+    .fetch_optional(&state.db)
     .await;
 
     match row {
-        Ok(r) => (StatusCode::CREATED, Json(row_to_gate(&r))).into_response(),
+        Ok(Some(r)) => (StatusCode::CREATED, Json(row_to_gate(&r))).into_response(),
+        Ok(None) => classify_create_gate_rejection(&state.db, &principal, &task_id).await,
         Err(e) => {
             tracing::error!("create_gate: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
+}
+
+/// After the fenced INSERT rejects (zero rows), classify why with a fresh
+/// read: reuses `authz_task_owner` unchanged for "task missing" (404) /
+/// "caller isn't the claimer" (403) — those two conditions are exactly what
+/// it already checks. A caller who reaches here AND passes
+/// `authz_task_owner` must have failed the status half of the fence (the
+/// only remaining reason the INSERT's WHERE EXISTS could be false), i.e.
+/// the task is no longer in a gate-attachable status.
+async fn classify_create_gate_rejection(
+    db: &sqlx::PgPool,
+    principal: &Principal,
+    task_id: &str,
+) -> axum::response::Response {
+    if let Err(resp) = crate::routes::authz::authz_task_owner(db, principal, task_id, None).await
+    {
+        return resp;
+    }
+    conflict("Task is not in a gate-attachable status")
 }
 
 async fn list_gates(

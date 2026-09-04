@@ -718,6 +718,108 @@ async fn domain_peer_cannot_create_gate_on_foreign_task() {
     );
 }
 
+#[tokio::test]
+async fn create_gate_succeeds_for_current_claimer_on_running_task() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let task_id =
+        common::seed_claimed_task(&pool, &ctx.mission_id, &ctx.domain_id, "agent-A").await;
+    let s = server(pool.clone());
+
+    // owner_session_token acts as a full-trust/bypass caller elsewhere in
+    // this suite (see fencing_complete_waiting_review_source_status_still_works
+    // in test_task_kind_unification.rs) — exercises the bypass arm of the
+    // new fenced INSERT's ownership check, not just the claimed_by_agent_id
+    // match, since no HTTP-level test previously covered create_gate's
+    // success path at all (grep confirms this was the only caller of
+    // POST .../gates in the whole suite before this plan).
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({
+            "gate_type": "review",
+            "required_approvals": "1"
+        }))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        201,
+        "creating a gate on a running, gate-attachable task must succeed: {}",
+        res.text()
+    );
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["status"], "pending");
+    assert_eq!(body["mesh_task_id"], task_id);
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM reviewgate WHERE mesh_task_id=$1")
+        .bind(&task_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
+async fn create_gate_rejected_when_task_no_longer_gate_attachable() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    // A finished task: complete_task's own terminal transition clears
+    // claimed_by_agent_id, so seed that same end state directly (status +
+    // no claimer) rather than driving it through /complete, matching how
+    // sibling fencing tests in test_task_kind_unification.rs seed
+    // post-terminal-transition state.
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "finished",
+        None,
+        1,
+    )
+    .await;
+    let s = server(pool.clone());
+
+    // Bypass caller (owner_session_token) — satisfies the ownership half of
+    // the fence unconditionally, isolating this test to the STATUS half:
+    // proves the new fence rejects based on current task status even when
+    // ownership is not the blocking factor, which the old code (a plain
+    // authz_task_owner precheck with no status check at all) could not do
+    // — that precheck would have let this request proceed straight to an
+    // unconditional INSERT.
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/gates"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({
+            "gate_type": "review",
+            "required_approvals": "1"
+        }))
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "attaching a gate to an already-finished task must be rejected: {}",
+        res.text()
+    );
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM reviewgate WHERE mesh_task_id=$1")
+        .bind(&task_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        count, 0,
+        "no gate row must have been inserted by the rejected attempt"
+    );
+}
+
 // ── send_mesh_message sender anti-spoof ──────────────────────────────────────
 
 #[tokio::test]
