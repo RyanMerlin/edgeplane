@@ -1359,65 +1359,24 @@ async fn fail_task(
         return resp;
     }
 
-    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
-    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
-    // See CompleteBody::agent_id / complete_task's effective_id comment: the
-    // real task_worker.rs caller is a node (full-trust) principal, not an
-    // agent-token principal, so its own subject never matches
-    // claimed_by_agent_id. Read ownership back the same on-behalf-of way
-    // claim_task wrote it, bypass-gated so a restricted caller can't spoof it.
-    let effective_id = if is_bypass {
-        body.agent_id.as_deref().unwrap_or(subject_id)
-    } else {
-        subject_id
-    };
-    let now = Utc::now().naive_utc();
-    let now_tz = Utc::now();
-
-    let updated = sqlx::query(
-        "UPDATE task SET status='failed', lease_expires_at=NULL, claim_lease_id=NULL, \
-         claimed_by_agent_id=NULL, finalized_at=$3, updated_at=$2, \
-         finalized_by_subject=COALESCE(claimed_by_agent_id, $6) \
-         WHERE id=$1 \
-           AND ( \
-             (kind = 'claimable' AND status IN ('claimed','running','waiting_review') \
-              AND (claimed_by_agent_id = $6 \
-                   OR ((claim_lease_id = $4 OR $5) \
-                       AND (claim_policy = 'broadcast' OR lease_expires_at >= $2)))) \
-             OR \
-             (kind = 'assigned' AND status NOT IN ('done','finished','failed','cancelled') \
-              AND (owner = $6 OR claim_lease_id = $4 OR $5)) \
-           ) \
-         RETURNING *",
+    let actor = crate::routes::task_transitions::task_actor(&principal);
+    let outcome = crate::routes::task_transitions::execute_task_transition(
+        &state.db,
+        &actor,
+        &task_id,
+        crate::routes::task_transitions::TaskTransition::Fail {
+            claim_lease_id: body.claim_lease_id.as_deref(),
+            agent_id: body.agent_id.as_deref(),
+        },
     )
-    .bind(&task_id)
-    .bind(now)
-    .bind(now_tz)
-    .bind(body.claim_lease_id.as_deref())
-    .bind(is_bypass)
-    .bind(effective_id)
-    .fetch_optional(&state.db)
     .await;
 
-    match updated {
-        Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
-        Ok(None) => {
-            let actor = crate::routes::task_transitions::task_actor(&principal);
-            crate::routes::task_transitions::rest_transition_error(
-                crate::routes::task_transitions::classify_fenced_rejection(
-                    &state.db,
-                    &actor,
-                    &task_id,
-                    body.claim_lease_id.as_deref(),
-                    &["failed"],
-                )
-                .await,
-            )
+    match outcome {
+        Ok(crate::routes::task_transitions::TransitionOutcome::Task { task, .. }) => {
+            Json(task).into_response()
         }
-        Err(e) => {
-            tracing::error!("fail_task update: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+        Ok(_) => unreachable!("Fail always yields TransitionOutcome::Task"),
+        Err(e) => crate::routes::task_transitions::rest_transition_error(e),
     }
 }
 

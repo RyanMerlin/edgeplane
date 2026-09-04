@@ -267,6 +267,10 @@ pub enum TaskTransition<'a> {
         agent_id: Option<&'a str>,
         result_artifact_id: Option<i32>,
     },
+    Fail {
+        claim_lease_id: Option<&'a str>,
+        agent_id: Option<&'a str>,
+    },
 }
 
 pub enum TransitionOutcome {
@@ -494,6 +498,61 @@ pub(crate) async fn execute_task_transition(
                 task: crate::routes::work::row_to_task(&r),
                 unblocked_task_ids: unblocked,
             })
+        }
+        TaskTransition::Fail {
+            claim_lease_id,
+            agent_id,
+        } => {
+            // See work.rs's original comment (still true here): the real
+            // edgeplaned-bin/task_worker.rs caller authenticates as a
+            // full-trust node and always sends {"agent_id": ...}; its own
+            // subject can never match claimed_by_agent_id, so ownership is
+            // read back the same on-behalf-of way claim_task wrote it,
+            // bypass-gated so a restricted caller can't spoof another
+            // agent's id via this field (Ruling C2).
+            let effective_id = if actor.is_bypass {
+                agent_id.unwrap_or(actor.subject_id)
+            } else {
+                actor.subject_id
+            };
+            let now = Utc::now().naive_utc();
+            let now_tz = Utc::now();
+            let row = sqlx::query(
+                "UPDATE task SET status='failed', lease_expires_at=NULL, claim_lease_id=NULL, \
+                 claimed_by_agent_id=NULL, finalized_at=$3, updated_at=$2, \
+                 finalized_by_subject=COALESCE(claimed_by_agent_id, $6) \
+                 WHERE id=$1 \
+                   AND ( \
+                     (kind = 'claimable' AND status IN ('claimed','running','waiting_review') \
+                      AND (claimed_by_agent_id = $6 \
+                           OR ((claim_lease_id = $4 OR $5) \
+                               AND (claim_policy = 'broadcast' OR lease_expires_at >= $2)))) \
+                     OR \
+                     (kind = 'assigned' AND status NOT IN ('done','finished','failed','cancelled') \
+                      AND (owner = $6 OR claim_lease_id = $4 OR $5)) \
+                   ) \
+                 RETURNING *",
+            )
+            .bind(task_id)
+            .bind(now)
+            .bind(now_tz)
+            .bind(claim_lease_id)
+            .bind(actor.is_bypass)
+            .bind(effective_id)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| TransitionError::Database {
+                operation: "fail update",
+                source: e,
+            })?;
+
+            match row {
+                Some(r) => Ok(TransitionOutcome::Task {
+                    task: crate::routes::work::row_to_task(&r),
+                    unblocked_task_ids: vec![],
+                }),
+                None => Err(classify_fenced_rejection(db, actor, task_id, claim_lease_id, &["failed"]).await),
+            }
         }
     }
 }

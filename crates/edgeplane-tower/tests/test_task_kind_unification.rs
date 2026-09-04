@@ -2197,6 +2197,53 @@ async fn fencing_complete_already_finished_rejects_unrelated_caller_as_409_not_4
     );
 }
 
+#[tokio::test]
+async fn fencing_fail_still_works_after_family_b_refactor() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/fail"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .json(&serde_json::json!({"claim_lease_id": "lease-a", "error": "boom"}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["status"], "failed");
+
+    let row = sqlx::query(
+        "SELECT claimed_by_agent_id, claim_lease_id, lease_expires_at, finalized_by_subject FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(row.get::<Option<String>, _>("claimed_by_agent_id").is_none());
+    assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
+    assert!(row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at").is_none());
+}
+
 // ── Task 4: cancel_task — fenced CAS ─────────────────────────────────────────
 
 #[tokio::test]
