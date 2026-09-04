@@ -1400,7 +1400,7 @@ async fn block_task(
         &state.db,
         &actor,
         &task_id,
-        crate::routes::task_transitions::TaskTransition::Block,
+        crate::routes::task_transitions::TaskTransition::Block { claim_lease_id: None },
     )
     .await;
 

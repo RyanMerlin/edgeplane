@@ -271,7 +271,9 @@ pub enum TaskTransition<'a> {
         claim_lease_id: Option<&'a str>,
         agent_id: Option<&'a str>,
     },
-    Block,
+    Block {
+        claim_lease_id: Option<&'a str>,
+    },
 }
 
 pub enum TransitionOutcome {
@@ -555,7 +557,7 @@ pub(crate) async fn execute_task_transition(
                 None => Err(classify_fenced_rejection(db, actor, task_id, claim_lease_id, &["failed"]).await),
             }
         }
-        TaskTransition::Block => {
+        TaskTransition::Block { claim_lease_id } => {
             let now = Utc::now().naive_utc();
             // Fenced CAS — was a blind UPDATE with zero status precondition at all
             // (any domain member could block any task from any status) and never
@@ -589,24 +591,23 @@ pub(crate) async fn execute_task_transition(
             // claimable-pool-adjacent status transitions reject kind='assigned'
             // rows — a narrowing from the prior no-kind-gating-at-all behavior,
             // not a widening. No broadcast carve-out (no lease_expires_at term to
-            // need one). No on-behalf-of support: there is no REST caller of
-            // /block, but `edgeplane mesh task block` DOES exist — it calls MCP
-            // block_mesh_task (a separate, unfenced code path, not this endpoint),
-            // authorizing via claim_lease_id, not identity. Do not mirror this
-            // predicate onto MCP's block_mesh_task — they need different proof
-            // shapes for their different real callers, the same trap the plan
-            // already documents for task_worker.rs vs complete_task/fail_task.
+            // need one). MCP's block_mesh_task (Task 6) now shares this exact
+            // predicate — its real caller, `edgeplane mesh task block
+            // --claim-lease-id`, needed the lease branch above, which is why this
+            // fence (unlike an earlier version) accepts claim_lease_id as an
+            // alternative to identity, not just bypass.
             let row = sqlx::query(
                 "UPDATE task SET status='blocked', \
                  lease_expires_at=NULL, claim_lease_id=NULL, updated_at=$2 \
                  WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
-                   AND (claimed_by_agent_id = $3 OR $4) \
+                   AND (claimed_by_agent_id = $3 OR $4 OR claim_lease_id = $5) \
                  RETURNING *",
             )
             .bind(task_id)
             .bind(now)
             .bind(actor.subject_id)
             .bind(actor.is_bypass)
+            .bind(claim_lease_id)
             .fetch_optional(db)
             .await
             .map_err(|e| TransitionError::Database {
@@ -619,7 +620,9 @@ pub(crate) async fn execute_task_transition(
                     task: crate::routes::work::row_to_task(&r),
                     unblocked_task_ids: vec![],
                 }),
-                None => Err(classify_fenced_rejection(db, actor, task_id, None, &["blocked"]).await),
+                None => Err(
+                    classify_fenced_rejection(db, actor, task_id, claim_lease_id, &["blocked"]).await,
+                ),
             }
         }
     }
