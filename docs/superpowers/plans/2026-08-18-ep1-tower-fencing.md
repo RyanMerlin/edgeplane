@@ -2317,7 +2317,7 @@ has enough context to start from without re-deriving it.
 - **CLOSED by `docs/superpowers/plans/2026-08-28-shared-fenced-transition-primitive.md`.** `append_progress`'s fenced CTE lacks a row lock, unlike its `UPDATE...WHERE` siblings — confirmed
   by two independent reviews now (rust-reviewer's Task 8 fix-round re-review, live 3-connection
   reproduction; and an independent Codex review, 2026-08-28, same conclusion via SQL-semantics
-  reasoning).** `WITH eligible AS (SELECT 1 FROM task WHERE ...)` takes the statement's snapshot with
+  reasoning). `WITH eligible AS (SELECT 1 FROM task WHERE ...)` takes the statement's snapshot with
   no `FOR UPDATE`, so a concurrent write to the same task row (reclaim, completion) that commits
   after the snapshot is taken but before the INSERT completes isn't observed. This is now a firm
   design requirement for the shared fenced-transition primitive (`docs/superpowers/specs/` — see the
