@@ -22,7 +22,21 @@ async fn post_progress_assigns_sequential_seq() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
+    // append_progress now requires the task be claimed/running and a live
+    // lease presented (EP-1 §1) — a bare 'ready' task with no lease no
+    // longer qualifies (see fencing_progress_requires_lease_now in
+    // test_task_kind_unification.rs for the dedicated fencing coverage;
+    // this test is purely about the seq-increment regression it was
+    // written for, so a fixed lease value that satisfies the fence is
+    // enough, not a real claim/heartbeat cycle).
     let task_id = seed_ready_task(&pool, &ctx.mission_id, &ctx.domain_id).await;
+    sqlx::query(
+        "UPDATE task SET status='running', claim_lease_id='lease-seq-test', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .expect("seed a live lease");
     let s = server(pool.clone());
 
     for i in 0..3 {
@@ -35,6 +49,7 @@ async fn post_progress_assigns_sequential_seq() {
             .json(&serde_json::json!({
                 "event_type": "phase_finished",
                 "summary": format!("iteration {i}"),
+                "claim_lease_id": "lease-seq-test",
             }))
             .await;
         res.assert_status_ok();

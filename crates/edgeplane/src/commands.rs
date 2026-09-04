@@ -675,8 +675,10 @@ pub enum MeshTaskCommand {
         /// Mesh task ID.
         #[arg(long, required = true)]
         task_id: String,
-        #[arg(long)]
-        claim_lease_id: Option<String>,
+        /// The task's live claim lease (required — progress_mesh_task's
+        /// server-side fence hard-rejects a call with no lease presented).
+        #[arg(long, required = true)]
+        claim_lease_id: String,
         #[arg(long)]
         event_type: Option<String>,
         /// Structured progress payload as a JSON string.
@@ -4302,10 +4304,7 @@ async fn handle_mesh_task(
             event_type,
             payload_json,
         } => {
-            let mut args = json!({ "task_id": task_id });
-            if let Some(v) = claim_lease_id {
-                args["claim_lease_id"] = json!(v);
-            }
+            let mut args = json!({ "task_id": task_id, "claim_lease_id": claim_lease_id });
             if let Some(v) = event_type {
                 args["event_type"] = json!(v);
             }
