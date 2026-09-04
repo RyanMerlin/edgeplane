@@ -271,6 +271,7 @@ pub enum TaskTransition<'a> {
         claim_lease_id: Option<&'a str>,
         agent_id: Option<&'a str>,
     },
+    Block,
 }
 
 pub enum TransitionOutcome {
@@ -552,6 +553,73 @@ pub(crate) async fn execute_task_transition(
                     unblocked_task_ids: vec![],
                 }),
                 None => Err(classify_fenced_rejection(db, actor, task_id, claim_lease_id, &["failed"]).await),
+            }
+        }
+        TaskTransition::Block => {
+            let now = Utc::now().naive_utc();
+            // Fenced CAS — was a blind UPDATE with zero status precondition at all
+            // (any domain member could block any task from any status) and never
+            // cleared the active lease. Clears claim_lease_id/lease_expires_at (the
+            // heartbeat-lease mechanics for actively-in-progress work, which are
+            // moot once paused/blocked) but deliberately KEEPS claimed_by_agent_id
+            // — an earlier version of this fix nulled it, following spec §1's
+            // "block releases the lease" note, and an adversarial review
+            // (2026-08-20) caught two problems with that: (1) the stated
+            // justification — "re-enters the claimable pool" — is false: claim_task
+            // requires status='ready' and expire_stale_leases only
+            // sweeps 'claimed'/'running', so a blocked row never
+            // re-enters the pool regardless of whether claimed_by_agent_id survives;
+            // (2) it silently locked the blocking agent out of unblock_task
+            // (unblock_task's existing code) —
+            // authz_task_owner's only viable non-bypass path for a claimable row is
+            // claimed == subject (owner is NULL for claimable, and unblock_task
+            // passes lease_id=None), so nulling it made every non-admin block
+            // permanent. Preserving it keeps that path intact and costs nothing —
+            // nothing reads it while blocked (no fenced predicate matches
+            // status='blocked', and the sweep never touches it either).
+            //
+            // already_done_statuses includes 'blocked': block DOES destroy
+            // ownership evidence a retry could need (the lease fields), same
+            // criterion as complete_task/fail_task/cancel_task, not "is this
+            // terminal" — heartbeat_task passes &[] correctly because it clears
+            // nothing, not because it isn't terminal; this endpoint clears lease
+            // fields, so it needs the same idempotent-retry protection.
+            //
+            // kind='claimable' only, mirroring retry_task's precedent that
+            // claimable-pool-adjacent status transitions reject kind='assigned'
+            // rows — a narrowing from the prior no-kind-gating-at-all behavior,
+            // not a widening. No broadcast carve-out (no lease_expires_at term to
+            // need one). No on-behalf-of support: there is no REST caller of
+            // /block, but `edgeplane mesh task block` DOES exist — it calls MCP
+            // block_mesh_task (a separate, unfenced code path, not this endpoint),
+            // authorizing via claim_lease_id, not identity. Do not mirror this
+            // predicate onto MCP's block_mesh_task — they need different proof
+            // shapes for their different real callers, the same trap the plan
+            // already documents for task_worker.rs vs complete_task/fail_task.
+            let row = sqlx::query(
+                "UPDATE task SET status='blocked', \
+                 lease_expires_at=NULL, claim_lease_id=NULL, updated_at=$2 \
+                 WHERE id=$1 AND kind='claimable' AND status IN ('claimed','running') \
+                   AND (claimed_by_agent_id = $3 OR $4) \
+                 RETURNING *",
+            )
+            .bind(task_id)
+            .bind(now)
+            .bind(actor.subject_id)
+            .bind(actor.is_bypass)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| TransitionError::Database {
+                operation: "block update",
+                source: e,
+            })?;
+
+            match row {
+                Some(r) => Ok(TransitionOutcome::Task {
+                    task: crate::routes::work::row_to_task(&r),
+                    unblocked_task_ids: vec![],
+                }),
+                None => Err(classify_fenced_rejection(db, actor, task_id, None, &["blocked"]).await),
             }
         }
     }

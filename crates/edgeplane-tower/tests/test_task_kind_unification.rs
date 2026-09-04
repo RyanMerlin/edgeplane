@@ -4434,3 +4434,50 @@ async fn fencing_complete_still_unblocks_dependents_after_family_b_refactor() {
         "dependent-unblocking must still happen after the family-B refactor: {body}"
     );
 }
+
+#[tokio::test]
+async fn fencing_block_still_works_after_family_d_refactor() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-A"),
+        1,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE task SET claim_lease_id='lease-a', lease_expires_at = now() + interval '1 hour' WHERE id=$1",
+    )
+    .bind(&task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/block"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["status"], "blocked");
+
+    let row = sqlx::query("SELECT claimed_by_agent_id, claim_lease_id, lease_expires_at FROM task WHERE id=$1")
+        .bind(&task_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        row.get::<Option<String>, _>("claimed_by_agent_id").is_some(),
+        "block must still PRESERVE claimed_by_agent_id (deliberate, see work.rs's original comment) after the family-D refactor"
+    );
+    assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
+    assert!(row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at").is_none());
+}
