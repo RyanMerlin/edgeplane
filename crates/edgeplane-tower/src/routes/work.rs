@@ -533,17 +533,21 @@ pub(crate) async fn detect_cycle(
     new_id: &str,
     depends_on: &[String],
 ) -> Result<bool, sqlx::Error> {
-    let rows = sqlx::query("SELECT id, depends_on FROM task WHERE mission_id=$1 AND kind='claimable'")
-        .bind(mission_id)
-        .fetch_all(db)
-        .await?;
+    let rows =
+        sqlx::query("SELECT id, depends_on FROM task WHERE mission_id=$1 AND kind='claimable'")
+            .bind(mission_id)
+            .fetch_all(db)
+            .await?;
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
     for r in &rows {
         let id: String = r.get("id");
         // depends_on is nullable `text` (no NOT NULL) — non-Option `Row::get`
         // panics on NULL.
         let deps: Vec<String> = serde_json::from_str(
-            r.try_get::<Option<&str>, _>("depends_on").ok().flatten().unwrap_or("[]"),
+            r.try_get::<Option<&str>, _>("depends_on")
+                .ok()
+                .flatten()
+                .unwrap_or("[]"),
         )
         .unwrap_or_default();
         adj.insert(id, deps);
@@ -577,7 +581,11 @@ pub(crate) async fn detect_cycle(
 }
 
 /// After a task finishes, find and unblock any dependents whose deps are all finished.
-pub(crate) async fn unblock_dependents(db: &sqlx::PgPool, mission_id: &str, finished_id: &str) -> Vec<String> {
+pub(crate) async fn unblock_dependents(
+    db: &sqlx::PgPool,
+    mission_id: &str,
+    finished_id: &str,
+) -> Vec<String> {
     let candidates = sqlx::query(
         "SELECT id, depends_on FROM task WHERE mission_id=$1 AND kind='claimable' AND status IN ('pending','blocked')",
     )
@@ -592,7 +600,10 @@ pub(crate) async fn unblock_dependents(db: &sqlx::PgPool, mission_id: &str, fini
     for c in &candidates {
         let cid: String = c.get("id");
         let dep_ids: Vec<String> = serde_json::from_str(
-            c.try_get::<Option<&str>, _>("depends_on").ok().flatten().unwrap_or("[]"),
+            c.try_get::<Option<&str>, _>("depends_on")
+                .ok()
+                .flatten()
+                .unwrap_or("[]"),
         )
         .unwrap_or_default();
         if !dep_ids.contains(&finished_id.to_string()) {
@@ -634,7 +645,10 @@ pub(crate) fn new_public_id() -> String {
 /// `pub(crate)` — shared between `create_task` (REST) and
 /// `routes::mcp::submit_mesh_task` (MCP) so the two column-population paths
 /// (migration 0014's unification requirement) don't diverge on this logic.
-pub(crate) async fn compute_initial_status(db: &sqlx::PgPool, depends_on: &[String]) -> &'static str {
+pub(crate) async fn compute_initial_status(
+    db: &sqlx::PgPool,
+    depends_on: &[String],
+) -> &'static str {
     if depends_on.is_empty() {
         return "ready";
     }
@@ -720,9 +734,7 @@ async fn create_task(
         }
     };
 
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -730,13 +742,14 @@ async fn create_task(
     // claimable-pool concept, and depends_on/produces/consumes are
     // claimable-only columns post-unification).
     for dep_id in &body.depends_on {
-        let exists: Option<i32> =
-            sqlx::query_scalar("SELECT 1 FROM task WHERE id=$1 AND mission_id=$2 AND kind='claimable'")
-                .bind(dep_id)
-                .bind(&mission_id)
-                .fetch_optional(&state.db)
-                .await
-                .unwrap_or(None);
+        let exists: Option<i32> = sqlx::query_scalar(
+            "SELECT 1 FROM task WHERE id=$1 AND mission_id=$2 AND kind='claimable'",
+        )
+        .bind(dep_id)
+        .bind(&mission_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
         if exists.is_none() {
             return bad_request(&format!("Dependency task not found: {dep_id}"));
         }
@@ -821,11 +834,12 @@ async fn task_graph(
     {
         return r;
     }
-    let rows =
-        sqlx::query("SELECT id, title, status, depends_on FROM task WHERE mission_id=$1 AND kind='claimable'")
-            .bind(&mission_id)
-            .fetch_all(&state.db)
-            .await;
+    let rows = sqlx::query(
+        "SELECT id, title, status, depends_on FROM task WHERE mission_id=$1 AND kind='claimable'",
+    )
+    .bind(&mission_id)
+    .fetch_all(&state.db)
+    .await;
 
     match rows {
         Ok(rows) => {
@@ -844,7 +858,10 @@ async fn task_graph(
             for r in &rows {
                 let from: String = r.get("id");
                 let deps: Vec<String> = serde_json::from_str(
-                    r.try_get::<Option<&str>, _>("depends_on").ok().flatten().unwrap_or("[]"),
+                    r.try_get::<Option<&str>, _>("depends_on")
+                        .ok()
+                        .flatten()
+                        .unwrap_or("[]"),
                 )
                 .unwrap_or_default();
                 for dep in deps {
@@ -892,14 +909,15 @@ async fn cancel_task(
         Ok(d) => d,
         Err(resp) => return resp,
     };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
     let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
-    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+    let subject_id = principal
+        .subject
+        .strip_prefix("agent:")
+        .unwrap_or(&principal.subject);
     let now = Utc::now().naive_utc();
     let now_tz = Utc::now();
 
@@ -957,7 +975,11 @@ async fn cancel_task(
             let actor = crate::routes::task_transitions::task_actor(&principal);
             crate::routes::task_transitions::rest_transition_error(
                 crate::routes::task_transitions::classify_fenced_rejection(
-                    &state.db, &actor, &task_id, None, &["cancelled"],
+                    &state.db,
+                    &actor,
+                    &task_id,
+                    None,
+                    &["cancelled"],
                 )
                 .await,
             )
@@ -989,9 +1011,7 @@ async fn retry_task(
     };
 
     let domain_id: String = task_row.get("domain_id");
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -1036,7 +1056,10 @@ async fn claim_task(
     // agent_id in the body to claim on behalf of another agent. Restricted
     // callers (agents, service accounts) are always attributed to themselves —
     // the body field is ignored so a compromised agent cannot spoof another's id.
-    let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+    let self_id = principal
+        .subject
+        .strip_prefix("agent:")
+        .unwrap_or(&principal.subject);
     let agent_id = if crate::auth::is_full_trust(&principal) || principal.is_admin {
         body.as_ref()
             .and_then(|b| b.get("agent_id"))
@@ -1062,9 +1085,7 @@ async fn claim_task(
     };
 
     let domain_id: String = task_row.get("domain_id");
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -1214,9 +1235,7 @@ async fn heartbeat_task(
         Ok(d) => d,
         Err(resp) => return resp,
     };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -1261,9 +1280,7 @@ async fn append_progress(
         Ok(d) => d,
         Err(resp) => return resp,
     };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -1310,9 +1327,7 @@ async fn complete_task(
         Ok(d) => d,
         Err(resp) => return resp,
     };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -1335,19 +1350,23 @@ async fn complete_task(
     .await;
 
     match outcome {
-        Ok(crate::routes::task_transitions::TransitionOutcome::Task { task, unblocked_task_ids }) => {
+        Ok(crate::routes::task_transitions::TransitionOutcome::Task {
+            task,
+            unblocked_task_ids,
+        }) => {
             let mut val = task;
             val["unblocked_tasks"] = serde_json::json!(unblocked_task_ids);
             Json(val).into_response()
         }
-        Ok(crate::routes::task_transitions::TransitionOutcome::WaitingReview { pending_gate_ids, .. }) => {
-            Json(serde_json::json!({
-                "status": "waiting_review",
-                "pending_gates": pending_gate_ids,
-                "task_id": task_id,
-            }))
-            .into_response()
-        }
+        Ok(crate::routes::task_transitions::TransitionOutcome::WaitingReview {
+            pending_gate_ids,
+            ..
+        }) => Json(serde_json::json!({
+            "status": "waiting_review",
+            "pending_gates": pending_gate_ids,
+            "task_id": task_id,
+        }))
+        .into_response(),
         // Exhaustive, not a wildcard — see the matching comment on
         // heartbeat_task's arm above.
         Ok(crate::routes::task_transitions::TransitionOutcome::Progress(_)) => {
@@ -1369,9 +1388,7 @@ async fn fail_task(
         Ok(d) => d,
         Err(resp) => return resp,
     };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -1410,9 +1427,7 @@ async fn block_task(
         Ok(d) => d,
         Err(resp) => return resp,
     };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -1421,7 +1436,9 @@ async fn block_task(
         &state.db,
         &actor,
         &task_id,
-        crate::routes::task_transitions::TaskTransition::Block { claim_lease_id: None },
+        crate::routes::task_transitions::TaskTransition::Block {
+            claim_lease_id: None,
+        },
     )
     .await;
 
@@ -1471,9 +1488,7 @@ async fn dispatch_task(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
     if created_by != principal.subject && !principal.is_admin {
@@ -1500,13 +1515,11 @@ async fn dispatch_task(
     }
 
     let now = Utc::now().naive_utc();
-    match sqlx::query(
-        "UPDATE task SET status='finished', updated_at=$2 WHERE id=$1 RETURNING *",
-    )
-    .bind(&task_id)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await
+    match sqlx::query("UPDATE task SET status='finished', updated_at=$2 WHERE id=$1 RETURNING *")
+        .bind(&task_id)
+        .bind(now)
+        .fetch_one(&state.db)
+        .await
     {
         Ok(r) => Json(row_to_task(&r)).into_response(),
         Err(e) => {
@@ -1525,14 +1538,15 @@ async fn unblock_task(
         Ok(d) => d,
         Err(resp) => return resp,
     };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
     let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
-    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+    let subject_id = principal
+        .subject
+        .strip_prefix("agent:")
+        .unwrap_or(&principal.subject);
     let now = Utc::now().naive_utc();
 
     // Fenced CAS — was a blind UPDATE with zero status precondition (any
@@ -1582,7 +1596,11 @@ async fn unblock_task(
             let actor = crate::routes::task_transitions::task_actor(&principal);
             crate::routes::task_transitions::rest_transition_error(
                 crate::routes::task_transitions::classify_fenced_rejection(
-                    &state.db, &actor, &task_id, None, &[],
+                    &state.db,
+                    &actor,
+                    &task_id,
+                    None,
+                    &[],
                 )
                 .await,
             )
@@ -1680,9 +1698,7 @@ async fn create_gate(
         Ok(d) => d,
         Err(resp) => return resp,
     };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
     // Change 10: only the task's claimer (or full-trust/admin) may attach a blocking gate.
@@ -1765,15 +1781,16 @@ async fn resolve_gate(
         Ok(d) => d,
         Err(resp) => return resp,
     };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
     let now = Utc::now().naive_utc();
     let now_tz = Utc::now();
-    let subject_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+    let subject_id = principal
+        .subject
+        .strip_prefix("agent:")
+        .unwrap_or(&principal.subject);
 
     // Second pass (independent rust-reviewer, Task 7): the first version of
     // this function fenced the reviewgate UPDATE and the task-transition
@@ -2032,7 +2049,8 @@ async fn issue_agent_token(
     domain_id: &str,
 ) -> anyhow::Result<String> {
     const TTL_HOURS: i64 = 12;
-    let (token, jti) = crate::jwt::sign_agent_jwt(agent_id, domain_id, &state.jwt_encoding_key, TTL_HOURS)?;
+    let (token, jti) =
+        crate::jwt::sign_agent_jwt(agent_id, domain_id, &state.jwt_encoding_key, TTL_HOURS)?;
     let expires_at = (Utc::now() + chrono::Duration::hours(TTL_HOURS)).naive_utc();
     sqlx::query(
         "INSERT INTO agenttoken (jti, agent_id, domain_id, revoked, expires_at, created_at) \
@@ -2059,7 +2077,9 @@ async fn mint_agent_token(
     if !(crate::auth::is_full_trust(&principal) || principal.is_admin) {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"detail": "full-trust principal required to mint agent tokens"})),
+            Json(
+                serde_json::json!({"detail": "full-trust principal required to mint agent tokens"}),
+            ),
         )
             .into_response();
     }
@@ -2099,9 +2119,7 @@ async fn enroll_agent(
         return not_found("Domain not found");
     }
 
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -2276,19 +2294,19 @@ async fn agent_heartbeat(
         return not_found("Agent not found");
     }
 
-    let domain_id =
-        match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
-            Ok(d) => d,
-            Err(resp) => return resp,
-        };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    let domain_id = match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
     // Change 11a: non-full-trust callers may only heartbeat their own agent.
     if !crate::auth::is_full_trust(&principal) && !principal.is_admin {
-        let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+        let self_id = principal
+            .subject
+            .strip_prefix("agent:")
+            .unwrap_or(&principal.subject);
         if self_id != agent_id.as_str() {
             return StatusCode::FORBIDDEN.into_response();
         }
@@ -2347,9 +2365,7 @@ async fn delete_agent(
         }
     };
 
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -2428,19 +2444,19 @@ async fn set_agent_status(
         return not_found("Agent not found");
     }
 
-    let domain_id =
-        match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
-            Ok(d) => d,
-            Err(resp) => return resp,
-        };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    let domain_id = match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
     // Change 11b: non-full-trust callers may only set their own agent's status.
     if !crate::auth::is_full_trust(&principal) && !principal.is_admin {
-        let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+        let self_id = principal
+            .subject
+            .strip_prefix("agent:")
+            .unwrap_or(&principal.subject);
         if self_id != agent_id.as_str() {
             return StatusCode::FORBIDDEN.into_response();
         }
@@ -2475,19 +2491,19 @@ async fn update_agent_profile(
         return not_found("Agent not found");
     }
 
-    let domain_id =
-        match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
-            Ok(d) => d,
-            Err(resp) => return resp,
-        };
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    let domain_id = match crate::routes::authz::domain_id_for_agent(&state.db, &agent_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
     // Change 11c: non-full-trust callers may only update their own agent's profile.
     if !crate::auth::is_full_trust(&principal) && !principal.is_admin {
-        let self_id = principal.subject.strip_prefix("agent:").unwrap_or(&principal.subject);
+        let self_id = principal
+            .subject
+            .strip_prefix("agent:")
+            .unwrap_or(&principal.subject);
         if self_id != agent_id.as_str() {
             return StatusCode::FORBIDDEN.into_response();
         }
@@ -2681,9 +2697,7 @@ async fn send_domain_message(
         return not_found("Domain not found");
     }
 
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
-    {
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -2822,15 +2836,13 @@ async fn send_mission_message(
     Path(mission_id): Path<String>,
     Json(body): Json<MessageCreate>,
 ) -> impl IntoResponse {
-    let domain_id =
-        match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
-            Ok(d) => d,
-            Err(resp) => return resp,
-        };
-
-    if let Err(resp) =
-        crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await
+    let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await
     {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+
+    if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
@@ -2883,7 +2895,8 @@ async fn mission_stream(
     principal: Principal,
     Path(mission_id): Path<String>,
 ) -> Response {
-    let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await {
+    let domain_id = match crate::routes::authz::domain_id_for_mission(&state.db, &mission_id).await
+    {
         Ok(d) => d,
         Err(resp) => return resp,
     };

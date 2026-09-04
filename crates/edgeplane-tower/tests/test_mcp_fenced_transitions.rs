@@ -53,7 +53,12 @@ async fn mcp_heartbeat_on_expired_lease_is_rejected_and_cannot_revive_rest_acces
         )
         .json(&serde_json::json!({"claim_lease_id": "lease-a"}))
         .await;
-    assert_eq!(rest_res.status_code(), 409, "sanity: REST must reject the expired lease first: {}", rest_res.text());
+    assert_eq!(
+        rest_res.status_code(),
+        409,
+        "sanity: REST must reject the expired lease first: {}",
+        rest_res.text()
+    );
 
     // The exploit attempt: revive the same expired lease through MCP.
     let mcp_res = s
@@ -75,11 +80,12 @@ async fn mcp_heartbeat_on_expired_lease_is_rejected_and_cannot_revive_rest_acces
 
     // Confirm the revival didn't happen even partially — the row's lease
     // must still be expired, not pushed into the future.
-    let lease_expires_at: chrono::NaiveDateTime = sqlx::query_scalar("SELECT lease_expires_at FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let lease_expires_at: chrono::NaiveDateTime =
+        sqlx::query_scalar("SELECT lease_expires_at FROM task WHERE id=$1")
+            .bind(&task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(
         lease_expires_at < chrono::Utc::now().naive_utc(),
         "the lease must still be expired in the database — no partial revival"
@@ -145,11 +151,12 @@ async fn mcp_heartbeat_grants_120s_not_300s() {
     let body: serde_json::Value = res.json();
     assert_eq!(body["ok"], true, "{body}");
 
-    let lease_expires_at: chrono::NaiveDateTime = sqlx::query_scalar("SELECT lease_expires_at FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let lease_expires_at: chrono::NaiveDateTime =
+        sqlx::query_scalar("SELECT lease_expires_at FROM task WHERE id=$1")
+            .bind(&task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let granted_secs = (lease_expires_at.and_utc() - before).num_seconds();
     assert!(
         (115..=125).contains(&granted_secs),
@@ -194,7 +201,10 @@ async fn mcp_progress_requires_lease_and_freshness_now() {
         }))
         .await;
     let body_no_lease: serde_json::Value = res_no_lease.json();
-    assert_eq!(body_no_lease["ok"], false, "progress without a lease must be rejected: {body_no_lease}");
+    assert_eq!(
+        body_no_lease["ok"], false,
+        "progress without a lease must be rejected: {body_no_lease}"
+    );
 
     // Expired lease presented — must be rejected too.
     let res_expired = s
@@ -209,7 +219,10 @@ async fn mcp_progress_requires_lease_and_freshness_now() {
         }))
         .await;
     let body_expired: serde_json::Value = res_expired.json();
-    assert_eq!(body_expired["ok"], false, "progress with an expired lease must be rejected: {body_expired}");
+    assert_eq!(
+        body_expired["ok"], false,
+        "progress with an expired lease must be rejected: {body_expired}"
+    );
 
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM meshprogressevent WHERE task_id=$1")
@@ -243,7 +256,10 @@ async fn mcp_complete_stale_lease_after_reclaim_is_rejected() {
         }))
         .await;
     let claim_body: serde_json::Value = claim_res.json();
-    let lease_a = claim_body["result"]["claim_lease_id"].as_str().unwrap().to_string();
+    let lease_a = claim_body["result"]["claim_lease_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Force the lease into the past and let the reclaim sweep run via a
     // list_tasks call (the existing trigger_reclaim_sweep pattern from

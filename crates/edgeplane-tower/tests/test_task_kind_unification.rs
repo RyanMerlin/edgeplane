@@ -51,7 +51,10 @@ async fn server_with_admin(pool: sqlx::PgPool, db: &sqlx::PgPool) -> (TestServer
 /// var safe here (each test is its own process).
 fn server_with_node_signing_key(pool: sqlx::PgPool) -> (TestServer, jsonwebtoken::EncodingKey) {
     let (priv_pem, _pub_pem) = edgeplane_tower::jwt::generate_rsa_keypair().unwrap();
-    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, priv_pem.as_bytes());
+    let b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        priv_pem.as_bytes(),
+    );
     // SAFETY (soundness, not memory): mutating a process-wide env var is
     // inherently racy if another thread reads it concurrently; nextest
     // isolates each #[tokio::test] in its own process, so nothing else in
@@ -77,8 +80,8 @@ async fn seed_node_caller(
     let node_name = format!("fencing-test-node-{}", uuid::Uuid::new_v4().simple());
     let node_id = common::seed_runtime_node(pool, "harness", &node_name).await;
     common::seed_node_agent(pool, domain_id, &node_id).await;
-    let (node_jwt, jti) = edgeplane_tower::jwt::sign_node_jwt(&node_id, encoding_key, 1)
-        .expect("sign node jwt");
+    let (node_jwt, jti) =
+        edgeplane_tower::jwt::sign_node_jwt(&node_id, encoding_key, 1).expect("sign node jwt");
     sqlx::query(
         "INSERT INTO nodetoken (jti, node_id, revoked, issued_at, expires_at) \
          VALUES ($1, $2, false, now(), now() + interval '1 day')",
@@ -615,15 +618,9 @@ async fn fencing_heartbeat_stale_lease_is_409_not_403() {
     };
     let s = server(pool.clone());
 
-    let task_id = common::seed_claimable_task(
-        &pool,
-        &ctx.mission_id,
-        &ctx.domain_id,
-        "running",
-        None,
-        2,
-    )
-    .await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "running", None, 2)
+            .await;
     sqlx::query("UPDATE task SET claim_lease_id='stale-lease', lease_expires_at=now()+interval '1 hour' WHERE id=$1")
         .bind(&task_id)
         .execute(&pool)
@@ -897,8 +894,7 @@ async fn fencing_complete_stale_lease_after_reclaim_is_409() {
     let s = server(pool.clone());
 
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -980,9 +976,13 @@ async fn fencing_complete_kind_assigned_still_works_after_predicate_split() {
         return;
     };
     let s = server(pool.clone());
-    let task_id =
-        common::seed_assigned_task(&pool, &ctx.mission_id, &ctx.domain_id, ctx.owner_session_subject())
-            .await;
+    let task_id = common::seed_assigned_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        ctx.owner_session_subject(),
+    )
+    .await;
 
     let res = s
         .post(&format!("/api/work/tasks/{task_id}/complete"))
@@ -1032,19 +1032,23 @@ async fn fencing_complete_terminal_transition_clears_claimed_by_agent_id() {
         .await;
     assert!(res.status_code().is_success(), "{}", res.text());
 
-    let row = sqlx::query("SELECT claimed_by_agent_id, claim_lease_id, lease_expires_at FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let row = sqlx::query(
+        "SELECT claimed_by_agent_id, claim_lease_id, lease_expires_at FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert!(
-        row.get::<Option<String>, _>("claimed_by_agent_id").is_none(),
+        row.get::<Option<String>, _>("claimed_by_agent_id")
+            .is_none(),
         "complete_task must clear claimed_by_agent_id, not just the lease fields (spec §1 third-pass correction)"
     );
     assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
-    assert!(row
-        .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
-        .is_none());
+    assert!(
+        row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -1307,8 +1311,7 @@ async fn fencing_complete_claimed_by_agent_id_without_lease_succeeds() {
     let (agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -1547,13 +1550,15 @@ async fn fencing_fail_terminal_transition_clears_all_three_lease_fields() {
     .await
     .unwrap();
     assert!(
-        row.get::<Option<String>, _>("claimed_by_agent_id").is_none(),
+        row.get::<Option<String>, _>("claimed_by_agent_id")
+            .is_none(),
         "fail_task must clear claimed_by_agent_id, not just the lease fields"
     );
     assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
-    assert!(row
-        .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
-        .is_none());
+    assert!(
+        row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -1563,8 +1568,7 @@ async fn fencing_fail_stale_lease_after_reclaim_is_409() {
     };
     let s = server(pool.clone());
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -1695,8 +1699,7 @@ async fn fencing_fail_claimed_by_agent_id_without_lease_succeeds() {
     let (agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -1957,8 +1960,7 @@ async fn fencing_complete_finalized_by_subject_preserves_claimer_identity() {
     let (agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -1999,8 +2001,7 @@ async fn fencing_fail_finalized_by_subject_preserves_claimer_identity() {
     let (agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -2037,9 +2038,13 @@ async fn fencing_complete_finalized_by_subject_falls_back_to_caller_for_assigned
     // kind='assigned' rows never have claimed_by_agent_id — the fallback
     // (COALESCE's second branch) records the completing caller's own
     // identity instead.
-    let task_id =
-        common::seed_assigned_task(&pool, &ctx.mission_id, &ctx.domain_id, ctx.owner_session_subject())
-            .await;
+    let task_id = common::seed_assigned_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        ctx.owner_session_subject(),
+    )
+    .await;
 
     let res = s
         .post(&format!("/api/work/tasks/{task_id}/complete"))
@@ -2073,8 +2078,7 @@ async fn fencing_complete_idempotent_retry_after_success_is_409_not_403() {
     let (_agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -2121,8 +2125,7 @@ async fn fencing_fail_idempotent_retry_after_success_is_409_not_403() {
     let (_agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -2171,15 +2174,9 @@ async fn fencing_complete_already_finished_rejects_unrelated_caller_as_409_not_4
     // state fact, not an authorization fact, so this classifies as 409 the
     // same way an idempotent retry from the real claimer does — the door is
     // closed to everyone equally, not selectively re-opened for a stranger.
-    let task_id = common::seed_claimable_task(
-        &pool,
-        &ctx.mission_id,
-        &ctx.domain_id,
-        "finished",
-        None,
-        1,
-    )
-    .await;
+    let task_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "finished", None, 1)
+            .await;
 
     let res = s
         .post(&format!("/api/work/tasks/{task_id}/complete"))
@@ -2239,9 +2236,15 @@ async fn fencing_fail_still_works_after_family_b_refactor() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(row.get::<Option<String>, _>("claimed_by_agent_id").is_none());
+    assert!(
+        row.get::<Option<String>, _>("claimed_by_agent_id")
+            .is_none()
+    );
     assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
-    assert!(row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at").is_none());
+    assert!(
+        row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+            .is_none()
+    );
 }
 
 // ── Task 4: cancel_task — fenced CAS ─────────────────────────────────────────
@@ -2357,8 +2360,7 @@ async fn fencing_cancel_self_cancel_finalized_by_subject_is_the_agent() {
     let (agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -2402,8 +2404,7 @@ async fn fencing_cancel_full_trust_caller_cancelling_different_agents_task_attri
     let (agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -2448,8 +2449,7 @@ async fn fencing_cancel_after_fail_preserves_original_failure_attribution() {
     let (agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -2468,7 +2468,10 @@ async fn fencing_cancel_after_fail_preserves_original_failure_attribution() {
         .json(&serde_json::json!({"error": "boom"}))
         .await;
     assert!(fail_res.status_code().is_success(), "{}", fail_res.text());
-    assert_eq!(fail_res.json::<serde_json::Value>()["finalized_by_subject"], agent_id);
+    assert_eq!(
+        fail_res.json::<serde_json::Value>()["finalized_by_subject"],
+        agent_id
+    );
 
     let cancel_res = s
         .post(&format!("/api/work/tasks/{task_id}/cancel"))
@@ -2477,7 +2480,11 @@ async fn fencing_cancel_after_fail_preserves_original_failure_attribution() {
             format!("Bearer {}", ctx.owner_session_token),
         )
         .await;
-    assert!(cancel_res.status_code().is_success(), "{}", cancel_res.text());
+    assert!(
+        cancel_res.status_code().is_success(),
+        "{}",
+        cancel_res.text()
+    );
     let body: serde_json::Value = cancel_res.json();
     assert_eq!(
         body["finalized_by_subject"], agent_id,
@@ -2538,8 +2545,7 @@ async fn fencing_cancel_idempotent_retry_after_success_is_409_not_403() {
     let (_agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -2583,8 +2589,7 @@ async fn fencing_block_wrong_status_is_409() {
     };
     let s = server(pool.clone());
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 1)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 1).await;
 
     let res = s
         .post(&format!("/api/work/tasks/{task_id}/block"))
@@ -2653,9 +2658,10 @@ async fn fencing_block_clears_lease_but_preserves_claimer_identity() {
         "claimed_by_agent_id must survive block so the blocker can still unblock it"
     );
     assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
-    assert!(row
-        .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
-        .is_none());
+    assert!(
+        row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -2673,8 +2679,7 @@ async fn fencing_block_real_claimer_non_bypass_succeeds() {
     let (_agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -2709,8 +2714,7 @@ async fn fencing_block_idempotent_retry_after_success_is_409_not_403() {
     let (_agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -2950,8 +2954,7 @@ async fn fencing_unblock_real_blocker_non_bypass_succeeds_and_preserves_claimer(
     let (agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -3001,8 +3004,7 @@ async fn fencing_unblock_idempotent_retry_after_success_is_409_not_403() {
     let (_agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -3078,8 +3080,7 @@ async fn fencing_unblock_loses_race_to_concurrent_cancel_is_409() {
     let (_agent_id, agent_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
         .add_header(
@@ -3110,7 +3111,10 @@ async fn fencing_unblock_loses_race_to_concurrent_cancel_is_409() {
         "a blocked task must be legally cancellable: {}",
         cancel_res.text()
     );
-    assert_eq!(cancel_res.json::<serde_json::Value>()["status"], "cancelled");
+    assert_eq!(
+        cancel_res.json::<serde_json::Value>()["status"],
+        "cancelled"
+    );
 
     let unblock_res = s
         .post(&format!("/api/work/tasks/{task_id}/unblock"))
@@ -3165,8 +3169,7 @@ async fn fencing_unblock_stale_actor_after_reclaim_is_403() {
     let (_agent_b_id, agent_b_token) =
         enroll_and_get_token(&s, &ctx.domain_id, &ctx.owner_session_token).await;
     let task_id =
-        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2)
-            .await;
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "ready", None, 2).await;
 
     let claim_res = s
         .post(&format!("/api/work/tasks/{task_id}/claim"))
@@ -3192,7 +3195,11 @@ async fn fencing_unblock_stale_actor_after_reclaim_is_403() {
             format!("Bearer {agent_a_token}"),
         )
         .await;
-    assert!(first_unblock.status_code().is_success(), "{}", first_unblock.text());
+    assert!(
+        first_unblock.status_code().is_success(),
+        "{}",
+        first_unblock.text()
+    );
     assert_eq!(
         first_unblock.json::<serde_json::Value>()["claimed_by_agent_id"],
         agent_a_id
@@ -3206,7 +3213,11 @@ async fn fencing_unblock_stale_actor_after_reclaim_is_403() {
         )
         .json(&serde_json::json!({}))
         .await;
-    assert!(reclaim_res.status_code().is_success(), "{}", reclaim_res.text());
+    assert!(
+        reclaim_res.status_code().is_success(),
+        "{}",
+        reclaim_res.text()
+    );
 
     let retry_unblock = s
         .post(&format!("/api/work/tasks/{task_id}/unblock"))
@@ -3274,7 +3285,9 @@ async fn fencing_resolve_gate_approved_clears_all_three_lease_fields() {
     let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
 
     let res = s
-        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_id}/gates/{gate_id}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.owner_session_token),
@@ -3292,13 +3305,15 @@ async fn fencing_resolve_gate_approved_clears_all_three_lease_fields() {
     .unwrap();
     assert_eq!(row.get::<String, _>("status"), "finished");
     assert!(
-        row.get::<Option<String>, _>("claimed_by_agent_id").is_none(),
+        row.get::<Option<String>, _>("claimed_by_agent_id")
+            .is_none(),
         "resolve_gate's approval path must clear claimed_by_agent_id too (spec §1 third-pass correction)"
     );
     assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
-    assert!(row
-        .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
-        .is_none());
+    assert!(
+        row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -3326,7 +3341,9 @@ async fn fencing_resolve_gate_rejected_clears_all_three_lease_fields() {
     let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
 
     let res = s
-        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_id}/gates/{gate_id}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.owner_session_token),
@@ -3344,13 +3361,15 @@ async fn fencing_resolve_gate_rejected_clears_all_three_lease_fields() {
     .unwrap();
     assert_eq!(row.get::<String, _>("status"), "failed");
     assert!(
-        row.get::<Option<String>, _>("claimed_by_agent_id").is_none(),
+        row.get::<Option<String>, _>("claimed_by_agent_id")
+            .is_none(),
         "resolve_gate's rejection path currently clears NOTHING pre-fix — spec §1 finding"
     );
     assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
-    assert!(row
-        .get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
-        .is_none());
+    assert!(
+        row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -3373,7 +3392,9 @@ async fn fencing_resolve_gate_approved_stamps_finalized_by_subject_and_finalized
     let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
 
     let res = s
-        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_id}/gates/{gate_id}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.owner_session_token),
@@ -3382,15 +3403,14 @@ async fn fencing_resolve_gate_approved_stamps_finalized_by_subject_and_finalized
         .await;
     assert!(res.status_code().is_success(), "{}", res.text());
 
-    let row = sqlx::query(
-        "SELECT finalized_by_subject, finalized_at FROM task WHERE id=$1",
-    )
-    .bind(&task_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let row = sqlx::query("SELECT finalized_by_subject, finalized_at FROM task WHERE id=$1")
+        .bind(&task_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(
-        row.get::<Option<String>, _>("finalized_by_subject").as_deref(),
+        row.get::<Option<String>, _>("finalized_by_subject")
+            .as_deref(),
         Some(agent_a_id.as_str()),
         "resolve_gate must attribute finalization to the task's actual claimer \
          (complete_task/fail_task's 'record the claimer' rationale — this finalizes \
@@ -3399,7 +3419,8 @@ async fn fencing_resolve_gate_approved_stamps_finalized_by_subject_and_finalized
          idempotent-retry pattern'"
     );
     assert!(
-        row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("finalized_at").is_some(),
+        row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("finalized_at")
+            .is_some(),
         "resolve_gate is the one terminal-transition endpoint in this codebase that \
          never stamped finalized_at (tasks.rs, mcp.rs, and every other work.rs \
          terminal transition all do) — closing that gap while touching this code"
@@ -3427,7 +3448,9 @@ async fn fencing_resolve_gate_rejected_stamps_finalized_by_subject_and_finalized
     let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
 
     let res = s
-        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_id}/gates/{gate_id}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.owner_session_token),
@@ -3442,12 +3465,14 @@ async fn fencing_resolve_gate_rejected_stamps_finalized_by_subject_and_finalized
         .await
         .unwrap();
     assert_eq!(
-        row.get::<Option<String>, _>("finalized_by_subject").as_deref(),
+        row.get::<Option<String>, _>("finalized_by_subject")
+            .as_deref(),
         Some(agent_a_id.as_str())
     );
-    assert!(row
-        .get::<Option<chrono::DateTime<chrono::Utc>>, _>("finalized_at")
-        .is_some());
+    assert!(
+        row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("finalized_at")
+            .is_some()
+    );
 }
 
 #[tokio::test]
@@ -3469,7 +3494,9 @@ async fn fencing_resolve_gate_non_owner_restricted_caller_is_403() {
     let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
 
     let res = s
-        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_id}/gates/{gate_id}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.member_sa_token),
@@ -3490,7 +3517,10 @@ async fn fencing_resolve_gate_non_owner_restricted_caller_is_403() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(gate_status, "pending", "the fenced UPDATE must not have touched the row");
+    assert_eq!(
+        gate_status, "pending",
+        "the fenced UPDATE must not have touched the row"
+    );
 }
 
 /// Idempotent retry (three-test-minimum category 3): the SAME caller repeats
@@ -3530,7 +3560,9 @@ async fn fencing_resolve_gate_idempotent_retry_same_decision_is_409() {
     let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
 
     let first = s
-        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_id}/gates/{gate_id}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.owner_session_token),
@@ -3546,7 +3578,9 @@ async fn fencing_resolve_gate_idempotent_retry_same_decision_is_409() {
             .unwrap();
 
     let retry = s
-        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_id}/gates/{gate_id}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.owner_session_token),
@@ -3617,18 +3651,20 @@ async fn fencing_resolve_gate_second_gates_recompute_does_not_reprocess_finalize
         )
         .json(&serde_json::json!({"decision": "rejected"}))
         .await;
-    assert!(reject_res.status_code().is_success(), "{}", reject_res.text());
+    assert!(
+        reject_res.status_code().is_success(),
+        "{}",
+        reject_res.text()
+    );
 
-    let row_after_first = sqlx::query(
-        "SELECT status, finalized_at, finalized_by_subject FROM task WHERE id=$1",
-    )
-    .bind(&task_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let row_after_first =
+        sqlx::query("SELECT status, finalized_at, finalized_by_subject FROM task WHERE id=$1")
+            .bind(&task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(row_after_first.get::<String, _>("status"), "failed");
-    let finalized_at_first: chrono::DateTime<chrono::Utc> =
-        row_after_first.get("finalized_at");
+    let finalized_at_first: chrono::DateTime<chrono::Utc> = row_after_first.get("finalized_at");
 
     // gate2 is still legitimately pending — its own resolution must succeed —
     // but the task is already terminal, so this call's recompute must not
@@ -3647,13 +3683,12 @@ async fn fencing_resolve_gate_second_gates_recompute_does_not_reprocess_finalize
         approve_res.text()
     );
 
-    let row_after_second = sqlx::query(
-        "SELECT status, finalized_at, finalized_by_subject FROM task WHERE id=$1",
-    )
-    .bind(&task_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let row_after_second =
+        sqlx::query("SELECT status, finalized_at, finalized_by_subject FROM task WHERE id=$1")
+            .bind(&task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(
         row_after_second.get::<String, _>("status"),
         "failed",
@@ -3705,14 +3740,20 @@ async fn fencing_resolve_gate_stale_claimer_retry_via_fail_is_409_not_403() {
     let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
 
     let resolve_res = s
-        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_id}/gates/{gate_id}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.owner_session_token),
         )
         .json(&serde_json::json!({"decision": "approved"}))
         .await;
-    assert!(resolve_res.status_code().is_success(), "{}", resolve_res.text());
+    assert!(
+        resolve_res.status_code().is_success(),
+        "{}",
+        resolve_res.text()
+    );
     assert_eq!(
         sqlx::query_scalar::<_, String>("SELECT status FROM task WHERE id=$1")
             .bind(&task_id)
@@ -3774,7 +3815,9 @@ async fn fencing_resolve_gate_admin_bypass_succeeds_for_non_owner() {
     let gate_id = seed_pending_gate(&pool, "someone-else@example.com", &task_id).await;
 
     let res = s
-        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_id}/gates/{gate_id}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {admin_token}"),
@@ -3819,7 +3862,9 @@ async fn fencing_resolve_gate_task_id_mismatch_is_404() {
     let gate_on_a = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_a).await;
 
     let res = s
-        .post(&format!("/api/work/tasks/{task_b}/gates/{gate_on_a}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_b}/gates/{gate_on_a}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.owner_session_token),
@@ -3862,17 +3907,25 @@ async fn fencing_resolve_gate_non_owner_on_already_resolved_gate_is_409_not_403(
     let gate_id = seed_pending_gate(&pool, ctx.owner_session_subject(), &task_id).await;
 
     let resolve_res = s
-        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_id}/gates/{gate_id}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.owner_session_token),
         )
         .json(&serde_json::json!({"decision": "approved"}))
         .await;
-    assert!(resolve_res.status_code().is_success(), "{}", resolve_res.text());
+    assert!(
+        resolve_res.status_code().is_success(),
+        "{}",
+        resolve_res.text()
+    );
 
     let retry_as_non_owner = s
-        .post(&format!("/api/work/tasks/{task_id}/gates/{gate_id}/resolve"))
+        .post(&format!(
+            "/api/work/tasks/{task_id}/gates/{gate_id}/resolve"
+        ))
         .add_header(
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.member_sa_token),
@@ -3943,7 +3996,11 @@ async fn fencing_resolve_gate_all_must_resolve_before_task_finishes() {
         )
         .json(&serde_json::json!({"decision": "approved"}))
         .await;
-    assert!(second_res.status_code().is_success(), "{}", second_res.text());
+    assert!(
+        second_res.status_code().is_success(),
+        "{}",
+        second_res.text()
+    );
 
     let status_after_second: String = sqlx::query_scalar("SELECT status FROM task WHERE id=$1")
         .bind(&task_id)
@@ -4081,7 +4138,9 @@ async fn fencing_progress_broadcast_task_without_matching_lease_is_403() {
             axum::http::header::AUTHORIZATION,
             format!("Bearer {}", ctx.member_sa_token),
         )
-        .json(&serde_json::json!({"event_type": "status", "summary": "hijack", "claim_lease_id": ""}))
+        .json(
+            &serde_json::json!({"event_type": "status", "summary": "hijack", "claim_lease_id": ""}),
+        )
         .await;
     // An empty claim_lease_id hits the 400 "required" guard before the fence
     // even runs — use a non-empty, definitely-wrong value to actually
@@ -4288,11 +4347,9 @@ async fn fencing_progress_concurrent_posts_get_sequential_seq_after_family_a_ref
         let task_id = task_id.clone();
         let token = ctx.owner_session_token.clone();
         handles.push(tokio::spawn(async move {
-            let res = s.post(&format!("/api/work/tasks/{task_id}/progress"))
-                .add_header(
-                    axum::http::header::AUTHORIZATION,
-                    format!("Bearer {token}"),
-                )
+            let res = s
+                .post(&format!("/api/work/tasks/{task_id}/progress"))
+                .add_header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
                 .json(&serde_json::json!({
                     "event_type": "status",
                     "summary": format!("concurrent {i}"),
@@ -4311,11 +4368,12 @@ async fn fencing_progress_concurrent_posts_get_sequential_seq_after_family_a_ref
         }
     }
 
-    let seqs: Vec<i32> = sqlx::query_scalar("SELECT seq FROM meshprogressevent WHERE task_id=$1 ORDER BY seq")
-        .bind(&task_id)
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+    let seqs: Vec<i32> =
+        sqlx::query_scalar("SELECT seq FROM meshprogressevent WHERE task_id=$1 ORDER BY seq")
+            .bind(&task_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
     assert_eq!(
         seqs,
         (0..8).collect::<Vec<i32>>(),
@@ -4376,7 +4434,11 @@ async fn fencing_complete_still_routes_to_waiting_review_after_family_b_refactor
     // handler, not a TransitionOutcome::WaitingReview implementation detail
     // leaking through).
     assert_eq!(body["task_id"], task_id);
-    assert_eq!(body.as_object().unwrap().len(), 3, "response shape must be exactly {{status, pending_gates, task_id}}: {body}");
+    assert_eq!(
+        body.as_object().unwrap().len(),
+        3,
+        "response shape must be exactly {{status, pending_gates, task_id}}: {body}"
+    );
 }
 
 #[tokio::test]
@@ -4401,15 +4463,9 @@ async fn fencing_complete_still_unblocks_dependents_after_family_b_refactor() {
     .execute(&pool)
     .await
     .unwrap();
-    let dependent_id = common::seed_claimable_task(
-        &pool,
-        &ctx.mission_id,
-        &ctx.domain_id,
-        "pending",
-        None,
-        1,
-    )
-    .await;
+    let dependent_id =
+        common::seed_claimable_task(&pool, &ctx.mission_id, &ctx.domain_id, "pending", None, 1)
+            .await;
     sqlx::query("UPDATE task SET depends_on=$2 WHERE id=$1")
         .bind(&dependent_id)
         .bind(serde_json::json!([task_id]).to_string())
@@ -4469,15 +4525,21 @@ async fn fencing_block_still_works_after_family_d_refactor() {
     let body: serde_json::Value = res.json();
     assert_eq!(body["status"], "blocked");
 
-    let row = sqlx::query("SELECT claimed_by_agent_id, claim_lease_id, lease_expires_at FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let row = sqlx::query(
+        "SELECT claimed_by_agent_id, claim_lease_id, lease_expires_at FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert!(
-        row.get::<Option<String>, _>("claimed_by_agent_id").is_some(),
+        row.get::<Option<String>, _>("claimed_by_agent_id")
+            .is_some(),
         "block must still PRESERVE claimed_by_agent_id (deliberate, see work.rs's original comment) after the family-D refactor"
     );
     assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
-    assert!(row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at").is_none());
+    assert!(
+        row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+            .is_none()
+    );
 }

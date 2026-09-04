@@ -186,7 +186,6 @@ pub(crate) fn rest_transition_error(error: TransitionError) -> Response {
     }
 }
 
-
 /// Family A fence: live claimable-lease ownership+freshness check, shared by
 /// Heartbeat and AppendProgress. Takes the row lock (`FOR UPDATE`) so the
 /// caller's subsequent write — whether to `task` itself (Heartbeat) or a
@@ -301,15 +300,18 @@ pub(crate) async fn execute_task_transition(
                 operation: "heartbeat begin tx",
                 source: e,
             })?;
-            let locked = fence_claimable_live(&mut tx, task_id, claim_lease_id, actor.is_bypass, now)
-                .await
-                .map_err(|e| TransitionError::Database {
-                    operation: "heartbeat fence",
-                    source: e,
-                })?;
+            let locked =
+                fence_claimable_live(&mut tx, task_id, claim_lease_id, actor.is_bypass, now)
+                    .await
+                    .map_err(|e| TransitionError::Database {
+                        operation: "heartbeat fence",
+                        source: e,
+                    })?;
             if locked.is_none() {
                 let _ = tx.rollback().await;
-                return Err(classify_fenced_rejection(db, actor, task_id, claim_lease_id, &[]).await);
+                return Err(
+                    classify_fenced_rejection(db, actor, task_id, claim_lease_id, &[]).await,
+                );
             }
             let lease_expires = now + Duration::seconds(crate::routes::work::LEASE_TTL_SECS);
             let row = sqlx::query(
@@ -357,9 +359,14 @@ pub(crate) async fn execute_task_transition(
                     })?;
             if locked.is_none() {
                 let _ = tx.rollback().await;
-                return Err(
-                    classify_fenced_rejection(db, actor, task_id, Some(claim_lease_id), &[]).await,
-                );
+                return Err(classify_fenced_rejection(
+                    db,
+                    actor,
+                    task_id,
+                    Some(claim_lease_id),
+                    &[],
+                )
+                .await);
             }
             // Issued as its own statement, AFTER the row lock above is held —
             // under READ COMMITTED this gets a fresh snapshot as of *now*,
@@ -488,7 +495,14 @@ pub(crate) async fn execute_task_transition(
             })?;
 
             let Some(r) = row else {
-                return Err(classify_fenced_rejection(db, actor, task_id, claim_lease_id, &["finished"]).await);
+                return Err(classify_fenced_rejection(
+                    db,
+                    actor,
+                    task_id,
+                    claim_lease_id,
+                    &["finished"],
+                )
+                .await);
             };
 
             let has_pending: bool = r.get("has_pending");
@@ -563,7 +577,12 @@ pub(crate) async fn execute_task_transition(
                     task: crate::routes::work::row_to_task(&r),
                     unblocked_task_ids: vec![],
                 }),
-                None => Err(classify_fenced_rejection(db, actor, task_id, claim_lease_id, &["failed"]).await),
+                None => {
+                    Err(
+                        classify_fenced_rejection(db, actor, task_id, claim_lease_id, &["failed"])
+                            .await,
+                    )
+                }
             }
         }
         TaskTransition::Block { claim_lease_id } => {
@@ -629,9 +648,12 @@ pub(crate) async fn execute_task_transition(
                     task: crate::routes::work::row_to_task(&r),
                     unblocked_task_ids: vec![],
                 }),
-                None => Err(
-                    classify_fenced_rejection(db, actor, task_id, claim_lease_id, &["blocked"]).await,
-                ),
+                None => {
+                    Err(
+                        classify_fenced_rejection(db, actor, task_id, claim_lease_id, &["blocked"])
+                            .await,
+                    )
+                }
             }
         }
     }

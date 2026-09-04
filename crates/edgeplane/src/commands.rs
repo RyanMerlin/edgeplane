@@ -1,16 +1,13 @@
 use crate::{
-    auth,
+    agent_harness, auth,
     booster::AgentBooster,
     channel,
     client::EdgeplaneClient,
-    cmd,
-    compat,
+    cmd, compat,
     config::EdgeplaneConfig,
-    discover,
-    agent_harness, daemon_ctl, drift, maintenance, mcp_server, mcp_tools, ops,
-    run,
+    daemon_ctl, discover, drift, maintenance, mcp_server, mcp_tools, ops,
     output::{self, OutputMode},
-    runtime,
+    run, runtime,
     schema_pack::SchemaPack,
     secrets, update,
 };
@@ -1199,7 +1196,9 @@ pub async fn run(
 ) -> Result<()> {
     match command {
         EdgeplaneCommand::Status(args) => handle_status(args, client, &config, output_mode).await,
-        EdgeplaneCommand::Doctor(args) => maintenance::run_doctor_command(&client, &config, &args).await,
+        EdgeplaneCommand::Doctor(args) => {
+            maintenance::run_doctor_command(&client, &config, &args).await
+        }
         EdgeplaneCommand::Health(_args) => handle_health(client, output_mode).await,
         EdgeplaneCommand::Version(_args) => handle_version(client, &config, output_mode).await,
         EdgeplaneCommand::Config(_args) => handle_config(&config, output_mode),
@@ -1216,7 +1215,9 @@ pub async fn run(
             handle_data(cmd, client, &booster, &config.schema_pack, output_mode).await
         }
         EdgeplaneCommand::System(cmd) => handle_system(cmd, client, &config).await,
-        EdgeplaneCommand::Agent(cmd) => handle_agent(cmd, client, &booster, &config.schema_pack).await,
+        EdgeplaneCommand::Agent(cmd) => {
+            handle_agent(cmd, client, &booster, &config.schema_pack).await
+        }
         EdgeplaneCommand::Runtime(cmd) => handle_runtime(cmd, client, output_mode).await,
         EdgeplaneCommand::Workspace(cmd) => {
             handle_workspace(cmd, client, &booster, &config.schema_pack, output_mode).await
@@ -1267,7 +1268,11 @@ async fn handle_context(cmd: ContextCommand) -> Result<()> {
             for (name, entry) in &file.contexts {
                 let marker = if *name == active_name { "*" } else { " " };
                 let desc = entry.description.as_deref().unwrap_or("");
-                let desc_part = if desc.is_empty() { String::new() } else { format!("  # {}", desc) };
+                let desc_part = if desc.is_empty() {
+                    String::new()
+                } else {
+                    format!("  # {}", desc)
+                };
                 println!("{} {}  {}{}", marker, name, entry.base_url, desc_part);
             }
         }
@@ -1275,28 +1280,44 @@ async fn handle_context(cmd: ContextCommand) -> Result<()> {
             let file = load_contexts();
             match active_context(&file) {
                 Some((name, entry)) => println!("{} ({})", name, entry.base_url),
-                None => println!("no active context — run: edgeplane context add <name> --url <url>"),
+                None => {
+                    println!("no active context — run: edgeplane context add <name> --url <url>")
+                }
             }
         }
         ContextCommand::Use { name } => {
             let mut file = load_contexts();
             if !file.contexts.contains_key(&name) {
-                anyhow::bail!("context '{}' not found — run `edgeplane context list` to see available contexts", name);
+                anyhow::bail!(
+                    "context '{}' not found — run `edgeplane context list` to see available contexts",
+                    name
+                );
             }
             file.active = name.clone();
             save_contexts(&file).map_err(|e| anyhow::anyhow!("failed to save contexts: {e}"))?;
             println!("Switched to context '{}'", name);
         }
-        ContextCommand::Add { name, url, description } => {
+        ContextCommand::Add {
+            name,
+            url,
+            description,
+        } => {
             let mut file = load_contexts();
             if file.contexts.contains_key(&name) {
-                anyhow::bail!("context '{}' already exists — remove it first with `edgeplane context remove {}`", name, name);
+                anyhow::bail!(
+                    "context '{}' already exists — remove it first with `edgeplane context remove {}`",
+                    name,
+                    name
+                );
             }
             let url = url.trim_end_matches('/').to_string();
-            file.contexts.insert(name.clone(), crate::context::ContextEntry {
-                base_url: url.clone(),
-                description,
-            });
+            file.contexts.insert(
+                name.clone(),
+                crate::context::ContextEntry {
+                    base_url: url.clone(),
+                    description,
+                },
+            );
             save_contexts(&file).map_err(|e| anyhow::anyhow!("failed to save contexts: {e}"))?;
             println!("Added context '{}' → {}", name, url);
             println!("Run `edgeplane context use {}` to make it active.", name);
@@ -1306,7 +1327,10 @@ async fn handle_context(cmd: ContextCommand) -> Result<()> {
             if let Some((active_name, _)) = active_context(&file)
                 && name == active_name
             {
-                anyhow::bail!("cannot remove the active context '{}' — switch first with `edgeplane context use <other>`", name);
+                anyhow::bail!(
+                    "cannot remove the active context '{}' — switch first with `edgeplane context use <other>`",
+                    name
+                );
             }
             if file.contexts.remove(&name).is_none() {
                 anyhow::bail!("context '{}' not found", name);
@@ -1457,11 +1481,7 @@ fn handle_config(config: &EdgeplaneConfig, output_mode: OutputMode) -> Result<()
     Ok(())
 }
 
-async fn handle_use(
-    args: UseArgs,
-    client: EdgeplaneClient,
-    output_mode: OutputMode,
-) -> Result<()> {
+async fn handle_use(args: UseArgs, client: EdgeplaneClient, output_mode: OutputMode) -> Result<()> {
     if let Some(profile) = args.profile {
         return handle_profile(ProfileCommand::Use { name: profile }, client, output_mode).await;
     }
@@ -1482,28 +1502,29 @@ async fn handle_use(
     let current = load_active_workspace();
     if let (Some(existing_lease), Some(existing_mission)) =
         (current.lease_id.clone(), current.mission_id.clone())
-        && existing_mission != mission_id {
-            let should_release = if args.auto_release || args.yes {
-                true
-            } else {
-                prompt_confirm(&format!(
-                    "Release existing lease {} for mission {} and switch to {}? [y/N] ",
-                    existing_lease, existing_mission, mission_id
-                ))?
-            };
-            if !should_release {
-                anyhow::bail!("switch cancelled; existing lease kept active");
-            }
-            let _ = mcp_tools::call_tool(
-                &client,
-                None,
-                None,
-                "release_mission_workspace",
-                json!({"lease_id": existing_lease, "reason": "switch mission via edgeplane use"}),
-            )
-            .await?;
-            clear_active_workspace()?;
+        && existing_mission != mission_id
+    {
+        let should_release = if args.auto_release || args.yes {
+            true
+        } else {
+            prompt_confirm(&format!(
+                "Release existing lease {} for mission {} and switch to {}? [y/N] ",
+                existing_lease, existing_mission, mission_id
+            ))?
+        };
+        if !should_release {
+            anyhow::bail!("switch cancelled; existing lease kept active");
         }
+        let _ = mcp_tools::call_tool(
+            &client,
+            None,
+            None,
+            "release_mission_workspace",
+            json!({"lease_id": existing_lease, "reason": "switch mission via edgeplane use"}),
+        )
+        .await?;
+        clear_active_workspace()?;
+    }
     let mut tool_args = json!({
         "mission_id": mission_id,
         "lease_seconds": args.lease_seconds,
@@ -1732,13 +1753,16 @@ async fn handle_artifact(
             let active = load_active_workspace();
             if lease_id.is_none()
                 && let Some(active_mission) = active.mission_id.as_deref()
-                    && !artifact_mission.is_empty() && active_mission != artifact_mission && !yes {
-                        anyhow::bail!(
-                            "cross-mission mutation without --lease-id requires -y (active={}, target={})",
-                            active_mission,
-                            artifact_mission
-                        );
-                    }
+                && !artifact_mission.is_empty()
+                && active_mission != artifact_mission
+                && !yes
+            {
+                anyhow::bail!(
+                    "cross-mission mutation without --lease-id requires -y (active={}, target={})",
+                    active_mission,
+                    artifact_mission
+                );
+            }
             let detected_mime = artifact
                 .get("mime_type")
                 .and_then(|v| v.as_str())
@@ -1863,13 +1887,16 @@ async fn handle_artifact(
             let active = load_active_workspace();
             if lease_id.is_none()
                 && let Some(active_mission) = active.mission_id.as_deref()
-                    && !artifact_mission.is_empty() && active_mission != artifact_mission && !yes {
-                        anyhow::bail!(
-                            "cross-mission mutation without --lease-id requires -y (active={}, target={})",
-                            active_mission,
-                            artifact_mission
-                        );
-                    }
+                && !artifact_mission.is_empty()
+                && active_mission != artifact_mission
+                && !yes
+            {
+                anyhow::bail!(
+                    "cross-mission mutation without --lease-id requires -y (active={}, target={})",
+                    active_mission,
+                    artifact_mission
+                );
+            }
             let bytes = fs::read(&from_file)
                 .with_context(|| format!("failed reading {}", from_file.display()))?;
             let resolved_mime =
@@ -2267,18 +2294,22 @@ async fn handle_secrets_provider(
     }
 }
 
-fn handle_infisical_profiles(command: InfisicalProfileCommand, output_mode: OutputMode) -> Result<()> {
+fn handle_infisical_profiles(
+    command: InfisicalProfileCommand,
+    output_mode: OutputMode,
+) -> Result<()> {
     let path = edgeplaned_paths::infisical_profiles_path();
     let mut map = if path.exists() {
         let raw = fs::read_to_string(&path)?;
-        serde_json::from_str::<edgeplaned_secrets::InfisicalProfileMap>(&raw)
-            .unwrap_or_default()
+        serde_json::from_str::<edgeplaned_secrets::InfisicalProfileMap>(&raw).unwrap_or_default()
     } else {
         edgeplaned_secrets::InfisicalProfileMap::default()
     };
 
     let save = |map: &edgeplaned_secrets::InfisicalProfileMap| -> Result<()> {
-        if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         fs::write(&path, serde_json::to_string_pretty(map)?)?;
         Ok(())
     };
@@ -2308,12 +2339,15 @@ fn handle_infisical_profiles(command: InfisicalProfileCommand, output_mode: Outp
                 let _ = map.set_active(&name);
             }
             save(&map)?;
-            output::print_value(output_mode, &json!({
-                "ok": true,
-                "name": name,
-                "active": map.active,
-                "path": path,
-            }));
+            output::print_value(
+                output_mode,
+                &json!({
+                    "ok": true,
+                    "name": name,
+                    "active": map.active,
+                    "path": path,
+                }),
+            );
         }
         InfisicalProfileCommand::List => {
             let profiles: Vec<serde_json::Value> = map.profiles.iter().map(|(name, cfg)| {
@@ -2327,7 +2361,10 @@ fn handle_infisical_profiles(command: InfisicalProfileCommand, output_mode: Outp
                     "default_environment": cfg.default_environment,
                 })
             }).collect();
-            output::print_value(output_mode, &json!({ "profiles": profiles, "active": map.active }));
+            output::print_value(
+                output_mode,
+                &json!({ "profiles": profiles, "active": map.active }),
+            );
         }
         InfisicalProfileCommand::Use { name } => {
             map.set_active(&name).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -2337,12 +2374,19 @@ fn handle_infisical_profiles(command: InfisicalProfileCommand, output_mode: Outp
         InfisicalProfileCommand::Test { name } => {
             let profile_name = name.as_deref().or(map.active.as_deref());
             let Some(profile_name) = profile_name else {
-                anyhow::bail!("no active profile — run `edgeplane secrets infisical add <name>` first");
+                anyhow::bail!(
+                    "no active profile — run `edgeplane secrets infisical add <name>` first"
+                );
             };
-            let cfg = map.profiles.get(profile_name)
+            let cfg = map
+                .profiles
+                .get(profile_name)
                 .ok_or_else(|| anyhow::anyhow!("profile '{profile_name}' not found"))?;
             // Quick connectivity test: fetch /api/v3/auth endpoint (no auth)
-            let test_url = format!("{}/api/v1/auth/token/renew", cfg.site_url.trim_end_matches('/'));
+            let test_url = format!(
+                "{}/api/v1/auth/token/renew",
+                cfg.site_url.trim_end_matches('/')
+            );
             let rt = tokio::runtime::Handle::current();
             let resp = rt.block_on(async {
                 reqwest::Client::builder()
@@ -2354,21 +2398,29 @@ fn handle_infisical_profiles(command: InfisicalProfileCommand, output_mode: Outp
                     .await
             });
             let reachable = matches!(resp, Ok(r) if r.status().as_u16() < 500);
-            output::print_value(output_mode, &json!({
-                "ok": reachable,
-                "profile": profile_name,
-                "site_url": cfg.site_url,
-                "reachable": reachable,
-            }));
+            output::print_value(
+                output_mode,
+                &json!({
+                    "ok": reachable,
+                    "profile": profile_name,
+                    "site_url": cfg.site_url,
+                    "reachable": reachable,
+                }),
+            );
         }
         InfisicalProfileCommand::Rm { name } => {
             let removed = map.remove(&name);
-            if removed { save(&map)?; }
-            output::print_value(output_mode, &json!({
-                "ok": removed,
-                "name": name,
-                "active": map.active,
-            }));
+            if removed {
+                save(&map)?;
+            }
+            output::print_value(
+                output_mode,
+                &json!({
+                    "ok": removed,
+                    "name": name,
+                    "active": map.active,
+                }),
+            );
         }
         InfisicalProfileCommand::Get {
             secret_name,
@@ -2402,14 +2454,17 @@ fn handle_infisical_profiles(command: InfisicalProfileCommand, output_mode: Outp
             } else {
                 "***redacted***".to_string()
             };
-            output::print_value(output_mode, &json!({
-                "ok": true,
-                "secret_name": secret_name,
-                "project_id": proj,
-                "environment": env_slug,
-                "path": path,
-                "value": display,
-            }));
+            output::print_value(
+                output_mode,
+                &json!({
+                    "ok": true,
+                    "secret_name": secret_name,
+                    "project_id": proj,
+                    "environment": env_slug,
+                    "path": path,
+                    "value": display,
+                }),
+            );
         }
     }
     Ok(())
@@ -3041,9 +3096,10 @@ async fn handle_profile(
             let profile_root = edgeplaned_paths::profiles_dir().join(&name);
             let mut pull_args = json!({ "name": name });
             if let Some(pinned_sha) = read_local_pinned_sha(&profile_root)?
-                && !allow_pin_mismatch {
-                    pull_args["if_sha256"] = json!(pinned_sha);
-                }
+                && !allow_pin_mismatch
+            {
+                pull_args["if_sha256"] = json!(pinned_sha);
+            }
             let response = mcp_profile_call(&client, "download_profile", pull_args).await?;
             let tarball = response
                 .get("tarball_b64")
@@ -3058,14 +3114,16 @@ async fn handle_profile(
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
             if let Some(pinned_sha) = read_local_pinned_sha(&profile_root)?
-                && pinned_sha != sha && !allow_pin_mismatch {
-                    anyhow::bail!(
-                        "profile '{}' is pinned to sha256 '{}' but remote is '{}'; rerun with --allow-pin-mismatch to override",
-                        name,
-                        pinned_sha,
-                        sha
-                    );
-                }
+                && pinned_sha != sha
+                && !allow_pin_mismatch
+            {
+                anyhow::bail!(
+                    "profile '{}' is pinned to sha256 '{}' but remote is '{}'; rerun with --allow-pin-mismatch to override",
+                    name,
+                    pinned_sha,
+                    sha
+                );
+            }
             let bundles = profile_root.join("bundles");
             fs::create_dir_all(&bundles)?;
             let tar_path = bundles.join(format!("{}.tar", sha));
@@ -3252,9 +3310,10 @@ async fn handle_profile(
             for session in &active_sessions {
                 let ep_dir = PathBuf::from(&session.instance_home).join("edgeplane");
                 if ep_dir.exists()
-                    && fs::write(ep_dir.join("profile-updated"), &marker_json).is_ok() {
-                        notified += 1;
-                    }
+                    && fs::write(ep_dir.join("profile-updated"), &marker_json).is_ok()
+                {
+                    notified += 1;
+                }
             }
 
             let payload = json!({
@@ -3351,7 +3410,8 @@ fn empty_profile_tarball_b64() -> Result<String> {
 
 fn validate_init_base_url(config: &EdgeplaneConfig) -> Result<()> {
     let base = config.base_url.as_str();
-    let parsed = url::Url::parse(base).with_context(|| format!("invalid Edgeplane base URL: {base}"))?;
+    let parsed =
+        url::Url::parse(base).with_context(|| format!("invalid Edgeplane base URL: {base}"))?;
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
         anyhow::bail!("Edgeplane base URL must use http/https, got '{}'", scheme);
@@ -3673,9 +3733,18 @@ async fn handle_domain(
                 .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
                 .context("No agent_id configured. Run `edgeplane init` or set EP_AGENT_ID.")?;
             let agent = client.get_json(&format!("/agents/{agent_id}")).await?;
-            let home_id   = agent.get("home_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
-            let curr_id   = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
-            let miss_name = agent.get("domain_name").and_then(|v| v.as_str()).unwrap_or("—");
+            let home_id = agent
+                .get("home_domain_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("—");
+            let curr_id = agent
+                .get("current_domain_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("—");
+            let miss_name = agent
+                .get("domain_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("—");
             println!("Home domain : {home_id}");
             println!("Current      : {curr_id}  ({miss_name})");
         }
@@ -3687,9 +3756,17 @@ async fn handle_domain(
                 .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
                 .context("No agent_id configured. Run `edgeplane init` or set EP_AGENT_ID.")?;
             let body = json!({ "domain_id": domain_id });
-            let agent = client.patch_json(&format!("/agents/{agent_id}/domain"), &body).await?;
-            let curr  = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
-            let name  = agent.get("domain_name").and_then(|v| v.as_str()).unwrap_or("—");
+            let agent = client
+                .patch_json(&format!("/agents/{agent_id}/domain"), &body)
+                .await?;
+            let curr = agent
+                .get("current_domain_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("—");
+            let name = agent
+                .get("domain_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("—");
             println!("Attached to domain {curr} ({name})");
         }
         DomainCommand::Detach => {
@@ -3700,9 +3777,17 @@ async fn handle_domain(
                 .or_else(|| crate::config::default_agent_id_from_session(config.base_url.as_str()))
                 .context("No agent_id configured. Run `edgeplane init` or set EP_AGENT_ID.")?;
             let body = json!({ "domain_id": null });
-            let agent = client.patch_json(&format!("/agents/{agent_id}/domain"), &body).await?;
-            let curr  = agent.get("current_domain_id").and_then(|v| v.as_str()).unwrap_or("—");
-            let name  = agent.get("domain_name").and_then(|v| v.as_str()).unwrap_or("—");
+            let agent = client
+                .patch_json(&format!("/agents/{agent_id}/domain"), &body)
+                .await?;
+            let curr = agent
+                .get("current_domain_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("—");
+            let name = agent
+                .get("domain_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("—");
             println!("Detached — returned to home domain {curr} ({name})");
         }
         DomainCommand::Create {
@@ -3715,12 +3800,24 @@ async fn handle_domain(
             status,
         } => {
             let mut body = json!({ "name": name });
-            if let Some(v) = description   { body["description"]   = json!(v); }
-            if let Some(v) = owners        { body["owners"]        = json!(v); }
-            if let Some(v) = contributors  { body["contributors"]  = json!(v); }
-            if let Some(v) = tags          { body["tags"]          = json!(v); }
-            if let Some(v) = visibility    { body["visibility"]    = json!(v); }
-            if let Some(v) = status        { body["status"]        = json!(v); }
+            if let Some(v) = description {
+                body["description"] = json!(v);
+            }
+            if let Some(v) = owners {
+                body["owners"] = json!(v);
+            }
+            if let Some(v) = contributors {
+                body["contributors"] = json!(v);
+            }
+            if let Some(v) = tags {
+                body["tags"] = json!(v);
+            }
+            if let Some(v) = visibility {
+                body["visibility"] = json!(v);
+            }
+            if let Some(v) = status {
+                body["status"] = json!(v);
+            }
             let result = client.post_json("/domains", &body).await?;
             output::print_value(output_mode, &result);
         }
@@ -3743,12 +3840,24 @@ async fn handle_domain(
             status,
         } => {
             let mut body = json!({});
-            if let Some(v) = description   { body["description"]   = json!(v); }
-            if let Some(v) = owners        { body["owners"]        = json!(v); }
-            if let Some(v) = contributors  { body["contributors"]  = json!(v); }
-            if let Some(v) = tags          { body["tags"]          = json!(v); }
-            if let Some(v) = visibility    { body["visibility"]    = json!(v); }
-            if let Some(v) = status        { body["status"]        = json!(v); }
+            if let Some(v) = description {
+                body["description"] = json!(v);
+            }
+            if let Some(v) = owners {
+                body["owners"] = json!(v);
+            }
+            if let Some(v) = contributors {
+                body["contributors"] = json!(v);
+            }
+            if let Some(v) = tags {
+                body["tags"] = json!(v);
+            }
+            if let Some(v) = visibility {
+                body["visibility"] = json!(v);
+            }
+            if let Some(v) = status {
+                body["status"] = json!(v);
+            }
             let result = client.patch_json(&format!("/domains/{id}"), &body).await?;
             output::print_value(output_mode, &result);
         }
@@ -3786,12 +3895,24 @@ async fn handle_mission(
             let path = format!("/domains/{domain_id}/m");
             let mut body = json!({ "name": name, "domain_id": domain_id });
 
-            if let Some(v) = description  { body["description"]   = json!(v); }
-            if let Some(v) = owners       { body["owners"]        = json!(v); }
-            if let Some(v) = contributors { body["contributors"]  = json!(v); }
-            if let Some(v) = tags         { body["tags"]          = json!(v); }
-            if let Some(v) = status       { body["status"]        = json!(v); }
-            if let Some(v) = workstream   { body["workstream_md"] = json!(v); }
+            if let Some(v) = description {
+                body["description"] = json!(v);
+            }
+            if let Some(v) = owners {
+                body["owners"] = json!(v);
+            }
+            if let Some(v) = contributors {
+                body["contributors"] = json!(v);
+            }
+            if let Some(v) = tags {
+                body["tags"] = json!(v);
+            }
+            if let Some(v) = status {
+                body["status"] = json!(v);
+            }
+            if let Some(v) = workstream {
+                body["workstream_md"] = json!(v);
+            }
             let result = client.post_json(&path, &body).await?;
             output::print_value(output_mode, &result);
         }
@@ -3806,7 +3927,9 @@ async fn handle_mission(
             output::print_value(output_mode, &result);
         }
         MissionCommand::Show { id, domain_id } => {
-            let result = client.get_json(&format!("/domains/{domain_id}/m/{id}")).await?;
+            let result = client
+                .get_json(&format!("/domains/{domain_id}/m/{id}"))
+                .await?;
             output::print_value(output_mode, &result);
         }
         MissionCommand::Update {
@@ -3820,17 +3943,33 @@ async fn handle_mission(
             status,
         } => {
             let mut body = json!({});
-            if let Some(v) = name         { body["name"]          = json!(v); }
-            if let Some(v) = description  { body["description"]   = json!(v); }
-            if let Some(v) = owners       { body["owners"]        = json!(v); }
-            if let Some(v) = contributors { body["contributors"]  = json!(v); }
-            if let Some(v) = tags         { body["tags"]          = json!(v); }
-            if let Some(v) = status       { body["status"]        = json!(v); }
-            let result = client.patch_json(&format!("/domains/{domain_id}/m/{id}"), &body).await?;
+            if let Some(v) = name {
+                body["name"] = json!(v);
+            }
+            if let Some(v) = description {
+                body["description"] = json!(v);
+            }
+            if let Some(v) = owners {
+                body["owners"] = json!(v);
+            }
+            if let Some(v) = contributors {
+                body["contributors"] = json!(v);
+            }
+            if let Some(v) = tags {
+                body["tags"] = json!(v);
+            }
+            if let Some(v) = status {
+                body["status"] = json!(v);
+            }
+            let result = client
+                .patch_json(&format!("/domains/{domain_id}/m/{id}"), &body)
+                .await?;
             output::print_value(output_mode, &result);
         }
         MissionCommand::Delete { id, domain_id } => {
-            client.delete(&format!("/domains/{domain_id}/m/{id}")).await?;
+            client
+                .delete(&format!("/domains/{domain_id}/m/{id}"))
+                .await?;
             if output_mode.is_machine() {
                 println!("{}", serde_json::json!({"ok": true, "deleted": id}));
             } else {
@@ -3846,11 +3985,7 @@ async fn handle_mission(
 
 /// Fetch-GET-PUT loop for the `$EDITOR`-based document edit flow.
 /// `get_path` is used for both GET and PUT (the tower API is symmetric).
-async fn edit_document(
-    client: &EdgeplaneClient,
-    get_path: &str,
-    doc_label: &str,
-) -> Result<()> {
+async fn edit_document(client: &EdgeplaneClient, get_path: &str, doc_label: &str) -> Result<()> {
     // 1. Fetch current content.
     let resp: Value = client.get_json(get_path).await?;
     let current_content = resp
@@ -3858,18 +3993,11 @@ async fn edit_document(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let version = resp
-        .get("version")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
+    let version = resp.get("version").and_then(|v| v.as_i64()).unwrap_or(0);
 
     // 2. Write to a temp file.
     let tmp_dir = std::env::temp_dir();
-    let tmp_path = tmp_dir.join(format!(
-        "edgeplane-{}-{}.md",
-        doc_label,
-        std::process::id()
-    ));
+    let tmp_path = tmp_dir.join(format!("edgeplane-{}-{}.md", doc_label, std::process::id()));
     std::fs::write(&tmp_path, &current_content)?;
 
     // 3. Open $EDITOR (fallback: vi).
@@ -3901,10 +4029,7 @@ async fn edit_document(
     Ok(())
 }
 
-async fn handle_domain_northstar(
-    cmd: NorthstarCommand,
-    client: EdgeplaneClient,
-) -> Result<()> {
+async fn handle_domain_northstar(cmd: NorthstarCommand, client: EdgeplaneClient) -> Result<()> {
     match cmd {
         NorthstarCommand::Get { domain_id, json } => {
             let resp: Value = client
@@ -3913,14 +4038,8 @@ async fn handle_domain_northstar(
             if json {
                 println!("{}", serde_json::to_string_pretty(&resp)?);
             } else {
-                let content = resp
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let version = resp
-                    .get("version")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
+                let content = resp.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let version = resp.get("version").and_then(|v| v.as_i64()).unwrap_or(0);
                 let modified_by = resp
                     .get("modified_by")
                     .and_then(|v| v.as_str())
@@ -3943,10 +4062,7 @@ async fn handle_domain_northstar(
     }
 }
 
-async fn handle_mission_brief(
-    cmd: BriefCommand,
-    client: EdgeplaneClient,
-) -> Result<()> {
+async fn handle_mission_brief(cmd: BriefCommand, client: EdgeplaneClient) -> Result<()> {
     match cmd {
         BriefCommand::Get { mission_id, json } => {
             let resp: Value = client
@@ -3955,14 +4071,8 @@ async fn handle_mission_brief(
             if json {
                 println!("{}", serde_json::to_string_pretty(&resp)?);
             } else {
-                let content = resp
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let version = resp
-                    .get("version")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
+                let content = resp.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let version = resp.get("version").and_then(|v| v.as_i64()).unwrap_or(0);
                 let modified_by = resp
                     .get("modified_by")
                     .and_then(|v| v.as_str())
@@ -3975,12 +4085,7 @@ async fn handle_mission_brief(
             Ok(())
         }
         BriefCommand::Edit { mission_id } => {
-            edit_document(
-                &client,
-                &format!("/missions/{mission_id}/brief"),
-                "BRIEF",
-            )
-            .await
+            edit_document(&client, &format!("/missions/{mission_id}/brief"), "BRIEF").await
         }
     }
 }
@@ -4007,21 +4112,43 @@ async fn handle_task(
             dependencies,
         } => {
             let mut body = json!({ "title": title, "mission_id": mission_id });
-            if let Some(v) = description  { body["description"]        = json!(v); }
-            if let Some(v) = status       { body["status"]             = json!(v); }
-            if let Some(v) = owner        { body["owner"]              = json!(v); }
-            if let Some(v) = contributors { body["contributors"]       = json!(v); }
-            if let Some(v) = dod          { body["definition_of_done"] = json!(v); }
-            if let Some(v) = dependencies { body["dependencies"]       = json!(v); }
-            let result = client.post_json(&format!("/domains/{domain_id}/m/{mission_id}/t"), &body).await?;
+            if let Some(v) = description {
+                body["description"] = json!(v);
+            }
+            if let Some(v) = status {
+                body["status"] = json!(v);
+            }
+            if let Some(v) = owner {
+                body["owner"] = json!(v);
+            }
+            if let Some(v) = contributors {
+                body["contributors"] = json!(v);
+            }
+            if let Some(v) = dod {
+                body["definition_of_done"] = json!(v);
+            }
+            if let Some(v) = dependencies {
+                body["dependencies"] = json!(v);
+            }
+            let result = client
+                .post_json(&format!("/domains/{domain_id}/m/{mission_id}/t"), &body)
+                .await?;
             output::print_value(output_mode, &result);
         }
         TaskCommand::List { mission_id } => {
-            let result = client.get_json(&format!("/missions/{mission_id}/t")).await?;
+            let result = client
+                .get_json(&format!("/missions/{mission_id}/t"))
+                .await?;
             output::print_value(output_mode, &result);
         }
-        TaskCommand::Show { id, mission_id, domain_id } => {
-            let result = client.get_json(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}")).await?;
+        TaskCommand::Show {
+            id,
+            mission_id,
+            domain_id,
+        } => {
+            let result = client
+                .get_json(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}"))
+                .await?;
             output::print_value(output_mode, &result);
         }
         TaskCommand::Update {
@@ -4037,18 +4164,43 @@ async fn handle_task(
             dependencies,
         } => {
             let mut body = json!({});
-            if let Some(v) = title        { body["title"]              = json!(v); }
-            if let Some(v) = description  { body["description"]        = json!(v); }
-            if let Some(v) = status       { body["status"]             = json!(v); }
-            if let Some(v) = owner        { body["owner"]              = json!(v); }
-            if let Some(v) = contributors { body["contributors"]       = json!(v); }
-            if let Some(v) = dod          { body["definition_of_done"] = json!(v); }
-            if let Some(v) = dependencies { body["dependencies"]       = json!(v); }
-            let result = client.patch_json(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}"), &body).await?;
+            if let Some(v) = title {
+                body["title"] = json!(v);
+            }
+            if let Some(v) = description {
+                body["description"] = json!(v);
+            }
+            if let Some(v) = status {
+                body["status"] = json!(v);
+            }
+            if let Some(v) = owner {
+                body["owner"] = json!(v);
+            }
+            if let Some(v) = contributors {
+                body["contributors"] = json!(v);
+            }
+            if let Some(v) = dod {
+                body["definition_of_done"] = json!(v);
+            }
+            if let Some(v) = dependencies {
+                body["dependencies"] = json!(v);
+            }
+            let result = client
+                .patch_json(
+                    &format!("/domains/{domain_id}/m/{mission_id}/t/{id}"),
+                    &body,
+                )
+                .await?;
             output::print_value(output_mode, &result);
         }
-        TaskCommand::Delete { id, mission_id, domain_id } => {
-            client.delete(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}")).await?;
+        TaskCommand::Delete {
+            id,
+            mission_id,
+            domain_id,
+        } => {
+            client
+                .delete(&format!("/domains/{domain_id}/m/{mission_id}/t/{id}"))
+                .await?;
             if output_mode.is_machine() {
                 println!("{}", serde_json::json!({"ok": true, "deleted": id}));
             } else {
@@ -4081,18 +4233,36 @@ async fn handle_mesh_task(
             input_json,
         } => {
             let mut args = json!({ "mission_id": mission_id, "title": title });
-            if let Some(v) = description { args["description"] = json!(v); }
-            if let Some(v) = kind        { args["kind"]        = json!(v); }
-            if let Some(v) = priority    { args["priority"]    = json!(v); }
-            if let Some(v) = input_json  { args["input_json"]  = json!(v); }
-            let result = call_mcp_tool(client, booster, schema_pack, "submit_mesh_task", args).await?;
+            if let Some(v) = description {
+                args["description"] = json!(v);
+            }
+            if let Some(v) = kind {
+                args["kind"] = json!(v);
+            }
+            if let Some(v) = priority {
+                args["priority"] = json!(v);
+            }
+            if let Some(v) = input_json {
+                args["input_json"] = json!(v);
+            }
+            let result =
+                call_mcp_tool(client, booster, schema_pack, "submit_mesh_task", args).await?;
             output::print_value(output_mode, &result);
         }
-        MeshTaskCommand::Claim { task_id, agent_id, lease_seconds } => {
+        MeshTaskCommand::Claim {
+            task_id,
+            agent_id,
+            lease_seconds,
+        } => {
             let mut args = json!({ "task_id": task_id });
-            if let Some(v) = agent_id      { args["agent_id"]      = json!(v); }
-            if let Some(v) = lease_seconds { args["lease_seconds"] = json!(v); }
-            let result = call_mcp_tool(client, booster, schema_pack, "claim_mesh_task", args).await?;
+            if let Some(v) = agent_id {
+                args["agent_id"] = json!(v);
+            }
+            if let Some(v) = lease_seconds {
+                args["lease_seconds"] = json!(v);
+            }
+            let result =
+                call_mcp_tool(client, booster, schema_pack, "claim_mesh_task", args).await?;
             output::print_value(output_mode, &result);
         }
         MeshTaskCommand::Get { task_id } => {
@@ -4100,17 +4270,32 @@ async fn handle_mesh_task(
             let result = call_mcp_tool(client, booster, schema_pack, "get_mesh_task", args).await?;
             output::print_value(output_mode, &result);
         }
-        MeshTaskCommand::List { mission_id, status, limit } => {
+        MeshTaskCommand::List {
+            mission_id,
+            status,
+            limit,
+        } => {
             let mut args = json!({ "mission_id": mission_id });
-            if let Some(v) = status { args["status"] = json!(v); }
-            if let Some(v) = limit  { args["limit"]  = json!(v); }
-            let result = call_mcp_tool(client, booster, schema_pack, "list_mesh_tasks", args).await?;
+            if let Some(v) = status {
+                args["status"] = json!(v);
+            }
+            if let Some(v) = limit {
+                args["limit"] = json!(v);
+            }
+            let result =
+                call_mcp_tool(client, booster, schema_pack, "list_mesh_tasks", args).await?;
             output::print_value(output_mode, &result);
         }
-        MeshTaskCommand::Heartbeat { task_id, claim_lease_id } => {
+        MeshTaskCommand::Heartbeat {
+            task_id,
+            claim_lease_id,
+        } => {
             let mut args = json!({ "task_id": task_id });
-            if let Some(v) = claim_lease_id { args["claim_lease_id"] = json!(v); }
-            let result = call_mcp_tool(client, booster, schema_pack, "heartbeat_mesh_task", args).await?;
+            if let Some(v) = claim_lease_id {
+                args["claim_lease_id"] = json!(v);
+            }
+            let result =
+                call_mcp_tool(client, booster, schema_pack, "heartbeat_mesh_task", args).await?;
             output::print_value(output_mode, &result);
         }
         MeshTaskCommand::Progress {
@@ -4120,30 +4305,62 @@ async fn handle_mesh_task(
             payload_json,
         } => {
             let mut args = json!({ "task_id": task_id, "claim_lease_id": claim_lease_id });
-            if let Some(v) = event_type     { args["event_type"]     = json!(v); }
-            if let Some(v) = payload_json   { args["payload_json"]   = json!(v); }
-            let result = call_mcp_tool(client, booster, schema_pack, "progress_mesh_task", args).await?;
+            if let Some(v) = event_type {
+                args["event_type"] = json!(v);
+            }
+            if let Some(v) = payload_json {
+                args["payload_json"] = json!(v);
+            }
+            let result =
+                call_mcp_tool(client, booster, schema_pack, "progress_mesh_task", args).await?;
             output::print_value(output_mode, &result);
         }
-        MeshTaskCommand::Complete { task_id, claim_lease_id, output_json } => {
+        MeshTaskCommand::Complete {
+            task_id,
+            claim_lease_id,
+            output_json,
+        } => {
             let mut args = json!({ "task_id": task_id });
-            if let Some(v) = claim_lease_id { args["claim_lease_id"] = json!(v); }
-            if let Some(v) = output_json    { args["output_json"]    = json!(v); }
-            let result = call_mcp_tool(client, booster, schema_pack, "complete_mesh_task", args).await?;
+            if let Some(v) = claim_lease_id {
+                args["claim_lease_id"] = json!(v);
+            }
+            if let Some(v) = output_json {
+                args["output_json"] = json!(v);
+            }
+            let result =
+                call_mcp_tool(client, booster, schema_pack, "complete_mesh_task", args).await?;
             output::print_value(output_mode, &result);
         }
-        MeshTaskCommand::Fail { task_id, claim_lease_id, error } => {
+        MeshTaskCommand::Fail {
+            task_id,
+            claim_lease_id,
+            error,
+        } => {
             let mut args = json!({ "task_id": task_id });
-            if let Some(v) = claim_lease_id { args["claim_lease_id"] = json!(v); }
-            if let Some(v) = error          { args["error"]          = json!(v); }
-            let result = call_mcp_tool(client, booster, schema_pack, "fail_mesh_task", args).await?;
+            if let Some(v) = claim_lease_id {
+                args["claim_lease_id"] = json!(v);
+            }
+            if let Some(v) = error {
+                args["error"] = json!(v);
+            }
+            let result =
+                call_mcp_tool(client, booster, schema_pack, "fail_mesh_task", args).await?;
             output::print_value(output_mode, &result);
         }
-        MeshTaskCommand::Block { task_id, claim_lease_id, reason } => {
+        MeshTaskCommand::Block {
+            task_id,
+            claim_lease_id,
+            reason,
+        } => {
             let mut args = json!({ "task_id": task_id });
-            if let Some(v) = claim_lease_id { args["claim_lease_id"] = json!(v); }
-            if let Some(v) = reason         { args["reason"]         = json!(v); }
-            let result = call_mcp_tool(client, booster, schema_pack, "block_mesh_task", args).await?;
+            if let Some(v) = claim_lease_id {
+                args["claim_lease_id"] = json!(v);
+            }
+            if let Some(v) = reason {
+                args["reason"] = json!(v);
+            }
+            let result =
+                call_mcp_tool(client, booster, schema_pack, "block_mesh_task", args).await?;
             output::print_value(output_mode, &result);
         }
     }
@@ -4162,10 +4379,16 @@ mod tests {
     fn allows_offline_allowlist() {
         // Bootstrap/offline commands — must be true.
         let context_cmd = EdgeplaneCommand::Context(ContextCommand::List);
-        assert!(context_cmd.allows_offline(), "Context should be offline-allowed");
+        assert!(
+            context_cmd.allows_offline(),
+            "Context should be offline-allowed"
+        );
 
         let version_cmd = EdgeplaneCommand::Version(VersionArgs::default());
-        assert!(version_cmd.allows_offline(), "Version should be offline-allowed");
+        assert!(
+            version_cmd.allows_offline(),
+            "Version should be offline-allowed"
+        );
 
         // Only `auth login` bootstraps; whoami/logout dial the server.
         let auth_login = EdgeplaneCommand::Auth(AuthCommand::Login(crate::auth::LoginArgs {
@@ -4174,7 +4397,10 @@ mod tests {
             non_interactive: false,
             with_token: false,
         }));
-        assert!(auth_login.allows_offline(), "auth login should be offline-allowed (bootstrap)");
+        assert!(
+            auth_login.allows_offline(),
+            "auth login should be offline-allowed (bootstrap)"
+        );
 
         let init_cmd = EdgeplaneCommand::Init(InitArgs {
             profile: "default".to_string(),
@@ -4185,39 +4411,62 @@ mod tests {
         let completion_cmd = EdgeplaneCommand::Completion(CompletionArgs {
             shell: clap_complete::Shell::Bash,
         });
-        assert!(completion_cmd.allows_offline(), "Completion should be offline-allowed");
+        assert!(
+            completion_cmd.allows_offline(),
+            "Completion should be offline-allowed"
+        );
 
         // `discover` introspects the local CLI tree — no server needed.
-        let discover_cmd =
-            EdgeplaneCommand::Discover(crate::cli_schema::DiscoverArgs::default());
-        assert!(discover_cmd.allows_offline(), "discover should be offline-allowed (local schema)");
+        let discover_cmd = EdgeplaneCommand::Discover(crate::cli_schema::DiscoverArgs::default());
+        assert!(
+            discover_cmd.allows_offline(),
+            "discover should be offline-allowed (local schema)"
+        );
 
         // `system internal gen-cli-doc` (used by `make docs`) renders the local
         // command tree — must work in a clean CI env with no server.
         let gen_doc = EdgeplaneCommand::System(SystemCommand::Internal(InternalCommand::GenCliDoc));
-        assert!(gen_doc.allows_offline(), "system internal gen-cli-doc should be offline-allowed");
+        assert!(
+            gen_doc.allows_offline(),
+            "system internal gen-cli-doc should be offline-allowed"
+        );
     }
 
     #[test]
     fn online_commands_not_offline_allowed() {
         // Online commands — must be false.
         let status_cmd = EdgeplaneCommand::Status(StatusArgs::default());
-        assert!(!status_cmd.allows_offline(), "Status should require a server");
+        assert!(
+            !status_cmd.allows_offline(),
+            "Status should require a server"
+        );
 
         let health_cmd = EdgeplaneCommand::Health(HealthArgs::default());
-        assert!(!health_cmd.allows_offline(), "Health should require a server");
+        assert!(
+            !health_cmd.allows_offline(),
+            "Health should require a server"
+        );
 
         let config_cmd = EdgeplaneCommand::Config(ConfigArgs::default());
-        assert!(!config_cmd.allows_offline(), "Config should require a server");
+        assert!(
+            !config_cmd.allows_offline(),
+            "Config should require a server"
+        );
 
         // auth whoami / logout dial the configured server — must NOT be offline-allowed
         // (regression guard for the dual-review finding: Auth(_) was too broad).
         let whoami = EdgeplaneCommand::Auth(AuthCommand::Whoami(crate::auth::WhoamiArgs {}));
-        assert!(!whoami.allows_offline(), "auth whoami dials the server — not offline-allowed");
+        assert!(
+            !whoami.allows_offline(),
+            "auth whoami dials the server — not offline-allowed"
+        );
 
         let logout = EdgeplaneCommand::Auth(AuthCommand::Logout(crate::auth::LogoutArgs {
             local_only: false,
         }));
-        assert!(!logout.allows_offline(), "auth logout dials the server — not offline-allowed");
+        assert!(
+            !logout.allows_offline(),
+            "auth logout dials the server — not offline-allowed"
+        );
     }
 }

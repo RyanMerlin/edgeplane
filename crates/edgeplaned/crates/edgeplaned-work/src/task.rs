@@ -369,7 +369,9 @@ mod tests {
         let mock_server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/work/tasks/t-1/progress"))
-            .and(body_partial_json(serde_json::json!({"claim_lease_id": "lease-abc"})))
+            .and(body_partial_json(
+                serde_json::json!({"claim_lease_id": "lease-abc"}),
+            ))
             .respond_with(ResponseTemplate::new(200))
             .expect(1)
             .mount(&mock_server)
