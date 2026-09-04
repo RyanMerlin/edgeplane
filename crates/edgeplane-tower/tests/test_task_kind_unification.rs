@@ -754,18 +754,35 @@ async fn fencing_heartbeat_real_agent_own_live_lease_succeeds() {
 
 // ── retry_task — fenced CAS, closes blind-UPDATE TOCTOU ─────────────────────
 
+/// Sequential status precondition test: verify that retry rejects a task
+/// whose current status is not 'failed' or 'cancelled'.
+///
+/// Honest scope note (corrected after independent review): this is a
+/// SEQUENTIAL rejection test, and a sequential rejection already got 409
+/// pre-fix too, via the old app-level `if status != "failed" && status !=
+/// "cancelled"` check — so this test does NOT by itself distinguish the new
+/// fenced `WHERE status IN ('failed','cancelled')` CAS from the app-level
+/// check it replaced (both give 409 here). It's a permanent regression guard
+/// for the status precondition the fenced predicate now enforces, not proof
+/// of the concurrent TOCTOU fix — proving that requires genuine concurrent
+/// request timing, which this file's integration tests (via
+/// `axum_test::TestServer`, no `tokio::join!` precedent anywhere in this
+/// suite) don't exercise for ANY of this plan's "race" tests, not just this
+/// one. The TOCTOU fix itself is argued from Postgres's documented
+/// EvalPlanQual re-check of an UPDATE's WHERE clause after a row-lock wait
+/// (a single atomic UPDATE statement's WHERE clause is evaluated as part of
+/// that same atomic operation, so there's no gap for a concurrent writer's
+/// commit to escape detection).
 #[tokio::test]
-async fn fencing_retry_task_stale_read_after_reclaim_is_409() {
+async fn fencing_retry_task_current_status_not_failed_or_cancelled_is_409() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
     let s = server(pool.clone());
 
-    // Seed a task already back in 'ready' (as if a concurrent retry/reclaim
-    // already happened after this caller's hypothetical earlier read saw
-    // 'failed') — the old code's blind UPDATE would apply the retry-reset
-    // unconditionally regardless of current status; the fenced version must
-    // reject it as a status conflict.
+    // Seed a task with status='running' (not retryable). Both old (app-level
+    // check) and new (fenced UPDATE) implementations reject it, but the fenced
+    // version does so atomically with the UPDATE attempt.
     let task_id = common::seed_claimable_task(
         &pool,
         &ctx.mission_id,

@@ -1007,6 +1007,10 @@ async fn retry_task(
     }
 
     let now = Utc::now().naive_utc();
+    // Fenced CAS: preconditions (kind + status) are part of the WHERE clause,
+    // not separate app-level checks. kind='claimable' ensures only tasks in
+    // the claim pool can be retried; status IN ('failed','cancelled') are the
+    // only eligible terminal states for retry entry back to 'ready'.
     let updated = sqlx::query(
         "UPDATE task SET status='ready', claimed_by_agent_id=NULL, result_artifact_id=NULL, \
          lease_expires_at=NULL, claim_lease_id=NULL, finalized_at=NULL, \
