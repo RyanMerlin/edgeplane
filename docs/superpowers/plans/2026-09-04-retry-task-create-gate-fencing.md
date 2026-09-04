@@ -355,7 +355,7 @@ anti-spoof` header at line 721 (keep one blank line before the existing header):
 ```rust
 
 #[tokio::test]
-async fn create_gate_succeeds_for_current_claimer_on_running_task() {
+async fn create_gate_succeeds_for_bypass_caller_on_running_task() {
     let Some((pool, ctx)) = setup().await else {
         return;
     };
@@ -463,7 +463,9 @@ Run: `TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/test cargo n
 Expected: `create_gate_rejected_when_task_no_longer_gate_attachable` FAILs — current code's
 `authz_task_owner` precheck only checks identity, never task status, and `owner_session_token` is
 bypass, so the precheck passes and the unconditional INSERT succeeds (201 instead of the expected
-409). `create_gate_succeeds_for_current_claimer_on_running_task` and the pre-existing
+409). `create_gate_succeeds_for_bypass_caller_on_running_task` (renamed post-review from
+`create_gate_succeeds_for_current_claimer_on_running_task` — it authenticates with a full-trust
+session token, not a current claimer; see the final-review fix wave) and the pre-existing
 `domain_peer_cannot_create_gate_on_foreign_task` should currently PASS — confirm before proceeding.
 
 - [ ] **Step 3: Rewrite `create_gate`**
