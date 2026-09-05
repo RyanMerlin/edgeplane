@@ -996,54 +996,71 @@ async fn retry_task(
     principal: Principal,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    let row = sqlx::query("SELECT * FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await;
-
-    let task_row = match row {
-        Ok(Some(r)) => r,
-        Ok(None) => return not_found("Task not found"),
-        Err(e) => {
-            tracing::error!("retry_task fetch: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
+        Ok(d) => d,
+        Err(resp) => return resp,
     };
-
-    let domain_id: String = task_row.get("domain_id");
     if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
 
-    // Kind-gating: 'ready' is claimable-pool vocabulary; retry re-enters the
-    // claim pool, which is meaningless for a kind='assigned' row.
-    let kind: String = task_row.get("kind");
-    if kind != "claimable" {
-        return conflict("Task is not claimable (kind='assigned'); retry does not apply");
-    }
-
-    let status: String = task_row.get("status");
-    if status != "failed" && status != "cancelled" {
-        return conflict(&format!("Task cannot be retried from status: {status}"));
-    }
-
     let now = Utc::now().naive_utc();
-    match sqlx::query(
+    // Fenced CAS: preconditions (kind + status) are part of the WHERE clause,
+    // not separate app-level checks. kind='claimable' ensures only tasks in
+    // the claim pool can be retried; status IN ('failed','cancelled') are the
+    // only eligible terminal states for retry entry back to 'ready'.
+    let updated = sqlx::query(
         "UPDATE task SET status='ready', claimed_by_agent_id=NULL, result_artifact_id=NULL, \
          lease_expires_at=NULL, claim_lease_id=NULL, finalized_at=NULL, \
-         finalized_by_subject=NULL, updated_at=$2 WHERE id=$1 RETURNING *",
+         finalized_by_subject=NULL, updated_at=$2 \
+         WHERE id=$1 AND kind='claimable' AND status IN ('failed','cancelled') \
+         RETURNING *",
     )
     .bind(&task_id)
     .bind(now)
-    .fetch_one(&state.db)
-    .await
-    {
-        Ok(r) => Json(row_to_task(&r)).into_response(),
+    .fetch_optional(&state.db)
+    .await;
+
+    match updated {
+        Ok(Some(r)) => Json(row_to_task(&r)).into_response(),
+        Ok(None) => classify_retry_rejection(&state.db, &task_id).await,
         Err(e) => {
             tracing::error!("retry_task update: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
+}
+
+/// After the fenced retry UPDATE rejects (zero rows), classify why with a
+/// fresh read — preserves retry_task's existing precondition-specific error
+/// messages (kind vs. status) while ensuring the message reflects the
+/// task's CURRENT state, not the pre-UPDATE snapshot the old check-then-act
+/// code read (which could already be stale by the time the blind UPDATE
+/// ran). No ownership/lease dimension here: retry_task performs no
+/// per-caller ownership check by design (any domain member may retry a
+/// failed/cancelled task — ruled by Merlin 2026-08-26, see
+/// docs/superpowers/plans/2026-08-18-ep1-tower-fencing.md Roadmap,
+/// "retry_task — severity correction"). This function only closes the
+/// TOCTOU on the status/kind precondition, it does not add authorization.
+async fn classify_retry_rejection(db: &sqlx::PgPool, task_id: &str) -> axum::response::Response {
+    let row = match sqlx::query("SELECT kind, status FROM task WHERE id=$1")
+        .bind(task_id)
+        .fetch_optional(db)
+        .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return not_found("Task not found"),
+        Err(e) => {
+            tracing::error!("classify_retry_rejection fetch: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let kind: String = row.get("kind");
+    if kind != "claimable" {
+        return conflict("Task is not claimable (kind='assigned'); retry does not apply");
+    }
+    let status: String = row.get("status");
+    conflict(&format!("Task cannot be retried from status: {status}"))
 }
 
 async fn claim_task(
@@ -1685,15 +1702,6 @@ async fn create_gate(
     Path(task_id): Path<String>,
     Json(body): Json<GateCreate>,
 ) -> impl IntoResponse {
-    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM task WHERE id=$1")
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await
-        .unwrap_or(None);
-    if exists.is_none() {
-        return not_found("Task not found");
-    }
-
     let domain_id = match crate::routes::authz::domain_id_for_task(&state.db, &task_id).await {
         Ok(d) => d,
         Err(resp) => return resp,
@@ -1701,21 +1709,45 @@ async fn create_gate(
     if let Err(resp) = crate::routes::authz::authz_domain(&state.db, &principal, &domain_id).await {
         return resp;
     }
-    // Change 10: only the task's claimer (or full-trust/admin) may attach a blocking gate.
-    if let Err(resp) =
-        crate::routes::authz::authz_task_owner(&state.db, &principal, &task_id, None).await
-    {
-        return resp;
-    }
 
+    let is_bypass = crate::auth::is_full_trust(&principal) || principal.is_admin;
+    let subject_id = principal
+        .subject
+        .strip_prefix("agent:")
+        .unwrap_or(&principal.subject);
     let gate_id = Uuid::new_v4().to_string();
     let now = Utc::now().naive_utc();
 
+    // Fences the ownership check (Change 10: only the task's claimer, or
+    // full-trust/admin, may attach a gate) AND a "still gate-attachable"
+    // status check into the INSERT itself, closing the check-then-insert
+    // TOCTOU the old separate authz_task_owner precheck left open: a caller
+    // who owned the task at check-time but has since lost ownership
+    // (reclaimed, completed, cancelled) could otherwise still attach a
+    // pending gate. "Gate-attachable" mirrors complete_task's own
+    // non-terminal predicate (task_transitions.rs's Complete arm) — a gate
+    // only makes sense before the task reaches a status complete_task
+    // itself would treat as terminal. See
+    // docs/superpowers/plans/2026-08-18-ep1-tower-fencing.md Roadmap,
+    // "create_gate is check-then-insert with no fencing on the insert
+    // itself".
     let row = sqlx::query(
         "INSERT INTO reviewgate (id, owner_subject, mesh_task_id, run_id, gate_type, \
          required_approvals, status, approval_request_id, ai_pending_action_id, policy_rule_id, \
          created_at, resolved_at) \
-         VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,NULL,NULL,$8,NULL) RETURNING *",
+         SELECT $1,$2,$3,$4,$5,$6,'pending',$7,NULL,NULL,$8,NULL \
+         WHERE EXISTS ( \
+           SELECT 1 FROM task \
+           WHERE task.id = $3 \
+             AND ( \
+               (task.kind = 'claimable' AND task.status IN ('claimed','running','waiting_review') \
+                AND (task.claimed_by_agent_id = $9 OR $10)) \
+               OR \
+               (task.kind = 'assigned' AND task.status NOT IN ('done','finished','failed','cancelled') \
+                AND (task.owner = $9 OR $10)) \
+             ) \
+         ) \
+         RETURNING *",
     )
     .bind(&gate_id)
     .bind(&principal.subject)
@@ -1725,16 +1757,41 @@ async fn create_gate(
     .bind(&body.required_approvals)
     .bind(&body.approval_request_id)
     .bind(now)
-    .fetch_one(&state.db)
+    .bind(subject_id)
+    .bind(is_bypass)
+    .fetch_optional(&state.db)
     .await;
 
     match row {
-        Ok(r) => (StatusCode::CREATED, Json(row_to_gate(&r))).into_response(),
+        Ok(Some(r)) => (StatusCode::CREATED, Json(row_to_gate(&r))).into_response(),
+        Ok(None) => classify_create_gate_rejection(&state.db, &principal, &task_id).await,
         Err(e) => {
             tracing::error!("create_gate: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
+}
+
+/// After the fenced INSERT rejects (zero rows), classify why with a fresh
+/// read: reuses `authz_task_owner` unchanged for "task missing" (404) /
+/// "caller isn't the claimer" (403) — those two conditions are exactly what
+/// it already checks. A caller who reaches here AND passes
+/// `authz_task_owner` must have failed either the status half of the fence,
+/// or the kind-specific ownership half — `authz_task_owner` is kind-agnostic
+/// (checks `claimed == me || owner == me` regardless of kind), while this
+/// fence's ownership check is kind-split; the two are equivalent only
+/// because every task write path enforces that each kind exclusively
+/// populates its own ownership column (claimable tasks never set `owner`,
+/// assigned tasks never set `claimed_by_agent_id`).
+async fn classify_create_gate_rejection(
+    db: &sqlx::PgPool,
+    principal: &Principal,
+    task_id: &str,
+) -> axum::response::Response {
+    if let Err(resp) = crate::routes::authz::authz_task_owner(db, principal, task_id, None).await {
+        return resp;
+    }
+    conflict("Task is not in a gate-attachable status")
 }
 
 async fn list_gates(
@@ -1797,10 +1854,13 @@ async fn resolve_gate(
     // UPDATE individually but ran them as two separate autocommitted
     // statements, with the any_rejected/all_resolved aggregate computed in a
     // THIRD statement in between — a gate created by a concurrent
-    // create_gate call (which has no task-status precondition at all,
-    // verified live) between that aggregate SELECT and the task UPDATE
+    // create_gate call between that aggregate SELECT and the task UPDATE
     // could be missed entirely, letting a task finish with a still-pending
-    // approval gate. This is exactly the race the spec's "recomputes
+    // approval gate. (create_gate now has its own task-status precondition —
+    // see its fenced INSERT above — but `waiting_review` is itself a
+    // gate-attachable status, so a new gate can still land concurrently on a
+    // task sitting in that state; the race this transaction closes is real
+    // regardless.) This is exactly the race the spec's "recomputes
     // remaining-gate state in the same transaction so a second gate created
     // concurrently isn't missed" language calls out. Fixed: both statements
     // now run inside one explicit transaction (the `claim_task` FOR UPDATE
