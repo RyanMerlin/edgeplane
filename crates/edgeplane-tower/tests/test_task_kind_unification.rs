@@ -752,6 +752,158 @@ async fn fencing_heartbeat_real_agent_own_live_lease_succeeds() {
     );
 }
 
+// ── retry_task — fenced CAS, closes blind-UPDATE TOCTOU ─────────────────────
+
+/// Sequential status precondition test: verify that retry rejects a task
+/// whose current status is not 'failed' or 'cancelled'.
+///
+/// Honest scope note (corrected after independent review): this is a
+/// SEQUENTIAL rejection test, and a sequential rejection already got 409
+/// pre-fix too, via the old app-level `if status != "failed" && status !=
+/// "cancelled"` check — so this test does NOT by itself distinguish the new
+/// fenced `WHERE status IN ('failed','cancelled')` CAS from the app-level
+/// check it replaced (both give 409 here). It's a permanent regression guard
+/// for the status precondition the fenced predicate now enforces, not proof
+/// of the concurrent TOCTOU fix — proving that requires genuine concurrent
+/// request timing, which this file's integration tests (via
+/// `axum_test::TestServer`, no `tokio::join!` precedent anywhere in this
+/// suite) don't exercise for ANY of this plan's "race" tests, not just this
+/// one. The TOCTOU fix itself is argued from Postgres's documented
+/// EvalPlanQual re-check of an UPDATE's WHERE clause after a row-lock wait
+/// (a single atomic UPDATE statement's WHERE clause is evaluated as part of
+/// that same atomic operation, so there's no gap for a concurrent writer's
+/// commit to escape detection).
+#[tokio::test]
+async fn fencing_retry_task_current_status_not_failed_or_cancelled_is_409() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+
+    // Seed a task with status='running' (not retryable). Both old (app-level
+    // check) and new (fenced UPDATE) implementations reject it, but the fenced
+    // version does so atomically with the UPDATE attempt.
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "running",
+        Some("agent-new-claimer"),
+        1,
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/retry"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "retrying a task that is not failed/cancelled must be 409, not silently reset: {}",
+        res.text()
+    );
+
+    let row =
+        sqlx::query("SELECT status, claimed_by_agent_id, claim_lease_id FROM task WHERE id=$1")
+            .bind(&task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        row.get::<String, _>("status"),
+        "running",
+        "rejected retry must not have touched the row's status"
+    );
+    assert_eq!(
+        row.get::<Option<String>, _>("claimed_by_agent_id")
+            .as_deref(),
+        Some("agent-new-claimer"),
+        "rejected retry must not have cleared the current claimer's ownership"
+    );
+}
+
+#[tokio::test]
+async fn fencing_retry_task_wrong_kind_is_409() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id =
+        common::seed_assigned_task(&pool, &ctx.mission_id, &ctx.domain_id, "harness").await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/retry"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert_eq!(
+        res.status_code(),
+        409,
+        "retry on a kind='assigned' row must be 409: {}",
+        res.text()
+    );
+    assert!(
+        res.text().contains("not claimable"),
+        "must preserve the existing kind-specific error message: {}",
+        res.text()
+    );
+}
+
+#[tokio::test]
+async fn fencing_retry_task_from_failed_still_succeeds() {
+    let Some((pool, ctx)) = setup().await else {
+        return;
+    };
+    let s = server(pool.clone());
+    let task_id = common::seed_claimable_task(
+        &pool,
+        &ctx.mission_id,
+        &ctx.domain_id,
+        "failed",
+        Some("agent-old-claimer"),
+        1,
+    )
+    .await;
+
+    let res = s
+        .post(&format!("/api/work/tasks/{task_id}/retry"))
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", ctx.owner_session_token),
+        )
+        .await;
+    assert!(
+        res.status_code().is_success(),
+        "retry from failed must still succeed: {}",
+        res.text()
+    );
+    let body: serde_json::Value = res.json();
+    assert_eq!(body["status"], "ready");
+
+    let row = sqlx::query(
+        "SELECT claimed_by_agent_id, claim_lease_id, lease_expires_at FROM task WHERE id=$1",
+    )
+    .bind(&task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        row.get::<Option<String>, _>("claimed_by_agent_id")
+            .is_none()
+    );
+    assert!(row.get::<Option<String>, _>("claim_lease_id").is_none());
+    assert!(
+        row.get::<Option<chrono::NaiveDateTime>, _>("lease_expires_at")
+            .is_none()
+    );
+}
+
 // ── Bounded retry / backoff (attempt vs. max_attempts) ───────────────────────
 
 #[tokio::test]
