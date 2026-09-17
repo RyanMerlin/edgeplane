@@ -160,6 +160,13 @@ struct ListQuery {
     /// Return only messages with id > since_id. Used by edgeplaned message relay to
     /// avoid re-delivering already-seen messages across process restarts.
     since_id: Option<i64>,
+    /// "inbound" restricts `list_messages` to rows addressed to this agent
+    /// (`to_agent_id = $1`). Any other value (including absent) keeps the
+    /// default "involves this agent" behavior (`from OR to`), which existing
+    /// history/debug callers rely on. edgeplaned's relays always pass
+    /// "inbound" — see the self-echo bug this guards against in
+    /// `task_loop.rs::run_message_relay`/`run_webhook_relay`.
+    direction: Option<String>,
     /// When true, list_agents returns archived rows alongside live ones. Off
     /// by default so the steady-state TUI/CLI views stay focused. Phase 1 of
     /// the agent-identity spec.
@@ -733,16 +740,20 @@ async fn list_messages(
     }
     let limit = q.limit.unwrap_or(50).min(200);
     let since_id = q.since_id.unwrap_or(0);
-    match sqlx::query_as::<_, AgentMessage>(
-        "SELECT * FROM agentmessage \
-         WHERE (from_agent_id=$1 OR to_agent_id=$1) AND id > $3 \
-         ORDER BY id ASC LIMIT $2",
-    )
-    .bind(agent_id)
-    .bind(limit)
-    .bind(since_id)
-    .fetch_all(&state.db)
-    .await
+    let where_clause = if q.direction.as_deref() == Some("inbound") {
+        "to_agent_id=$1"
+    } else {
+        "(from_agent_id=$1 OR to_agent_id=$1)"
+    };
+    let query = format!(
+        "SELECT * FROM agentmessage WHERE {where_clause} AND id > $3 ORDER BY id ASC LIMIT $2"
+    );
+    match sqlx::query_as::<_, AgentMessage>(&query)
+        .bind(agent_id)
+        .bind(limit)
+        .bind(since_id)
+        .fetch_all(&state.db)
+        .await
     {
         Ok(msgs) => Json(msgs).into_response(),
         Err(e) => {

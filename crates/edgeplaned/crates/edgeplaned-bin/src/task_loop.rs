@@ -465,7 +465,10 @@ pub async fn run_message_relay(
     loop {
         tokio::time::sleep(MESSAGE_POLL_INTERVAL).await;
 
-        let path = format!("/agents/{agent_id}/messages?since_id={last_id}");
+        // direction=inbound restricts to to_agent_id=$1 server-side — without it,
+        // this agent's own outbound messages (from_agent_id=$1) come back too and
+        // get replayed to itself as inbound PeerMessages (self-echo).
+        let path = format!("/agents/{agent_id}/messages?since_id={last_id}&direction=inbound");
         let msgs: Vec<serde_json::Value> = match client.get(&path).await {
             Ok(v) => v,
             Err(e) => {
@@ -609,7 +612,9 @@ pub async fn run_webhook_relay(client: Arc<BackendClient>, agent_id: String, web
     loop {
         tokio::time::sleep(MESSAGE_POLL_INTERVAL).await;
 
-        let path = format!("/agents/{agent_id}/messages?since_id={last_id}");
+        // See run_message_relay's identical fix above: direction=inbound avoids
+        // replaying this agent's own outbound messages back to itself.
+        let path = format!("/agents/{agent_id}/messages?since_id={last_id}&direction=inbound");
         let msgs: Vec<serde_json::Value> = match client.get(&path).await {
             Ok(v) => v,
             Err(e) => {
